@@ -14,6 +14,42 @@ skinparam ActivityBackgroundColor white
 '''
 
 PLANTUML_TYPES = {
+    # --- 3GPP & TELECOM TEMPLATES ---
+    "3GPP Call Flow (5GS)": {
+        "url": "https://www.3gpp.org",
+        "template": "@startuml\n" + COMMON_STYLE + '''
+<style>
+lifeLine {
+  LineStyle 0
+}
+</style>
+hide footbox
+skinparam BoxPadding 10
+skinparam ResponseMessageBelowArrow true
+autonumber 1 1 "<b>[00]</b>"
+
+participant "UE" as UE
+box "Radio Access Network" #F8FAFC
+  participant "gNB" as gNB
+end box
+box "5G Core Control Plane" #F1F5F9
+  participant "AMF" as AMF
+  participant "SMF" as SMF
+end box
+box "User Plane" #F8FAFC
+  participant "UPF" as UPF
+end box
+
+UE -> gNB: RRC Setup Request
+gNB --> UE: RRC Setup
+UE -> gNB: RRC Setup Complete (NAS Registration Request)
+gNB -> AMF: NGAP Initial UE Message (Registration Request)
+AMF --> gNB: NGAP Initial Context Setup Request
+gNB -> UE: RRC Security Mode Command
+UE --> gNB: RRC Security Mode Complete
+@enduml'''
+    },
+
     # --- STANDARD UML DIAGRAMS ---
     "Sequence": {
         "url": "https://plantuml.com/en/sequence-diagram",

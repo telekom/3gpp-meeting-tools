@@ -1,0 +1,945 @@
+{
+  "version": 1,
+  "snippets": [
+    {
+      "id": "part_3gpp_ue",
+      "label": "UE (User Equipment)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Standard 3GPP User Equipment participant",
+      "code": "participant \"UE\" as UE\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_ue_actor",
+      "label": "UE as Actor (Human / Mobile Device)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence",
+        "Use Case"
+      ],
+      "description": "User Equipment declared as a stick-figure actor",
+      "code": "actor \"UE\" as UE\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_ue_dual",
+      "label": "Dual UEs (UE-A & UE-B for Sidelink / ProSe / P2P)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Two distinct UEs for sidelink (PC5), ProSe, or peer-to-peer call flows",
+      "code": "participant \"UE A\" as UEA\nparticipant \"UE B\" as UEB\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_ue_split",
+      "label": "UE Subcomponents (App/TE, MT, USIM)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "UE split into Application (TE), Mobile Termination (MT), and USIM",
+      "code": "box \"User Equipment (UE)\" #F8FAFC\n  participant \"App / TE\" as TE\n  participant \"UE / MT\" as UE\n  participant \"USIM\" as USIM\nend box\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_gnb",
+      "label": "gNB / (R)AN (5G Radio Access Network)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "5G NR Next Generation NodeB / Radio Access Network node",
+      "code": "participant \"gNB\" as gNB\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_amf",
+      "label": "AMF (Access and Mobility Management Function)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "5G Core Access and Mobility Management Function",
+      "code": "participant \"AMF\" as AMF\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_smf",
+      "label": "SMF (Session Management Function)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "5G Core Session Management Function",
+      "code": "participant \"SMF\" as SMF\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_upf",
+      "label": "UPF (User Plane Function)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "5G Core User Plane Function (GTP-U termination)",
+      "code": "participant \"UPF\" as UPF\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_udm",
+      "label": "UDM (Unified Data Management)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "5G Core Unified Data Management node",
+      "code": "participant \"UDM\" as UDM\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_ausf",
+      "label": "AUSF (Authentication Server Function)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "5G Core Authentication Server Function (5G AKA)",
+      "code": "participant \"AUSF\" as AUSF\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_pcf",
+      "label": "PCF (Policy Control Function)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "5G Core Policy Control Function",
+      "code": "participant \"PCF\" as PCF\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_nrf",
+      "label": "NRF (Network Repository Function)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "5G Core Network Repository Function (NF discovery)",
+      "code": "participant \"NRF\" as NRF\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_nssf",
+      "label": "NSSF (Network Slice Selection Function)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "5G Core Network Slice Selection Function",
+      "code": "participant \"NSSF\" as NSSF\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_nef",
+      "label": "NEF (Network Exposure Function)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "5G Core Network Exposure Function",
+      "code": "participant \"NEF\" as NEF\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_udr",
+      "label": "UDR (Unified Data Repository)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "5G Core Unified Data Repository database",
+      "code": "database \"UDR\" as UDR\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_af",
+      "label": "AF (Application Function)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "5G Application Function (external or internal)",
+      "code": "participant \"AF\" as AF\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_sepp",
+      "label": "SEPP (Security Edge Protection Proxy)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "5G Roaming Security Edge Protection Proxy (N32 interface)",
+      "code": "boundary \"SEPP\" as SEPP\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_dn",
+      "label": "DN (Data Network / Internet)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "External Data Network (Internet / IMS / Corporate)",
+      "code": "participant \"DN\" as DN\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_enb",
+      "label": "eNB (E-UTRAN Node B / 4G LTE RAN)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "4G LTE Evolved NodeB base station",
+      "code": "participant \"eNB\" as eNB\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_mme",
+      "label": "MME (Mobility Management Entity)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "4G EPC Mobility Management Entity",
+      "code": "participant \"MME\" as MME\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_sgw",
+      "label": "S-GW (Serving Gateway)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "4G EPC Serving Gateway",
+      "code": "participant \"S-GW\" as SGW\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_pgw",
+      "label": "P-GW (PDN Gateway)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "4G EPC Packet Data Network Gateway",
+      "code": "participant \"P-GW\" as PGW\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_3gpp_hss",
+      "label": "HSS (Home Subscriber Server)",
+      "category": "3GPP Network Entities & NFs",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "4G EPC Home Subscriber Server database",
+      "code": "database \"HSS\" as HSS\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "3gpp_5gs_skeleton",
+      "label": "5GS Core & RAN Architecture (Full)",
+      "category": "3GPP Architecture Presets",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Standard 3GPP 5G System participants (UE, (R)AN, AMF, SMF, UPF, AUSF, UDM, PCF, NRF)",
+      "code": "participant \"UE\" as UE\nbox \"Radio Access Network\" #F8FAFC\n  participant \"(R)AN\" as RAN\nend box\nbox \"5G Core Control Plane\" #F1F5F9\n  participant \"AMF\" as AMF\n  participant \"SMF\" as SMF\n  participant \"AUSF\" as AUSF\n  participant \"UDM\" as UDM\n  participant \"PCF\" as PCF\n  participant \"NRF\" as NRF\nend box\nbox \"User Plane\" #F8FAFC\n  participant \"UPF\" as UPF\n  participant \"DN\" as DN\nend box\n\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "3gpp_5gs_basic",
+      "label": "5GS Basic Call Flow (UE, gNB, AMF, SMF, UPF)",
+      "category": "3GPP Architecture Presets",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Minimal 5GS participant set for typical signaling and PDU session flows",
+      "code": "participant \"UE\" as UE\nparticipant \"gNB\" as gNB\nparticipant \"AMF\" as AMF\nparticipant \"SMF\" as SMF\nparticipant \"UPF\" as UPF\n\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "3gpp_eps_skeleton",
+      "label": "EPS / 4G Core & RAN Architecture",
+      "category": "3GPP Architecture Presets",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Standard 3GPP 4G EPS entities (UE, eNB, MME, SGW, PGW, HSS, PCRF)",
+      "code": "participant \"UE\" as UE\nparticipant \"eNB\" as eNB\nbox \"Evolved Packet Core (EPC)\" #F1F5F9\n  participant \"MME\" as MME\n  participant \"S-GW\" as SGW\n  participant \"P-GW\" as PGW\n  participant \"HSS\" as HSS\n  participant \"PCRF\" as PCRF\nend box\n\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "3gpp_roaming_skeleton",
+      "label": "5GS Roaming (VPLMN & HPLMN)",
+      "category": "3GPP Architecture Presets",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "5G Roaming architecture with VPLMN, HPLMN and SEPP security proxies",
+      "code": "box \"Visited PLMN (VPLMN)\" #F8FAFC\n  participant \"UE\" as UE\n  participant \"V-RAN\" as VRAN\n  participant \"V-AMF\" as VAMF\n  participant \"V-SMF\" as VSMF\n  participant \"V-UPF\" as VUPF\n  participant \"vSEPP\" as VSEPP\nend box\nbox \"Home PLMN (HPLMN)\" #F1F5F9\n  participant \"hSEPP\" as HSEPP\n  participant \"H-UDM\" as HUDM\n  participant \"H-AUSF\" as HAUSF\n  participant \"H-SMF\" as HSMF\n  participant \"H-UPF\" as HUPF\nend box\n\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "3gpp_oran_skeleton",
+      "label": "O-RAN Architecture (RU, DU, CU-CP, CU-UP, RIC)",
+      "category": "3GPP Architecture Presets",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "O-RAN split RAN nodes and Near-RT RIC",
+      "code": "participant \"UE\" as UE\nbox \"O-RAN Nodes\" #F8FAFC\n  participant \"O-RU\" as ORU\n  participant \"O-DU\" as ODU\n  participant \"O-CU-UP\" as CUUP\n  participant \"O-CU-CP\" as CUCP\n  participant \"Near-RT RIC\" as RIC\nend box\nparticipant \"5GC\" as 5GC\n\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "3gpp_ims_skeleton",
+      "label": "IMS VoNR / VoLTE Architecture",
+      "category": "3GPP Architecture Presets",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "IP Multimedia Subsystem core nodes for voice & messaging",
+      "code": "participant \"UE\" as UE\nparticipant \"gNB\" as gNB\nparticipant \"UPF\" as UPF\nbox \"IMS Core\" #F1F5F9\n  participant \"P-CSCF\" as PCSCF\n  participant \"I-CSCF\" as ICSCF\n  participant \"S-CSCF\" as SCSCF\n  participant \"HSS\" as HSS\n  participant \"TAS\" as TAS\nend box\n\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_standard",
+      "label": "Participant (with alias)",
+      "category": "Participants & Grouping",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Declare a participant box with human display name and code alias",
+      "code": "participant \"{cursor}Entity Name\" as myEntity",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_actor",
+      "label": "Actor (Human User)",
+      "category": "Participants & Grouping",
+      "diagram_scope": [
+        "Sequence",
+        "Use Case"
+      ],
+      "description": "Declare an actor stick-figure icon",
+      "code": "actor \"{cursor}User\" as user",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_database",
+      "label": "Database (Cylinder Entity)",
+      "category": "Participants & Grouping",
+      "diagram_scope": [
+        "Sequence",
+        "Component"
+      ],
+      "description": "Declare a database entity (e.g. UDR, MySQL, Redis)",
+      "code": "database \"{cursor}Database / UDR\" as db",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_boundary",
+      "label": "Boundary / Interface Element",
+      "category": "Participants & Grouping",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Declare a boundary circle entity (e.g. API Gateway, SEPP)",
+      "code": "boundary \"{cursor}Gateway\" as gw",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "part_box",
+      "label": "Box Group (Enclosing Background)",
+      "category": "Participants & Grouping",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Enclose participants inside a visual colored box",
+      "code": "box \"{cursor}Group Title\" #F8FAFC\n{selection}\nend box",
+      "is_block_wrapper": true,
+      "is_user_defined": false
+    },
+    {
+      "id": "autonumber_start",
+      "label": "Autonumber Steps [01]",
+      "category": "Participants & Grouping",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Enable automatic step numbering on all sequence messages",
+      "code": "autonumber 1 1 \"<b>[00]</b>\"",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "autonumber_pause",
+      "label": "Autonumber Stop / Resume",
+      "category": "Participants & Grouping",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Temporarily pause or resume step numbering",
+      "code": "autonumber stop\n' {cursor}Unnumbered internal actions\nautonumber resume",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "msg_sync_req",
+      "label": "Synchronous Request (->)",
+      "category": "Messages & Arrows",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Solid arrow for request or synchronous procedure call",
+      "code": "{p1} -> {p2}: {cursor}Request Message",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "msg_async_resp",
+      "label": "Asynchronous / Response (-->)",
+      "category": "Messages & Arrows",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Dashed arrow for response, acknowledgement, or return signal",
+      "code": "{p2} --> {p1}: {cursor}Response / ACK",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "msg_colored",
+      "label": "Colored / Highlighted Message (-[#color]->)",
+      "category": "Messages & Arrows",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Solid colored arrow for primary or emphasized signaling",
+      "code": "{p1} -[#1E5C99]-> {p2}: {cursor}Highlighted Message",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "msg_reject",
+      "label": "Reject / Failure Message (-[#red]->)",
+      "category": "Messages & Arrows",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Red arrow for error, reject, or negative response",
+      "code": "{p2} -[#D32F2F]-> {p1}: {cursor}Reject / Failure (Cause)",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "msg_lost",
+      "label": "Lost / Dropped Message (->x)",
+      "category": "Messages & Arrows",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Message that is lost in transit or dropped by channel",
+      "code": "{p1} ->x {p2}: {cursor}Lost / Dropped Packet",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "msg_self",
+      "label": "Self-Call / Internal Action",
+      "category": "Messages & Arrows",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Internal processing step within the same entity",
+      "code": "{p1} -> {p1}: {cursor}Internal verification / processing",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "msg_bidir",
+      "label": "Bi-directional Data Flow (<->)",
+      "category": "Messages & Arrows",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Two-way communication or active GTP/IPsec tunnel",
+      "code": "{p1} <-> {p2}: {cursor}Bi-directional Data / Tunnel",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "msg_broadcast",
+      "label": "Broadcast to All (->*)",
+      "category": "Messages & Arrows",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Broadcast message sent to all listening participants",
+      "code": "{p1} ->*: {cursor}System Information Broadcast (SIB)",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "msg_create",
+      "label": "Create Instance Dynamic Participant",
+      "category": "Messages & Arrows",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Dynamically instantiate a participant halfway through the flow",
+      "code": "create {p2}\n{p1} -> {p2}: <<create>> {cursor}Initialize Session",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "frag_alt",
+      "label": "Alt / Else (Alternative Branches)",
+      "category": "Logic & Grouping",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Conditional branching (e.g. Success vs Failure)",
+      "code": "alt {cursor}Success Case\n{selection}\nelse Failure Case\n  {p2} --> {p1}: Reject\nend",
+      "is_block_wrapper": true,
+      "is_user_defined": false
+    },
+    {
+      "id": "frag_opt",
+      "label": "Opt (Optional Procedure)",
+      "category": "Logic & Grouping",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Optional block executed only if conditions are met",
+      "code": "opt {cursor}If Security Capabilities Required\n{selection}\nend",
+      "is_block_wrapper": true,
+      "is_user_defined": false
+    },
+    {
+      "id": "frag_loop",
+      "label": "Loop (Repeated Signaling)",
+      "category": "Logic & Grouping",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Repeated loop (e.g. retransmission, periodic keepalive)",
+      "code": "loop {cursor}For each Bearer / Until T3512 expires\n{selection}\nend",
+      "is_block_wrapper": true,
+      "is_user_defined": false
+    },
+    {
+      "id": "frag_par",
+      "label": "Par (Parallel Execution)",
+      "category": "Logic & Grouping",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Concurrent signaling branches running simultaneously",
+      "code": "par {cursor}Parallel Branch A\n{selection}\nelse Parallel Branch B\n  {p1} -> {p2}: Concurrent signaling\nend",
+      "is_block_wrapper": true,
+      "is_user_defined": false
+    },
+    {
+      "id": "frag_critical",
+      "label": "Critical (Atomic Section)",
+      "category": "Logic & Grouping",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Atomic procedure that cannot be interrupted",
+      "code": "critical {cursor}Atomic Key Handshake\n{selection}\nend",
+      "is_block_wrapper": true,
+      "is_user_defined": false
+    },
+    {
+      "id": "frag_break",
+      "label": "Break (Early Exit / Abort)",
+      "category": "Logic & Grouping",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Early termination or exception handling",
+      "code": "break {cursor}On Integrity Check Failure\n  {p1} ->x {p2}: Abort Connection\nend",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "frag_group",
+      "label": "Group (Custom Labeled Frame)",
+      "category": "Logic & Grouping",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Frame arbitrary messages with a custom label header",
+      "code": "group {cursor}Mutual Authentication Procedure [TS 33.501]\n{selection}\nend",
+      "is_block_wrapper": true,
+      "is_user_defined": false
+    },
+    {
+      "id": "frag_ref",
+      "label": "Ref (Reference to Other Spec / Clause)",
+      "category": "Logic & Grouping",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Reference an external 3GPP procedure or specification clause",
+      "code": "ref over {p1}, {p2} : {cursor}See 3GPP TS 23.502 Clause 4.2.2.2.2",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "note_over",
+      "label": "Note over Participants",
+      "category": "Notes & Lifelines",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Annotation spanning two or more participants",
+      "code": "note over {p1}, {p2}: {cursor}Verify Subscription & Slice (S-NSSAI)",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "note_hnote",
+      "label": "Hexagonal State Note (hnote over)",
+      "category": "Notes & Lifelines",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Hexagonal state box commonly used for 3GPP RRC/NAS states (e.g. 5GMM-REGISTERED)",
+      "code": "hnote over {p1}: {cursor}5GMM-REGISTERED / RRC_CONNECTED",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "note_rnote",
+      "label": "Rectangle State Note (rnote over)",
+      "category": "Notes & Lifelines",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Rectangular state box for entity status",
+      "code": "rnote over {p1}: {cursor}CM-CONNECTED",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "note_right",
+      "label": "Note Right of Participant",
+      "category": "Notes & Lifelines",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Single-line note docked to the right of an entity",
+      "code": "note right of {p1}: {cursor}Start Timer T3510",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "note_left",
+      "label": "Note Left of Participant",
+      "category": "Notes & Lifelines",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Single-line note docked to the left of an entity",
+      "code": "note left of {p1}: {cursor}Store Security Context",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "note_multiline",
+      "label": "Multi-line Note Block",
+      "category": "Notes & Lifelines",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Detailed multi-line note block with bullet points",
+      "code": "note over {p1}, {p2}\n  {cursor}* IE: 5GS Mobile Identity (SUCI)\n  * IE: UE Security Capabilities\n  * IE: Requested NSSAI\nend note",
+      "is_block_wrapper": true,
+      "is_user_defined": false
+    },
+    {
+      "id": "note_across",
+      "label": "Note Across All Lifelines",
+      "category": "Notes & Lifelines",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Wide banner note spanning across the entire diagram",
+      "code": "note across: {cursor}=== End of Phase 1 ===\\nAll security keys established",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "lifeline_activate",
+      "label": "Activate Lifeline",
+      "category": "Notes & Lifelines",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Show participant active processing bar",
+      "code": "activate {p1}\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "lifeline_deactivate",
+      "label": "Deactivate Lifeline",
+      "category": "Notes & Lifelines",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "End participant active processing bar",
+      "code": "deactivate {p1}\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "lifeline_block",
+      "label": "Activation Block (activate ... deactivate)",
+      "category": "Notes & Lifelines",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Wrap actions inside an active processing bar",
+      "code": "activate {p1}\n{selection}\ndeactivate {p1}",
+      "is_block_wrapper": true,
+      "is_user_defined": false
+    },
+    {
+      "id": "msg_return",
+      "label": "Return Message (from active lifeline)",
+      "category": "Notes & Lifelines",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Return message that automatically deactivates the target lifeline",
+      "code": "return {cursor}Status OK / Response Payload",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "divider_section",
+      "label": "Section Divider (== Title ==)",
+      "category": "Notes & Lifelines",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Visual horizontal header dividing call flow phases",
+      "code": "== {cursor}Phase 1: Initial Registration & Security ==",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "divider_delay",
+      "label": "Time Delay (... Delay ...)",
+      "category": "Notes & Lifelines",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Indicate elapsed time or timer expiration between messages",
+      "code": "... {cursor}500ms delay / Timer T3510 expires ...",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "divider_spacing",
+      "label": "Vertical Spacing (||N||)",
+      "category": "Notes & Lifelines",
+      "diagram_scope": [
+        "Sequence"
+      ],
+      "description": "Add vertical breathing room between messages",
+      "code": "||45||\n{cursor}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "state_trans",
+      "label": "State Transition with Guard/Action",
+      "category": "State Diagram",
+      "diagram_scope": [
+        "State"
+      ],
+      "description": "Transition between states with event, guard condition, and action",
+      "code": "{cursor}StateA --> StateB : Event [Guard] / Action",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "state_composite",
+      "label": "Composite Sub-State",
+      "category": "State Diagram",
+      "diagram_scope": [
+        "State"
+      ],
+      "description": "Nested internal sub-states inside a parent state",
+      "code": "state \"{cursor}5GMM-REGISTERED\" as RegState {\n  [*] --> Initiated\n  Initiated --> NormalService : Confirm\n  NormalService --> [*]\n}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "state_fork_join",
+      "label": "Fork / Join Concurrency",
+      "category": "State Diagram",
+      "diagram_scope": [
+        "State"
+      ],
+      "description": "State machine fork and join synchronization bars",
+      "code": "state fork_state <<fork>>\n[*] --> fork_state\nfork_state --> State1\nfork_state --> State2\n\nstate join_state <<join>>\nState1 --> join_state\nState2 --> join_state\njoin_state --> [*]",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "act_if_else",
+      "label": "If / Then / Else / Endif",
+      "category": "Activity Diagram",
+      "diagram_scope": [
+        "Activity (Beta)"
+      ],
+      "description": "Conditional decision branch in activity flow",
+      "code": "if ({cursor}Check Subscription?) then (yes)\n  :Grant Slice Access;\nelse (no)\n  :Reject Registration;\n  detach\nendif",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "act_while",
+      "label": "While Loop (Repeat Action)",
+      "category": "Activity Diagram",
+      "diagram_scope": [
+        "Activity (Beta)"
+      ],
+      "description": "Looping activity while condition remains true",
+      "code": "while ({cursor}Retransmit count < Max?) is (yes)\n  :Send PDU;\nendwhile (no)\n:Declare Radio Link Failure;",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "act_fork",
+      "label": "Fork / Fork Again / End Fork",
+      "category": "Activity Diagram",
+      "diagram_scope": [
+        "Activity (Beta)"
+      ],
+      "description": "Parallel concurrent activity execution",
+      "code": "fork\n  :{cursor}Authenticate at AUSF;\nfork again\n  :Fetch Profiles from UDM;\nend fork",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "timing_signals",
+      "label": "Timing Signals (Robust / Concise / Binary)",
+      "category": "Timing Diagram",
+      "diagram_scope": [
+        "Timing"
+      ],
+      "description": "Define clock, signal, and state waveforms",
+      "code": "robust \"{cursor}Radio State\" as RS\nconcise \"NAS State\" as NS\nbinary \"Clock / Strobe\" as CLK\n\n@0\nRS is IDLE\nNS is DEREGISTERED\nCLK is low\n\n@100\nRS is TX_ACTIVE\nNS is REGISTERING\nCLK is high",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "packet_fields",
+      "label": "Packetdiag Octet Fields",
+      "category": "Packet Diagram",
+      "diagram_scope": [
+        "Packet (packetdiag)"
+      ],
+      "description": "Define protocol message header bit fields",
+      "code": "packetdiag {\n  colwidth = 32\n  node_height = 40\n\n  0-7: {cursor}Protocol Discriminator\n  8-15: Security Header Type\n  16-31: Message Authentication Code (MAC)\n  32-39: Sequence Number\n  40-63: Payload [colheight = 2]\n}",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "dir_title_header",
+      "label": "Title, Header & Footer",
+      "category": "Formatting & Directives",
+      "diagram_scope": [
+        "All"
+      ],
+      "description": "Add a top title, right-aligned header, and copyright footer",
+      "code": "title {cursor}3GPP TS 23.502 Call Flow\nheader 3GPP Technical Specification\nfooter Page %page% of %lastpage%",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "dir_legend",
+      "label": "Legend Box",
+      "category": "Formatting & Directives",
+      "diagram_scope": [
+        "All"
+      ],
+      "description": "Render an explanatory legend box in the bottom right",
+      "code": "legend right\n  <b>Legend:</b>\n  * <font color=\"#1E5C99\">■</font> Control Plane (NAS/NGAP)\n  * <font color=\"#15803D\">■</font> User Plane (GTP-U)\n  * <font color=\"#D32F2F\">■</font> Error / Reject\nendlegend",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    },
+    {
+      "id": "dir_skinparam_tuning",
+      "label": "Sequence Styling & Layout Directives",
+      "category": "Formatting & Directives",
+      "diagram_scope": [
+        "Sequence",
+        "All"
+      ],
+      "description": "Popular enterprise skinparams (message wrapping, box padding, response alignment)",
+      "code": "skinparam responseMessageBelowArrow true\nskinparam maxMessageSize 180\nskinparam BoxPadding 15\nskinparam ParticipantPadding 10\n!pragma teoz true",
+      "is_block_wrapper": false,
+      "is_user_defined": false
+    }
+  ]
+}

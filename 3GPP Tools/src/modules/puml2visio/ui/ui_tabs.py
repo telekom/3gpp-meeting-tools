@@ -24,10 +24,16 @@ from core.ui.ui_components import (
     InteractiveDropLabel,
 )
 from modules.puml2visio.templates.plantuml_snippets import (
+    register_snippets_reloaded_callback,
+    reload_snippets,
     PLANTUML_SNIPPETS,
     PlantUMLSnippet,
 )
 from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
+from modules.puml2visio.ui.preset_dialog import (
+    UserPresetDialog,
+    open_presets_folder,
+)
 from modules.puml2visio.ui.callflow_dialog import CallFlowDialog
 from modules.puml2visio.ui.elements_palette import ElementsPaletteWidget
 from modules.puml2visio.ui.svg_preview_widget import EmbeddedSvgPreview
@@ -58,6 +64,7 @@ class CodeEditorTab(QWidget):
         super().__init__()
         self._ai_dialog = None
         self._setup_ui()
+        register_snippets_reloaded_callback(self._build_insert_element_menu)
 
     def _setup_ui(self):
         layout = QVBoxLayout()
@@ -318,7 +325,28 @@ class CodeEditorTab(QWidget):
                 act.triggered.connect(lambda checked, s=snip: self.text_input.insert_snippet(s))
                 cat_menu.addAction(act)
 
+        # 3. User Presets & Configuration Actions
+        menu.addSeparator()
+        add_preset_act = QAction("➕ Add Custom Preset...", self)
+        add_preset_act.triggered.connect(self._open_add_preset_dialog)
+        menu.addAction(add_preset_act)
+
+        reload_act = QAction("🔄 Reload Presets from Disk", self)
+        reload_act.triggered.connect(self._reload_presets)
+        menu.addAction(reload_act)
+
+        folder_act = QAction("📂 Open Presets Config Folder", self)
+        folder_act.triggered.connect(open_presets_folder)
+        menu.addAction(folder_act)
+
         self.insert_elem_btn.setMenu(menu)
+
+    def _open_add_preset_dialog(self):
+        dialog = UserPresetDialog(parent=self)
+        dialog.exec_()
+
+    def _reload_presets(self):
+        reload_snippets()
 
     def _on_template_type_changed(self, new_type: str):
         self._build_insert_element_menu()
