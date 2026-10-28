@@ -115,21 +115,47 @@ def _snapshot_com_document(doc, doc_name: str, full_name: str, exists: bool) -> 
     if snapshot_path.suffix.lower() not in WORD_EXTENSIONS:
         snapshot_path = snapshot_path.with_suffix(".docx")
 
+    # 1. Try Word COM SaveCopyAs
     try:
         if hasattr(doc, "SaveCopyAs"):
-            doc.SaveCopyAs(str(snapshot_path))
-            logger.info("Created temporary snapshot of Word document: %s", snapshot_path)
-            return {
-                "name": doc_name,
-                "display_name": f"🪟 {doc_name}*",
-                "full_name": full_name or doc_name,
-                "path": str(snapshot_path),
-                "is_snapshot": True,
-                "is_active": True,
-                "modified": True,
-            }
-    except Exception as snap_err:
-        logger.warning("SaveCopyAs snapshot failed for '%s': %s", doc_name, snap_err)
+            try:
+                doc.SaveCopyAs(str(snapshot_path))
+                if snapshot_path.is_file() and snapshot_path.stat().st_size > 0:
+                    logger.info("Created temporary snapshot of Word document via SaveCopyAs: %s", snapshot_path)
+                    return {
+                        "name": doc_name,
+                        "display_name": f"🪟 {doc_name}*",
+                        "full_name": full_name or doc_name,
+                        "path": str(snapshot_path),
+                        "is_snapshot": True,
+                        "is_active": True,
+                        "modified": True,
+                    }
+            except Exception as snap_err:
+                logger.debug("SaveCopyAs failed for '%s': %s. Attempting fallback copy...", doc_name, snap_err)
+    except Exception:
+        pass
+
+    # 2. Fallback: if file exists on disk, create copy directly to snapshot path
+    if exists and full_name:
+        try:
+            full_path = Path(full_name)
+            if full_path.is_file():
+                import shutil
+                shutil.copy2(str(full_path), str(snapshot_path))
+                if snapshot_path.is_file() and snapshot_path.stat().st_size > 0:
+                    logger.info("Created disk copy snapshot of Word document: %s", snapshot_path)
+                    return {
+                        "name": doc_name,
+                        "display_name": f"🪟 {doc_name}*",
+                        "full_name": full_name,
+                        "path": str(snapshot_path),
+                        "is_snapshot": True,
+                        "is_active": True,
+                        "modified": True,
+                    }
+        except Exception as copy_err:
+            logger.debug("Direct copy fallback failed for '%s': %s", doc_name, copy_err)
 
     if exists and full_name:
         return {
@@ -176,14 +202,15 @@ def get_active_word_document(
         try:
             word = win32com.client.GetActiveObject("Word.Application")
         except Exception:
-            logger.info("No active Word.Application instance detected via COM.")
+            logger.debug("No active Word.Application instance detected via COM.")
             return None
 
         try:
             if word.Documents.Count == 0:
-                logger.info("Word application is running, but 0 documents are currently open.")
+                logger.debug("Word application is running, but 0 documents are currently open.")
                 return None
-        except Exception:
+        except Exception as exc:
+            logger.debug("Could not inspect Word.Documents (Word busy / RPC error): %s", exc)
             return None
 
         try:
@@ -193,15 +220,18 @@ def get_active_word_document(
 
         if target_identifier:
             needle = target_identifier.strip().casefold()
-            for candidate in word.Documents:
-                try:
-                    c_name = str(candidate.Name or "").strip()
-                    c_full = str(candidate.FullName or "").strip()
-                    if needle in (c_name.casefold(), c_full.casefold()):
-                        doc = candidate
-                        break
-                except Exception:
-                    continue
+            try:
+                for candidate in word.Documents:
+                    try:
+                        c_name = str(candidate.Name or "").strip()
+                        c_full = str(candidate.FullName or "").strip()
+                        if needle in (c_name.casefold(), c_full.casefold()):
+                            doc = candidate
+                            break
+                    except Exception:
+                        continue
+            except Exception:
+                pass
             if doc is None:
                 doc = active_doc
         else:
@@ -210,9 +240,13 @@ def get_active_word_document(
         if doc is None:
             return None
 
-        doc_name = str(doc.Name or "").strip() or "Active_Document.docx"
-        full_name = str(doc.FullName or "").strip()
-        is_saved = bool(getattr(doc, "Saved", True))
+        try:
+            doc_name = str(doc.Name or "").strip() or "Active_Document.docx"
+            full_name = str(doc.FullName or "").strip()
+            is_saved = bool(getattr(doc, "Saved", True))
+        except Exception as exc:
+            logger.debug("Could not read Word document properties (Word busy / RPC error): %s", exc)
+            return None
         exists = False
         if full_name and not full_name.lower().startswith(("http://", "https://")):
             try:
@@ -506,11 +540,19 @@ def ensure_readable_word_document(
                     snap_path = temp_dir / snap_name
                     try:
                         matched_doc.SaveCopyAs(str(snap_path))
-                        if snap_path.is_file() and snap_path.stat().st_size > 0:
-                            log(f"✅ Created live unlocked snapshot: {snap_name}")
-                            return snap_path, snap_path
                     except Exception as snap_err:
-                        log(f"⚠️ SaveCopyAs failed on open Word document: {snap_err}")
+                        logger.debug("SaveCopyAs failed on open Word document: %s. Trying direct disk copy...", snap_err)
+                        try:
+                            if path.is_file():
+                                import shutil
+                                shutil.copy2(str(path), str(snap_path))
+                        except Exception as copy_err:
+                            logger.debug("Direct copy fallback failed: %s", copy_err)
+                    if snap_path.is_file() and snap_path.stat().st_size > 0:
+                        log(f"✅ Created live unlocked snapshot: {snap_name}")
+                        return snap_path, snap_path
+                    else:
+                        log(f"⚠️ Snapshot creation failed for open Word document: {path.name}")
 
             # 3. If file is locked and active Word was not open or didn't have it,
             # try headless Word COM read-only open
@@ -531,7 +573,13 @@ def ensure_readable_word_document(
                     safe_base = "".join(c if c.isalnum() or c in "._- " else "_" for c in path.stem).strip() or "Doc"
                     snap_name = f"Snapshot_{safe_base}_{os.getpid()}{path.suffix}"
                     snap_path = temp_dir / snap_name
-                    doc.SaveCopyAs(str(snap_path))
+                    try:
+                        doc.SaveCopyAs(str(snap_path))
+                    except Exception:
+                        try:
+                            doc.SaveAs2(FileName=str(snap_path), AddToRecentFiles=False)
+                        except Exception:
+                            pass
                     doc.Close(SaveChanges=False)
                     word_headless.Quit()
                     if snap_path.is_file() and snap_path.stat().st_size > 0:

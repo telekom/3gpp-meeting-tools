@@ -157,6 +157,17 @@ if __name__ == '__main__':
 
     # Window displayed successfully; cancel the hang watchdog.
     faulthandler.cancel_dump_traceback_later()
+    if os.name == 'nt':
+        # On Windows, faulthandler.enable() installs a Vectored Exception Handler (VEH)
+        # which intercepts handled first-chance COM/RPC structured exceptions
+        # (e.g. 0x80010001 RPC_E_CALL_REJECTED when Word/Office is busy) and
+        # falsely treats them as fatal crashes, dumping noisy C traces to stderr.
+        # Disabling it once the GUI event loop is running lets Python's normal
+        # try/except and win32com error handling work cleanly.
+        try:
+            faulthandler.disable()
+        except Exception:
+            pass
 
     logging.info(
         "🏁 [STARTUP] Entering Qt event loop (app.exec_)..."
