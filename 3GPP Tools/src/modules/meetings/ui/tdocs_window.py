@@ -275,6 +275,14 @@ class TDocsWindow(QWidget):
         )
         act_export_post_meeting.setStatusTip(act_export_post_meeting.toolTip())
 
+        act_export_dossier = export_menu.addAction(
+            "📑 Export Navigable Dossier (HTML & PDF)...", self._export_dossier
+        )
+        act_export_dossier.setToolTip(
+            "Compile selected or visible TDocs into an interactive HTML dossier and a bookmarked vector PDF with companion AI citation prompt."
+        )
+        act_export_dossier.setStatusTip(act_export_dossier.toolTip())
+
         self.export_menu = export_menu
         self.export_menu_sep = export_menu.addSeparator()
         self.act_open_export_dir = export_menu.addAction(
@@ -1709,6 +1717,10 @@ class TDocsWindow(QWidget):
 
     def _open_post_meeting_export_dialog(self):
         open_post_meeting_export_dialog(self)
+
+    def _export_dossier(self, target_rows=None):
+        from modules.meetings.ui.tdocs_export_controller import open_dossier_export_dialog
+        open_dossier_export_dialog(self, target_rows)
 
     def _on_md_single_finished(self, success: bool, msg: str):
         self.export_btn.setText("📤 Export ▾")
