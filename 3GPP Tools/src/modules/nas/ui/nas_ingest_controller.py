@@ -7,15 +7,16 @@ managing asynchronous parsing/ingestion threads, version removal, and database w
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QFileDialog, QMessageBox
 
 from modules.nas.core.nas_db import parse_version_tuple
-from modules.nas.core.nas_threads import NASFetchAndImportThread
+from modules.nas.core.nas_threads import NASFetchAndImportThread, find_cached_spec_file
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
 from modules.nas.ui.nas_dialogs import NASVersionSelectDialog
+from modules.spec_search.core.spec_doc_resolver import SpecDocResolver
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +71,23 @@ def import_local_file_clicked(tab):
 
 def start_batch_ingestion(tab, tasks: List[Dict[str, Any]]):
     """Spawns background worker thread to parse and ingest specifications."""
+    if hasattr(tab, "thread") and tab.thread and tab.thread.isRunning():
+        QMessageBox.warning(
+            tab,
+            "Ingestion In Progress",
+            "A specification ingestion task is currently running. Please wait for it to finish.",
+        )
+        return
+
+    if not tasks:
+        return
+
     tab.progress_bar.setVisible(True)
     tab.progress_bar.setValue(0)
     tab.fetch_btn.setEnabled(False)
     tab.import_file_btn.setEnabled(False)
+    if hasattr(tab, "manage_btn"):
+        tab.manage_btn.setEnabled(False)
 
     tab.thread = NASFetchAndImportThread(
         nas_db_path=tab.nas_db_path,
@@ -91,6 +105,8 @@ def on_import_error(tab, err_msg: str):
     tab.progress_bar.setVisible(False)
     tab.fetch_btn.setEnabled(True)
     tab.import_file_btn.setEnabled(True)
+    if hasattr(tab, "manage_btn"):
+        tab.manage_btn.setEnabled(True)
     logger.log(logging.ERROR, f"❌ Import failed: {err_msg}")
     QMessageBox.critical(
         tab,
@@ -110,6 +126,8 @@ def on_import_success(tab, spec_count: int, msg_count: int):
     tab.progress_bar.setVisible(False)
     tab.fetch_btn.setEnabled(True)
     tab.import_file_btn.setEnabled(True)
+    if hasattr(tab, "manage_btn"):
+        tab.manage_btn.setEnabled(True)
     logger.info(
         f"✅ Successfully ingested {spec_count} specification(s) ({msg_count} total messages/PDUs)."
     )
@@ -230,3 +248,228 @@ def delete_spec_group(tab, spec_number: str, child_count: int):
         tab.refresh_versions()
         tab._save_config()
         logger.log(logging.INFO, f"🗑️ Deleted all versions of TS {spec_number} from database.")
+
+
+def build_spec_reload_task(
+    tab,
+    spec_number: str,
+    version: str,
+    prompt_on_missing: bool = True,
+) -> Optional[Dict[str, Any]]:
+    """Resolves local cached files or FTP metadata for a given spec number and version.
+
+    If cached Word files or archive are found, constructs a background ingestion task.
+    If not found and prompt_on_missing is True, allows the user to browse for the .docx file.
+    """
+    clean_spec = re.sub(r"^(?:TS|TR)\s*", "", str(spec_number or "").strip(), flags=re.IGNORECASE)
+    clean_ver = str(version or "").lstrip("vV").strip()
+
+    if not clean_spec or not clean_ver:
+        return None
+
+    filename = ""
+    file_url = ""
+
+    # 1. Query specs_db for official archive metadata if available
+    if getattr(tab, "specs_db", None):
+        try:
+            rows = tab.specs_db.search_files(spec_number=clean_spec, release_version=clean_ver)
+            if rows:
+                filename = rows[0][4]
+                file_url = rows[0][6]
+        except Exception as e:
+            logger.warning(f"Could not query specs_db for TS {clean_spec} v{clean_ver}: {e}")
+
+    # 2. Resolve cached files or download directory contents via SpecDocResolver
+    info = SpecDocResolver.resolve_spec_files(
+        clean_spec,
+        clean_ver,
+        cache_dir=tab.cache_dir,
+        specs_db=getattr(tab, "specs_db", None),
+    )
+
+    if not filename and info.get("filename"):
+        filename = info["filename"]
+    if not file_url and info.get("url"):
+        file_url = info["url"]
+
+    local_docs = info.get("word_docs") or []
+    if local_docs:
+        local_docs.sort(key=ProtocolDocxDispatcher._extract_part_index)
+
+    # 3. Check for cached zip archive if Word documents are not yet extracted
+    if not local_docs:
+        archive_name = filename or f"{clean_spec}_{clean_ver}.zip"
+        cached_zip = find_cached_spec_file(archive_name, clean_spec)
+        if not cached_zip and info.get("zip_file"):
+            cached_zip = info["zip_file"]
+
+        if cached_zip and cached_zip.exists():
+            filename = cached_zip.name
+
+    # 4. If neither local documents nor archive nor remote URL can be resolved
+    if not local_docs and not filename and not file_url:
+        if prompt_on_missing:
+            file_paths, _ = QFileDialog.getOpenFileNames(
+                tab,
+                f"Select Specification Document(s) for TS {clean_spec} v{clean_ver} (.docx)",
+                "",
+                "Word Files (*.docx)",
+            )
+            if file_paths:
+                p_list = [Path(p) for p in file_paths]
+                p_list.sort(key=ProtocolDocxDispatcher._extract_part_index)
+                return {
+                    "spec_number": clean_spec,
+                    "version": clean_ver,
+                    "filename": f"{clean_spec}_{clean_ver}.docx" if len(p_list) == 1 else f"{clean_spec}_{clean_ver}.zip",
+                    "file_url": "",
+                    "local_docx_paths": p_list,
+                }
+        return None
+
+    task: Dict[str, Any] = {
+        "spec_number": clean_spec,
+        "version": clean_ver,
+        "filename": filename or f"{clean_spec}_{clean_ver}.zip",
+        "file_url": file_url,
+    }
+    if local_docs:
+        task["local_docx_paths"] = local_docs
+
+    return task
+
+
+def reload_single_version(tab, spec_number: str, version: str):
+    """Re-parses and re-ingests a single specification version into the database."""
+    if hasattr(tab, "thread") and tab.thread and tab.thread.isRunning():
+        QMessageBox.warning(
+            tab,
+            "Ingestion In Progress",
+            "A specification ingestion task is currently running. Please wait for it to finish.",
+        )
+        return
+
+    reply = QMessageBox.question(
+        tab,
+        "Confirm Reload",
+        f"Reload TS {spec_number} v{version}?\n\nThis will re-parse the specification and refresh all protocol messages and Information Elements.",
+        QMessageBox.Yes | QMessageBox.No,
+    )
+    if reply != QMessageBox.Yes:
+        return
+
+    task = build_spec_reload_task(tab, spec_number, version, prompt_on_missing=True)
+    if not task:
+        QMessageBox.warning(
+            tab,
+            "Reload Cancelled",
+            f"Could not locate cached files or download metadata for TS {spec_number} v{version}.",
+        )
+        return
+
+    tab._save_config()
+    start_batch_ingestion(tab, [task])
+
+
+def reload_spec_group(tab, spec_number: str, child_count: int):
+    """Re-parses and re-ingests all stored versions of a specification group."""
+    if hasattr(tab, "thread") and tab.thread and tab.thread.isRunning():
+        QMessageBox.warning(
+            tab,
+            "Ingestion In Progress",
+            "A specification ingestion task is currently running. Please wait for it to finish.",
+        )
+        return
+
+    reply = QMessageBox.question(
+        tab,
+        "Confirm Reload",
+        f"Reload all {child_count} version(s) of TS {spec_number}?\n\nThis will re-parse all releases in the background and refresh the protocol library.",
+        QMessageBox.Yes | QMessageBox.No,
+    )
+    if reply != QMessageBox.Yes:
+        return
+
+    all_versions = tab.version_tree.get_all_versions_for_spec(spec_number)
+    tasks = []
+    skipped = []
+
+    for item in all_versions:
+        ver = item.get("version")
+        if ver:
+            task = build_spec_reload_task(tab, spec_number, ver, prompt_on_missing=False)
+            if task:
+                tasks.append(task)
+            else:
+                skipped.append(ver)
+
+    if not tasks:
+        QMessageBox.warning(
+            tab,
+            "Reload Failed",
+            f"Could not locate cached documents or 3GPP archive metadata for TS {spec_number}.",
+        )
+        return
+
+    if skipped:
+        logger.warning(
+            f"Could not automatically resolve {len(skipped)} version(s) for TS {spec_number}: {skipped}"
+        )
+
+    tab._save_config()
+    start_batch_ingestion(tab, tasks)
+
+
+def reload_checked_versions(tab):
+    """Re-parses and re-ingests all currently checked specification versions."""
+    if hasattr(tab, "thread") and tab.thread and tab.thread.isRunning():
+        QMessageBox.warning(
+            tab,
+            "Ingestion In Progress",
+            "A specification ingestion task is currently running. Please wait for it to finish.",
+        )
+        return
+
+    checked_versions = tab.version_tree.get_checked_versions_info()
+    if not checked_versions:
+        QMessageBox.warning(tab, "Select Version", "Please check at least one specification version to reload.")
+        return
+
+    reply = QMessageBox.question(
+        tab,
+        "Confirm Reload",
+        f"Reload {len(checked_versions)} checked specification version(s)?\n\nThis will re-parse each specification and refresh the protocol library.",
+        QMessageBox.Yes | QMessageBox.No,
+    )
+    if reply != QMessageBox.Yes:
+        return
+
+    tasks = []
+    skipped = []
+
+    for item in checked_versions:
+        spec_num = item.get("spec_number")
+        ver = item.get("version")
+        if spec_num and ver:
+            task = build_spec_reload_task(tab, spec_num, ver, prompt_on_missing=False)
+            if task:
+                tasks.append(task)
+            else:
+                skipped.append(f"TS {spec_num} v{ver}")
+
+    if not tasks:
+        QMessageBox.warning(
+            tab,
+            "Reload Failed",
+            "Could not locate files or archive metadata for the checked specifications.",
+        )
+        return
+
+    if skipped:
+        logger.warning(
+            f"Could not automatically resolve {len(skipped)} version(s): {', '.join(skipped)}"
+        )
+
+    tab._save_config()
+    start_batch_ingestion(tab, tasks)

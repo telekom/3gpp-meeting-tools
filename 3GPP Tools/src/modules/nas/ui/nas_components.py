@@ -164,6 +164,8 @@ class NASVersionTreeWidget(QTreeWidget):
     """Hierarchical specification and version management tree with tri-state selection."""
 
     selection_changed = pyqtSignal()
+    reload_version_requested = pyqtSignal(str, str)
+    reload_spec_requested = pyqtSignal(str, int)
     delete_version_requested = pyqtSignal(str, str)
     delete_spec_requested = pyqtSignal(str, int)
     structure_changed = pyqtSignal()
@@ -506,6 +508,12 @@ class NASVersionTreeWidget(QTreeWidget):
 
             menu.addSeparator()
 
+            act_reload = QAction(f"🔄 Reload TS {spec_num} v{version}", self)
+            act_reload.triggered.connect(lambda: self.reload_version_requested.emit(spec_num, version))
+            menu.addAction(act_reload)
+
+            menu.addSeparator()
+
             act_specs = QAction(f"📚 Show TS {spec_num} v{version} in Specifications Tab", self)
             act_specs.triggered.connect(lambda: self.show_in_specs_requested.emit(spec_num, version))
             menu.addAction(act_specs)
@@ -534,6 +542,12 @@ class NASVersionTreeWidget(QTreeWidget):
             act_folder = QAction("📂 Open Local Folder in Explorer", self)
             act_folder.triggered.connect(lambda: self.open_spec_requested.emit(spec_num, latest_v, "", "folder"))
             menu.addAction(act_folder)
+
+            menu.addSeparator()
+
+            act_reload_spec = QAction(f"🔄 Reload all versions of TS {spec_num} ({child_count} versions)", self)
+            act_reload_spec.triggered.connect(lambda: self.reload_spec_requested.emit(spec_num, child_count))
+            menu.addAction(act_reload_spec)
 
             menu.addSeparator()
 
