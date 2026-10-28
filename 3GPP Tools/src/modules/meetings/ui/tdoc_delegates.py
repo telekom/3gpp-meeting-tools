@@ -107,3 +107,78 @@ class TDocActionDelegate(QStyledItemDelegate):
                     self.actionClicked.emit(tdoc)
                     return True
         return super().editorEvent(event, model, option, index)
+
+
+
+class AgendaItemDelegate(QStyledItemDelegate):
+    """
+    Renders Agenda Item numbers centered, and when a Sub-Item is present,
+    renders a compact, styled rounded pill badge beneath the AI number.
+    """
+    def paint(self, painter, option, index):
+        options = QStyleOptionViewItem(option)
+        self.initStyleOption(options, index)
+        options.text = ""
+        options.widget.style().drawControl(QStyle.CE_ItemViewItem, options, painter)
+
+        ai_text = str(index.data(Qt.DisplayRole) or "").strip()
+        sub_item = str(index.data(Qt.UserRole + 4) or "").strip()
+
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        rect = option.rect
+
+        if not sub_item:
+            # Single-line: AI number centered
+            painter.setPen(
+                options.palette.color(options.palette.Normal, options.palette.Text)
+                if not (options.state & QStyle.State_Selected)
+                else options.palette.highlightedText().color()
+            )
+            font = painter.font()
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(rect, Qt.AlignCenter, ai_text)
+        else:
+            # Two-line: AI number top, Sub-Item pill bottom
+            # 1. AI Number (top)
+            ai_rect = QRectF(rect.left(), rect.top() + 3, rect.width(), 20)
+            painter.setPen(
+                options.palette.color(options.palette.Normal, options.palette.Text)
+                if not (options.state & QStyle.State_Selected)
+                else options.palette.highlightedText().color()
+            )
+            font = painter.font()
+            font.setBold(True)
+            font.setPointSize(font.pointSize())
+            painter.setFont(font)
+            painter.drawText(ai_rect, Qt.AlignCenter, ai_text)
+
+            # 2. Sub-Item pill (bottom)
+            pill_h = 18
+            pill_margin = 3
+            pill_rect = QRectF(rect.left() + pill_margin, rect.top() + 24, rect.width() - (2 * pill_margin), pill_h)
+
+            if pill_rect.width() > 16:
+                bg_color = QColor("#F1F5F9") if not (options.state & QStyle.State_Selected) else QColor("#DBEAFE")
+                border_color = QColor("#CBD5E1") if not (options.state & QStyle.State_Selected) else QColor("#93C5FD")
+                text_color = QColor("#334155") if not (options.state & QStyle.State_Selected) else QColor("#1E40AF")
+
+                painter.setBrush(bg_color)
+                painter.setPen(QPen(border_color, 1))
+                painter.drawRoundedRect(pill_rect, 4, 4)
+
+                pill_font = painter.font()
+                pill_font.setBold(False)
+                pill_font.setPointSize(max(7, font.pointSize() - 2))
+                painter.setFont(pill_font)
+                painter.setPen(text_color)
+
+                fm = painter.fontMetrics()
+                available_w = max(10, int(pill_rect.width() - 6))
+                elided_sub = fm.elidedText(sub_item, Qt.ElideRight, available_w)
+                text_rect = pill_rect.adjusted(3, 0, -3, 0)
+                painter.drawText(text_rect, Qt.AlignCenter, elided_sub)
+
+        painter.restore()

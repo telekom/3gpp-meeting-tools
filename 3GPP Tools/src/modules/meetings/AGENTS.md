@@ -185,3 +185,15 @@ src/modules/meetings/
   - Populates in-room discussions directly into the `Secretary Remarks` column (with clickable TDoc hyperlinks).
   - Updates real-time `TDoc Status` (`Agreed`, `Revised to...`, `Postponed`) hours before official agenda publication.
   - Dynamically injects newly announced late revisions with predecessor linking (`Is revision of`, base TDoc resolution).
+  - Enriches TDoc rows with live `Sub-Item` topic separators, `_agenda_order`, and `_sub_item_order` extracted from `TdocsByAgenda.htm` and Word Chairman's Notes.
+- **Agenda & Sub-Item Ordering Engine (`tdocs_parser.py`, `tdocs_models.py`, `tdoc_delegates.py`, `tdocs_window.py`):**
+  - **Live HTML Superseding Precedence:** In Working Groups like SA2 where delegates rely on session agenda order, the live order in `TdocsByAgenda.htm` strictly supersedes the static Excel list order (`"TDoc sort order within agenda item"`), as Excel lists omit late revisions or late arrivals submitted during the meeting.
+  - **3-Tier Precedence Hierarchy:**
+    1. *Tier 1:* Live HTML order (`_agenda_order` / `_sub_item_order`) from `TdocsByAgenda.htm` or Word Chairman's Notes.
+    2. *Tier 2:* Static Excel `"TDoc sort order within agenda item"` parsed as float.
+    3. *Tier 3:* Revision anchor inheritance (`base_order + rev_offset`) ensuring unindexed revisions immediately succeed their predecessor.
+    4. *Fallback:* Alphanumeric TDoc identifier order.
+  - **Precomputed $O(1)$ Sort Cache:** `_precompute_agenda_sort_tuples` evaluates composite keys `(is_unassigned, ai_key, tier, sub_item_order, order_val, rev_offset, tdoc_key)` during data load and merge, guaranteeing `< 1ms` instantaneous proxy model sorting across 1,800+ meeting rows.
+  - **Option C Visual Delegate (`AgendaItemDelegate`):** Compact presentation rendering the Agenda Item number centered on top and a subtle rounded pill badge (`#F1F5F9`, border `#CBD5E1`, text `#334155`) for the `Sub-Item` underneath within the 48px row height, preserving the standard 14-column layout without consuming extra horizontal space.
+  - **Dynamic Sub-Item Filtering & Search Integration:** Auto-reveals a `Sub-Item` `CheckableComboBox` in the filter bar whenever sub-items are present in the meeting data, participates in zero-intersection facet evaluation, and incorporates sub-item tokens into global search text filtering.
+  - **Two-Way Order Synchronization:** An `Order By ▾` dropdown combobox (`📋 Agenda Order`, `🔢 TDoc Number`, `🏢 Company`, `✉️ Most Emails`, `🗂️ Default / File Order`) defaults to `📋 Agenda Order` for SA2 meetings and maintains bi-directional synchronization with table column header clicks.

@@ -469,8 +469,11 @@ In 3GPP meetings, Chairmen and Session Chairs periodically upload interim notes 
    * `WordAgendaImporterThread` stages files to `{meeting_dir}/Agenda/ChairNotes/` and unblocks NTFS Zone Identifiers.
    * Headless LibreOffice sanitizes legacy `.doc` files to `.docx` without Word COM macro warnings.
    * `TDocsParser.parse_tdocs_from_docx()` features multi-row header scanning (rows 0–4) and broad column alias matching, robustly supporting diverse secretary formatting styles across SA2, RAN1/2/3, SA1/3, and CT.
-3. **Live Table Merging:**
+3. **Live Table Merging & Agenda Ordering Engine:**
    * `TDocsTableModel.merge_agenda_data()` populates discussion notes into `Secretary Remarks` (with clickable TDoc hyperlinks), updates real-time `TDoc Status`, enriches metadata, and injects newly announced late revisions with predecessor resolution.
+   * **Live Agenda Precedence:** In working groups like SA2 where delegates track in-room deliberations by session agenda order, live order from `TdocsByAgenda.htm` and Word Chairman's Notes strictly supersedes static Excel order (`"TDoc sort order within agenda item"`).
+   * **Sub-Item Separators:** Captures table separator rows as `Sub-Item` topic divisions, renders them compactly as styled pill badges inside the `Agenda Item` column (`AgendaItemDelegate`), and enables dedicated `Sub-Item` multi-selection filtering and search.
+   * **Precomputed $O(1)$ Sort Hierarchy:** Live HTML order $\rightarrow$ static Excel order $\rightarrow$ revision anchor offset $\rightarrow$ alphanumeric fallback, with bi-directional `Order By ▾` combobox and header sync.
 
 ---
 
