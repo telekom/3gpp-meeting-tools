@@ -1,19 +1,8 @@
-"""Item delegates for the Work Items table view.
-
-Contains custom renderers and interactive delegates for:
-- TrackingDelegate: 1-click Star (Personal Interest) and Follow (Assigned Duty) toggles
-- WgBadgeDelegate: TSG domain-colored badges for Working Groups
-- WidDelegate: Work Item Description links with download/view indicators
-- ReleaseBadgeDelegate: Release tags
-- StatusBadgeDelegate: Active vs Finished indicators
-- SpecsDelegate: Linked specifications pill and counter
-- TimelineDelegate: Start and target completion date ranges
-- RemarksDelegate: Latest remark with interactive history popup
-"""
+"""Item delegates for the Work Items table view."""
 
 import logging
 from PyQt5.QtCore import Qt, QRect, QEvent, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QPen, QPalette
+from PyQt5.QtGui import QColor, QFont, QPen, QPalette, QBrush
 from PyQt5.QtWidgets import (
     QApplication,
     QStyle,
@@ -24,7 +13,6 @@ from PyQt5.QtWidgets import (
 from core.ui.ui_components import WG_DESCRIPTIONS, get_wg_colors
 
 logger = logging.getLogger(__name__)
-
 
 class TrackingDelegate(QStyledItemDelegate):
     """Renders 1-click Star (Personal Interest) and Follow (Assigned Duty) toggles."""
@@ -103,7 +91,7 @@ class WgBadgeDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         QApplication.style().drawControl(QStyle.CE_ItemViewItem, option, painter)
         raw_text = index.data(Qt.DisplayRole)
-        if not raw_text:
+        if not raw_text or raw_text == "-":
             return
 
         wgs = [w.strip() for w in str(raw_text).split(",") if w.strip()]
@@ -113,48 +101,49 @@ class WgBadgeDelegate(QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(painter.Antialiasing)
 
-        badge_font = QFont(option.font)
-        badge_font.setPointSize(max(7, badge_font.pointSize() - 2))
-        badge_font.setBold(True)
-        painter.setFont(badge_font)
+        font = option.font
+        font.setBold(True)
+        font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
+        painter.setFont(font)
+        fm = painter.fontMetrics()
 
-        badge_height = 18
-        badge_padding_h = 5
-        badge_gap = 3
+        badges = []
+        total_width = 0
+        badge_h = 18
+        spacing = 3
 
-        # Precompute widths
-        badge_widths = []
         for wg in wgs:
-            w = painter.fontMetrics().horizontalAdvance(wg) + (2 * badge_padding_h)
-            badge_widths.append(w)
+            tw = fm.horizontalAdvance(wg) if hasattr(fm, 'horizontalAdvance') else fm.width(wg)
+            w = max(tw + 8, 28)
+            badges.append((wg, w))
+            total_width += w
+        total_width += spacing * (len(badges) - 1)
 
-        total_width = sum(badge_widths) + badge_gap * (len(wgs) - 1)
-        start_x = option.rect.left() + (option.rect.width() - total_width) // 2
-        y = option.rect.top() + (option.rect.height() - badge_height) // 2
+        start_x = option.rect.left() + max(3, (option.rect.width() - total_width) // 2)
+        y = option.rect.top() + (option.rect.height() - badge_h) // 2
 
-        cur_x = max(start_x, option.rect.left() + 2)
-        for i, wg in enumerate(wgs):
-            bg_col, fg_col = get_wg_colors(wg)
-            w = badge_widths[i]
+        cur_x = start_x
+        for wg, w in badges:
+            colors = get_wg_colors(wg)
+            bg_col = QColor(colors.get("bg", "#F1F5F9"))
+            border_col = QColor(colors.get("border", "#CBD5E1"))
+            text_col = QColor(colors.get("text", "#475569"))
 
-            badge_rect = QRect(cur_x, y, w, badge_height)
-            painter.setBrush(QColor(bg_col))
-            painter.setPen(Qt.NoPen)
+            badge_rect = QRect(cur_x, y, w, badge_h)
+            painter.setBrush(bg_col)
+            painter.setPen(border_col)
             painter.drawRoundedRect(badge_rect, 3, 3)
 
-            painter.setPen(QColor(fg_col))
+            painter.setPen(text_col)
             painter.drawText(badge_rect, Qt.AlignCenter, wg)
-
-            cur_x += w + badge_gap
-            if cur_x > option.rect.right() - 2:
-                break
+            cur_x += w + spacing
 
         painter.restore()
 
 
 class WidDelegate(QStyledItemDelegate):
-    """Draws WID as a clickable hyperlink pill with an external download icon."""
-    wid_clicked = pyqtSignal(str)
+    """Renders Latest WID as an interactive document chip."""
+    link_clicked = pyqtSignal(str, str)
 
     def paint(self, painter, option, index):
         QApplication.style().drawControl(QStyle.CE_ItemViewItem, option, painter)
@@ -162,108 +151,124 @@ class WidDelegate(QStyledItemDelegate):
         if not text:
             return
 
-        rect = option.rect.adjusted(4, 3, -4, -3)
+        badge_w = min(max(80, option.rect.width() - 12), 95)
+        badge_h = 20
+        badge_rect = QRect(
+            option.rect.left() + (option.rect.width() - badge_w) // 2,
+            option.rect.top() + (option.rect.height() - badge_h) // 2,
+            badge_w,
+            badge_h
+        )
 
         painter.save()
         painter.setRenderHint(painter.Antialiasing)
+        is_selected = bool(option.state & QStyle.State_Selected)
 
-        # Draw soft background pill
-        painter.setBrush(QColor("#F1F5F9"))
-        painter.setPen(QColor("#CBD5E1"))
-        painter.drawRoundedRect(rect, 4, 4)
+        if is_selected:
+            painter.setBrush(QColor("#DBEAFE"))
+            painter.setPen(QColor("#2563EB"))
+        else:
+            painter.setBrush(QColor("#EFF6FF"))
+            painter.setPen(QColor("#BFDBFE"))
+        painter.drawRoundedRect(badge_rect, 4, 4)
 
-        # Draw text + icon
-        painter.setPen(QColor("#2563EB"))
+        painter.setPen(QColor("#1E40AF" if is_selected else "#1E5C99"))
         font = option.font
-        font.setUnderline(True)
+        font.setBold(True)
+        font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
         painter.setFont(font)
-
-        display_str = f"{text} ↗"
-        painter.drawText(rect, Qt.AlignCenter, display_str)
+        painter.drawText(badge_rect, Qt.AlignCenter, f"📄 {text}")
         painter.restore()
 
     def editorEvent(self, event, model, option, index):
         if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
             text = index.data(Qt.DisplayRole)
             if text:
-                self.wid_clicked.emit(text)
+                self.link_clicked.emit(text, "open_doc")
                 return True
         return super().editorEvent(event, model, option, index)
 
 
 class ReleaseBadgeDelegate(QStyledItemDelegate):
-    """Renders 3GPP Release as a color-coded tag."""
+    """Renders Release as a subtle standardized pill badge."""
 
     def paint(self, painter, option, index):
         QApplication.style().drawControl(QStyle.CE_ItemViewItem, option, painter)
-        rel = index.data(Qt.DisplayRole)
-        if not rel:
+        text = index.data(Qt.DisplayRole)
+        if not text or text == "-":
             return
 
-        rect = option.rect.adjusted(6, 4, -6, -4)
+        badge_w = min(max(54, option.rect.width() - 16), 64)
+        badge_h = 20
+        badge_rect = QRect(
+            option.rect.left() + (option.rect.width() - badge_w) // 2,
+            option.rect.top() + (option.rect.height() - badge_h) // 2,
+            badge_w,
+            badge_h
+        )
+
         painter.save()
         painter.setRenderHint(painter.Antialiasing)
+        painter.setBrush(QColor("#F1F5F9"))
+        painter.setPen(QColor("#CBD5E1"))
+        painter.drawRoundedRect(badge_rect, 4, 4)
 
-        # Distinct colors by Release generation
-        rel_str = str(rel).upper()
-        if any(r in rel_str for r in ["REL-19", "REL-20", "REL-21"]):
-            bg, fg = "#ECFDF5", "#065F46"  # 6G prep: emerald
-        elif any(r in rel_str for r in ["REL-15", "REL-16", "REL-17", "REL-18"]):
-            bg, fg = "#EFF6FF", "#1E40AF"  # 5G/5G-Adv: blue
-        elif any(r in rel_str for r in ["REL-8", "REL-9", "REL-10", "REL-11", "REL-12", "REL-13", "REL-14"]):
-            bg, fg = "#F5F3FF", "#5B21B6"  # LTE: purple
-        else:
-            bg, fg = "#F1F5F9", "#475569"  # Legacy: slate
-
-        painter.setBrush(QColor(bg))
-        painter.setPen(QColor(fg).lighter(140))
-        painter.drawRoundedRect(rect, 3, 3)
-
-        painter.setPen(QColor(fg))
+        painter.setPen(QColor("#334155"))
         font = option.font
-        font.setPointSize(max(7, font.pointSize() - 1))
         font.setBold(True)
+        font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
         painter.setFont(font)
-        painter.drawText(rect, Qt.AlignCenter, str(rel))
+        painter.drawText(badge_rect, Qt.AlignCenter, text)
         painter.restore()
 
 
 class StatusBadgeDelegate(QStyledItemDelegate):
-    """Renders active vs finished work status as high-contrast indicator."""
+    """Renders Status as a modern pill badge (Active in emerald, Finished in slate)."""
 
     def paint(self, painter, option, index):
         QApplication.style().drawControl(QStyle.CE_ItemViewItem, option, painter)
-        status = index.data(Qt.DisplayRole)
-        if not status:
+        text = index.data(Qt.DisplayRole)
+        if not text:
             return
 
-        rect = option.rect.adjusted(6, 4, -6, -4)
+        is_active = (str(text).strip().lower() == "active")
+        badge_w = 78
+        badge_h = 20
+        badge_rect = QRect(
+            option.rect.left() + (option.rect.width() - badge_w) // 2,
+            option.rect.top() + (option.rect.height() - badge_h) // 2,
+            badge_w,
+            badge_h
+        )
+
         painter.save()
         painter.setRenderHint(painter.Antialiasing)
 
-        if status == "Active":
-            bg, fg = "#ECFDF5", "#047857"
-            label = "● Active"
+        if is_active:
+            painter.setBrush(QColor("#ECFDF5"))
+            painter.setPen(QColor("#A7F3D0"))
+            text_color = QColor("#065F46")
+            label = "🟢 Active"
         else:
-            bg, fg = "#F8FAFC", "#64748B"
-            label = "✓ Done"
+            painter.setBrush(QColor("#F1F5F9"))
+            painter.setPen(QColor("#CBD5E1"))
+            text_color = QColor("#475569")
+            label = "🏁 Finished"
 
-        painter.setBrush(QColor(bg))
-        painter.setPen(QColor(fg).lighter(140))
-        painter.drawRoundedRect(rect, 3, 3)
+        painter.drawRoundedRect(badge_rect, 10, 10)
 
-        painter.setPen(QColor(fg))
+        painter.setPen(text_color)
         font = option.font
-        font.setPointSize(max(7, font.pointSize() - 1))
         font.setBold(True)
+        font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
         painter.setFont(font)
-        painter.drawText(rect, Qt.AlignCenter, label)
+        painter.drawText(badge_rect, Qt.AlignCenter, label)
         painter.restore()
 
 
 class SpecsDelegate(QStyledItemDelegate):
-    """Draws linked specifications count as a clickable badge."""
-    specs_clicked = pyqtSignal(str)
+    """Renders the linked specifications count as a standardized pill button."""
+    specs_clicked = pyqtSignal(int)
 
     def paint(self, painter, option, index):
         QApplication.style().drawControl(QStyle.CE_ItemViewItem, option, painter)
@@ -275,35 +280,40 @@ class SpecsDelegate(QStyledItemDelegate):
             painter.restore()
             return
 
-        rect = option.rect.adjusted(4, 4, -4, -4)
+        badge_w = min(max(44, option.rect.width() - 12), 52)
+        badge_h = 20
+        badge_rect = QRect(
+            option.rect.left() + (option.rect.width() - badge_w) // 2,
+            option.rect.top() + (option.rect.height() - badge_h) // 2,
+            badge_w,
+            badge_h
+        )
+
         painter.save()
         painter.setRenderHint(painter.Antialiasing)
+        painter.setBrush(QColor("#EBF3FC"))
+        painter.setPen(QColor("#BFDBFE"))
+        painter.drawRoundedRect(badge_rect, 10, 10)
 
-        painter.setBrush(QColor("#EFF6FF"))
-        painter.setPen(QColor("#93C5FD"))
-        painter.drawRoundedRect(rect, 4, 4)
-
-        painter.setPen(QColor("#1D4ED8"))
+        painter.setPen(QColor("#1E5C99"))
         font = option.font
         font.setBold(True)
+        font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
         painter.setFont(font)
-        painter.drawText(rect, Qt.AlignCenter, text)
+        painter.drawText(badge_rect, Qt.AlignCenter, text)
         painter.restore()
 
     def editorEvent(self, event, model, option, index):
         if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
             text = index.data(Qt.DisplayRole)
             if text and text != "-":
-                row_data = model.get_row_data(index.row())
-                wi_code = row_data.get("code")
-                if wi_code:
-                    self.specs_clicked.emit(str(wi_code))
-                    return True
+                self.specs_clicked.emit(index.row())
+                return True
         return super().editorEvent(event, model, option, index)
 
 
 class TimelineDelegate(QStyledItemDelegate):
-    """Renders timeline dates with clean tabular typography."""
+    """Renders compact Year-Month timeline."""
 
     def paint(self, painter, option, index):
         QApplication.style().drawControl(QStyle.CE_ItemViewItem, option, painter)
@@ -316,10 +326,12 @@ class TimelineDelegate(QStyledItemDelegate):
             return
 
         painter.save()
-        painter.setRenderHint(painter.Antialiasing)
-        painter.setPen(QColor("#334155"))
+        if option.state & QStyle.State_Selected:
+            painter.setPen(option.palette.color(QPalette.HighlightedText))
+        else:
+            painter.setPen(QColor("#334155"))
         font = option.font
-        font.setPointSize(max(7, font.pointSize() - 1))
+        font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
         painter.setFont(font)
         painter.drawText(option.rect, Qt.AlignCenter, text)
         painter.restore()
@@ -383,3 +395,4 @@ class RemarksDelegate(QStyledItemDelegate):
                     menu.exec_(event.globalPos())
                 return True
         return super().editorEvent(event, model, option, index)
+
