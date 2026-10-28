@@ -197,8 +197,9 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
   * **Clean TOC & Stub Sanitization:** Automatically detects and strips Word Table of Contents (TOC) page numbers and empty structural/Void section headers to keep the catalog clean and accurate.
   * **Extended Description Search (`📖 Desc`):** Toggle deep text search across underlying Clause 8/9 IE descriptions and ASN.1 field description tables (e.g., searching `"emergency"` or `"slicing"` highlights matching messages even if the keyword is not in the field name).
 * **Structure & Field Descriptions Inspector:**
-  * **Bit-Level Structure Rendering:** Renders bit-level octet diagrams (Figure 8.x/9.x) and value coding tables (Table 8.x/9.x) with full OpenXML `gridSpan` (colspan) and `vMerge` (rowspan) support.
+  * **Bit-Level Structure Rendering:** Renders bit-level octet diagrams (Figure 8.x/9.x/D.x/5.x) and value coding tables (Table 8.x/9.x/D.x/5.x) with full OpenXML `gridSpan` (colspan) and `vMerge` (rowspan) support. Automatically collapses split half-octet layout rows (`0 | 0 | 0 | 0` + `Spare` or `MCC digit 2` / `MCC digit 1`) into clean single-row octet diagrams.
   * **ASN.1 Syntax & Descriptions View:** Renders syntax-highlighted ASN.1 definition blocks accompanied by formatted 3GPP Field Description tables.
+  * **Cross-Specification Hyperlinks & 1-Click Import:** Detects cross-references between specifications (e.g. TS 24.501 <-> TS 24.526 for UE policies / URSP rules, and TS 24.501 <-> TS 24.301), rendering embedded rich citation cards with 1-click **"📥 Import TS X"** shortcuts when the target specification is not yet in the local database.
   * **Reverse Field/IE Lookup:** Interactive header badge (`Used in: N messages ▾`) and right-click matrix context menu to trace and jump to all messages referencing a given IE or ASN.1 type across active releases.
 * **Direct Specification Document Resolution & Multi-Surface Opening:**
   * **1-Click Specification Opening:** Directly opens the underlying 3GPP Word document (`.docx`), PDF, or local Explorer folder for the specification release you are currently working with.

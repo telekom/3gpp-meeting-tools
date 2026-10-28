@@ -56,6 +56,17 @@ progress callback.
   ASN.1 structures. Check the relevant parser's context before changing or
   generalizing logic; similar-looking structures can have protocol-specific
   meaning.
+- **5GS NAS Annex D & UE Policy Conventions:** Message content tables in Annex D
+  are defined in Clause D.5 (`Table D.5.x`), while Clause D.6 defines Information
+  Elements and value coding tables (`Table D.6.x.1`). Message caption detection
+  must only match `Table 8.` and `Table D.5.` so that D.6 IE coding tables are not
+  mistaken for message definitions. When parsing TS 24.526, Clause 5.2 and 5.3
+  contain Stage 3 URSP and ANDSP rule structures, with multi-line bit encodings
+  in Table 5.2.1 that preserve `<w:br/>` and paragraph breaks.
+- **Half-Octet Diagrams:** Bit diagram tables often use `<w:vMerge>` with two rows
+  to represent split nibbles (e.g. `Figure D.6.2.7`, `Figure D.6.2.3`). Use
+  `_collapse_word_half_octet_layout_rows` in `protocol_parser_utils.py` to preserve
+  clean single-row octet layouts.
 - Keep specification routing in `ProtocolDocxDispatcher`; it also determines
   which parser handles otherwise-unmatched specifications.
 - DOCX parsers share the `(messages, ie_definitions)` result shape and optional

@@ -9,7 +9,7 @@ This document is the authoritative technical reference for human developers and 
 **3GPP Tools** is a comprehensive Python/PyQt5 desktop engineering environment tailored for telecommunications engineers and 3GPP standards delegates. It integrates:
 - **PlantUML & Office Integration:** Live PlantUML editing with debounced preview and conversion to native editable Microsoft Visio (`.vsdx`) and PowerPoint shapes.
 - **Specification Search & Evolution:** SQLite FTS5 trigram substring search across 3GPP specification releases with "First Added" chronological tracking, cutoff date detection, and OpenXML parsing of multi-part documents.
-- **Protocol Inspection & Evolution:** Message and Information Element (IE) diffing across releases for 5GS/EPS NAS, NR/LTE RRC, NGAP, GTPv1-U, PDU Session UP (TS 38.415), and PFCP (TS 29.244).
+- **Protocol Inspection & Evolution:** Message and Information Element (IE) diffing across releases for 5GS/EPS NAS (TS 24.501, TS 24.301), 5GS UE Policies (TS 24.526 URSP & ANDSP), NR/LTE RRC, NGAP, GTPv1-U, PDU Session UP (TS 38.415), and PFCP (TS 29.244).
 - **Meeting & Work Item Management:** Offline synchronization of 3GPP meetings, TDocs, dynamic agendas, email discussion summarization, and company contribution audits.
 - **Local AI Intelligence (Ollama):** Zero-cost, 100% offline, privacy-guaranteed AI integration for TDoc technical triage, call-flow sequence generation, email stance summarization, and an evidence-grounded 3GPP Research Assistant.
 
