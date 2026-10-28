@@ -25,6 +25,7 @@ from PyQt5.QtWidgets import (
 
 from core.ui.ui_components import get_wg_colors
 from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
+from modules.nas.core.nas_exporter import copy_definition_to_clipboard
 from modules.nas.ui.nas_dialogs import get_spec_metadata, get_spec_title, get_spec_tooltip
 
 
@@ -576,6 +577,7 @@ class NASInspectorWidget(QFrame):
         self._current_ie_name: Optional[str] = None
         self._current_ie_spec: Optional[str] = None
         self._current_containing_msgs: List[Dict[str, Any]] = []
+        self._current_html_content: str = ""
         self._updating_combo: bool = False
 
         self.setObjectName("cardFrame")
@@ -671,9 +673,9 @@ class NASInspectorWidget(QFrame):
         self.version_combo.currentIndexChanged.connect(self._on_version_changed)
         insp_header.addWidget(self.version_combo)
 
-        self.copy_btn = QPushButton("📋 Copy Definition")
+        self.copy_btn = QPushButton("📋 Copy Definition ▾")
         self.copy_btn.setCursor(Qt.PointingHandCursor)
-        self.copy_btn.setToolTip("Copy raw definition text or ASN.1 syntax to clipboard")
+        self.copy_btn.setToolTip("Copy definition to clipboard (Word-compatible rich text, Markdown, plain text, or citation)")
         self.copy_btn.setEnabled(False)
         self.copy_btn.setStyleSheet("""
             QPushButton {
@@ -696,7 +698,35 @@ class NASInspectorWidget(QFrame):
                 border-color: #E2E8F0;
             }
         """)
-        self.copy_btn.clicked.connect(self._copy_current_text)
+
+        copy_menu = QMenu(self)
+        copy_menu.setStyleSheet("""
+            QMenu {
+                font-size: 11px;
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 5px 18px 5px 10px;
+                border-radius: 3px;
+            }
+            QMenu::item:selected {
+                background-color: #EBF3FC;
+                color: #1E5C99;
+            }
+        """)
+        act_cp_word = copy_menu.addAction("📋 Copy for Word / Outlook (Rich Text)")
+        act_cp_word.triggered.connect(lambda: self._copy_formatted(mode="word"))
+        act_cp_md = copy_menu.addAction("📝 Copy as Markdown")
+        act_cp_md.triggered.connect(lambda: self._copy_formatted(mode="markdown"))
+        act_cp_plain = copy_menu.addAction("📄 Copy Plain Text")
+        act_cp_plain.triggered.connect(lambda: self._copy_formatted(mode="text"))
+        copy_menu.addSeparator()
+        act_cp_cite = copy_menu.addAction("🔖 Copy Citation Only")
+        act_cp_cite.triggered.connect(lambda: self._copy_formatted(mode="citation"))
+
+        self.copy_btn.setMenu(copy_menu)
         insp_header.addWidget(self.copy_btn)
 
         self.open_spec_btn = QPushButton("📖 Open Spec ▾")
@@ -764,6 +794,8 @@ class NASInspectorWidget(QFrame):
         self.text_area.setOpenLinks(False)
         self.text_area.setOpenExternalLinks(False)
         self.text_area.anchorClicked.connect(self._on_anchor_clicked)
+        self.text_area.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.text_area.customContextMenuRequested.connect(self._show_text_area_context_menu)
         self.text_area.setStyleSheet("""
             QTextBrowser {
                 border: none;
@@ -775,15 +807,60 @@ class NASInspectorWidget(QFrame):
 
         layout.addWidget(self.stack)
 
+    def _copy_formatted(self, mode: str = "word"):
+        """Copies the active IE definition to the clipboard in Word, Markdown, or plain text format."""
+        spec, ver, clause = self._get_active_spec_and_version()
+        name = self._current_ie_name or self.title_lbl.text().strip()
+        html_content = getattr(self, "_current_html_content", "") or self.text_area.toHtml()
+
+        if not html_content and not name:
+            return
+
+        copy_definition_to_clipboard(
+            html_content=html_content,
+            spec_number=spec,
+            version=ver,
+            ie_name=name,
+            clause=clause,
+            mode=mode,
+        )
+
+        prev_label = self.copy_btn.text()
+        self.copy_btn.setText("✓ Copied!")
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(1500, lambda: self.copy_btn.setText("📋 Copy Definition ▾"))
+
     def _copy_current_text(self):
-        text = self.text_area.toPlainText().strip()
-        if text:
-            clipboard = QApplication.clipboard()
-            clipboard.setText(text)
-            prev_label = self.copy_btn.text()
-            self.copy_btn.setText("✓ Copied!")
-            from PyQt5.QtCore import QTimer
-            QTimer.singleShot(1500, lambda: self.copy_btn.setText(prev_label))
+        """Legacy fallback calling Word-compatible formatted copy."""
+        self._copy_formatted(mode="word")
+
+    def _show_text_area_context_menu(self, pos: QPoint):
+        """Context menu inside definition text browser offering formatted Word/Markdown export."""
+        menu = self.text_area.createStandardContextMenu()
+        menu.setStyleSheet("""
+            QMenu {
+                font-size: 11px;
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 5px 18px 5px 10px;
+                border-radius: 3px;
+            }
+            QMenu::item:selected {
+                background-color: #EBF3FC;
+                color: #1E5C99;
+            }
+        """)
+        menu.addSeparator()
+        act_cp_word = menu.addAction("📋 Copy Definition for Word / Outlook")
+        act_cp_word.triggered.connect(lambda: self._copy_formatted("word"))
+        act_cp_md = menu.addAction("📝 Copy Definition as Markdown")
+        act_cp_md.triggered.connect(lambda: self._copy_formatted("markdown"))
+        act_cp_cite = menu.addAction("🔖 Copy Citation")
+        act_cp_cite.triggered.connect(lambda: self._copy_formatted("citation"))
+        menu.exec_(self.text_area.mapToGlobal(pos))
 
     def _on_anchor_clicked(self, url: QUrl):
         url_str = url.toString()
@@ -960,14 +1037,15 @@ class NASInspectorWidget(QFrame):
                 field_description=field_description,
                 spec_number=spec_number,
             )
+            self._current_html_content = html_output
             self.text_area.setHtml(html_output)
             self._update_open_spec_menu()
             self.stack.setCurrentIndex(1)
             self.copy_btn.setEnabled(True)
         else:
-            self.text_area.setPlainText(
-                f"Type / Reference: {fallback_type_ref}\n(No structure definition found in database)"
-            )
+            fb_text = f"Type / Reference: {fallback_type_ref}\n(No structure definition found in database)"
+            self._current_html_content = fb_text
+            self.text_area.setPlainText(fb_text)
             self._update_open_spec_menu()
             self.stack.setCurrentIndex(1)
             self.copy_btn.setEnabled(bool(fallback_type_ref))
@@ -1035,6 +1113,7 @@ class NASInspectorWidget(QFrame):
                         )
                         base_html += missing_html
 
+        self._current_html_content = base_html
         self.text_area.setHtml(base_html)
 
     def _on_version_changed(self, index: int):
@@ -1098,6 +1177,7 @@ class NASInspectorWidget(QFrame):
         self.usage_btn.setVisible(False)
         self.version_combo.clear()
         self.text_area.clear()
+        self._current_html_content = ""
         self._current_clause_defs.clear()
         self.copy_btn.setEnabled(False)
         self.open_spec_btn.setEnabled(False)
