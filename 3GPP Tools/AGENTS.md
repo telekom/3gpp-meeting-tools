@@ -279,7 +279,7 @@ python -m main_tools
 - **Personal Tracking (Starred & Following):** Decoupled from `3gpp_data.db` and persisted in `src/config/work_items_config.json` via `WorkItemsSettings`. Supports dual independent flags:
   - `starred`: Personal interest / watchlist.
   - `following`: Assigned delegation responsibility (team work-split).
-- **Interactive UI & Filtering:** `WorkItemsTab` incorporates a dedicated 1-click `TrackingDelegate`, filter chips (`⭐ Starred`, `🎯 Following`), `➕ Add WI` toolbar and context menu actions, batch context menu actions, and in-dialog toggling inside `WorkItemInfoDialog`. `WorkItemsDatabase` optimizes tracking filters using SQLite primary-key `IN` clauses with safe empty-set evaluations (`1=0`).
+- **Interactive UI & Filtering:** `WorkItemsTab` incorporates a dedicated 1-click `TrackingDelegate`, filter chips (`⭐ Starred`, `🎯 Following`), `➕ Add WI` toolbar and context menu actions, batch context menu actions, and in-dialog toggling inside `WorkItemInfoDialog`. Table delegates and tabular data models are decoupled into modular files (`work_items_delegates.py`, `work_items_model.py`). `WorkItemsDatabase` optimizes tracking filters using SQLite primary-key `IN` clauses with safe empty-set evaluations (`1=0`).
 
 ---
 
