@@ -139,9 +139,22 @@ class SessionPlanDatabase:
                 )
             """)
 
+            # 7. Persistent User Tracked Topics for this meeting
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_tracked_topics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    meeting_number TEXT NOT NULL,
+                    topic_token TEXT NOT NULL,
+                    topic_label TEXT,
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(meeting_number, topic_token)
+                )
+            """)
+
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_slots_snap ON session_slots(snapshot_id);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_items_slot ON slot_agenda_items(slot_id);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ann_mtg ON user_session_annotations(meeting_number, target_key);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_trk_mtg ON user_tracked_topics(meeting_number);")
 
     # --- Meeting Metadata & Timezone ---
 
@@ -464,3 +477,49 @@ class SessionPlanDatabase:
                 """,
                 (str(meeting_number), target_type, target_key, status_badge, assigned_colleague, comment),
             )
+
+    # --- User Tracked Topics ---
+
+    def get_tracked_topics(self, meeting_number: str) -> Dict[str, str]:
+        """Returns dict of topic_token -> topic_label."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT topic_token, topic_label FROM user_tracked_topics WHERE meeting_number = ? ORDER BY id ASC",
+                (str(meeting_number),),
+            ).fetchall()
+            return {r["topic_token"]: (r["topic_label"] or r["topic_token"]) for r in rows}
+
+    def add_tracked_topic(self, meeting_number: str, token: str, label: str = ""):
+        clean_tok = str(token).lower().strip()
+        if not clean_tok:
+            return
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_tracked_topics (meeting_number, topic_token, topic_label)
+                VALUES (?, ?, ?)
+                ON CONFLICT(meeting_number, topic_token) DO UPDATE SET
+                    topic_label = COALESCE(NULLIF(excluded.topic_label, ''), topic_label)
+                """,
+                (str(meeting_number), clean_tok, label or token),
+            )
+
+    def remove_tracked_topic(self, meeting_number: str, token: str):
+        clean_tok = str(token).lower().strip()
+        with self._get_connection() as conn:
+            conn.execute(
+                "DELETE FROM user_tracked_topics WHERE meeting_number = ? AND topic_token = ?",
+                (str(meeting_number), clean_tok),
+            )
+
+    def set_tracked_topics(self, meeting_number: str, topics_dict: Dict[str, str]):
+        """Replaces tracked topics for the meeting."""
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM user_tracked_topics WHERE meeting_number = ?", (str(meeting_number),))
+            for tok, lbl in topics_dict.items():
+                clean_tok = str(tok).lower().strip()
+                if clean_tok:
+                    conn.execute(
+                        "INSERT INTO user_tracked_topics (meeting_number, topic_token, topic_label) VALUES (?, ?, ?)",
+                        (str(meeting_number), clean_tok, lbl or tok),
+                    )

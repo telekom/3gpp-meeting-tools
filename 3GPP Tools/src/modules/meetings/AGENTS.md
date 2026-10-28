@@ -193,6 +193,18 @@ src/modules/meetings/
   - 3-tier meeting timezone resolution: (1) Auto-parsing from Agenda Deadlines table (`0900 Local time | 0700 UTC` $\rightarrow$ `UTC+02:00`); (2) City/Country lookup from meeting location; (3) Interactive `SessionPlanTimezoneDialog` confirmation prompt.
   - Dual-time display in UI and tooltips (`09:00 Venue (02:00 Vienna)`).
   - Live clock strip in toolbar updating Venue time and laptop time every second.
+- **Interactive Session Plan Studio & Ergonomics (`SessionPlanWindow`):**
+  - **Quarter & TU Time Labels:** Vertical table headers display explicit time spans (`Q0: 08:00–08:50`, `Q1: 09:00–10:30`, `Q2: 11:00–12:30`, `Lunch: 13:00–14:00`, `Q3: 14:00–15:30`, `Q4: 16:00–17:30`, `Q5: 18:00–19:30`). Individual multi-stream cells show exact sub-slot / Time Unit times (`Str 1 [TU 1 (09:00–09:45)]: ...`).
+  - **Calendar Dates in Column Headers:** Horizontal headers display day names, physical dates (`Monday (12 Oct)`), and live venue `"🟢 Today"` badge.
+  - **Quick Import Drag & Drop:** Direct drag & drop of `.docx`, `.doc`, or `.zip` files onto the `SessionPlanWindow` displays an instant animated `DropOverlayWidget` and automatically ingests, stages, and switches to the new snapshot.
+  - **Interactive Topic Tracking & My Topics Engine (`user_tracked_topics`):**
+    - Combines followed/starred Work Item tokens (`followed_wi_tokens | starred_wi_tokens`) with per-meeting persistent tracked topics in `session_plans.db`.
+    - **⭐ Track Topics Dialog (`SessionPlanTrackedTopicsDialog`):** Interactive checklist dialog with instant search, 1-click `"⭐ Track Followed WIs"` auto-matching, and select all / clear all shortcuts.
+    - **1-Click Tracking in Agenda Mode:** Agenda Mode displays a dedicated `⭐` column with 1-click toggling between tracked and untracked topics.
+    - **Overview Grid Context Menu:** Right-click any cell to track/untrack specific extracted topics or edit personal notes.
+    - **Parallel Conflict Detection:** Automatically flags when two tracked topics are scheduled in parallel rooms during the same quarter (`⚠️ CONFLICT with Str 2`), highlighting rows in soft amber (`#FEF3C7`) and warning in the tab button.
+    - **Bidirectional Double-Click Navigation:** Double-clicking any session in "My Topics" or "Drafting Radar" immediately switches to the 5-day Overview Grid, focusing and selecting that exact cell.
+  - **Comprehensive Tooltips:** Rich contextual tooltips on all buttons, tabs, room guide strips, table headers, and status badges.
 - **100% Manual Ingestion & Collision-Safe Caching (`SessionPlanParser`):**
   - Staged files cached in `<meeting_dir>/Agenda/SessionPlans/` (never overwrites earlier snapshots sharing the same TDoc ID, using content-hash naming `S2-2610195_snap2_...docx`).
   - Persistent SQLite database at `<meeting_dir>/Agenda/session_plans.db`.
