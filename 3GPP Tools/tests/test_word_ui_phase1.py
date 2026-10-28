@@ -30,7 +30,7 @@ class TestWordUiPhase1(unittest.TestCase):
         self.assertTrue(hasattr(tab, "nav_btn_cr_pcr"))
         self.assertEqual(tab.nav_btn_cr_pcr.text(), "🏛️ 3GPP CR && Templates")
         self.assertTrue(hasattr(tab, "nav_btn_author"))
-        self.assertEqual(tab.nav_btn_author.text(), "👥 Revision Authors")
+        self.assertEqual(tab.nav_btn_author.text(), "🛠️ Sanitizer && Revisions")
         self.assertTrue(hasattr(tab, "nav_btn_slice"))
         self.assertEqual(tab.nav_btn_slice.text(), "✂️ Slice && Excerpt")
         self.assertTrue(hasattr(tab, "nav_btn_convert"))
