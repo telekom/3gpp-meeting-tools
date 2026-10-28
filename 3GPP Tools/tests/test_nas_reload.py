@@ -6,11 +6,12 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from PyQt5.QtCore import QPoint, Qt
-from PyQt5.QtWidgets import QApplication, QAction, QMessageBox
+from PyQt5.QtWidgets import QApplication, QAction, QMessageBox, QWidget
 
 from modules.nas.ui.nas_components import NASVersionTreeWidget
 from modules.nas.ui.nas_ingest_controller import (
     build_spec_reload_task,
+    is_ingestion_running,
     reload_checked_versions,
     reload_single_version,
     reload_spec_group,
@@ -205,6 +206,20 @@ class TestNASReload(unittest.TestCase):
             reload_single_version(mock_tab, "24.501", "18.4.0")
             mock_warn.assert_called_once()
             self.assertIn("Ingestion In Progress", mock_warn.call_args[0][1])
+
+    def test_is_ingestion_running_handles_real_qwidget_without_crashing(self):
+        """Verifies is_ingestion_running correctly handles QWidget instances where tab.thread is a bound method."""
+        widget = QWidget()
+        # QWidget.thread is a bound method returning QThread affinity, not an ingestion thread
+        self.assertTrue(callable(widget.thread))
+        self.assertFalse(is_ingestion_running(widget))
+
+    def test_reload_single_version_with_real_qwidget_no_attribute_error(self):
+        """Verifies reload_single_version does not crash with AttributeError on uninitialized QWidget."""
+        widget = QWidget()
+        with patch("modules.nas.ui.nas_ingest_controller.QMessageBox.question", return_value=QMessageBox.No):
+            # Should not raise AttributeError: 'builtin_function_or_method' object has no attribute 'isRunning'
+            reload_single_version(widget, "24.501", "18.4.0")
 
 
 if __name__ == "__main__":

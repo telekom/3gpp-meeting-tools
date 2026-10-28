@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
 
-from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt5.QtCore import QPoint, Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -159,6 +159,8 @@ class NASTab(QWidget):
         self._msg_query_workers: Dict[int, NASMessageListWorker] = {}
         self._msg_query_req_id: int = 0
         self._reverse_lookup_workers: Dict[int, ReverseLookupWorker] = {}
+        self.thread: Optional[NASFetchAndImportThread] = None
+        self._ingest_thread: Optional[NASFetchAndImportThread] = None
 
         try:
             settings = MeetingsSettings()
@@ -1730,7 +1732,7 @@ class NASTab(QWidget):
         self._ie_search_timer.stop()
 
         workers = list(self._msg_query_workers.values()) + list(self._reverse_lookup_workers.values())
-        ingest_thread = getattr(self, "thread", None)
+        ingest_thread = getattr(self, "_ingest_thread", None) or getattr(self, "thread", None)
         if isinstance(ingest_thread, QThread) and ingest_thread.isRunning():
             workers.append(ingest_thread)
 
