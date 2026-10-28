@@ -1,6 +1,7 @@
 # --- File: src/modules/meetings/core/tdocs_parser.py ---
 import io
 import re
+import html
 import openpyxl
 import logging
 import json
@@ -104,6 +105,19 @@ class TDocsParser:
         if ui_logger: logger.log(logging.INFO, "⏳ Parsing TdocsByAgenda HTML (Word Export)...")
         data = {}
 
+        def _clean_text(val: str, preserve_newlines: bool = False) -> str:
+            if not val:
+                return ""
+            s = str(val).strip()
+            # Double unescape to handle nested entities like &amp;apos; or &amp;amp;
+            s = html.unescape(s)
+            s = html.unescape(s)
+            s = s.replace('&apos;', "'").replace('&amp;', '&').replace('&#39;', "'")
+            if preserve_newlines:
+                lines = [re.sub(r'[ \t]+', ' ', l).strip() for l in s.split('\n')]
+                return '\n'.join(lines).strip()
+            return re.sub(r'\s+', ' ', s).strip()
+
         try:
             with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
                 soup = BeautifulSoup(f, 'html.parser')
@@ -131,42 +145,81 @@ class TDocsParser:
             headers = [h.get_text(separator=' ', strip=True).lower() for h in header_row]
 
             td_idx = next((i for i, h in enumerate(headers) if 'td#' in h or 'td #' in h), -1)
-            comments_idx = next((i for i, h in enumerate(headers) if 'comments' in h), -1)
+            # Match both 'comment' and 'comments' (e.g. SA2#164 uses singular 'comment')
+            comments_idx = next((i for i, h in enumerate(headers) if 'comment' in h), -1)
             email_idx = next((i for i, h in enumerate(headers) if 'e-mail_discussion' in h), -1)
             source_idx = next((i for i, h in enumerate(headers) if 'source' in h), -1)
 
-            # ---> THE FIX: Smarter hunting for HTML columns
+            # Smarter hunting for HTML columns
             title_idx = next((i for i, h in enumerate(headers) if 'title' in h or 'subject' in h), -1)
             for_idx = next((i for i, h in enumerate(headers) if h == 'for' or 'doc for' in h), -1)
             result_idx = next((i for i, h in enumerate(headers) if 'result' in h or 'status' in h), -1)
             type_idx = next((i for i, h in enumerate(headers) if 'type' in h), -1)
+            ai_idx = next((i for i, h in enumerate(headers) if h in ('ai', 'ai#', 'ai #', 'agenda', 'agenda item') or 'agenda item' in h), -1)
+            wi_idx = next((i for i, h in enumerate(headers) if 'work item' in h or h == 'wi'), -1)
+            rel_idx = next((i for i, h in enumerate(headers) if h in ('rel', 'release') or 'release' in h), -1)
 
             if td_idx == -1:
                 if ui_logger: logger.log(logging.ERROR, "❌ 'TD#' column missing in HTML table.")
                 return data
 
+            current_ai = 'N/A'
+            current_sub_item = ''
+            sub_item_order_counter = 0
+            order_in_agenda = 0
+
             for row in rows[1:]:
                 cols = row.find_all(['td'])
                 if len(cols) <= td_idx: continue
 
-                tdoc_id = cols[td_idx].get_text(separator=' ', strip=True)
-                if not tdoc_id or not tdoc_id.startswith(('S2-', 'R', 'C', 'S')):
+                raw_td = cols[td_idx].get_text(separator=' ', strip=True)
+                raw_ai = cols[ai_idx].get_text(separator=' ', strip=True) if ai_idx != -1 and len(cols) > ai_idx else ""
+                raw_title = cols[title_idx].get_text(separator=' ', strip=True) if title_idx != -1 and len(cols) > title_idx else ""
+
+                # Check if this row is a banner or separator row (TD# is '-' or empty or not a valid TDoc)
+                is_tdoc = bool(raw_td and raw_td != '-' and re.search(r'\b[A-Za-z0-9]{1,4}-\d{4,8}', raw_td))
+
+                if not is_tdoc:
+                    # Update active Agenda Item if provided
+                    if raw_ai and raw_ai != '-' and raw_ai != '0':
+                        clean_ai = _clean_text(raw_ai)
+                        if clean_ai != current_ai:
+                            current_ai = clean_ai
+                            # The first row of a new AI is the Agenda Item header itself
+                            current_sub_item = ''
+                            continue
+
+                    # If this separator row appears under an active AI, it defines a Sub-Item!
+                    clean_subj = _clean_text(raw_title)
+                    if clean_subj and clean_subj != '-' and not clean_subj.lower().startswith('all agenda items'):
+                        current_sub_item = clean_subj
+                        sub_item_order_counter += 1
                     continue
 
-                comments = cols[comments_idx].get_text(separator='\n', strip=True) if comments_idx != -1 and len(
-                    cols) > comments_idx else ""
-                email_disc = cols[email_idx].get_text(separator='\n', strip=True) if email_idx != -1 and len(
-                    cols) > email_idx else ""
-                title = cols[title_idx].get_text(separator='\n', strip=True) if title_idx != -1 and len(
-                    cols) > title_idx else ""
-                source = cols[source_idx].get_text(separator='\n', strip=True) if source_idx != -1 and len(
-                    cols) > source_idx else ""
-                doc_for = cols[for_idx].get_text(separator='\n', strip=True) if for_idx != -1 and len(
-                    cols) > for_idx else ""
-                result = cols[result_idx].get_text(separator='\n', strip=True) if result_idx != -1 and len(
-                    cols) > result_idx else ""
-                doc_type = cols[type_idx].get_text(separator='\n', strip=True) if type_idx != -1 and len(
-                    cols) > type_idx else ""
+                # It's a valid TDoc row!
+                tdoc_id = raw_td.strip()
+                td_match = re.search(r'\b([A-Za-z0-9]{1,4}-\d{4,8}(?:[rR]\d{1,2}[a-zA-Z]?)?)\b', tdoc_id)
+                if td_match:
+                    tdoc_id = td_match.group(1).upper()
+
+                order_in_agenda += 1
+
+                # Update current_ai from row's AI column if present
+                if raw_ai and raw_ai != '-' and raw_ai != '0':
+                    current_ai = _clean_text(raw_ai)
+
+                raw_comments = cols[comments_idx].get_text(separator='\n', strip=True) if comments_idx != -1 and len(cols) > comments_idx else ""
+                comments = _clean_text(raw_comments, preserve_newlines=True)
+                email_disc = _clean_text(cols[email_idx].get_text(separator='\n', strip=True) if email_idx != -1 and len(cols) > email_idx else "", preserve_newlines=True)
+                title = _clean_text(raw_title)
+                source = _clean_text(cols[source_idx].get_text(separator='\n', strip=True) if source_idx != -1 and len(cols) > source_idx else "")
+                doc_for = _clean_text(cols[for_idx].get_text(separator='\n', strip=True) if for_idx != -1 and len(cols) > for_idx else "")
+                result = _clean_text(cols[result_idx].get_text(separator='\n', strip=True) if result_idx != -1 and len(cols) > result_idx else "")
+                doc_type = _clean_text(cols[type_idx].get_text(separator='\n', strip=True) if type_idx != -1 and len(cols) > type_idx else "")
+                raw_wi = cols[wi_idx].get_text(separator=' ', strip=True) if wi_idx != -1 and len(cols) > wi_idx else ""
+                work_item = _clean_text(raw_wi) if raw_wi and raw_wi != '-' else ""
+                raw_rel = cols[rel_idx].get_text(separator=' ', strip=True) if rel_idx != -1 and len(cols) > rel_idx else ""
+                rel = _clean_text(raw_rel) if raw_rel and raw_rel != '-' else ""
 
                 if ui_logger and (comments or email_disc):
                     logger.log(logging.DEBUG, f"   ➔ Extracted agenda remarks for {tdoc_id}")
@@ -178,7 +231,13 @@ class TDocsParser:
                     'Source': source,
                     'For': doc_for,
                     'Result': result,
-                    'Type': doc_type
+                    'Type': doc_type,
+                    'Agenda Item': current_ai if current_ai != 'N/A' else '',
+                    'Sub-Item': current_sub_item,
+                    'Related WIs': work_item,
+                    'Release': rel,
+                    '_agenda_order': order_in_agenda,
+                    '_sub_item_order': sub_item_order_counter
                 }
 
             if ui_logger: logger.log(logging.INFO, f"✅ Successfully parsed {len(data)} TDocs from Agenda HTML.")
@@ -324,6 +383,9 @@ class TDocsParser:
                 continue
 
             current_ai = 'N/A'
+            current_sub_item = ''
+            sub_item_order_counter = 0
+            order_in_agenda = 0
 
             for row in table.rows[header_row_idx + 1:]:
                 cells = [c.text.strip() for c in row.cells]
@@ -341,6 +403,13 @@ class TDocsParser:
                     )
                     if ai_banner_match:
                         current_ai = ai_banner_match.group(1).strip()
+                        current_sub_item = ''
+                    else:
+                        title_candidate = cells[col_map['title']] if 'title' in col_map and col_map['title'] < len(cells) else ''
+                        title_candidate = title_candidate.strip()
+                        if title_candidate and title_candidate != '-' and not title_candidate.lower().startswith('all agenda'):
+                            current_sub_item = title_candidate
+                            sub_item_order_counter += 1
                     continue
 
                 # Extract canonical 3GPP TDoc ID (e.g. S2-2401234, R2-2405678r01, SP-230890)
@@ -358,15 +427,25 @@ class TDocsParser:
                     )
                     if ai_banner_match:
                         current_ai = ai_banner_match.group(1).strip()
+                        current_sub_item = ''
+                    else:
+                        title_candidate = cells[col_map['title']] if 'title' in col_map and col_map['title'] < len(cells) else ''
+                        title_candidate = title_candidate.strip()
+                        if title_candidate and title_candidate != '-' and not title_candidate.lower().startswith('all agenda'):
+                            current_sub_item = title_candidate
+                            sub_item_order_counter += 1
                     continue
 
                 tdoc_id = td_match.group(1).upper()
+                order_in_agenda += 1
 
                 # Track current Agenda Item across multi-row sub-headers
                 if 'ai' in col_map and col_map['ai'] < len(cells):
                     ai_val = cells[col_map['ai']].strip()
                     if ai_val and ai_val != '-':
-                        current_ai = ai_val
+                        if ai_val != current_ai:
+                            current_ai = ai_val
+                            current_sub_item = ''
 
                 title = cells[col_map['title']] if 'title' in col_map and col_map['title'] < len(cells) else ''
                 source = cells[col_map['source']] if 'source' in col_map and col_map['source'] < len(cells) else ''
@@ -391,6 +470,8 @@ class TDocsParser:
                     doc_for = doc_for or existing.get('For', '')
                     if current_ai == 'N/A' and existing.get('Agenda Item'):
                         current_ai = existing.get('Agenda Item')
+                    if not current_sub_item and existing.get('Sub-Item'):
+                        current_sub_item = existing.get('Sub-Item')
 
                 agenda_data[tdoc_id] = {
                     'Title': title,
@@ -400,6 +481,9 @@ class TDocsParser:
                     'Comments': comments,
                     'Result': result,
                     'Agenda Item': current_ai,
+                    'Sub-Item': current_sub_item,
+                    '_agenda_order': order_in_agenda,
+                    '_sub_item_order': sub_item_order_counter,
                     'e-mail_Discussion': ''
                 }
 

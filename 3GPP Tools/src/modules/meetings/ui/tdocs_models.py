@@ -18,7 +18,7 @@ def natural_sort_key(s):
 
 
 class TDocsTableModel(QAbstractTableModel):
-    def __init__(self, meeting_dir: Path, data=None, user_data=None, agenda_map=None):
+    def __init__(self, meeting_dir: Path = None, data=None, user_data=None, agenda_map=None):
         super().__init__()
         self.meeting_dir = meeting_dir
         self.user_data = user_data or {}
@@ -40,6 +40,7 @@ class TDocsTableModel(QAbstractTableModel):
 
         self._apply_company_sanitization(self._data)
         self._precompute_row_wi_tokens(self._data)
+        self._precompute_agenda_sort_tuples(self._data)
         self._apply_user_data_logic()
         self._rebuild_family_cache()
         self._recompute_cached_email_stats()
@@ -98,6 +99,97 @@ class TDocsTableModel(QAbstractTableModel):
         """Precomputes and caches _wi_tokens on each row dictionary for fast O(1) filtering."""
         for row in rows:
             row["_wi_tokens"] = self._extract_row_wi_tokens(row)
+
+    def _precompute_agenda_sort_tuples(self, rows: list):
+        """
+        Precomputes _agenda_sort_tuple on each row dictionary for high-performance O(1)
+        composite sorting in TDocsFilterProxyModel.
+
+        Ordering Hierarchy:
+          1. Agenda Item (natural numeric: 5.1 < 5.2 < 5.10 < 6.1; unassigned/empty at the end)
+          2. Precedence Tier:
+             - Tier 0: TDocsByAgenda / Chair notes order (live meeting order; supersedes Excel)
+             - Tier 1: Excel baseline 'TDoc sort order within agenda item'
+             - Tier 2: Unindexed / fallback
+          3. Sub-Item sequence (order in which Sub-Item dividers appeared in TDocsByAgenda)
+          4. Document sequence within Agenda Item / Sub-Item
+          5. Revision offset (anchors unindexed r01, r02 directly beneath their parent TDoc)
+          6. TDoc alphanumeric identifier
+        """
+        tdoc_map = {str(r.get("TDoc", "")).strip().upper(): r for r in self._data if r.get("TDoc")}
+
+        for row in rows:
+            raw_ai = str(row.get("Agenda Item", "") or "").strip()
+            is_unassigned = 1 if (not raw_ai or raw_ai.lower() in ("n/a", "none", "unknown", "-")) else 0
+            ai_key = natural_sort_key(raw_ai) if not is_unassigned else ()
+
+            tier = 2
+            sub_item_order = int(row.get('_sub_item_order') or 0)
+            order_val = float('inf')
+            rev_offset = 0
+
+            tdoc_id = str(row.get("TDoc", "") or "").strip().upper()
+            pred = str(row.get("Is revision of", "") or "").strip().upper()
+            base_tdoc = ""
+            rev_num = 0
+
+            rev_match = re.search(r'^(.*?)-?(?:r|rev)(\d{1,2}[a-zA-Z]?)$', tdoc_id, re.IGNORECASE)
+            if rev_match:
+                base_tdoc = rev_match.group(1).upper()
+                try:
+                    rev_num = int(re.match(r'\d+', rev_match.group(2)).group())
+                except Exception:
+                    rev_num = 1
+            elif pred:
+                base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', pred, re.IGNORECASE)
+                base_tdoc = base_match.group(1).upper() if base_match else pred
+                rev_num = 1
+
+            # 1. Tier 0: TDocsByAgenda explicit order
+            if row.get('_agenda_order') is not None:
+                try:
+                    order_val = float(row['_agenda_order'])
+                    tier = 0
+                except (ValueError, TypeError):
+                    pass
+            elif base_tdoc and base_tdoc in tdoc_map and tdoc_map[base_tdoc].get('_agenda_order') is not None:
+                try:
+                    order_val = float(tdoc_map[base_tdoc]['_agenda_order'])
+                    sub_item_order = int(tdoc_map[base_tdoc].get('_sub_item_order') or 0)
+                    tier = 0
+                    rev_offset = rev_num
+                except (ValueError, TypeError):
+                    pass
+
+            # 2. Tier 1: Excel 'TDoc sort order within agenda item'
+            if tier > 0:
+                raw_excel_order = row.get("TDoc sort order within agenda item")
+                if raw_excel_order not in (None, "", "NaN", "nan", "-"):
+                    try:
+                        order_val = float(raw_excel_order)
+                        tier = 1
+                    except (ValueError, TypeError):
+                        pass
+                elif base_tdoc and base_tdoc in tdoc_map:
+                    base_excel = tdoc_map[base_tdoc].get("TDoc sort order within agenda item")
+                    if base_excel not in (None, "", "NaN", "nan", "-"):
+                        try:
+                            order_val = float(base_excel)
+                            tier = 1
+                            rev_offset = rev_num
+                        except (ValueError, TypeError):
+                            pass
+
+            tdoc_key = natural_sort_key(tdoc_id)
+            row['_agenda_sort_tuple'] = (
+                is_unassigned,
+                ai_key,
+                tier,
+                sub_item_order,
+                order_val,
+                rev_offset,
+                tdoc_key
+            )
 
     def _apply_company_sanitization(self, rows_to_process: list):
         """Passes the raw Source string through the Sanitizer and caches the result."""
@@ -213,6 +305,7 @@ class TDocsTableModel(QAbstractTableModel):
         # Pre-compute for a completely fresh dataset update
         self._apply_company_sanitization(self._data)
         self._precompute_row_wi_tokens(self._data)
+        self._precompute_agenda_sort_tuples(self._data)
         self._apply_user_data_logic()
         self._rebuild_family_cache()
         self._recompute_cached_email_stats()
@@ -372,6 +465,8 @@ class TDocsTableModel(QAbstractTableModel):
                 tdoc = row.get("TDoc", "")
                 if tdoc in self.loading_tdocs:
                     return "LOADING"
+                if not self.meeting_dir:
+                    return "MISSING"
                 zip_path = self.meeting_dir / tdoc / f"{tdoc}.zip"
                 return "EXISTS" if zip_path.exists() else "MISSING"
             if role == Qt.UserRole + 2:
@@ -381,6 +476,10 @@ class TDocsTableModel(QAbstractTableModel):
         # Expose sanitized companies directly to the ProxyModel
         if role == Qt.UserRole + 3 and col_name == "Source":
             return row.get('_Sanitized_Companies', ["Other"])
+
+        # Expose Sub-Item directly to the AgendaItemDelegate and ProxyModel
+        if role == Qt.UserRole + 4 and col_name == "Agenda Item":
+            return str(row.get("Sub-Item", "") or "").strip()
 
         if role == Qt.UserRole + 2:
             val = row.get(col_name, "")
@@ -418,12 +517,21 @@ class TDocsTableModel(QAbstractTableModel):
             if col_name == "Agenda Item":
                 ai_num = val_str
                 agenda_item = self.agenda_map.get(ai_num)
+                ai_desc = ""
                 if agenda_item and getattr(agenda_item, "description", None):
-                    return f"AI {ai_num}: {agenda_item.description}"
-                excel_desc = str(row.get("Agenda item description", "")).strip()
-                if excel_desc:
-                    return f"AI {ai_num}: {excel_desc}"
-                return f"Agenda Item {ai_num}" if ai_num else None
+                    ai_desc = agenda_item.description
+                else:
+                    excel_desc = str(row.get("Agenda item description", "")).strip()
+                    if excel_desc:
+                        ai_desc = excel_desc
+
+                tooltip_lines = []
+                if ai_num:
+                    tooltip_lines.append(f"<b>Agenda Item {ai_num}</b>: {ai_desc}" if ai_desc else f"<b>Agenda Item {ai_num}</b>")
+                sub_item = str(row.get("Sub-Item", "") or "").strip()
+                if sub_item:
+                    tooltip_lines.append(f"<b>Sub-Item:</b> {sub_item}")
+                return "<br>".join(tooltip_lines) if tooltip_lines else None
 
             if col_name in ["Abstract", "Secretary Remarks", "My Notes"] and val_str:
                 return f"<div style='width: 400px; white-space: pre-wrap;'>{val_str}</div>"
@@ -485,6 +593,19 @@ class TDocsTableModel(QAbstractTableModel):
                 idx = existing_tdocs[tdoc_id]
                 if remarks:
                     self._data[idx]['Secretary Remarks'] = remarks
+
+                if info.get('Sub-Item'):
+                    self._data[idx]['Sub-Item'] = info.get('Sub-Item')
+                if info.get('_agenda_order'):
+                    self._data[idx]['_agenda_order'] = info.get('_agenda_order')
+                if info.get('_sub_item_order'):
+                    self._data[idx]['_sub_item_order'] = info.get('_sub_item_order')
+
+                if info.get('Agenda Item') and self._data[idx].get('Agenda Item', '') in ('', 'N/A', 'None', '-'):
+                    self._data[idx]['Agenda Item'] = info.get('Agenda Item')
+
+                if info.get('Related WIs') and not self._data[idx].get('Related WIs'):
+                    self._data[idx]['Related WIs'] = info.get('Related WIs')
 
                 if info.get('Title') and not self._data[idx].get('Title'):
                     self._data[idx]['Title'] = info.get('Title')
@@ -571,6 +692,7 @@ class TDocsTableModel(QAbstractTableModel):
                     'Source': source,
                     'Secretary Remarks': remarks,
                     'Agenda Item': agenda_item,
+                    'Sub-Item': info.get('Sub-Item') or (base_row.get('Sub-Item', '') if base_row else ''),
                     'Type': info.get('Type') or doc_type,
                     'For': info.get('For', ''),
                     'Abstract': abstract,
@@ -580,6 +702,8 @@ class TDocsTableModel(QAbstractTableModel):
                     'Original LS': '',
                     'Reply in': '',
                     'Related WIs': related_wis,
+                    '_agenda_order': info.get('_agenda_order'),
+                    '_sub_item_order': info.get('_sub_item_order', 0),
                 }
                 new_rows.append(new_row)
 
@@ -587,7 +711,6 @@ class TDocsTableModel(QAbstractTableModel):
             self._apply_company_sanitization(new_rows)
             self._precompute_row_wi_tokens(new_rows)
             self._data.extend(new_rows)
-            self._data.sort(key=lambda x: str(x.get('TDoc', '')))
             tdoc_dict = {row.get('TDoc', ''): row for row in self._data}
 
             for new_row in new_rows:
@@ -614,6 +737,7 @@ class TDocsTableModel(QAbstractTableModel):
         self._apply_user_data_logic()
         self._rebuild_family_cache()
         self._recompute_cached_email_stats()
+        self._precompute_agenda_sort_tuples(self._data)
         self.endResetModel()
 
 
@@ -625,6 +749,7 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.type_filters = set()
         self.status_filters = set()
         self.ai_filters = set()
+        self.sub_item_filters = set()
         self.wi_filters = set()
         self.company_filters = set()
         self.my_status_filters = set()
@@ -634,6 +759,15 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.include_unassigned_ls_in = True
         self.followed_wi_tokens = set()
         self.starred_wi_tokens = set()
+        self.sort_mode = "AGENDA"
+
+    def setSortMode(self, mode: str):
+        self.sort_mode = mode
+        self.invalidate()
+
+    def setSubItemFilters(self, sub_items):
+        self.sub_item_filters = set(sub_items)
+        self.invalidateFilter()
 
     def _parse_query(self, query: str):
         includes = []
@@ -739,6 +873,10 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
             return False
         if exclude_filter != "ai" and str(row.get("Agenda Item", "") or "").strip() not in self.ai_filters:
             return False
+        if exclude_filter != "sub_item" and self.sub_item_filters:
+            row_sub = str(row.get("Sub-Item", "") or "").strip() or "(No Sub-Item)"
+            if row_sub not in self.sub_item_filters:
+                return False
         if exclude_filter != "wi":
             row_wis = model.get_related_wis(source_row)
             if not row_wis or not self.wi_filters.intersection(row_wis):
@@ -754,7 +892,7 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
 
         if self.include_terms or self.exclude_terms:
             searchable_parts = []
-            for key in ["TDoc", "Title", "Source", "Abstract", "Secretary Remarks", "My Notes"]:
+            for key in ["TDoc", "Title", "Source", "Abstract", "Secretary Remarks", "My Notes", "Sub-Item"]:
                 data = row.get(key, "")
                 if data:
                     searchable_parts.append(str(data).lower())
@@ -775,19 +913,28 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
 
         col_name = model._headers[col_idx]
 
-        # 1. Numerical tuple sorting for Emails (tot, unread)
+        # 1. Agenda Order (applied when clicking Agenda Item header or when in AGENDA sort mode)
+        if col_name == "Agenda Item" or getattr(self, "sort_mode", "AGENDA") == "AGENDA":
+            left_row = model._data[left.row()]
+            right_row = model._data[right.row()]
+            left_tuple = left_row.get('_agenda_sort_tuple')
+            right_tuple = right_row.get('_agenda_sort_tuple')
+            if left_tuple is not None and right_tuple is not None:
+                return left_tuple < right_tuple
+
+        # 2. Numerical tuple sorting for Emails (tot, unread)
         if col_name == "Emails":
             left_key = model.data(left, Qt.UserRole + 2) or (0, 0)
             right_key = model.data(right, Qt.UserRole + 2) or (0, 0)
             return left_key < right_key
 
-        # 2. Natural sorting with LRU caching for Agenda Item and TDoc
-        if col_name in ("Agenda Item", "TDoc"):
+        # 3. Natural sorting with LRU caching for TDoc
+        if col_name == "TDoc":
             left_data = model.data(left, Qt.UserRole + 2) or ""
             right_data = model.data(right, Qt.UserRole + 2) or ""
             return natural_sort_key(left_data) < natural_sort_key(right_data)
 
-        # 3. Standard string sorting for remaining columns without redundant lookups
+        # 4. Standard string sorting for remaining columns without redundant lookups
         return super().lessThan(left, right)
 
     def filterAcceptsRow(self, source_row, source_parent):

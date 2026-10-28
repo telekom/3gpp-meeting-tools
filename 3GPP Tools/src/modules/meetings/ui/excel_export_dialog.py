@@ -29,6 +29,7 @@ ALL_AVAILABLE_COLUMNS = [
     "Source",
     "Type",
     "Agenda Item",
+    "Sub-Item",
     "TDoc Status",
     "For",
     "Secretary Remarks",

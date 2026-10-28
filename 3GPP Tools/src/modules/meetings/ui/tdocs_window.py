@@ -15,7 +15,8 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableView,
     QHeaderView, QLabel, QLineEdit, QFrame,
     QPushButton, QMessageBox, QMenu, QApplication,
-    QToolTip, QCheckBox, QDialog, QTextEdit, QFileDialog
+    QToolTip, QCheckBox, QDialog, QTextEdit, QFileDialog,
+    QComboBox
 )
 
 from core.network.network_state import NetworkState
@@ -48,7 +49,7 @@ from modules.meetings.core.tdocs_threads import (
     WordAgendaImporterThread,
 )
 from modules.meetings.core.url_router import URLRouter
-from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate
+from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate, AgendaItemDelegate
 from modules.meetings.ui.tdocs_components import CheckableComboBox, ComparisonCartWidget
 from modules.meetings.ui.tdocs_dialogs import (
     ReadOnlyViewerDialog,
@@ -561,6 +562,13 @@ class TDocsWindow(QWidget):
         self.ai_combo.selectionChanged.connect(self._on_ai_changed)
         filter_layout.addWidget(self.ai_combo)
 
+        self.sub_item_combo = CheckableComboBox("Sub-Item")
+        self.sub_item_combo.setMaximumWidth(130)
+        self.sub_item_combo.setToolTip('Filter by Agenda Sub-Item / topic separator from TdocsByAgenda.htm or Chairman notes.')
+        self.sub_item_combo.selectionChanged.connect(self._on_sub_item_changed)
+        self.sub_item_combo.setVisible(False)
+        filter_layout.addWidget(self.sub_item_combo)
+
         self.wi_combo = CheckableComboBox("WI")
         self.wi_combo.setMaximumWidth(120)
         self.wi_combo.setToolTip('Filter by the Related WIs metadata from the official TDoc list. Grey entries currently have no intersection with the other active filters.')
@@ -586,6 +594,29 @@ class TDocsWindow(QWidget):
             self.chk_no_comments.setToolTip('Show only TDocs without secretary/chair comments.')
             self.chk_no_comments.toggled.connect(self._on_no_comments_toggled)
             filter_layout.addWidget(self.chk_no_comments)
+            filter_layout.addWidget(_make_vsep())
+
+        order_lbl = QLabel("Order:")
+        order_lbl.setStyleSheet("font-size: 11px; color: #64748B; font-weight: bold;")
+        filter_layout.addWidget(order_lbl)
+
+        self.order_combo = QComboBox()
+        self.order_combo.setMaximumWidth(155)
+        self.order_combo.setToolTip(
+            "Change the display ordering of TDocs.\n"
+            "• 📋 Agenda Order: Sort by Agenda Item and Sub-Item discussion order (superseded by TdocsByAgenda.htm).\n"
+            "• 🔢 TDoc Number: Sort alphanumerically by TDoc identifier.\n"
+            "• 🏢 Company: Group by contributing company.\n"
+            "• ✉️ Most Emails: Show most discussed TDoc families first.\n"
+            "• 🗂️ Default / File Order: Original document arrival order."
+        )
+        self.order_combo.addItem("📋 Agenda Order", "AGENDA")
+        self.order_combo.addItem("🔢 TDoc Number", "TDOC")
+        self.order_combo.addItem("🏢 Company", "COMPANY")
+        self.order_combo.addItem("✉️ Most Emails", "EMAILS")
+        self.order_combo.addItem("🗂️ Default / File Order", "DEFAULT")
+        self.order_combo.currentIndexChanged.connect(self._on_order_changed)
+        filter_layout.addWidget(self.order_combo)
 
         self.btn_reset_filters = QPushButton("✕ Clear")
         self.btn_reset_filters.setToolTip("Reset all search text and active filters to show all TDocs.")
@@ -653,6 +684,9 @@ class TDocsWindow(QWidget):
         self.table.setItemDelegateForColumn(7, self.html_delegate)
         self.table.setItemDelegateForColumn(12, self.html_delegate)
 
+        self.agenda_delegate = AgendaItemDelegate(self.table)
+        self.table.setItemDelegateForColumn(10, self.agenda_delegate)
+
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.resizeSection(0, 110)
@@ -665,14 +699,22 @@ class TDocsWindow(QWidget):
         header.resizeSection(8, 90)
         header.setSectionResizeMode(9, QHeaderView.Fixed)
         header.resizeSection(9, 28)
-        header.resizeSection(10, 80)
+        header.resizeSection(10, 115)
         header.resizeSection(12, 160)
+        header.sectionClicked.connect(self._on_header_section_clicked)
 
         if len(self.model._headers) > 13:
             header.resizeSection(13, 85)
 
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
+
+        if self.is_sa2:
+            self.order_combo.blockSignals(True)
+            self.order_combo.setCurrentIndex(0)  # 📋 Agenda Order
+            self.order_combo.blockSignals(False)
+            self.proxy.setSortMode("AGENDA")
+            self.table.sortByColumn(10, Qt.AscendingOrder)
 
         layout.addWidget(self.table)
 
@@ -762,6 +804,54 @@ class TDocsWindow(QWidget):
         self.proxy.setCompanyFilters(companies)
         self._update_filter_facets()
         QTimer.singleShot(0, self._update_count_label)
+
+    def _on_sub_item_changed(self, sub_items):
+        self.proxy.setSubItemFilters(sub_items)
+        self._update_filter_facets()
+        QTimer.singleShot(0, self._update_count_label)
+
+    def _on_order_changed(self, index):
+        mode = self.order_combo.currentData() or "AGENDA"
+        self.proxy.setSortMode(mode)
+        if mode == "AGENDA":
+            self.table.sortByColumn(10, Qt.AscendingOrder)
+        elif mode == "TDOC":
+            self.table.sortByColumn(1, Qt.AscendingOrder)
+        elif mode == "COMPANY":
+            self.table.sortByColumn(3, Qt.AscendingOrder)
+        elif mode == "EMAILS":
+            self.table.sortByColumn(13, Qt.DescendingOrder)
+        elif mode == "DEFAULT":
+            self.proxy.sort(-1)
+        QTimer.singleShot(0, self._update_count_label)
+
+    def _on_header_section_clicked(self, logical_index):
+        if not hasattr(self, 'order_combo'):
+            return
+        self.order_combo.blockSignals(True)
+        if logical_index == 10:  # Agenda Item
+            idx = self.order_combo.findData("AGENDA")
+            if idx >= 0:
+                self.order_combo.setCurrentIndex(idx)
+            self.proxy.setSortMode("AGENDA")
+        elif logical_index == 1:  # TDoc
+            idx = self.order_combo.findData("TDOC")
+            if idx >= 0:
+                self.order_combo.setCurrentIndex(idx)
+            self.proxy.setSortMode("TDOC")
+        elif logical_index == 3:  # Source / Company
+            idx = self.order_combo.findData("COMPANY")
+            if idx >= 0:
+                self.order_combo.setCurrentIndex(idx)
+            self.proxy.setSortMode("COMPANY")
+        elif logical_index == 13:  # Emails
+            idx = self.order_combo.findData("EMAILS")
+            if idx >= 0:
+                self.order_combo.setCurrentIndex(idx)
+            self.proxy.setSortMode("EMAILS")
+        else:
+            self.proxy.setSortMode("OTHER")
+        self.order_combo.blockSignals(False)
 
     def _toggle_followed_wis_filter(self):
         self._load_tracked_wi_tokens()
@@ -909,6 +999,7 @@ class TDocsWindow(QWidget):
             "company": set(),
             "type": set(),
             "ai": set(),
+            "sub_item": set(),
             "wi": set(),
             "status": set(),
             "my_status": set(),
@@ -928,6 +1019,10 @@ class TDocsWindow(QWidget):
                 facets["type"].add(str(row.get("Type", "") or "").strip())
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="ai"):
                 facets["ai"].add(str(row.get("Agenda Item", "") or "").strip())
+            if self.proxy.rowMatchesFilters(row_idx, exclude_filter="sub_item"):
+                sub_val = str(row.get("Sub-Item", "") or "").strip()
+                if sub_val:
+                    facets["sub_item"].add(sub_val)
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="wi"):
                 facets["wi"].update(self.model.get_related_wis(row_idx))
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="status"):
@@ -959,6 +1054,8 @@ class TDocsWindow(QWidget):
         self.company_combo.setAvailability(facets["company"])
         self.type_combo.setAvailability(facets["type"])
         self.ai_combo.setAvailability(facets["ai"])
+        if hasattr(self, "sub_item_combo") and self.sub_item_combo.isVisible():
+            self.sub_item_combo.setAvailability(facets["sub_item"])
         self.wi_combo.setAvailability(facets["wi"])
         self.status_combo.setAvailability(facets["status"])
         self.my_status_combo.setAvailability(facets["my_status"])
@@ -1025,6 +1122,23 @@ class TDocsWindow(QWidget):
         self.my_status_combo.updateItems(unique_my_statuses)
         self._load_tracked_wi_tokens()
         self._update_tracked_wi_button_styles()
+
+        unique_sub_items = []
+        seen_subs = set()
+        for r in self.model._data:
+            sub = str(r.get("Sub-Item", "") or "").strip()
+            if sub and sub not in seen_subs:
+                seen_subs.add(sub)
+                unique_sub_items.append(sub)
+
+        if hasattr(self, "sub_item_combo"):
+            if unique_sub_items:
+                self.sub_item_combo.setVisible(True)
+                self.sub_item_combo.updateItems(unique_sub_items)
+                self.proxy.setSubItemFilters(self.sub_item_combo.getCheckedItems())
+            else:
+                self.sub_item_combo.setVisible(False)
+                self.proxy.setSubItemFilters([])
 
         self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
         self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
@@ -1094,6 +1208,16 @@ class TDocsWindow(QWidget):
                 combo.model().item(i).setCheckState(Qt.Checked)
             combo.updateText()
             combo.blockSignals(False)
+
+        if hasattr(self, 'sub_item_combo') and self.sub_item_combo.isVisible():
+            self.sub_item_combo.blockSignals(True)
+            if self.sub_item_combo.model() and self.sub_item_combo.model().rowCount() > 0:
+                self.sub_item_combo.model().item(0).setCheckState(Qt.Checked)
+                for i in range(1, self.sub_item_combo.model().rowCount()):
+                    self.sub_item_combo.model().item(i).setCheckState(Qt.Checked)
+                self.sub_item_combo.updateText()
+            self.sub_item_combo.blockSignals(False)
+            self.proxy.setSubItemFilters(self.sub_item_combo.getCheckedItems())
 
         self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
         self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
@@ -1342,6 +1466,7 @@ class TDocsWindow(QWidget):
             self.filepath = result
             if new_data := TDocsParser.parse_tdocs_excel(self.filepath):
                 self.model.update_data(new_data)
+                self._setup_cache()
                 self._refresh_comboboxes()
                 self._refresh_email_counts()
                 self.last_mod_lbl.setText(self._get_mod_date_str())

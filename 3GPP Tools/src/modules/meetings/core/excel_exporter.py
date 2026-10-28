@@ -198,6 +198,8 @@ class ExcelExporterThread(QThread):
                     ws.column_dimensions[col_letter].width = 42
                 elif col_name == "Related TDocs":
                     ws.column_dimensions[col_letter].width = 24
+                elif col_name == "Sub-Item":
+                    ws.column_dimensions[col_letter].width = 24
                 elif col_name in ["Type", "For", "Agenda Item", "TDoc Status", "My Status"] or "status" in header_lower or "status" in col_lower:
                     ws.column_dimensions[col_letter].width = 18
                 else:
