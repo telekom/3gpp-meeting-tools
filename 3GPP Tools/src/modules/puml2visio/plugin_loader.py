@@ -25,6 +25,17 @@ def register_puml2visio_plugin():
         thread_factory=lambda f, p, ctx: PptxConverterThread(f, ctx.get('jar_path'))
     )
     register_task(
+        target_format="pptx_append",
+        display_name="Add to PowerPoint",
+        thread_factory=lambda f, p, ctx: PptxConverterThread(
+            f,
+            ctx.get('jar_path'),
+            append_to_open=True,
+            target_presentation=p.get('target_presentation'),
+            insert_at=p.get('insert_at', 'end')
+        )
+    )
+    register_task(
         target_format="ascii",
         display_name="To .TXT",
         thread_factory=lambda f, p, ctx: AsciiConverterThread(f, ctx.get('jar_path'))

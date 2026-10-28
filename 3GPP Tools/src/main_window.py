@@ -710,6 +710,43 @@ class DragDropUI(QMainWindow):
         raw_text = self.code_tab.get_text()
         if not raw_text: return
 
+        params = {}
+        if target_format == "pptx_append":
+            from modules.puml2visio.core.powerpoint_converter import get_open_powerpoint_presentations
+            from modules.puml2visio.ui.select_presentation_dialog import SelectPresentationDialog
+
+            open_presentations = get_open_powerpoint_presentations()
+            if not open_presentations:
+                reply = QMessageBox.question(
+                    self,
+                    "No Open PowerPoint Presentation",
+                    "No open Microsoft PowerPoint presentation could be detected.\n\n"
+                    "Would you like to export to a new PowerPoint presentation instead?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.Yes
+                )
+                if reply == QMessageBox.Yes:
+                    target_format = "pptx"
+                else:
+                    return
+            elif len(open_presentations) == 1:
+                target_pres = open_presentations[0]
+                params = {
+                    "target_presentation": target_pres["name"],
+                    "insert_at": "end"
+                }
+            else:
+                dialog = SelectPresentationDialog(open_presentations, parent=self)
+                if dialog.exec_() != QDialog.Accepted:
+                    return
+                chosen = dialog.get_selected_presentation()
+                if not chosen:
+                    return
+                params = {
+                    "target_presentation": chosen["name"],
+                    "insert_at": "end"
+                }
+
         out_dir = get_project_root().parent / "output"
         out_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.datetime.now().strftime("%Y.%m.%d %H-%M-%S")
@@ -717,14 +754,19 @@ class DragDropUI(QMainWindow):
         puml_path = out_dir / f"{base_name}.puml"
 
         counter = 1
-        while puml_path.exists() or puml_path.with_suffix(".vsdx").exists() or puml_path.with_suffix(".svg").exists():
+        while (
+            puml_path.exists()
+            or puml_path.with_suffix(".vsdx").exists()
+            or puml_path.with_suffix(".pptx").exists()
+            or puml_path.with_suffix(".svg").exists()
+        ):
             puml_path = out_dir / f"{base_name}_{counter}.puml"
             counter += 1
 
         with open(puml_path, "w", encoding="utf-8") as f:
             f.write(raw_text)
 
-        self.queue_manager.add_item(puml_path, target_format)
+        self.queue_manager.add_item(puml_path, target_format, params=params)
 
     def on_conversion_failed(self, error_msg: str):
         if hasattr(self, 'word_tab') and hasattr(self.word_tab, 'on_conversion_failed'):
