@@ -3,6 +3,7 @@ from modules.word_tools.core.word_converter import WordConverterThread
 from modules.word_tools.core.word_extractor import WordExtractorThread
 from modules.word_tools.core.docx_splitter import DocxSplitterThread
 from modules.word_tools.core.word_comparator import WordComparatorThread
+from modules.word_tools.core.markdown_to_docx import MarkdownToWordThread
 
 
 def register_word_plugin():
@@ -46,5 +47,17 @@ def register_word_plugin():
             extract_media=params.get("extract_media", True),
             output_dir=params.get("output_dir"),
             include_header=params.get("include_header", True),
+        )
+    )
+    register_task(
+        target_format="markdown_to_word",
+        display_name="MARKDOWN → WORD",
+        thread_factory=lambda file_path, params, ctx: MarkdownToWordThread(
+            str(file_path),
+            output_dir=params.get("output_dir"),
+            companion_media_dir=params.get("companion_media_dir"),
+            render_diagrams=params.get("render_diagrams", True),
+            apply_3gpp_styles=params.get("apply_3gpp_styles", True),
+            auto_open=params.get("auto_open", False),
         )
     )

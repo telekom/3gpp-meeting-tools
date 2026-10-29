@@ -66,6 +66,7 @@ class WordExtractorTab(QWidget):
     compare_doc_requested = pyqtSignal(str, str, dict)
     convert_doc_requested = pyqtSignal(str, str)
     convert_markdown_requested = pyqtSignal(str, dict)
+    convert_markdown_to_word_requested = pyqtSignal(str, dict)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -173,7 +174,8 @@ class WordExtractorTab(QWidget):
         row2.addWidget(lbl_nav)
 
         self.nav_btn_compare = QPushButton("⚖️ Compare Documents")
-        self.nav_btn_markdown = QPushButton("📝 Word → Markdown")
+        self.nav_btn_markdown = QPushButton("📝 Markdown ⇄ Word")
+        self.nav_btn_markdown.setToolTip("Bidirectional studio: Word to Markdown with media extraction, and Markdown to Word with embedded figures & diagrams.")
         self.nav_btn_cr_pcr = QPushButton("🏛️ 3GPP CR && Templates")
         self.nav_btn_author = QPushButton("🛠️ Sanitizer && Revisions")
         self.nav_btn_author.setToolTip("Unify proofing language, purge language Track Changes clutter, consolidate revision authors, and sanitize metadata.")
@@ -260,9 +262,10 @@ class WordExtractorTab(QWidget):
         self.card_convert.convert_doc_requested.connect(self.convert_doc_requested)
         self.stack.addWidget(self.card_convert)
 
-        # Index 6: Word to Markdown Card
+        # Index 6: Markdown ⇄ Word Studio Card
         self.card_markdown = WordMarkdownCard()
         self.card_markdown.convert_markdown_requested.connect(self.convert_markdown_requested)
+        self.card_markdown.convert_markdown_to_word_requested.connect(self.convert_markdown_to_word_requested)
         self.stack.addWidget(self.card_markdown)
 
         # Index 7: 3GPP CR / pCR Card
@@ -317,6 +320,8 @@ class WordExtractorTab(QWidget):
         # Markdown Card aliases
         self.pane_md = self.card_markdown.pane_markdown
         self.pane_markdown = self.card_markdown.pane_markdown
+        self.pane_m2w = getattr(self.card_markdown, "pane_m2w", None)
+        self.run_m2w_btn = getattr(self.card_markdown, "run_m2w_btn", None)
         self.md_revisions_combo = self.card_markdown.md_revisions_combo
         self.md_media_cb = self.card_markdown.md_media_cb
         self.md_header_cb = self.card_markdown.md_header_cb
