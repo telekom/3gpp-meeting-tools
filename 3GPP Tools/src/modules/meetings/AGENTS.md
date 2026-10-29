@@ -254,7 +254,8 @@ src/modules/meetings/
       - `⚡ Appoint/Change Coverage for this Session...` (pre-filled with current assignment)
       - `↺ Revert Coverage to Topic Owner` (restores default topic ownership in 1 click via `_on_revert_dispatch`).
   - **Multi-Delegate Color-Coded Heatmap & Focus Filtering:**
-    - Auto-assigns distinct, accessible palette colors (`DELEGATE_PALETTE`) to each team member.
+    - Auto-assigns distinct, accessible palette colors (`DELEGATE_PALETTE`) to each team member. Features 10 harmonious, high-contrast hues (WCAG AA compliant $\ge 4.5:1$ against white): Royal Blue (`#2563EB`), Emerald Forest (`#047857`), Deep Violet (`#7C3AED`), Warm Terracotta (`#C2410C`), Cyan Ocean (`#0E7490`), Ruby Rose (`#BE123C`), Indigo Night (`#4338CA`), Plum Orchid (`#A21CAF`), Warm Bronze (`#B45309`), and Slate Graphite (`#475569`).
+    - **Solid Pastel Tint Architecture (`DelegationMember.compute_tint`):** Computes solid `#RRGGBB` pastel tints (`bg_tint` 12% and `border_tint` 35% blended with `#FFFFFF`) for delegate pills, chips, active highlight strips, tooltips, and HTML email summaries. **Strict prohibition of 8-digit hex codes (`#RRGGBBAA`)**: Qt QSS parses 8-character hex strings as `#AARRGGBB` (reversing alpha and RGB channels, turning `#2563EB1F` into dark sludge green `#1a3f07`), while Microsoft Outlook email engines ignore 8-digit hex completely. Blending directly on white produces 100% solid, predictable colors across Qt on Windows, Web, mobile, and Outlook.
     - Overview Grid displays interactive delegate pills (`● Martin`, `● Thomas (cov)`), left-border color accents, and clash warning badges (`⚠️ CLASH`).
     - Top ribbon focus bar (`[🌈 All Team] [👤 Only Me] [● Martin] [● Anna] ...`) allows 1-click spatial highlighting: dims unrelated rooms and lights up the selected person's weekly path.
   - **Delegate Agenda View (`🎯 Delegate Agenda`):**

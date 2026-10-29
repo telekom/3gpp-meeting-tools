@@ -890,7 +890,9 @@ class SessionPlanWindow(QWidget):
             member = self.delegation_plan.members.get(del_name) if self.delegation_plan else None
             col = member.color if member else "#2563EB"
             cov_str = " (Ad-Hoc Coverage)" if is_cov else " (Topic Owner)"
-            tt += f"<div style='margin-top:4px; padding:3px 6px; background:{col}1A; color:{col}; border-radius:4px; font-weight:600;'>👤 <b>Delegate:</b> {html.escape(del_name)}{cov_str}</div>"
+            bg_t = member.bg_tint if member else DelegationMember.compute_tint(col, 0.12)
+            bdr_t = member.border_tint if member else DelegationMember.compute_tint(col, 0.35)
+            tt += f"<div style='margin-top:4px; padding:3px 6px; background:{bg_t}; border:1px solid {bdr_t}; color:{col}; border-radius:4px; font-weight:600;'>👤 <b>Delegate:</b> {html.escape(del_name)}{cov_str}</div>"
 
         if ann and (ann.comment or ann.assigned_colleague):
             c_str = f" ({ann.assigned_colleague})" if ann.assigned_colleague else ""
@@ -921,8 +923,8 @@ class SessionPlanWindow(QWidget):
             cov_tag = " (cov)" if is_cov else ""
             del_pill = QLabel(f"● {del_name}{cov_tag}")
             del_pill.setStyleSheet(
-                f"background: {del_col}1F; color: {del_col}; font-weight: 700; font-size: 10px; "
-                f"border: 1px solid {del_col}55; border-radius: 4px; padding: 1px 4px;"
+                f"background: {member.bg_tint}; color: {del_col}; font-weight: 700; font-size: 10px; "
+                f"border: 1px solid {member.border_tint}; border-radius: 4px; padding: 1px 5px;"
             )
             pill_row = QHBoxLayout()
             pill_row.setContentsMargins(0, 0, 0, 0)
@@ -960,7 +962,17 @@ class SessionPlanWindow(QWidget):
         elif is_collision:
             lbl.setStyleSheet("background: #FFFBEB; color: #92400E; border: 1px solid #F59E0B; border-left: 4px solid #D97706; border-radius: 4px; padding: 4px; font-weight: 500;")
         elif member:
-            lbl.setStyleSheet(f"background: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-left: 4px solid {member.color}; border-radius: 4px; padding: 4px; font-weight: 500;")
+            is_focused = (
+                self.grid_highlight_delegate != "ALL"
+                and (
+                    (self.grid_highlight_delegate == "SELF" and member.is_self)
+                    or (self.grid_highlight_delegate.lower() == del_name.lower())
+                )
+            )
+            if is_focused:
+                lbl.setStyleSheet(f"background: {member.bg_tint}; color: #0F172A; border: 1.5px solid {member.color}; border-left: 5px solid {member.color}; border-radius: 4px; padding: 4px; font-weight: 600;")
+            else:
+                lbl.setStyleSheet(f"background: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-left: 4px solid {member.color}; border-radius: 4px; padding: 4px; font-weight: 500;")
         elif slot.is_drafting:
             lbl.setStyleSheet("background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; border-radius: 4px; padding: 4px; font-weight: 500;")
         elif is_tracked:
@@ -1464,7 +1476,7 @@ class SessionPlanWindow(QWidget):
                 btn_m.setCheckable(True)
                 btn_m.setStyleSheet(
                     f"padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; "
-                    f"border: 1px solid {m.color}66; background: #FFFFFF; color: {m.color};"
+                    f"border: 1px solid {m.border_tint}; background: {m.bg_tint}; color: {m.color};"
                 )
                 btn_m.clicked.connect(lambda _, n=name: self._on_delegate_highlight_clicked(n))
                 self.delegate_chip_group.addButton(btn_m)
@@ -1481,18 +1493,19 @@ class SessionPlanWindow(QWidget):
         for btn in self.dynamic_delegate_chips:
             text = btn.text()
             is_active = (key == "SELF" and "Only Me" in text) or (f"● {key}" == text)
+            raw_name = text.replace("● ", "").replace(" (Me)", "").strip()
+            m_obj = self.delegation_plan.members.get(raw_name) if self.delegation_plan else None
             if is_active:
+                m_color = m_obj.color if m_obj else "#0F172A"
                 btn.setStyleSheet(
-                    "padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; border: 1px solid #0F172A; background: #0F172A; color: #FFFFFF;"
+                    f"padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; border: 1px solid {m_color}; background: {m_color}; color: #FFFFFF;"
                 )
             else:
-                m_color = "#334155"
-                for m in self.delegation_plan.members.values():
-                    if f"● {m.name}" == text:
-                        m_color = m.color
-                        break
+                bdr = m_obj.border_tint if m_obj else "#CBD5E1"
+                bg = m_obj.bg_tint if m_obj else "#FFFFFF"
+                col = m_obj.color if m_obj else "#334155"
                 btn.setStyleSheet(
-                    f"padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; border: 1px solid {m_color}66; background: #FFFFFF; color: {m_color};"
+                    f"padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; border: 1px solid {bdr}; background: {bg}; color: {col};"
                 )
 
         self._render_overview_grid()
@@ -1524,7 +1537,7 @@ class SessionPlanWindow(QWidget):
             chip = QPushButton(f"● {name}" + (" (Me)" if m.is_self else ""))
             chip.setStyleSheet(
                 f"padding: 3px 10px; font-size: 11px; font-weight: 600; border-radius: 12px; "
-                f"border: 1px solid {m.color}88; background: {m.color}15; color: {m.color};"
+                f"border: 1px solid {m.border_tint}; background: {m.bg_tint}; color: {m.color};"
             )
             chip.setCursor(Qt.PointingHandCursor)
             chip.clicked.connect(lambda _, mem=m: self._on_edit_delegation_member(mem))
@@ -2331,6 +2344,7 @@ class SessionPlanWindow(QWidget):
             tz_name=self.tz_name,
             annotations=self.annotations,
             tracked_tokens=self.tracked_tokens,
+            delegation_plan=self.delegation_plan,
         )
         QMessageBox.information(self, "Mobile HTML Exported", f"Saved responsive mobile view to:\n{out_path}\n\nYou can copy this file to your phone or open it directly in Safari/Chrome offline.")
         return out_path
