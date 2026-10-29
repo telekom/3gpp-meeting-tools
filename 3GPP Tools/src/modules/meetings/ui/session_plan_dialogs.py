@@ -724,16 +724,12 @@ class DelegationMemberDialog(QDialog):
 
     def _select_palette_color(self, hex_color: str):
         self.selected_color = hex_color
+        import re
         for btn in self.swatch_buttons:
-            # Recompute border
-            bg = btn.palette().button().color().name()
-            # check stylesheet
-            is_active = hex_color in btn.styleSheet()
-            border_style = "2px solid #0F172A" if is_active else "1px solid #CBD5E1"
-            # Extract bg color from style
-            import re
             m = re.search(r"background-color:\s*(#[0-9a-fA-F]+)", btn.styleSheet())
             b_col = m.group(1) if m else "#2563EB"
+            is_active = (b_col.lower() == hex_color.lower())
+            border_style = "3px solid #0F172A" if is_active else "1px solid #CBD5E1"
             btn.setStyleSheet(f"background-color: {b_col}; border-radius: 13px; border: {border_style};")
         self._update_preview()
 
@@ -747,9 +743,11 @@ class DelegationMemberDialog(QDialog):
         is_me = self.self_chk.isChecked()
         suffix = " (Me)" if is_me else ""
         col = self.selected_color
+        bg_t = DelegationMember.compute_tint(col, 0.12)
+        bdr_t = DelegationMember.compute_tint(col, 0.35)
         self.preview_lbl.setText(f"  ● {name}{suffix}  ")
         self.preview_lbl.setStyleSheet(
-            f"background-color: {col}1A; color: {col}; border: 1px solid {col}66; border-radius: 6px; font-weight: 600; padding: 2px 8px;"
+            f"background-color: {bg_t}; color: {col}; border: 1px solid {bdr_t}; border-radius: 6px; font-weight: 600; padding: 2px 8px;"
         )
 
     def _validate_and_accept(self):

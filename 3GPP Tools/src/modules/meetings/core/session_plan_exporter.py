@@ -71,6 +71,7 @@ class SessionPlanExporter:
         meeting_dates_str: str = "",
         annotations: Optional[Dict[str, UserSessionAnnotation]] = None,
         tracked_tokens: Optional[Set[str]] = None,
+        delegation_plan: Optional[DelegationPlan] = None,
     ) -> Path:
         """
         Exports a self-contained, responsive, 100% offline mobile HTML view.
@@ -292,12 +293,21 @@ class SessionPlanExporter:
                     chips_html = "".join(chips)
                     raw_esc = html.escape(s.raw_text)
 
+                    del_badge = ""
+                    eff_del, is_cov = cls.get_slot_effective_delegate(s, delegation_plan)
+                    if eff_del and delegation_plan:
+                        m = delegation_plan.members.get(eff_del)
+                        if m:
+                            cov_lbl = " (cov)" if is_cov else ""
+                            del_badge = f'<span style="background:{m.bg_tint}; color:{m.color}; border:1px solid {m.border_tint}; border-radius:4px; padding:1px 5px; font-weight:700; font-size:11px; margin-left:4px;">● {html.escape(eff_del)}{cov_lbl}</span>'
+
                     html_parts.append(f"""
     <div class="{' '.join(classes)}" data-text="{raw_esc.lower()}" data-tracked="{1 if is_tracked else 0}">
       <div>
         <span class="stream-badge str-{s.stream_number}">Stream {s.stream_number}</span>
         <span class="room-pill">📍 {html.escape(r_name)} {"· " + html.escape(convener) if convener else ""}</span>
         {sub_tag}
+        {del_badge}
       </div>
       <div class="slot-content">
         {raw_esc}
@@ -716,12 +726,14 @@ class SessionPlanExporter:
             to = topic_owners[ai_num]
             m = members.get(to.owner_name)
             col = m.color if m else "#2563EB"
+            bg_col = m.bg_tint if m else "#E4ECFC"
+            bdr_col = m.border_tint if m else "#B2C8F8"
             ai_info = agenda_map.get(ai_num)
             desc = ai_info.description if ai_info else f"Agenda Item {ai_num}"
             topic_rows += f"""<tr>
               <td style='padding:6px 10px; border:1px solid #E2E8F0;'><b>{html.escape(ai_num)}</b></td>
               <td style='padding:6px 10px; border:1px solid #E2E8F0;'>{html.escape(desc)}</td>
-              <td style='padding:6px 10px; border:1px solid #E2E8F0;'><span style='color:{col}; font-weight:600;'>{html.escape(to.owner_name)}</span></td>
+              <td style='padding:6px 10px; border:1px solid #E2E8F0;'><span style='display:inline-block; padding:2px 8px; border-radius:4px; background-color:{bg_col}; border:1px solid {bdr_col}; color:{col}; font-weight:600;'>● {html.escape(to.owner_name)}</span></td>
             </tr>"""
             plain_topics.append(f"- AI {ai_num}: {desc} -> {to.owner_name}")
 
@@ -736,13 +748,15 @@ class SessionPlanExporter:
             str_num = parts[3] if len(parts) > 3 else "1"
             m_orig = members.get(ap.original_owner)
             m_app = members.get(ap.appointed_delegate)
-            col_app = m_app.color if m_app else "#059669"
+            col_app = m_app.color if m_app else "#047857"
+            bg_app = m_app.bg_tint if m_app else "#E0EEEA"
+            bdr_app = m_app.border_tint if m_app else "#A7CFC4"
             orig_txt = f"for {ap.original_owner}" if ap.original_owner else ""
             reason_txt = f" ({ap.reason})" if ap.reason else ""
 
             appt_rows += f"""<tr>
               <td style='padding:6px 10px; border:1px solid #E2E8F0;'><b>{day_name}</b> {q_name} (Str {str_num})</td>
-              <td style='padding:6px 10px; border:1px solid #E2E8F0;'><span style='color:{col_app}; font-weight:600;'>{html.escape(ap.appointed_delegate)}</span> {html.escape(orig_txt)}</td>
+              <td style='padding:6px 10px; border:1px solid #E2E8F0;'><span style='display:inline-block; padding:2px 8px; border-radius:4px; background-color:{bg_app}; border:1px solid {bdr_app}; color:{col_app}; font-weight:600;'>● {html.escape(ap.appointed_delegate)}</span> {html.escape(orig_txt)}</td>
               <td style='padding:6px 10px; border:1px solid #E2E8F0; color:#64748B;'>{html.escape(ap.reason or 'Ad-hoc cover')}</td>
             </tr>"""
             plain_appts.append(f"- {day_name} {q_name} (Stream {str_num}): {ap.appointed_delegate} covering {orig_txt}{reason_txt}")

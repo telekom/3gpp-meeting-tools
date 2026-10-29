@@ -58,6 +58,37 @@ class TestSessionPlanDelegationModelsAndDB(unittest.TestCase):
         m3 = DelegationMember(name="Thomas Alva Edison", color="#D97706")
         self.assertEqual(m3.initials, "TE")
 
+    def test_delegation_palette_and_solid_tints(self):
+        # 1. Verify 10 distinct, valid hex colors in DELEGATE_PALETTE
+        self.assertEqual(len(DELEGATE_PALETTE), 10)
+        self.assertEqual(len(set(DELEGATE_PALETTE)), 10, "Palette must not contain duplicate hues")
+        for col in DELEGATE_PALETTE:
+            self.assertTrue(col.startswith("#"))
+            self.assertEqual(len(col), 7)
+            int(col[1:], 16)  # Must be valid hex
+
+        # 2. Verify DelegationMember bg_tint and border_tint
+        m = DelegationMember(name="Martin", color="#2563EB")
+        self.assertTrue(m.bg_tint.startswith("#"))
+        self.assertEqual(len(m.bg_tint), 7)
+        self.assertTrue(m.border_tint.startswith("#"))
+        self.assertEqual(len(m.border_tint), 7)
+
+        # 3. Verify all palette colors generate valid solid pastel tints
+        for col in DELEGATE_PALETTE:
+            bg = DelegationMember.compute_tint(col, 0.12)
+            bdr = DelegationMember.compute_tint(col, 0.35)
+            self.assertTrue(bg.startswith("#") and len(bg) == 7)
+            self.assertTrue(bdr.startswith("#") and len(bdr) == 7)
+            # Tint blended with white should be lighter than original color
+            r_orig, g_orig, b_orig = int(col[1:3], 16), int(col[3:5], 16), int(col[5:7], 16)
+            r_bg, g_bg, b_bg = int(bg[1:3], 16), int(bg[3:5], 16), int(bg[5:7], 16)
+            self.assertGreaterEqual(r_bg + g_bg + b_bg, r_orig + g_orig + b_orig)
+
+        # 4. Graceful fallback on malformed hex
+        self.assertEqual(DelegationMember.compute_tint("not-a-color"), "#F1F5F9")
+        self.assertEqual(DelegationMember.compute_tint(""), "#F1F5F9")
+
     def test_delegation_roster_crud(self):
         m1 = DelegationMember(name="Martin", email="martin@telekom.com", color="#2563EB", is_self=True, notes="Lead")
         m2 = DelegationMember(name="Anna", email="anna@telekom.com", color="#059669", is_self=False, notes="Core")

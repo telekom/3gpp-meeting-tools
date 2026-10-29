@@ -91,18 +91,18 @@ class UserSessionAnnotation:
     updated_at: Optional[datetime] = None
 
 
-# Harmonious, high-contrast, accessible delegate palette
+# Harmonious, modern, high-contrast delegate palette (10 distinct hues, WCAG AA compliant >= 4.5:1 on white)
 DELEGATE_PALETTE: List[str] = [
     "#2563EB",  # Royal Blue
-    "#059669",  # Emerald Green
-    "#D97706",  # Warm Amber / Orange
-    "#7C3AED",  # Purple
-    "#E11D48",  # Rose Red
-    "#0891B2",  # Cyan Teal
-    "#4F46E5",  # Indigo
-    "#CA8A04",  # Yellow Gold
-    "#9333EA",  # Violet
-    "#0D9488",  # Teal
+    "#047857",  # Emerald Forest
+    "#7C3AED",  # Deep Violet
+    "#C2410C",  # Warm Terracotta
+    "#0E7490",  # Cyan Ocean
+    "#BE123C",  # Ruby Rose
+    "#4338CA",  # Indigo Night
+    "#A21CAF",  # Plum Orchid
+    "#B45309",  # Warm Bronze
+    "#475569",  # Slate Graphite
 ]
 
 
@@ -124,6 +124,33 @@ class DelegationMember:
         if len(parts) == 1:
             return parts[0][:2].upper()
         return (parts[0][0] + parts[-1][0]).upper()
+
+    @property
+    def bg_tint(self) -> str:
+        """Returns a soft 12% pastel background tint (#RRGGBB) blended on white."""
+        return self.compute_tint(self.color, 0.12)
+
+    @property
+    def border_tint(self) -> str:
+        """Returns a soft 35% border outline tint (#RRGGBB) blended on white."""
+        return self.compute_tint(self.color, 0.35)
+
+    @staticmethod
+    def compute_tint(hex_code: str, factor: float = 0.12) -> str:
+        """Blends a hex color with #FFFFFF to produce a 100% solid, cross-platform pastel hex."""
+        try:
+            h = hex_code.lstrip("#")
+            if len(h) >= 6:
+                r = int(h[0:2], 16)
+                g = int(h[2:4], 16)
+                b = int(h[4:6], 16)
+                r_out = int(r * factor + 255 * (1.0 - factor))
+                g_out = int(g * factor + 255 * (1.0 - factor))
+                b_out = int(b * factor + 255 * (1.0 - factor))
+                return f"#{r_out:02x}{g_out:02x}{b_out:02x}"
+        except Exception:
+            pass
+        return "#F1F5F9"
 
 
 @dataclass
