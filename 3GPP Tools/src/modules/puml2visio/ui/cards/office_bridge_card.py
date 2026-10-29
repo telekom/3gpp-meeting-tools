@@ -85,6 +85,7 @@ class OfficeBridgeCard(QWidget):
             [".pptx"],
         )
         self.drop_label_bridge.file_dropped.connect(self._on_bridge_files_dropped)
+        self.drop_label_bridge.file_selected.connect(self._on_bridge_files_dropped)
         layout.addWidget(self.drop_label_bridge)
 
         # Actions Row

@@ -24,6 +24,8 @@ from core.ui.ui_components import (
     CARD_FRAME_STYLE,
     SEARCH_INPUT_STYLE,
     InteractiveDropLabel,
+    ClickableDropLabel,
+    ModernDropZone,
 )
 from modules.word_tools.core.document_opener import (
     get_active_word_document,
@@ -31,17 +33,6 @@ from modules.word_tools.core.document_opener import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class ClickableDropLabel(InteractiveDropLabel):
-    """An InteractiveDropLabel that also emits a clicked signal on mouse press."""
-
-    clicked = pyqtSignal()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit()
-        super().mousePressEvent(event)
 
 
 class DocumentSelectorPane(QWidget):
@@ -56,7 +47,7 @@ class DocumentSelectorPane(QWidget):
         super().__init__()
         self.title = title
         self.accepted_extensions = accepted_extensions or [".docx", ".doc", ".docm"]
-        self.drop_prompt = drop_prompt or "📥 Drag & Drop document here\n(or click to browse)"
+        self.drop_prompt = drop_prompt or "Drag & drop document here"
         self.selected_files = []
         self._setup_ui()
 
@@ -90,13 +81,16 @@ class DocumentSelectorPane(QWidget):
         drop_layout.setContentsMargins(8, 8, 8, 8)
         drop_layout.setSpacing(6)
 
-        self.drop_zone = ClickableDropLabel(
-            self.drop_prompt,
-            self.accepted_extensions,
+        self.drop_zone = ModernDropZone(
+            accepted_extensions=self.accepted_extensions,
+            title=self.drop_prompt,
+            subtitle="or click to browse from computer",
+            compact=False,
+            browse_on_click=True,
         )
-        self.drop_zone.setCursor(Qt.PointingHandCursor)
         self.drop_zone.file_dropped.connect(self._on_drop)
-        self.drop_zone.clicked.connect(self._browse_local_file)
+        self.drop_zone.file_selected.connect(self._on_drop)
+        self.drop_zone.file_cleared.connect(self.clear_selection)
         drop_layout.addWidget(self.drop_zone)
 
         # File actions bar (Browse, Clear, Info)
@@ -189,13 +183,10 @@ class DocumentSelectorPane(QWidget):
     def _set_files(self, files: List[str]):
         self.selected_files = [str(Path(f).resolve()) for f in files]
         self.tabs.setCurrentIndex(0)
+        self.drop_zone.set_loaded_file(self.selected_files)
+
         if len(files) == 1:
             p = Path(files[0])
-            size_str = ""
-            if p.exists():
-                size_kb = p.stat().st_size / 1024
-                size_str = f" ({size_kb:.1f} KB)" if size_kb < 1024 else f" ({size_kb/1024:.2f} MB)"
-
             label_str = ""
             try:
                 from modules.word_tools.core.sensitivity_label import get_document_sensitivity_label
@@ -204,18 +195,19 @@ class DocumentSelectorPane(QWidget):
                     label_str = f" | 🛡️ {sl['name']}"
             except Exception:
                 pass
-
-            self.drop_zone.set_state("ready", f"Ready:\n{p.name}{size_str}{label_str}")
             self.lbl_meta.setText(f"Selected: {p.name}{label_str}")
         else:
-            self.drop_zone.set_state("ready", f"Ready:\n{len(files)} files queued for batch")
             self.lbl_meta.setText(f"{len(files)} files selected")
         self.btn_clear.setEnabled(True)
         self.file_selected.emit(self.selected_files)
 
     def clear_selection(self):
+        if not self.selected_files and not self.drop_zone.get_selected_files():
+            self.lbl_meta.setText("")
+            self.btn_clear.setEnabled(False)
+            return
         self.selected_files = []
-        self.drop_zone.set_state("idle", self.drop_prompt)
+        self.drop_zone.clear()
         self.lbl_meta.setText("")
         self.btn_clear.setEnabled(False)
 
