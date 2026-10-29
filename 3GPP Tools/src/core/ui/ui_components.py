@@ -465,13 +465,14 @@ QPushButton:checked {
 
 TOGGLE_PILL_STYLE = """
 QPushButton {
-    padding: 3px 10px;
+    padding: 3px 12px;
     font-size: 11px;
     font-weight: 500;
     background-color: #F8FAFC;
     color: #334155;
     border: 1px solid #CBD5E1;
     border-radius: 12px;
+    min-height: 22px;
 }
 QPushButton:hover {
     background-color: #F1F5F9;
@@ -482,6 +483,7 @@ QPushButton:checked {
     color: #1E5C99;
     font-weight: bold;
     border: 1.5px solid #1E5C99;
+    border-radius: 12px;
 }
 QPushButton:checked:hover {
     background-color: #DFEDFA;
