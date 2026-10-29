@@ -38,7 +38,7 @@ class TestMarkdownToWord(unittest.TestCase):
 
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp(prefix="test_md_to_word_")
-        self.td = Path(self.temp_dir)
+        self.td = Path(self.temp_dir).resolve()
         register_word_plugin()
 
     def tearDown(self):
@@ -228,13 +228,77 @@ AMF -> UE: Registration Accept
         card._toggle_direction()
         self.assertEqual(card.studio_stack.currentIndex(), 0)
 
-        # Test smart drop routing: dropping .md in w2m switches to mode 1
-        card._on_w2m_file_selected([str(self.td / "notes.md")])
-        self.assertEqual(card.studio_stack.currentIndex(), 1)
+        # Create real temp files so DocumentSelectorPane sets ready state
+        md_temp = self.td / "notes.md"
+        md_temp.write_text("# Notes", encoding="utf-8")
+        docx_temp = self.td / "draft.docx"
+        docx.Document().save(str(docx_temp))
 
-        # Dropping .docx in m2w switches to mode 0
-        card._on_m2w_file_selected([str(self.td / "draft.docx")])
+        # Test smart drop routing: dropping .md in w2m switches to mode 1 and clears w2m
+        card._on_w2m_file_selected([str(md_temp)])
+        self.assertEqual(card.studio_stack.currentIndex(), 1)
+        self.assertEqual(card.pane_markdown.selected_files, [])
+        self.assertEqual(card.pane_m2w.selected_files, [str(md_temp)])
+
+        # Dropping .docx in m2w switches to mode 0 and clears m2w
+        card._on_m2w_file_selected([str(docx_temp)])
         self.assertEqual(card.studio_stack.currentIndex(), 0)
+        self.assertEqual(card.pane_m2w.selected_files, [])
+        self.assertEqual(card.pane_markdown.selected_files, [str(docx_temp)])
+
+        # Unrelated .docx completion while in mode 0 should NOT hijack studio mode to 1
+        card._awaiting_m2w = False
+        card.on_conversion_success(str(docx_temp))
+        self.assertEqual(card.studio_stack.currentIndex(), 0)
+
+    def test_hyperlinks_nested_lists_and_inline_elements(self):
+        """Verify clickable hyperlinks, nested lists, <br>, <u>, <sup>, <sub>, and <hr>."""
+        md_file = self.td / "rich_elements.md"
+        content = """# Rich Formatting Test
+
+Visit [3GPP Portal](https://portal.3gpp.org) for specifications.
+Line one<br>Line two with <u>underlined</u>, <ins>inserted</ins>, X<sup>2</sup> and H<sub>2</sub>O.
+
+---
+
+- Top item 1
+  - Nested item 1a
+  - Nested item 1b
+- Top item 2
+"""
+        md_file.write_text(content, encoding="utf-8")
+        out_docx = self.td / "rich_elements.docx"
+
+        convert_markdown_to_docx(md_path=md_file, output_docx_path=out_docx, apply_3gpp_styles=False)
+        doc = docx.Document(str(out_docx))
+
+        # Check clickable hyperlink XML presence
+        doc_xml = doc.element.xml
+        self.assertIn("w:hyperlink", doc_xml)
+
+        # Verify nested list items are separate paragraphs (not concatenated into parent item)
+        bullet_texts = [p.text.strip() for p in doc.paragraphs if "item" in p.text]
+        self.assertIn("Top item 1", bullet_texts)
+        self.assertIn("Nested item 1a", bullet_texts)
+        self.assertIn("Nested item 1b", bullet_texts)
+        self.assertIn("Top item 2", bullet_texts)
+
+    def test_auto_detect_media_toggle(self):
+        """Verify auto_detect_media controls companion folder lookup."""
+        md_file = self.td / "doc.md"
+        comp_dir = self.td / "doc_media"
+        comp_dir.mkdir(parents=True, exist_ok=True)
+        img_file = comp_dir / "fig1.png"
+        img_file.write_bytes(b"dummy")
+
+        # When auto_detect_media=True, finds fig1.png inside doc_media/
+        resolved_on = resolve_image_path("fig1.png", md_file, auto_detect_media=True)
+        self.assertIsNotNone(resolved_on)
+        self.assertEqual(resolved_on.resolve(), img_file.resolve())
+
+        # When auto_detect_media=False, does not search companion folder
+        resolved_off = resolve_image_path("fig1.png", md_file, auto_detect_media=False)
+        self.assertIsNone(resolved_off)
 
     def test_word_extractor_tab_integration(self):
         """Verify WordExtractorTab provides bidirectional Markdown studio integration."""

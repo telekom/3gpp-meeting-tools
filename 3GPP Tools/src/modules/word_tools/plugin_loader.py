@@ -56,6 +56,7 @@ def register_word_plugin():
             str(file_path),
             output_dir=params.get("output_dir"),
             companion_media_dir=params.get("companion_media_dir"),
+            auto_detect_media=params.get("auto_detect_media", True),
             render_diagrams=params.get("render_diagrams", True),
             apply_3gpp_styles=params.get("apply_3gpp_styles", True),
             auto_open=params.get("auto_open", False),

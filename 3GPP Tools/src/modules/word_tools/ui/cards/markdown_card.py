@@ -49,6 +49,9 @@ class WordMarkdownCard(QWidget):
         self._last_md_output_path: Optional[str] = None
         self._last_converted_md: Optional[str] = None
         self._last_docx_output_path: Optional[str] = None
+        self._awaiting_w2m: bool = False
+        self._awaiting_m2w: bool = False
+        self._routing_files: bool = False
         self._setup_ui()
 
         # Backward compatibility aliases
@@ -259,6 +262,13 @@ class WordMarkdownCard(QWidget):
             "📝 MARKDOWN DOCUMENT TO CONVERT (.md)",
             accepted_extensions=[".md", ".markdown", ".txt", ".docx", ".doc"],
         )
+        # Hide Word-COM-only controls on the Markdown input pane
+        self.pane_m2w.quick_active_btn.setVisible(False)
+        if hasattr(self.pane_m2w.tabs, "setTabVisible"):
+            self.pane_m2w.tabs.setTabVisible(1, False)
+        else:
+            self.pane_m2w.tabs.setTabEnabled(1, False)
+        self.pane_m2w.url_input.setPlaceholderText("https://... (Markdown .md file URL)")
         self.pane_m2w.file_selected.connect(self._on_m2w_file_selected)
         m2w_layout.addWidget(self.pane_m2w)
 
@@ -392,22 +402,30 @@ class WordMarkdownCard(QWidget):
         self.set_studio_mode(new_idx)
 
     def _on_w2m_file_selected(self, files: list):
-        if not files:
+        if not files or self._routing_files:
             return
         ext = Path(files[0]).suffix.lower()
         if ext in (".md", ".markdown"):
-            self.set_studio_mode(1)
-            self.pane_m2w.selected_files = files
-            self.pane_m2w.drop_zone.setText(f"📄 {Path(files[0]).name}")
+            self._routing_files = True
+            try:
+                self.pane_markdown.clear_selection()
+                self.set_studio_mode(1)
+                self.pane_m2w._set_files(files)
+            finally:
+                self._routing_files = False
 
     def _on_m2w_file_selected(self, files: list):
-        if not files:
+        if not files or self._routing_files:
             return
         ext = Path(files[0]).suffix.lower()
         if ext in (".docx", ".doc", ".docm"):
-            self.set_studio_mode(0)
-            self.pane_markdown.selected_files = files
-            self.pane_markdown.drop_zone.setText(f"📄 {Path(files[0]).name}")
+            self._routing_files = True
+            try:
+                self.pane_m2w.clear_selection()
+                self.set_studio_mode(0)
+                self.pane_markdown._set_files(files)
+            finally:
+                self._routing_files = False
 
     # =========================================================================
     # Word → Markdown Execution & Results
@@ -426,6 +444,8 @@ class WordMarkdownCard(QWidget):
             "output_dir": self.md_dest_edit.text().strip() if self.md_custom_dest_cb.isChecked() else None,
         }
 
+        self._awaiting_w2m = True
+        self.md_copy_btn.setText("📋 Copy Markdown")
         self.md_result_frame.setVisible(False)
         self.md_progress.setVisible(True)
         self.run_markdown_btn.setEnabled(False)
@@ -480,12 +500,15 @@ class WordMarkdownCard(QWidget):
         source_file = inputs[0]
         options = {
             "companion_media_dir": None,
+            "auto_detect_media": self.m2w_media_cb.isChecked(),
             "render_diagrams": self.m2w_diagrams_cb.isChecked(),
             "apply_3gpp_styles": self.m2w_styles_cb.isChecked(),
             "auto_open": self.m2w_auto_open_cb.isChecked(),
             "output_dir": self.m2w_dest_edit.text().strip() if self.m2w_custom_dest_cb.isChecked() else None,
         }
 
+        self._awaiting_m2w = True
+        self.m2w_copy_path_btn.setText("🔗 Copy Path")
         self.m2w_result_frame.setVisible(False)
         self.m2w_progress.setVisible(True)
         self.run_m2w_btn.setEnabled(False)
@@ -528,6 +551,7 @@ class WordMarkdownCard(QWidget):
 
         # Word → Markdown completion
         if suffix in (".md", ".markdown"):
+            self._awaiting_w2m = False
             self.set_studio_mode(0)
             self._last_md_output_path = str(p)
             self._last_converted_md = str(p)
@@ -550,8 +574,9 @@ class WordMarkdownCard(QWidget):
                 except Exception:
                     self.md_preview_edit.setPlainText("")
 
-        # Markdown → Word completion
-        elif suffix in (".docx", ".doc"):
+        # Markdown → Word completion (only handle if triggered from this card or currently in M2W mode)
+        elif suffix in (".docx", ".doc") and (self._awaiting_m2w or self.studio_stack.currentIndex() == 1):
+            self._awaiting_m2w = False
             self.set_studio_mode(1)
             self._last_docx_output_path = str(p)
             self.m2w_progress.setVisible(False)
@@ -566,7 +591,19 @@ class WordMarkdownCard(QWidget):
 
     def on_conversion_failed(self, error_msg: str):
         # Reset progress in active mode
-        if self.studio_stack.currentIndex() == 0:
+        if self._awaiting_m2w or (not self._awaiting_w2m and self.studio_stack.currentIndex() == 1):
+            self._awaiting_m2w = False
+            self.m2w_progress.setVisible(False)
+            self.run_m2w_btn.setEnabled(True)
+            self.m2w_result_icon.setText("❌")
+            self.m2w_result_lbl.setStyleSheet("font-weight: bold; color: #DC2626;")
+            self.m2w_result_lbl.setText(f"Compilation failed: {error_msg}")
+            self.m2w_open_folder_btn.setEnabled(False)
+            self.m2w_open_file_btn.setEnabled(False)
+            self.m2w_copy_path_btn.setEnabled(False)
+            self.m2w_result_frame.setVisible(True)
+        else:
+            self._awaiting_w2m = False
             self.md_progress.setVisible(False)
             self.run_markdown_btn.setEnabled(True)
             self.md_result_icon.setText("❌")
@@ -578,16 +615,6 @@ class WordMarkdownCard(QWidget):
             self.md_preview_toggle_btn.setEnabled(False)
             self.md_preview_edit.setVisible(False)
             self.md_result_frame.setVisible(True)
-        else:
-            self.m2w_progress.setVisible(False)
-            self.run_m2w_btn.setEnabled(True)
-            self.m2w_result_icon.setText("❌")
-            self.m2w_result_lbl.setStyleSheet("font-weight: bold; color: #DC2626;")
-            self.m2w_result_lbl.setText(f"Compilation failed: {error_msg}")
-            self.m2w_open_folder_btn.setEnabled(False)
-            self.m2w_open_file_btn.setEnabled(False)
-            self.m2w_copy_path_btn.setEnabled(False)
-            self.m2w_result_frame.setVisible(True)
 
     def on_processing_state_changed(self, is_processing: bool):
         self.run_markdown_btn.setEnabled(not is_processing)

@@ -812,6 +812,7 @@ class DragDropUI(QMainWindow):
             "companion_media_dir": opts.get("companion_media_dir"),
             "render_diagrams": opts.get("render_diagrams", True),
             "apply_3gpp_styles": opts.get("apply_3gpp_styles", True),
+            "auto_detect_media": opts.get("auto_detect_media", True),
             "auto_open": opts.get("auto_open", False),
         }
         self.queue_manager.add_item(Path(doc), "markdown_to_word", params=params)
