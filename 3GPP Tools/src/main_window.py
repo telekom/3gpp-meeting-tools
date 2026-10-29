@@ -185,6 +185,9 @@ class DragDropUI(QMainWindow):
         self.word_tab.convert_markdown_requested.connect(
             self._on_word_convert_markdown_requested
         )
+        self.word_tab.convert_markdown_to_word_requested.connect(
+            self._on_word_convert_markdown_to_word_requested
+        )
 
         db_path = get_project_root() / "db" / "3gpp_data.db"
         logging.info("🏁 [STARTUP:UI:TAB] 4/8 Initializing SpecificationsTab...")
@@ -794,6 +797,24 @@ class DragDropUI(QMainWindow):
             "include_header": opts.get("include_header", True),
         }
         self.queue_manager.add_item(Path(doc), "word_to_markdown", params=params)
+
+    def _on_word_convert_markdown_to_word_requested(self, doc: str, *args, **kwargs) -> None:
+        """Enqueues Markdown to Word conversion supporting dict or positional arguments."""
+        if args and isinstance(args[0], dict):
+            opts = args[0]
+        elif kwargs:
+            opts = kwargs
+        else:
+            opts = {}
+
+        params = {
+            "output_dir": opts.get("output_dir"),
+            "companion_media_dir": opts.get("companion_media_dir"),
+            "render_diagrams": opts.get("render_diagrams", True),
+            "apply_3gpp_styles": opts.get("apply_3gpp_styles", True),
+            "auto_open": opts.get("auto_open", False),
+        }
+        self.queue_manager.add_item(Path(doc), "markdown_to_word", params=params)
 
     def on_conversion_failed(self, error_msg: str):
         if hasattr(self, 'word_tab') and hasattr(self.word_tab, 'on_conversion_failed'):

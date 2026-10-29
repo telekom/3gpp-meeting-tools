@@ -10,6 +10,7 @@ by Rapporteurs or MCC automated validation tools.
 """
 
 import io
+import time
 import logging
 import os
 import re
@@ -822,7 +823,16 @@ def ensure_3gpp_package_styles(docx_path: Path) -> None:
         with open(ext_tmp, "wb") as tf:
             tf.write(out_buf.getvalue())
 
-        os.replace(ext_tmp, ext_path)
+        # Brief retry loop guards against transient Windows file locking (antivirus/indexers)
+        for attempt in range(5):
+            try:
+                os.replace(ext_tmp, ext_path)
+                break
+            except (PermissionError, OSError):
+                if attempt == 4:
+                    raise
+                time.sleep(0.08)
+
         logger.info("Ensured authentic 3GPP styles and table formatting in %s", docx_path.name)
     finally:
         if os.path.exists(ext_tmp):

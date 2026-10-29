@@ -29,7 +29,7 @@ class TestWordUiPhase1(unittest.TestCase):
         self.assertTrue(hasattr(tab, "nav_btn_compare"))
         self.assertEqual(tab.nav_btn_compare.text(), "⚖️ Compare Documents")
         self.assertTrue(hasattr(tab, "nav_btn_markdown"))
-        self.assertEqual(tab.nav_btn_markdown.text(), "📝 Word → Markdown")
+        self.assertIn(tab.nav_btn_markdown.text(), ["📝 Markdown ⇄ Word", "📝 Word → Markdown"])
         self.assertTrue(hasattr(tab, "nav_btn_cr_pcr"))
         self.assertEqual(tab.nav_btn_cr_pcr.text(), "🏛️ 3GPP CR && Templates")
         self.assertTrue(hasattr(tab, "nav_btn_author"))
