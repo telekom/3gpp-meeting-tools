@@ -58,9 +58,12 @@ from modules.meetings.core.session_plan_models import (
     SessionSlot,
     TopicOwnership,
     UserSessionAnnotation,
+    compute_unique_initials,
+    resolve_slot_effective_delegates,
 )
 from modules.meetings.core.session_plan_parser import SessionPlanParser
 from modules.meetings.core.session_plan_timezone import SessionPlanTimezone
+from modules.meetings.ui.delegate_owner_picker import DelegateOwnerPicker
 from modules.meetings.ui.session_plan_dialogs import (
     DelegationImportDialog,
     DelegationMemberDialog,
@@ -126,8 +129,13 @@ class SessionPlanWindow(QWidget):
 
         # Delegation state
         self.delegation_plan: DelegationPlan = self.db.get_delegation_plan(self.meeting_number)
-        self.grid_highlight_delegate: str = "ALL"  # "ALL", "SELF", or member name
-        self.dynamic_delegate_chips: List[QPushButton] = []
+        # Multi-select Delegate Focus: empty set == whole team (no dimming); otherwise roster names.
+        self.grid_focus_delegates: Set[str] = set()
+        self.grid_highlight_delegate: str = "ALL"  # Backward-compat mirror: "ALL", "SELF", member name, or "MULTI"
+        self.dynamic_delegate_chips: List[QCheckBox] = []
+        # Per-render caches (collisions are expensive: O(slots x owners) and were recomputed per cell)
+        self._grid_collisions_cache: Optional[Dict[Tuple[str, int, str], List[SessionSlot]]] = None
+        self._initials_cache: Tuple[Tuple[str, ...], Dict[str, str]] = ((), {})
 
         # Timezone state
         self.tz_offset_min = 120  # Default +2 hours (Europe summer/Prague)
@@ -472,22 +480,33 @@ class SessionPlanWindow(QWidget):
 
         lbl_f = QLabel("<b>Delegate Focus:</b>")
         lbl_f.setStyleSheet("font-size: 11px; color: #475569;")
+        lbl_f.setToolTip("Tick one or more delegates to highlight their sessions; all other sessions are dimmed.")
         self.delegate_strip_layout.addWidget(lbl_f)
 
-        self.delegate_chip_group = QButtonGroup(self)
-        self.delegate_chip_group.setExclusive(True)
-
         self.btn_chip_all = QPushButton("🌈 All Team")
-        self.btn_chip_all.setCheckable(True)
-        self.btn_chip_all.setChecked(True)
-        self.btn_chip_all.setStyleSheet("padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; border: 1px solid #3B82F6; background: #3B82F6; color: #FFFFFF;")
+        self.btn_chip_all.setToolTip("Clear the focus selection and show every session at full contrast.")
+        self.btn_chip_all.setCursor(Qt.PointingHandCursor)
         self.btn_chip_all.clicked.connect(lambda: self._on_delegate_highlight_clicked("ALL"))
-        self.delegate_chip_group.addButton(self.btn_chip_all)
         self.delegate_strip_layout.addWidget(self.btn_chip_all)
 
-        self.dynamic_delegate_chips: List[QPushButton] = []
+        # Dynamic "Only Me" + per-delegate focus checkboxes live in their own sub-layout
+        self.delegate_chips_layout = QHBoxLayout()
+        self.delegate_chips_layout.setContentsMargins(0, 0, 0, 0)
+        self.delegate_chips_layout.setSpacing(6)
+        self.delegate_strip_layout.addLayout(self.delegate_chips_layout)
+
+        self.btn_chip_me: Optional[QPushButton] = None
+        self.dynamic_delegate_chips: List[QCheckBox] = []
         self.delegate_strip_layout.addStretch()
+
+        self.lbl_badge_legend = QLabel(
+            "<span style='color:#64748B;'>Badges: <b>●</b> owner · <b>◌</b> dashed = ad-hoc cover · "
+            "<b style='color:#DC2626;'>◯</b> red ring = clash</span>"
+        )
+        self.lbl_badge_legend.setStyleSheet("font-size: 10px;")
+        self.delegate_strip_layout.addWidget(self.lbl_badge_legend)
         page_layout.addWidget(self.delegate_strip)
+        self._style_focus_buttons()
 
         # Overview Table (10 columns: 2 per day)
         self.grid_table = QTableWidget()
@@ -908,6 +927,39 @@ class SessionPlanWindow(QWidget):
         tt += "</div>"
         return tt
 
+    def _make_delegate_badge(
+        self,
+        member: DelegationMember,
+        initials_text: str,
+        is_cov: bool = False,
+        is_clash: bool = False,
+        clash_slots: Optional[List[SessionSlot]] = None,
+    ) -> QLabel:
+        """Creates a compact circular/pill badge showing 2-letter delegate initials."""
+        lbl = QLabel(initials_text)
+        lbl.setAlignment(Qt.AlignCenter)
+
+        role_desc = "Ad-hoc coverage override" if is_cov else "Topic owner"
+        tt_lines = [f"<b>{html.escape(member.name)}</b> ({html.escape(initials_text)}) — {role_desc}"]
+        if is_clash and clash_slots:
+            for cs in clash_slots:
+                tt_lines.append(f"⚠️ Clashes with Stream {cs.stream_number}: {html.escape(cs.raw_text[:48])}")
+        elif is_clash:
+            tt_lines.append("⚠️ Parallel-stream clash detected!")
+        lbl.setToolTip("<br>".join(tt_lines))
+
+        border_style = "dashed" if is_cov else "solid"
+        if is_clash:
+            bdr = f"2px {border_style} #DC2626"
+        else:
+            bdr = f"1px {border_style} {member.border_tint}"
+
+        lbl.setStyleSheet(
+            f"background: {member.bg_tint}; color: {member.color}; font-weight: 700; font-size: 9px; "
+            f"border: {bdr}; border-radius: 8px; padding: 1px 5px; min-width: 16px;"
+        )
+        return lbl
+
     def _create_slot_cell_widget(
         self, slot: SessionSlot, day_idx: int, period: str, stream_num: int, is_half: bool = False, tu: int = 0
     ) -> QWidget:
@@ -924,61 +976,70 @@ class SessionPlanWindow(QWidget):
             if self.delegation_plan and name in self.delegation_plan.members
         ]
 
-        collisions = self._detect_delegation_collisions()
+        collisions = (
+            self._grid_collisions_cache
+            if self._grid_collisions_cache is not None
+            else self._detect_delegation_collisions()
+        )
         colliding_members = []
+        clash_partners: Dict[str, List[SessionSlot]] = {}
         for d_name in del_names:
             quarter_clashes = collisions.get((d_name, slot.day_index, slot.quarter), [])
             if any(slot.id == cs.id or slot.slot_key == cs.slot_key for cs in quarter_clashes):
                 colliding_members.append(d_name)
+                clash_partners[d_name] = [
+                    cs for cs in quarter_clashes
+                    if cs.slot_key != slot.slot_key and self._slots_time_overlap(cs, slot)
+                ]
         is_collision = len(colliding_members) > 0
 
-        # Top delegate pill strip if assigned
-        if is_all:
-            cov_tag = " (cov)" if is_cov else ""
-            del_pill = QLabel(f"👥 All Team{cov_tag}")
-            del_pill.setStyleSheet(
-                "background: #EEF2FF; color: #4338CA; font-weight: 700; font-size: 10px; "
-                "border: 1px solid #C7D2FE; border-radius: 4px; padding: 1px 5px;"
-            )
-            pill_row = QHBoxLayout()
-            pill_row.setContentsMargins(0, 0, 0, 0)
-            pill_row.setSpacing(4)
-            pill_row.addWidget(del_pill)
-
-            if is_collision:
-                c_who = f" ({colliding_members[0]})" if len(colliding_members) == 1 else ""
-                warn_pill = QLabel(f"⚠️ CLASH{c_who}")
-                warn_pill.setStyleSheet("background: #FEF3C7; color: #92400E; font-weight: bold; font-size: 9px; border: 1px solid #F59E0B; border-radius: 4px; padding: 1px 3px;")
-                pill_row.addWidget(warn_pill)
-
-            pill_row.addStretch()
-            lay.addLayout(pill_row)
-        elif assigned_members:
+        # Compact badge strip: colored initials dots instead of full names (full names in tooltips)
+        if is_all or assigned_members:
             pill_row = QHBoxLayout()
             pill_row.setContentsMargins(0, 0, 0, 0)
             pill_row.setSpacing(3)
-            cov_tag = " (cov)" if is_cov else ""
 
-            if len(assigned_members) <= 2:
-                for m in assigned_members:
-                    del_pill = QLabel(f"● {m.name}{cov_tag}")
-                    del_pill.setStyleSheet(
-                        f"background: {m.bg_tint}; color: {m.color}; font-weight: 700; font-size: 10px; "
-                        f"border: 1px solid {m.border_tint}; border-radius: 4px; padding: 1px 4px;"
-                    )
-                    pill_row.addWidget(del_pill)
-            else:
-                del_pill = QLabel(f"👥 {len(assigned_members)} Delegates{cov_tag}")
-                del_pill.setStyleSheet(
-                    "background: #F1F5F9; color: #334155; font-weight: 700; font-size: 10px; "
-                    "border: 1px solid #CBD5E1; border-radius: 4px; padding: 1px 5px;"
+            if is_all:
+                all_pill = QLabel("👥 ALL")
+                all_pill.setToolTip("Whole delegation" + (" (ad-hoc coverage)" if is_cov else " (All Team topic)"))
+                border_style = "dashed" if is_cov else "solid"
+                all_pill.setStyleSheet(
+                    "background: #EEF2FF; color: #4338CA; font-weight: 700; font-size: 9px; "
+                    f"border: 1px {border_style} #6366F1; border-radius: 8px; padding: 1px 5px;"
                 )
-                pill_row.addWidget(del_pill)
+                pill_row.addWidget(all_pill)
+            else:
+                initials = self._delegate_initials_map()
+                max_badges = 4
+                shown = assigned_members if len(assigned_members) <= max_badges else assigned_members[: max_badges - 1]
+                for m in shown:
+                    pill_row.addWidget(
+                        self._make_delegate_badge(
+                            m,
+                            initials.get(m.name, m.initials),
+                            is_cov=is_cov,
+                            is_clash=m.name in colliding_members,
+                            clash_slots=clash_partners.get(m.name, []),
+                        )
+                    )
+                if len(assigned_members) > len(shown):
+                    rest = assigned_members[len(shown):]
+                    more = QLabel(f"+{len(rest)}")
+                    more.setToolTip(", ".join(m.name for m in rest))
+                    more.setStyleSheet(
+                        "background: #F1F5F9; color: #334155; font-weight: 700; font-size: 9px; "
+                        "border: 1px solid #CBD5E1; border-radius: 9px; padding: 1px 4px;"
+                    )
+                    pill_row.addWidget(more)
 
             if is_collision:
-                c_who = f" ({colliding_members[0]})" if len(colliding_members) == 1 else ""
-                warn_pill = QLabel(f"⚠️ CLASH{c_who}")
-                warn_pill.setStyleSheet("background: #FEF3C7; color: #92400E; font-weight: bold; font-size: 9px; border: 1px solid #F59E0B; border-radius: 4px; padding: 1px 3px;")
+                warn_pill = QLabel("⚠")
+                who = ", ".join(colliding_members)
+                warn_pill.setToolTip(f"Parallel-stream clash for: {who}")
+                warn_pill.setStyleSheet(
+                    "background: #FEF3C7; color: #B45309; font-weight: bold; font-size: 10px; "
+                    "border: 1px solid #F59E0B; border-radius: 8px; padding: 0px 4px;"
+                )
                 pill_row.addWidget(warn_pill)
 
             pill_row.addStretch()
@@ -990,23 +1051,15 @@ class SessionPlanWindow(QWidget):
 
         is_tracked = self._is_slot_tracked(slot)
 
-        # Dimming check if delegate focus is active on Overview Grid
+        # Dimming check if a (multi-select) delegate focus is active on the Overview Grid
         is_dimmed = False
         is_focused = False
-        if self.grid_highlight_delegate != "ALL":
-            if self.grid_highlight_delegate == "SELF":
-                self_member = next((m for m in self.delegation_plan.members.values() if m.is_self), None)
-                target_name = self_member.name if self_member else ""
-                if is_all or any(dn.lower() == target_name.lower() for dn in del_names):
-                    is_focused = True
-                else:
-                    is_dimmed = True
+        if self.grid_focus_delegates:
+            focus_lower = {n.lower() for n in self.grid_focus_delegates}
+            if is_all or any(dn.lower() in focus_lower for dn in del_names):
+                is_focused = True
             else:
-                target_name = self.grid_highlight_delegate.lower()
-                if is_all or any(dn.lower() == target_name for dn in del_names):
-                    is_focused = True
-                else:
-                    is_dimmed = True
+                is_dimmed = True
 
         if is_dimmed:
             lbl.setStyleSheet("background: #F8FAFC; color: #94A3B8; border: 1px solid #E2E8F0; border-radius: 4px; padding: 3px;")
@@ -1078,6 +1131,13 @@ class SessionPlanWindow(QWidget):
 
     def _render_overview_grid(self):
         """Populates the 10-column spatial Overview Grid with separated stream rows, graphical half-quarters, and breaks."""
+        self._grid_collisions_cache = self._detect_delegation_collisions()
+        try:
+            self._render_overview_grid_impl()
+        finally:
+            self._grid_collisions_cache = None
+
+    def _render_overview_grid_impl(self):
         self.grid_table.clearSpans()
         self.grid_rows = self._build_grid_rows()
         self.grid_table.setRowCount(len(self.grid_rows))
@@ -1418,52 +1478,12 @@ class SessionPlanWindow(QWidget):
         Priority:
         1. Explicit session appointment (slot override).
         2. Topic ownership from extracted slot items.
-        3. Raw text match against assigned AI tokens.
+        3. Boundary-aware raw text match against assigned AI tokens
+           (``20.6.2`` must never match ``20.6.24``).
+        Delegates to the shared ``resolve_slot_effective_delegates`` so the grid,
+        clash board, and exporters always agree.
         """
-        if not self.delegation_plan:
-            return [], False, False
-
-        roster_names = list(self.delegation_plan.members.keys())
-
-        # 1. Slot override appointment
-        if slot.slot_key in self.delegation_plan.appointments:
-            app = self.delegation_plan.appointments[slot.slot_key]
-            dels = app.get_appointed_delegates(roster_names)
-            return dels, True, app.is_all()
-
-        # 2. Topic-level ownership from extracted slot items
-        found_dels: List[str] = []
-        is_all_flag = False
-        for it in slot.items:
-            if it.ai_number and it.ai_number in self.delegation_plan.topic_owners:
-                to = self.delegation_plan.topic_owners[it.ai_number]
-                if to.is_all():
-                    is_all_flag = True
-                    for rn in roster_names:
-                        if rn not in found_dels:
-                            found_dels.append(rn)
-                else:
-                    for owner in to.get_owners(roster_names):
-                        if owner not in found_dels:
-                            found_dels.append(owner)
-
-        if found_dels:
-            return found_dels, False, is_all_flag
-
-        # 3. Raw text match against assigned AI tokens
-        for ai_num, to in self.delegation_plan.topic_owners.items():
-            if ai_num and (ai_num in slot.raw_text or f"({ai_num})" in slot.raw_text):
-                if to.is_all():
-                    is_all_flag = True
-                    for rn in roster_names:
-                        if rn not in found_dels:
-                            found_dels.append(rn)
-                else:
-                    for owner in to.get_owners(roster_names):
-                        if owner not in found_dels:
-                            found_dels.append(owner)
-
-        return found_dels, False, is_all_flag
+        return resolve_slot_effective_delegates(slot, self.delegation_plan)
 
     def _get_slot_effective_delegate(self, slot: SessionSlot) -> Tuple[Optional[str], bool]:
         """Backward-compatible single-string delegate helper."""
@@ -1549,69 +1569,129 @@ class SessionPlanWindow(QWidget):
 
         return res
 
+    def _delegate_initials_map(self) -> Dict[str, str]:
+        """Returns roster-unique badge initials (cached until the roster changes)."""
+        names = tuple(self.delegation_plan.members.keys()) if self.delegation_plan else ()
+        if self._initials_cache[0] != names:
+            self._initials_cache = (names, compute_unique_initials(names))
+        return self._initials_cache[1]
+
+    def _self_member(self) -> Optional[DelegationMember]:
+        if not self.delegation_plan:
+            return None
+        return next((m for m in self.delegation_plan.members.values() if m.is_self), None)
+
     def _update_overview_delegate_strip(self):
-        """Updates the delegate highlight chips above the Overview Grid."""
-        if not hasattr(self, "delegate_strip_layout"):
+        """Rebuilds the multi-select Delegate Focus checkboxes above the Overview Grid."""
+        if not hasattr(self, "delegate_chips_layout"):
             return
 
-        for btn in self.dynamic_delegate_chips:
-            self.delegate_chip_group.removeButton(btn)
-            self.delegate_strip_layout.removeWidget(btn)
-            btn.deleteLater()
+        while self.delegate_chips_layout.count():
+            item = self.delegate_chips_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
         self.dynamic_delegate_chips.clear()
+        self.btn_chip_me = None
 
-        self_member = next((m for m in self.delegation_plan.members.values() if m.is_self), None) if self.delegation_plan else None
+        roster = self.delegation_plan.members if self.delegation_plan else {}
+        # Drop focus entries for delegates that were removed/renamed
+        self.grid_focus_delegates = {n for n in self.grid_focus_delegates if n in roster}
+
+        self_member = self._self_member()
         if self_member:
             btn_me = QPushButton(f"👤 Only Me ({self_member.name})")
-            btn_me.setCheckable(True)
-            btn_me.setStyleSheet(
-                "padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; "
-                "border: 1px solid #CBD5E1; background: #FFFFFF; color: #334155;"
-            )
+            btn_me.setToolTip("Focus on your own sessions only (shortcut for ticking just yourself).")
+            btn_me.setCursor(Qt.PointingHandCursor)
             btn_me.clicked.connect(lambda: self._on_delegate_highlight_clicked("SELF"))
-            self.delegate_chip_group.addButton(btn_me)
-            self.delegate_strip_layout.insertWidget(self.delegate_strip_layout.count() - 1, btn_me)
-            self.dynamic_delegate_chips.append(btn_me)
+            self.delegate_chips_layout.addWidget(btn_me)
+            self.btn_chip_me = btn_me
 
-        if self.delegation_plan:
-            for name, m in self.delegation_plan.members.items():
-                btn_m = QPushButton(f"● {name}")
-                btn_m.setCheckable(True)
-                btn_m.setStyleSheet(
-                    f"padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; "
-                    f"border: 1px solid {m.border_tint}; background: {m.bg_tint}; color: {m.color};"
-                )
-                btn_m.clicked.connect(lambda _, n=name: self._on_delegate_highlight_clicked(n))
-                self.delegate_chip_group.addButton(btn_m)
-                self.delegate_strip_layout.insertWidget(self.delegate_strip_layout.count() - 1, btn_m)
-                self.dynamic_delegate_chips.append(btn_m)
+        initials = self._delegate_initials_map()
+        for name, m in roster.items():
+            chk = QCheckBox(f"{initials.get(name, m.initials)} · {name}")
+            chk.setProperty("delegate_name", name)
+            chk.setCursor(Qt.PointingHandCursor)
+            chk.setToolTip(f"Highlight sessions covered by {name}. Tick several delegates to combine.")
+            chk.setChecked(name in self.grid_focus_delegates)
+            chk.toggled.connect(lambda checked, n=name: self._on_focus_delegate_toggled(n, checked))
+            self.delegate_chips_layout.addWidget(chk)
+            self.dynamic_delegate_chips.append(chk)
+
+        self._style_focus_buttons()
+
+    def _style_focus_buttons(self):
+        """Applies active/inactive styling to the focus strip according to the focus set."""
+        base = "padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px;"
+        active = "border: 1px solid #3B82F6; background: #3B82F6; color: #FFFFFF;"
+        idle = "border: 1px solid #CBD5E1; background: #FFFFFF; color: #334155;"
+        self.btn_chip_all.setStyleSheet(f"QPushButton {{ {base} {active if not self.grid_focus_delegates else idle} }}")
+
+        self_member = self._self_member()
+        if self.btn_chip_me is not None:
+            only_me = bool(self_member) and self.grid_focus_delegates == {self_member.name}
+            col = self_member.color if self_member else "#0F172A"
+            style = f"border: 1px solid {col}; background: {col}; color: #FFFFFF;" if only_me else idle
+            self.btn_chip_me.setStyleSheet(f"QPushButton {{ {base} {style} }}")
+
+        for chk in self.dynamic_delegate_chips:
+            name = chk.property("delegate_name")
+            m = self.delegation_plan.members.get(name) if self.delegation_plan else None
+            col = m.color if m else "#334155"
+            bg = m.bg_tint if m else "#FFFFFF"
+            bdr = m.border_tint if m else "#CBD5E1"
+            if chk.isChecked():
+                bg, bdr = (m.compute_tint(col, 0.22) if m else "#E2E8F0"), col
+            chk.setStyleSheet(
+                f"QCheckBox {{ {base} padding: 2px 8px 2px 6px; color: {col}; background: {bg}; border: 1px solid {bdr}; }}"
+                f"QCheckBox::indicator {{ width: 12px; height: 12px; }}"
+            )
+
+    def _sync_focus_mirror(self):
+        """Keeps the legacy single-value ``grid_highlight_delegate`` attribute coherent."""
+        self_member = self._self_member()
+        if not self.grid_focus_delegates:
+            self.grid_highlight_delegate = "ALL"
+        elif self_member and self.grid_focus_delegates == {self_member.name}:
+            self.grid_highlight_delegate = "SELF"
+        elif len(self.grid_focus_delegates) == 1:
+            self.grid_highlight_delegate = next(iter(self.grid_focus_delegates))
+        else:
+            self.grid_highlight_delegate = "MULTI"
+
+    def _set_focus_delegates(self, names: Set[str]):
+        """Sets the focus set, syncs checkboxes without signal storms, and re-renders the grid once."""
+        self.grid_focus_delegates = set(names)
+        for chk in self.dynamic_delegate_chips:
+            chk.blockSignals(True)
+            chk.setChecked(chk.property("delegate_name") in self.grid_focus_delegates)
+            chk.blockSignals(False)
+        self._sync_focus_mirror()
+        self._style_focus_buttons()
+        self._render_overview_grid()
+
+    def _on_focus_delegate_toggled(self, name: str, checked: bool):
+        names = set(self.grid_focus_delegates)
+        if checked:
+            names.add(name)
+        else:
+            names.discard(name)
+        self._set_focus_delegates(names)
 
     def _on_delegate_highlight_clicked(self, key: str):
-        self.grid_highlight_delegate = key
-        self.btn_chip_all.setStyleSheet(
-            "padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; border: 1px solid #3B82F6; background: #3B82F6; color: #FFFFFF;"
-            if key == "ALL" else
-            "padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; border: 1px solid #CBD5E1; background: #FFFFFF; color: #334155;"
-        )
-        for btn in self.dynamic_delegate_chips:
-            text = btn.text()
-            is_active = (key == "SELF" and "Only Me" in text) or (f"● {key}" == text)
-            raw_name = text.replace("● ", "").replace(" (Me)", "").strip()
-            m_obj = self.delegation_plan.members.get(raw_name) if self.delegation_plan else None
-            if is_active:
-                m_color = m_obj.color if m_obj else "#0F172A"
-                btn.setStyleSheet(
-                    f"padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; border: 1px solid {m_color}; background: {m_color}; color: #FFFFFF;"
-                )
-            else:
-                bdr = m_obj.border_tint if m_obj else "#CBD5E1"
-                bg = m_obj.bg_tint if m_obj else "#FFFFFF"
-                col = m_obj.color if m_obj else "#334155"
-                btn.setStyleSheet(
-                    f"padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; border: 1px solid {bdr}; background: {bg}; color: {col};"
-                )
-
-        self._render_overview_grid()
+        """
+        Backward-compatible focus entry point:
+        "ALL" clears the focus, "SELF" focuses only the local user, a roster name toggles that delegate.
+        """
+        if key == "ALL":
+            self._set_focus_delegates(set())
+        elif key == "SELF":
+            me = self._self_member()
+            self._set_focus_delegates({me.name} if me else set())
+        else:
+            names = set(self.grid_focus_delegates)
+            names.symmetric_difference_update({key})
+            self._set_focus_delegates(names)
 
     def _on_delegate_agenda_changed(self):
         self._render_tracked_topics()
@@ -1664,6 +1744,7 @@ class SessionPlanWindow(QWidget):
         self.team_topics_table.setRowCount(len(all_ais))
         collisions = self._detect_delegation_collisions()
         members_list = list(self.delegation_plan.members.values())
+        initials_map = self._delegate_initials_map()
 
         for row, ai_num in enumerate(all_ais):
             if ai_num in self.agenda_map:
@@ -1699,23 +1780,9 @@ class SessionPlanWindow(QWidget):
             item_desc = QTableWidgetItem(desc)
             item_slots = QTableWidgetItem(slots_summary)
 
-            combo = QComboBox()
-            combo.addItem("— Unassigned —", "")
-            combo.addItem("👥 All Team", "ALL")
-            for m in members_list:
-                combo.addItem(f"● {m.name}", m.name)
-
-            if owner_name and owner_name != "ALL" and owner_name not in [m.name for m in members_list]:
-                combo.addItem(f"👥 {owner_name}", owner_name)
-
-            combo.addItem("✏️ Custom Multi-Delegate...", "__CUSTOM__")
-
-            if owner_name:
-                idx = combo.findData(owner_name)
-                if idx >= 0:
-                    combo.setCurrentIndex(idx)
-
-            combo.activated.connect(lambda _, a=ai_num, d=desc, c=combo: self._on_topic_owner_combo_activated(a, d, c))
+            # Checkbox-based multi-select owner picker (replaces combo + custom dialog round-trip)
+            picker = DelegateOwnerPicker(members_list, owner_name, initials=initials_map)
+            picker.ownerChanged.connect(lambda new_owner, a=ai_num: self._on_topic_owner_changed(a, new_owner))
 
             if has_clash:
                 status_txt = "🔴 Collision in parallel stream"
@@ -1738,7 +1805,7 @@ class SessionPlanWindow(QWidget):
             self.team_topics_table.setItem(row, 0, item_ai)
             self.team_topics_table.setItem(row, 1, item_desc)
             self.team_topics_table.setItem(row, 2, item_slots)
-            self.team_topics_table.setCellWidget(row, 3, combo)
+            self.team_topics_table.setCellWidget(row, 3, picker)
             self.team_topics_table.setItem(row, 4, item_status)
 
     def _update_team_topic_status_cells(self):

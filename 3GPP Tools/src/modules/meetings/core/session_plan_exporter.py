@@ -22,6 +22,7 @@ from modules.meetings.core.session_plan_models import (
     SessionSlot,
     TopicOwnership,
     UserSessionAnnotation,
+    resolve_slot_effective_delegates,
 )
 from modules.meetings.core.session_plan_timezone import SessionPlanTimezone
 
@@ -48,47 +49,10 @@ class SessionPlanExporter:
     def get_slot_effective_delegates(slot: SessionSlot, plan: Optional[DelegationPlan]) -> Tuple[List[str], bool, bool]:
         """
         Resolves effective delegates list, is_coverage flag, and is_all flag: (delegates, is_cov, is_all).
+        Delegates to the shared, boundary-aware resolver in session_plan_models so that the
+        UI grid, clash detection, .ics and email exports always agree.
         """
-        if not plan:
-            return [], False, False
-
-        roster_names = list(plan.members.keys())
-
-        if slot.slot_key in plan.appointments:
-            app = plan.appointments[slot.slot_key]
-            return app.get_appointed_delegates(roster_names), True, app.is_all()
-
-        found_dels: List[str] = []
-        is_all_flag = False
-        for it in slot.items:
-            if it.ai_number in plan.topic_owners:
-                to = plan.topic_owners[it.ai_number]
-                if to.is_all():
-                    is_all_flag = True
-                    for rn in roster_names:
-                        if rn not in found_dels:
-                            found_dels.append(rn)
-                else:
-                    for owner in to.get_owners(roster_names):
-                        if owner not in found_dels:
-                            found_dels.append(owner)
-
-        if found_dels:
-            return found_dels, False, is_all_flag
-
-        for ai_num, to in plan.topic_owners.items():
-            if ai_num and (ai_num in slot.raw_text or f"({ai_num})" in slot.raw_text):
-                if to.is_all():
-                    is_all_flag = True
-                    for rn in roster_names:
-                        if rn not in found_dels:
-                            found_dels.append(rn)
-                else:
-                    for owner in to.get_owners(roster_names):
-                        if owner not in found_dels:
-                            found_dels.append(owner)
-
-        return found_dels, False, is_all_flag
+        return resolve_slot_effective_delegates(slot, plan)
 
     @classmethod
     def get_slot_effective_delegate(cls, slot: SessionSlot, plan: Optional[DelegationPlan]) -> Tuple[Optional[str], bool]:
@@ -502,7 +466,9 @@ class SessionPlanExporter:
             dt_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             dt_start = utc_start.strftime("%Y%m%dT%H%M%SZ")
             dt_end = utc_end.strftime("%Y%m%dT%H%M%SZ")
-            safe_target = f"-{re.sub(r'[^\\w\\-]', '_', target_delegate)}" if target_delegate else ""
+            # Hoisted out of the f-string: backslashes inside f-string expressions are a
+            # SyntaxError before Python 3.12 (project supports >= 3.8).
+            safe_target = ("-" + re.sub(r"[^\w\-]", "_", target_delegate)) if target_delegate else ""
             uid = f"sa2-{snapshot.meeting_number}{safe_target}-{s.slot_key}-{dt_start}@3gpp.tools"
 
             s_info = streams.get(s.stream_number)

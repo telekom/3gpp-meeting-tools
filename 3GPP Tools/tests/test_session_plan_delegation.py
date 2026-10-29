@@ -26,7 +26,11 @@ from modules.meetings.core.session_plan_models import (
     SessionPlanSnapshot,
     SessionSlot,
     TopicOwnership,
+    ai_number_in_text,
+    compute_unique_initials,
+    resolve_slot_effective_delegates,
 )
+from modules.meetings.ui.delegate_owner_picker import DelegateOwnerPicker
 from modules.meetings.ui.session_plan_dialogs import (
     DelegationImportDialog,
     DelegationMemberDialog,
@@ -804,6 +808,127 @@ class TestSessionPlanWindowDelegationIntegration(unittest.TestCase):
         finally:
             win.close()
 
+    def test_boundary_aware_ai_matching_prevents_false_clashes(self):
+        """
+        Regression test for the 20.6.2 vs 20.6.24 false clash bug:
+        Assigning 20.6.2 (or 20.6.1) to Josep must NEVER attribute unassigned
+        20.6.24, 20.6.22, or 20.6.17 slots to Josep via raw_text substring matching.
+        """
+        self.assertTrue(ai_number_in_text("20.6.2", "KI#2 (SBA) (20.6.2) [7]"))
+        self.assertFalse(ai_number_in_text("20.6.2", "KI#24 (IoT) (20.6.24)"))
+        self.assertFalse(ai_number_in_text("20.6.2", "KI#22 (Computing) (20.6.22)"))
+        self.assertFalse(ai_number_in_text("20.6.1", "KI#17 (IWK) (20.6.17)"))
+        self.assertFalse(ai_number_in_text("20.6.1", "KI#1.1 (NAS) (20.6.1.1)"))
+
+        plan = DelegationPlan(
+            meeting_number="177",
+            members={"Josep": DelegationMember(name="Josep", color="#7C3AED", is_self=True)},
+            topic_owners={
+                "20.6.1": TopicOwnership("177", "20.6.1", "Josep"),
+                "20.6.2": TopicOwnership("177", "20.6.2", "Josep"),
+            },
+        )
+        slot_sba = SessionSlot(
+            day_index=2,
+            day_name="Wednesday",
+            quarter="Q2",
+            sub_slot=2,
+            stream_number=1,
+            raw_text="KI#2 (SBA) (20.6.2) [7]",
+            items=[AgendaSlotItem(ai_number="20.6.2", display_expr="KI#2", topic_label="SBA")],
+        )
+        slot_iot = SessionSlot(
+            day_index=2,
+            day_name="Wednesday",
+            quarter="Q2",
+            sub_slot=2,
+            stream_number=2,
+            raw_text="KI#24 (IoT) (20.6.24)",
+            items=[AgendaSlotItem(ai_number="20.6.24", display_expr="KI#24", topic_label="IoT")],
+        )
+
+        dels_sba, _, _ = resolve_slot_effective_delegates(slot_sba, plan)
+        dels_iot, _, _ = resolve_slot_effective_delegates(slot_iot, plan)
+        self.assertEqual(dels_sba, ["Josep"])
+        self.assertEqual(dels_iot, [], "Unassigned 20.6.24 must not inherit owner from 20.6.2!")
+
+    def test_compute_unique_initials_and_picker_widget(self):
+        ini = compute_unique_initials(["Dieter", "Josep", "Piotr", "Jordi"])
+        self.assertEqual(ini["Dieter"], "DI")
+        self.assertEqual(ini["Piotr"], "PI")
+        self.assertNotEqual(ini["Josep"], ini["Jordi"], "Colliding 2-letter initials must be disambiguated")
+
+        members = [
+            DelegationMember(name="Dieter", color="#2563EB"),
+            DelegationMember(name="Josep", color="#7C3AED", is_self=True),
+            DelegationMember(name="Piotr", color="#047857"),
+        ]
+        picker = DelegateOwnerPicker(members, "Josep", initials=ini)
+        self.assertEqual(picker.owner_string(), "Josep")
+        self.assertIn("Josep", picker.currentText())
+
+        # Multi-select via checkboxes
+        picker._checkboxes["Dieter"].setChecked(True)
+        self.assertIn("Dieter", picker.selected_delegates())
+        self.assertIn("Josep", picker.selected_delegates())
+        self.assertEqual(picker.owner_string(), "Dieter, Josep")
+
+        # Checking all 3 collapses to 'ALL'
+        picker._checkboxes["Piotr"].setChecked(True)
+        self.assertEqual(picker.owner_string(), "ALL")
+
+        # Clear action resets to unassigned
+        picker._on_clear()
+        self.assertEqual(picker.owner_string(), "")
+
+    def test_overview_multi_select_focus_and_initials_badges(self):
+        win = SessionPlanWindow(
+            meeting_dir=self.temp_dir,
+            mtg_info=self.mtg_info,
+            agenda_map={},
+            tracked_tokens=set(),
+        )
+        try:
+            m1 = DelegationMember(name="Josep", color="#7C3AED", is_self=True)
+            m2 = DelegationMember(name="Dieter", color="#2563EB")
+            m3 = DelegationMember(name="Piotr", color="#047857")
+            for m in (m1, m2, m3):
+                win.db.save_delegation_member(win.meeting_number, m)
+            win.db.set_topic_owner(win.meeting_number, "20.6.1", "Josep")
+            win.db.set_topic_owner(win.meeting_number, "20.6.20", "Dieter")
+            win.delegation_plan = win.db.get_delegation_plan(win.meeting_number)
+
+            slot = SessionSlot(
+                day_index=0,
+                day_name="Monday",
+                quarter="Q2",
+                sub_slot=1,
+                stream_number=1,
+                raw_text="KI#1.1 (NAS) (20.6.1) [9]",
+                items=[AgendaSlotItem(ai_number="20.6.1", display_expr="KI#1.1", topic_label="NAS")],
+            )
+            win.active_snapshot = SessionPlanSnapshot(
+                meeting_number=win.meeting_number,
+                tdoc_id="S2-2610195",
+                slots=[slot],
+            )
+            win._render_current_views()
+
+            # Checkboxes created for each member
+            self.assertEqual(len(win.dynamic_delegate_chips), 3)
+
+            # Multi-select Josep + Dieter simultaneously
+            win._on_focus_delegate_toggled("Josep", True)
+            win._on_focus_delegate_toggled("Dieter", True)
+            self.assertEqual(win.grid_focus_delegates, {"Josep", "Dieter"})
+            self.assertEqual(win.grid_highlight_delegate, "MULTI")
+
+            # Reset via All Team
+            win._on_delegate_highlight_clicked("ALL")
+            self.assertEqual(win.grid_focus_delegates, set())
+            self.assertEqual(win.grid_highlight_delegate, "ALL")
+        finally:
+            win.close()
 
 
 if __name__ == "__main__":

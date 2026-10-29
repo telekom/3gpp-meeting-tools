@@ -4,9 +4,10 @@ Domain models and dataclasses for 3GPP SA2 Meeting Session Plans.
 Supports Half-Quarter Sub-Slots (Time Units), Stream/Room topologies,
 AI Range Expansions, and User Annotations.
 """
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 
 @dataclass
@@ -214,4 +215,112 @@ class DelegationPlan:
     def session_appointments(self) -> Dict[str, SessionAppointment]:
         """Backward-compatible alias for appointments dictionary."""
         return self.appointments
+
+
+# ---------------------------------------------------------------------------
+# Shared delegate resolution helpers (single source of truth for UI + exporters)
+# ---------------------------------------------------------------------------
+
+def ai_number_in_text(ai_number: str, text: str) -> bool:
+    """
+    Boundary-aware Agenda Item lookup inside free text.
+
+    A naive substring test (``"20.6.2" in "KI#24 (IoT) (20.6.24)"``) yields false
+    positives for every AI sharing a numeric prefix (20.6.2 -> 20.6.20 … 20.6.29,
+    20.6.1 -> 20.6.10 … 20.6.19). The AI must therefore not be preceded by a digit
+    or dot, and not be followed by another digit or a deeper ``.N`` level.
+    """
+    if not ai_number or not text:
+        return False
+    pattern = r"(?<![\d.])" + re.escape(ai_number.strip()) + r"(?!\d|\.\d)"
+    return re.search(pattern, text) is not None
+
+
+def resolve_slot_effective_delegates(
+    slot: SessionSlot, plan: Optional[DelegationPlan]
+) -> Tuple[List[str], bool, bool]:
+    """
+    Returns ``(delegates, is_appointment_override, is_all)`` for a session slot.
+
+    Priority:
+    1. Explicit session appointment (slot-level override).
+    2. Topic ownership of the AI numbers extracted by the parser (``slot.items``).
+    3. Fallback: boundary-aware match of owned AI numbers in the raw cell text
+       (covers cells the parser could not fully tokenise).
+    """
+    if not plan:
+        return [], False, False
+
+    roster_names = list(plan.members.keys())
+
+    # 1. Slot override appointment
+    app = plan.appointments.get(slot.slot_key)
+    if app:
+        return app.get_appointed_delegates(roster_names), True, app.is_all()
+
+    found: List[str] = []
+    is_all_flag = False
+
+    def _absorb(to: TopicOwnership) -> None:
+        nonlocal is_all_flag
+        if to.is_all():
+            is_all_flag = True
+            owners: Iterable[str] = roster_names
+        else:
+            owners = to.get_owners(roster_names)
+        for owner in owners:
+            if owner not in found:
+                found.append(owner)
+
+    # 2. Topic-level ownership from parsed slot items
+    for it in slot.items:
+        if it.ai_number and it.ai_number in plan.topic_owners:
+            _absorb(plan.topic_owners[it.ai_number])
+    if found:
+        return found, False, is_all_flag
+
+    # 3. Boundary-aware raw text fallback
+    for ai_num, to in plan.topic_owners.items():
+        if ai_number_in_text(ai_num, slot.raw_text):
+            _absorb(to)
+
+    return found, False, is_all_flag
+
+
+def compute_unique_initials(names: Iterable[str]) -> Dict[str, str]:
+    """
+    Computes short, roster-unique badge initials (e.g. Josep -> 'JO', Dieter -> 'DI').
+
+    Starts from the 2-letter ``DelegationMember.initials`` convention and, if two
+    delegates collide (e.g. 'Josep' and 'Jordi'), progressively disambiguates them
+    with additional letters ('JOS' / 'JOR'), capped at 3 characters.
+    """
+    name_list = [n for n in names if n and n.strip()]
+    result: Dict[str, str] = {n: DelegationMember(name=n).initials for n in name_list}
+
+    # Disambiguate colliding 2-letter initials with a third letter
+    groups: Dict[str, List[str]] = {}
+    for n, ini in result.items():
+        groups.setdefault(ini, []).append(n)
+    for dupes in groups.values():
+        if len(dupes) < 2:
+            continue
+        for n in dupes:
+            parts = n.strip().split()
+            if len(parts) > 1:
+                cand = (parts[0][:2] + parts[-1][0]).upper()
+            else:
+                cand = re.sub(r"[^A-Za-z0-9]", "", n)[:3].upper()
+            result[n] = cand or result[n]
+
+    # Final guard: still-duplicated initials get a numeric suffix
+    seen: Dict[str, int] = {}
+    for n in name_list:
+        ini = result[n]
+        if ini in seen:
+            seen[ini] += 1
+            result[n] = f"{ini[:2]}{seen[ini]}"
+        else:
+            seen[ini] = 1
+    return result
 
