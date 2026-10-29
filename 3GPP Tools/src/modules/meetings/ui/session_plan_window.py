@@ -129,7 +129,11 @@ class SessionPlanWindow(QWidget):
         self.setAcceptDrops(True)
 
         self._setup_ui()
-        self.drop_overlay = DropOverlayWidget(self)
+        self.drop_overlay = DropOverlayWidget(
+            self,
+            title="Drop Session Plan file(s) to import",
+            supported_exts=[".docx", ".doc", ".zip", ".htm", ".csv"],
+        )
 
         self._load_data()
 
