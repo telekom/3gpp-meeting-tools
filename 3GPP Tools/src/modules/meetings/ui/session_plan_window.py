@@ -868,61 +868,89 @@ class SessionPlanWindow(QWidget):
             half_lbl = "Full Quarter"
 
         time_dual = SessionPlanTimezone.format_dual_time_range(s_t, e_t, self.tz_offset_min)
+        if " (" in time_dual:
+            parts = time_dual.split(" (", 1)
+            time_display = f"{parts[0]} Venue Time ({parts[1]}"
+        else:
+            time_display = f"{time_dual} (Venue Time)"
 
         s_info = self.active_snapshot.streams.get(stream_num) if self.active_snapshot else None
         r_name = s_info.room_name if s_info else f"Stream {stream_num}"
-        cap = f" [{s_info.capacity}]" if s_info and s_info.capacity else ""
+        cap = f" ({s_info.capacity} seats)" if s_info and s_info.capacity else ""
         convener = s_info.convener if s_info else ("SA2 Chair / MCC" if stream_num == 1 else "")
         tohru = s_info.tohru_room if s_info else ""
+
+        meta_parts = [f"🏢 <b>Stream {stream_num}:</b> {html.escape(r_name)}{cap}"]
+        if convener:
+            meta_parts.append(f"👤 <b>Chair:</b> {html.escape(convener)}")
+        if tohru:
+            meta_parts.append(f"📡 <b>TOHRU:</b> {html.escape(tohru)}")
+        room_line = " &nbsp;|&nbsp; ".join(meta_parts)
 
         ai_bullets = []
         for it in slot.items:
             if it.ai_number:
                 ai_info = self.agenda_map.get(it.ai_number)
                 desc = ai_info.description if ai_info else it.topic_label
-                ai_bullets.append(f"• <b>AI {it.ai_number}:</b> {html.escape(desc)}{' [' + it.tdoc_count_str + ']' if it.tdoc_count_str else ''}")
+                tdoc_str = f" [{it.tdoc_count_str}]" if it.tdoc_count_str else ""
+                ai_bullets.append(f"• <b>AI {it.ai_number}:</b> {html.escape(desc)}{tdoc_str}")
 
-        ann = self.annotations.get(slot.slot_key)
-
-        tt = f"""<div style='font-family:Segoe UI, sans-serif; font-size:12px; min-width:240px; padding:4px;'>
-            <div style='font-weight:bold; font-size:13px; color:#1E293B; margin-bottom:4px;'>
+        tt = f"""<div style='font-family:Segoe UI, sans-serif; font-size:12px; min-width:280px; padding:4px;'>
+            <div style='font-weight:700; font-size:13px; color:#0F172A; margin-bottom:4px;'>
                 📅 {day_name} ({date_str}) · {period} · {half_lbl}
             </div>
-            <div style='color:#475569; margin-bottom:6px;'>
-                🕒 <b>Time:</b> {time_dual}
+            <div style='color:#475569; font-size:11.5px; margin-bottom:3px;'>
+                🕒 <b>Time:</b> {time_display}
             </div>
-            <div style='color:#475569; margin-bottom:6px;'>
-                🏢 <b>Stream {stream_num}:</b> {r_name}{cap} &nbsp;|&nbsp; 👤 <b>Chair:</b> {convener} &nbsp;|&nbsp; 📡 <b>TOHRU:</b> {tohru}
+            <div style='color:#475569; font-size:11.5px; margin-bottom:6px;'>
+                {room_line}
             </div>
-            <hr style='border:none; border-top:1px solid #CBD5E1; margin:6px 0;'>
-            <div style='font-weight:bold; color:#0F172A; margin-bottom:4px;'>
-                📋 {html.escape(slot.raw_text)}
+            <hr style='border:none; border-top:1px solid #E2E8F0; margin:6px 0;'>"""
+
+        raw_note = slot.raw_text.strip() if slot.raw_text else ""
+        if raw_note:
+            tt += f"""<div style='font-size:10.5px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;'>
+                📋 Chair's Slot Note:
+            </div>
+            <div style='font-weight:600; font-size:12px; color:#0F172A; margin-bottom:6px;'>
+                {html.escape(raw_note)}
             </div>"""
 
         if ai_bullets:
-            tt += f"<div style='color:#64748B; font-size:11px; margin-left:4px; margin-top:4px;'>{'<br>'.join(ai_bullets)}</div>"
+            count_str = f" ({len(ai_bullets)})" if len(ai_bullets) > 1 else ""
+            tt += f"""<div style='font-size:10.5px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.5px; margin-top:6px; margin-bottom:3px;'>
+                📑 Agenda Items Covered{count_str}:
+            </div>
+            <div style='color:#334155; font-size:11px; margin-left:4px; line-height:1.45;'>
+                {'<br>'.join(ai_bullets)}
+            </div>"""
 
         if self._is_slot_tracked(slot):
-            tt += "<div style='margin-top:6px; padding:3px 6px; background:#F5F3FF; color:#5B21B6; border-radius:4px; font-weight:600;'>🎯 Tracked in My Topics</div>"
+            tt += "<div style='margin-top:6px; padding:3px 8px; background:#F5F3FF; border:1px solid #DDD6FE; color:#5B21B6; border-radius:4px; font-weight:600; font-size:11.5px;'>🎯 Tracked in My Topics</div>"
 
         del_names, is_cov, is_all = self._get_slot_effective_delegates(slot)
         if is_all:
-            cov_str = " (Ad-Hoc Coverage)" if is_cov else " (General / All Team Topic)"
-            tt += f"<div style='margin-top:4px; padding:3px 6px; background:#EEF2FF; border:1px solid #C7D2FE; color:#4338CA; border-radius:4px; font-weight:600;'>👥 <b>Delegates:</b> All Team{cov_str}</div>"
+            cov_lbl = " <span style='color:#6366F1; font-weight:normal;'>(Ad-Hoc Coverage)</span>" if is_cov else " <span style='color:#6366F1; font-weight:normal;'>(General / All Team Topic)</span>"
+            tt += f"<div style='margin-top:6px; padding:4px 8px; background:#EEF2FF; border:1px solid #C7D2FE; color:#3730A3; border-radius:4px; font-size:11.5px;'>👥 <b>Delegation:</b> <b>All Team</b>{cov_lbl}</div>"
         elif del_names:
-            cov_str = " (Ad-Hoc Coverage)" if is_cov else " (Topic Owner)"
+            role_lbl = " <span style='color:#64748B; font-weight:normal;'>(Ad-Hoc Coverage)</span>" if is_cov else " <span style='color:#64748B; font-weight:normal;'>(Topic Owner)</span>"
             badges_html = []
             for dn in del_names:
                 m = self.delegation_plan.members.get(dn) if self.delegation_plan else None
                 col = m.color if m else "#2563EB"
                 bg_t = m.bg_tint if m else DelegationMember.compute_tint(col, 0.12)
                 bdr_t = m.border_tint if m else DelegationMember.compute_tint(col, 0.35)
-                badges_html.append(f"<span style='background:{bg_t}; border:1px solid {bdr_t}; color:{col}; padding:1px 5px; border-radius:3px; font-weight:700;'>● {html.escape(dn)}</span>")
-            tt += f"<div style='margin-top:4px; padding:3px 6px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:4px;'>👤 <b>Delegate(s):</b> {' '.join(badges_html)}{cov_str}</div>"
+                badges_html.append(f"<span style='background:{bg_t}; border:1px solid {bdr_t}; color:{col}; padding:1px 6px; border-radius:3px; font-weight:700;'>● {html.escape(dn)}</span>")
+            tt += f"<div style='margin-top:6px; padding:4px 8px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:4px; font-size:11.5px;'>👤 <b>Delegation:</b> {' '.join(badges_html)}{role_lbl}</div>"
 
+        ann = self.annotations.get(slot.slot_key)
         if ann and (ann.comment or ann.assigned_colleague):
-            c_str = f" ({ann.assigned_colleague})" if ann.assigned_colleague else ""
-            tt += f"<div style='margin-top:4px; padding:3px 6px; background:#F1F5F9; color:#334155; border-radius:4px;'>📝 <b>Note:</b> {html.escape(ann.comment)}{c_str}</div>"
+            note_items = []
+            if ann.comment:
+                note_items.append(f"“{html.escape(ann.comment)}”")
+            if ann.assigned_colleague:
+                note_items.append(f"(Assigned: <b>{html.escape(ann.assigned_colleague)}</b>)")
+            tt += f"<div style='margin-top:6px; padding:4px 8px; background:#FEF3C7; border:1px solid #FDE68A; color:#92400E; border-radius:4px; font-size:11.5px;'>📝 <b>Personal Note:</b> {' '.join(note_items)}</div>"
 
         tt += "</div>"
         return tt
