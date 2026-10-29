@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -74,9 +75,9 @@ class SpecClauseExcerptDialog(QDialog):
 
         self.setWindowTitle(f"✂️ Extract Clauses: {self.spec_type} {self.spec_num} v{self.version}")
         self.setWindowFlags(self.windowFlags() | Qt.Window)
-        self.resize(800, 680)
-        self.setMinimumWidth(680)
-        self.setMinimumHeight(520)
+        self.resize(900, 700)
+        self.setMinimumWidth(740)
+        self.setMinimumHeight(540)
 
         self.setStyleSheet(f"""
             QDialog {{ background-color: #F8F9FA; }}
@@ -120,7 +121,7 @@ class SpecClauseExcerptDialog(QDialog):
         header_layout.addLayout(title_row)
 
         desc_label = QLabel(
-            "Select specific clauses or subclauses below to extract into a clean, standalone Word document."
+            "Select specific clauses or subclauses below to extract into standalone Word (.docx) or Markdown (.md) documents."
         )
         desc_label.setStyleSheet("color: #4A5568; font-size: 12px;")
         header_layout.addWidget(desc_label)
@@ -164,6 +165,10 @@ class SpecClauseExcerptDialog(QDialog):
         self.filter_input.textChanged.connect(self._filter_tree)
         filter_layout.addWidget(self.filter_input, 1)
 
+        self.lbl_filter_matches = QLabel()
+        self.lbl_filter_matches.setStyleSheet("font-size: 11px; color: #64748B; padding-right: 4px;")
+        filter_layout.addWidget(self.lbl_filter_matches)
+
         self.btn_expand_all = QPushButton("Expand All")
         self.btn_expand_all.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.btn_expand_all.setCursor(Qt.PointingHandCursor)
@@ -181,7 +186,10 @@ class SpecClauseExcerptDialog(QDialog):
         # 4. Hierarchical Clause Tree
         self.clause_tree = QTreeWidget()
         self.clause_tree.setHeaderLabels(["Clause / Heading", "Source Document"])
-        self.clause_tree.setColumnWidth(0, 520)
+        header = self.clause_tree.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.clause_tree.setStyleSheet("""
             QTreeWidget {
                 background-color: white;
@@ -204,29 +212,54 @@ class SpecClauseExcerptDialog(QDialog):
         self.clause_tree.itemChanged.connect(self._on_tree_item_changed)
         main_layout.addWidget(self.clause_tree, 1)
 
-        # 5. Bottom Action Bar
-        bottom_layout = QHBoxLayout()
-        bottom_layout.setSpacing(8)
+        # 5. Bottom Footer (2-Tier Options & Actions)
+        footer_layout = QVBoxLayout()
+        footer_layout.setSpacing(10)
+        footer_layout.setContentsMargins(0, 4, 0, 0)
+
+        # Row 1: Selection Status & Export Options
+        options_layout = QHBoxLayout()
+        options_layout.setSpacing(10)
 
         self.btn_clear = QPushButton("Clear Selection")
         self.btn_clear.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.btn_clear.setCursor(Qt.PointingHandCursor)
         self.btn_clear.clicked.connect(self._clear_selection)
-        bottom_layout.addWidget(self.btn_clear)
+        self.btn_clear.setEnabled(False)
+        options_layout.addWidget(self.btn_clear)
 
-        self.open_after_cb = QCheckBox("Open extracted document when finished")
+        self.lbl_selection_count = QLabel("No clauses selected")
+        self.lbl_selection_count.setStyleSheet("color: #64748B; font-size: 12px; font-weight: 500;")
+        options_layout.addWidget(self.lbl_selection_count)
+
+        options_layout.addStretch()
+
+        self.open_after_cb = QCheckBox("Open when finished")
         self.open_after_cb.setChecked(True)
-        self.open_after_cb.setStyleSheet("color: #4A5568; font-size: 12px; margin-left: 8px;")
-        bottom_layout.addWidget(self.open_after_cb)
+        self.open_after_cb.setStyleSheet("color: #334155; font-size: 12px;")
+        self.open_after_cb.setToolTip("Open the extracted document in Microsoft Word or default viewer when extraction completes.")
+        options_layout.addWidget(self.open_after_cb)
 
         self.chk_also_markdown = QCheckBox("Also export as Markdown (with figures)")
-        self.chk_also_markdown.setStyleSheet("color: #4A5568; font-size: 12px; margin-left: 8px;")
+        self.chk_also_markdown.setStyleSheet("color: #334155; font-size: 12px;")
         self.chk_also_markdown.setToolTip(
             "Automatically convert the extracted clause(s) to Markdown (.md) and extract all embedded figures and diagrams into a companion media folder."
         )
-        bottom_layout.addWidget(self.chk_also_markdown)
+        options_layout.addWidget(self.chk_also_markdown)
 
-        bottom_layout.addStretch()
+        footer_layout.addLayout(options_layout)
+
+        # Row 2: Primary & Secondary Action Buttons
+        action_layout = QHBoxLayout()
+        action_layout.setSpacing(8)
+        action_layout.addStretch()
+
+        self.btn_cr_pcr = QPushButton("📝 Draft CR / pCR...")
+        self.btn_cr_pcr.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_cr_pcr.setCursor(Qt.PointingHandCursor)
+        self.btn_cr_pcr.setEnabled(False)
+        self.btn_cr_pcr.clicked.connect(self._open_cr_pcr_from_selection)
+        action_layout.addWidget(self.btn_cr_pcr)
 
         self.btn_extract = QPushButton("✂️ Extract Selected Clauses...")
         self.btn_extract.setCursor(Qt.PointingHandCursor)
@@ -236,7 +269,7 @@ class SpecClauseExcerptDialog(QDialog):
                 font-weight: bold;
                 background-color: #0066CC;
                 color: white;
-                padding: 7px 18px;
+                padding: 7px 20px;
                 border-radius: 4px;
                 border: 1px solid #0055AA;
             }
@@ -250,22 +283,16 @@ class SpecClauseExcerptDialog(QDialog):
             }
         """)
         self.btn_extract.clicked.connect(self._extract_selected_clauses)
-        bottom_layout.addWidget(self.btn_extract)
-
-        self.btn_cr_pcr = QPushButton("📝 Draft CR / pCR...")
-        self.btn_cr_pcr.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_cr_pcr.setCursor(Qt.PointingHandCursor)
-        self.btn_cr_pcr.setEnabled(False)
-        self.btn_cr_pcr.clicked.connect(self._open_cr_pcr_from_selection)
-        bottom_layout.addWidget(self.btn_cr_pcr)
+        action_layout.addWidget(self.btn_extract)
 
         self.btn_close = QPushButton("Close")
         self.btn_close.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.btn_close.setCursor(Qt.PointingHandCursor)
         self.btn_close.clicked.connect(self.close)
-        bottom_layout.addWidget(self.btn_close)
+        action_layout.addWidget(self.btn_close)
 
-        main_layout.addLayout(bottom_layout)
+        footer_layout.addLayout(action_layout)
+        main_layout.addLayout(footer_layout)
 
     def _start_preparation(self):
         self.progress_bar.setVisible(True)
@@ -384,9 +411,13 @@ class SpecClauseExcerptDialog(QDialog):
 
     def _filter_tree(self, text: str):
         query = text.strip().lower()
+        matches = 0
 
         def visit(item: QTreeWidgetItem) -> bool:
+            nonlocal matches
             own_match = not query or query in item.text(0).lower()
+            if query and own_match and item.data(0, Qt.UserRole):
+                matches += 1
             child_match = False
             for i in range(item.childCount()):
                 child_match = visit(item.child(i)) or child_match
@@ -399,6 +430,12 @@ class SpecClauseExcerptDialog(QDialog):
 
         for i in range(self.clause_tree.topLevelItemCount()):
             visit(self.clause_tree.topLevelItem(i))
+
+        if hasattr(self, "lbl_filter_matches"):
+            if query:
+                self.lbl_filter_matches.setText(f"{matches} match(es)")
+            else:
+                self.lbl_filter_matches.setText("")
 
     def _clear_selection(self):
         self._is_updating_checks = True
@@ -436,11 +473,18 @@ class SpecClauseExcerptDialog(QDialog):
         count = len(selected_ids)
         self.btn_extract.setEnabled(count > 0)
         self.btn_cr_pcr.setEnabled(count > 0)
+        self.btn_clear.setEnabled(count > 0)
         self.btn_cr_pcr.setText(f"📝 Draft CR / pCR ({count})..." if count > 0 else "📝 Draft CR / pCR...")
         if count > 0:
             self.btn_extract.setText(f"✂️ Extract Selected Clauses ({count})...")
+            if hasattr(self, "lbl_selection_count"):
+                self.lbl_selection_count.setText(f"<b>{count}</b> clause(s) selected")
+                self.lbl_selection_count.setStyleSheet("color: #0284C7; font-size: 12px; font-weight: 500;")
         else:
             self.btn_extract.setText("✂️ Extract Selected Clauses...")
+            if hasattr(self, "lbl_selection_count"):
+                self.lbl_selection_count.setText("No clauses selected")
+                self.lbl_selection_count.setStyleSheet("color: #64748B; font-size: 12px; font-weight: 500;")
 
     def _extract_selected_clauses(self):
         selected_ids = self._get_selected_ids()
