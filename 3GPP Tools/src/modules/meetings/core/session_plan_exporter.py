@@ -44,6 +44,23 @@ class SessionPlanExporter:
                 return True
         return False
 
+    @staticmethod
+    def get_slot_effective_delegate(slot: SessionSlot, plan: Optional[DelegationPlan]) -> Tuple[Optional[str], bool]:
+        """
+        Resolves effective delegate and coverage flag: (delegate_name, is_coverage).
+        """
+        if not plan:
+            return None, False
+        if slot.slot_key in plan.appointments:
+            return plan.appointments[slot.slot_key].appointed_delegate, True
+        for it in slot.items:
+            if it.ai_number in plan.topic_owners:
+                return plan.topic_owners[it.ai_number].owner_name, False
+        for ai_num, to in plan.topic_owners.items():
+            if ai_num and (ai_num in slot.raw_text or f"({ai_num})" in slot.raw_text):
+                return to.owner_name, False
+        return None, False
+
     @classmethod
     def export_mobile_html(
         cls,
@@ -356,10 +373,13 @@ class SessionPlanExporter:
         only_drafting: bool = False,
         tracked_tokens: Optional[Set[str]] = None,
         annotations: Optional[Dict[str, UserSessionAnnotation]] = None,
+        delegation_plan: Optional[DelegationPlan] = None,
+        target_delegate: Optional[str] = None,
     ) -> Path:
         """
         Exports an RFC 5545 .ics Calendar file strictly anchored in UTC.
         Guarantees correct calendar reminder alerts across all devices.
+        Optionally scopes to a specific delegate and annotates assignments.
         """
         tracked_tokens = {t.lower() for t in (tracked_tokens or set())}
         annotations = annotations or {}
@@ -368,13 +388,19 @@ class SessionPlanExporter:
 
         base_date = datetime.strptime(meeting_start_date_str, "%Y-%m-%d").date()
 
+        cal_name = (
+            f"SA2 #{snapshot.meeting_number} - {target_delegate} ({snapshot.tdoc_id})"
+            if target_delegate
+            else f"SA2 #{snapshot.meeting_number} ({snapshot.tdoc_id})"
+        )
+
         lines = [
             "BEGIN:VCALENDAR",
             "VERSION:2.0",
             f"PRODID:-//3GPP Meeting Tools//SA2 #{snapshot.meeting_number} Session Plan//EN",
             "CALSCALE:GREGORIAN",
             "METHOD:PUBLISH",
-            f"X-WR-CALNAME:SA2 #{snapshot.meeting_number} ({snapshot.tdoc_id})",
+            f"X-WR-CALNAME:{cal_name}",
         ]
 
         streams = snapshot.streams
@@ -391,6 +417,12 @@ class SessionPlanExporter:
 
             if only_tracked and not is_tracked and not s.is_drafting:
                 continue
+
+            # Check delegate assignment / target delegate filtering
+            eff_del, is_cov = cls.get_slot_effective_delegate(s, delegation_plan)
+            if target_delegate:
+                if not eff_del or eff_del.strip().lower() != target_delegate.strip().lower():
+                    continue
 
             # Calculate physical date
             from datetime import timedelta
@@ -410,15 +442,20 @@ class SessionPlanExporter:
             dt_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             dt_start = utc_start.strftime("%Y%m%dT%H%M%SZ")
             dt_end = utc_end.strftime("%Y%m%dT%H%M%SZ")
-            uid = f"sa2-{snapshot.meeting_number}-{s.slot_key}-{dt_start}@3gpp.tools"
+            safe_target = f"-{re.sub(r'[^\\w\\-]', '_', target_delegate)}" if target_delegate else ""
+            uid = f"sa2-{snapshot.meeting_number}{safe_target}-{s.slot_key}-{dt_start}@3gpp.tools"
 
             s_info = streams.get(s.stream_number)
             r_name = s_info.room_name if s_info else f"Stream {s.stream_number}"
             convener = s_info.convener if s_info else ""
             tohru = s_info.tohru_room if s_info else ""
 
-            summary_prefix = "🛠️ [Drafting]" if s.is_drafting else f"[Str {s.stream_number}]"
-            summary = f"{summary_prefix} {s.raw_text[:50]}"
+            del_tag = ""
+            if eff_del:
+                del_tag = f"[{eff_del} (cov)] " if is_cov else f"[{eff_del}] "
+
+            summary_prefix = f"🛠️ [Drafting] {del_tag}" if s.is_drafting else f"[Str {s.stream_number}] {del_tag}"
+            summary = f"{summary_prefix}{s.raw_text[:50]}"
             location = f"{r_name}"
 
             desc_lines = [
@@ -428,6 +465,9 @@ class SessionPlanExporter:
                 f"TOHRU: https://tohru.3gpp.org/ (Room: {tohru})",
                 f"Scheduled: {s.raw_text}",
             ]
+
+            if eff_del:
+                desc_lines.append(f"Delegate: {eff_del} ({'Ad-hoc coverage' if is_cov else 'Topic Owner'})")
 
             note_obj = annotations.get(s.slot_key)
             if note_obj and note_obj.comment:

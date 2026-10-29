@@ -360,6 +360,253 @@ class TestSessionPlanWindowDelegationIntegration(unittest.TestCase):
         finally:
             win.close()
 
+    def test_half_quarter_collision_avoidance_and_availability(self):
+        """Verifies that sequential half-quarters (TU1 and TU2) in parallel streams do not falsely collide."""
+        win = SessionPlanWindow(
+            meeting_dir=self.temp_dir,
+            mtg_info=self.mtg_info,
+            agenda_map={},
+            tracked_tokens=set(),
+        )
+        try:
+            m_martin = DelegationMember(name="Martin", color="#2563EB", is_self=True)
+            m_thomas = DelegationMember(name="Thomas", color="#D97706")
+            win.db.save_delegation_member(win.meeting_number, m_martin)
+            win.db.save_delegation_member(win.meeting_number, m_thomas)
+
+            win.db.set_topic_owner(win.meeting_number, "20.6.18", "Martin")
+            win.db.set_topic_owner(win.meeting_number, "5.2.1", "Martin")
+            win.db.set_topic_owner(win.meeting_number, "7.1.0", "Thomas")
+            win.delegation_plan = win.db.get_delegation_plan(win.meeting_number)
+
+            # Slot A: Martin in Stream 1, TU 1 (sub_slot=1)
+            slot_tu1 = SessionSlot(
+                day_index=1,
+                day_name="Tuesday",
+                quarter="Q2",
+                sub_slot=1,
+                stream_number=1,
+                raw_text="AI 5.2.1 (TU1)",
+                items=[AgendaSlotItem(ai_number="5.2.1", display_expr="5.2.1", topic_label="Arch TU1")],
+            )
+            # Slot B: Martin in Stream 2, TU 2 (sub_slot=2) -> sequential, NO physical time overlap!
+            slot_tu2 = SessionSlot(
+                day_index=1,
+                day_name="Tuesday",
+                quarter="Q2",
+                sub_slot=2,
+                stream_number=2,
+                raw_text="AI 20.6.18 (TU2)",
+                items=[AgendaSlotItem(ai_number="20.6.18", display_expr="20.6.18", topic_label="Network AI TU2")],
+            )
+            # Slot C: Thomas in Stream 1, TU 2 (sub_slot=2)
+            slot_thomas_tu2 = SessionSlot(
+                day_index=1,
+                day_name="Tuesday",
+                quarter="Q2",
+                sub_slot=2,
+                stream_number=1,
+                raw_text="AI 7.1.0 (Thomas TU2)",
+                items=[AgendaSlotItem(ai_number="7.1.0", display_expr="7.1.0", topic_label="Slicing TU2")],
+            )
+
+            # Test helper _slots_time_overlap directly
+            self.assertFalse(win._slots_time_overlap(slot_tu1, slot_tu2))
+            self.assertTrue(win._slots_time_overlap(slot_tu2, slot_thomas_tu2))
+
+            # Full quarter slot overlaps both TU1 and TU2
+            slot_full_q = SessionSlot(day_index=1, quarter="Q2", sub_slot=0, stream_number=3)
+            self.assertTrue(win._slots_time_overlap(slot_tu1, slot_full_q))
+            self.assertTrue(win._slots_time_overlap(slot_tu2, slot_full_q))
+
+            # Mount snapshot with sequential TU1 and TU2
+            win.active_snapshot = SessionPlanSnapshot(
+                meeting_number=win.meeting_number,
+                tdoc_id="S2-2610195",
+                streams={1: MeetingStreamInfo(1, "Str 1", "B2"), 2: MeetingStreamInfo(2, "Str 2", "B3")},
+                slots=[slot_tu1, slot_tu2, slot_thomas_tu2],
+            )
+
+            # Martin is NOT colliding because TU1 and TU2 are distinct time intervals!
+            collisions = win._detect_delegation_collisions()
+            self.assertEqual(len(collisions), 0, "Sequential half-quarters must not be flagged as collisions!")
+
+            # Availability test: Thomas is busy in TU2, so Thomas MUST BE FREE for slot_tu1 (TU1)!
+            avail_for_tu1 = win._compute_delegate_availability(slot_tu1)
+            self.assertEqual(avail_for_tu1["Thomas"]["status"], "free", "Thomas in TU2 is available to cover TU1!")
+
+            # But for slot_tu2 (TU2), Thomas IS busy in Stream 1!
+            avail_for_tu2 = win._compute_delegate_availability(slot_tu2)
+            self.assertEqual(avail_for_tu2["Thomas"]["status"], "busy", "Thomas in TU2 is busy in Stream 1!")
+
+            # Now test true collision in same sub-slot:
+            # Change slot_tu2 to sub_slot=1 (both Martin in TU1 on Stream 1 and Stream 2)
+            slot_tu2_clash = SessionSlot(
+                day_index=1,
+                day_name="Tuesday",
+                quarter="Q2",
+                sub_slot=1,
+                stream_number=2,
+                raw_text="AI 20.6.18 (TU1 Clash)",
+                items=[AgendaSlotItem(ai_number="20.6.18", display_expr="20.6.18", topic_label="Network AI TU1")],
+            )
+            win.active_snapshot.slots = [slot_tu1, slot_tu2_clash]
+            collisions_clash = win._detect_delegation_collisions()
+            self.assertEqual(len(collisions_clash), 1, "Simultaneous TU1 in streams 1 & 2 must be detected as collision!")
+
+        finally:
+            win.close()
+
+    def test_revert_dispatch_restores_topic_owner(self):
+        """Verifies _on_revert_dispatch removes session appointment and restores original topic owner."""
+        win = SessionPlanWindow(
+            meeting_dir=self.temp_dir,
+            mtg_info=self.mtg_info,
+            agenda_map={},
+            tracked_tokens=set(),
+        )
+        try:
+            m_martin = DelegationMember(name="Martin", color="#2563EB", is_self=True)
+            m_thomas = DelegationMember(name="Thomas", color="#D97706")
+            win.db.save_delegation_member(win.meeting_number, m_martin)
+            win.db.save_delegation_member(win.meeting_number, m_thomas)
+            win.db.set_topic_owner(win.meeting_number, "20.6.18", "Martin")
+            win.delegation_plan = win.db.get_delegation_plan(win.meeting_number)
+
+            slot = SessionSlot(
+                day_index=1,
+                day_name="Tuesday",
+                quarter="Q2",
+                sub_slot=0,
+                stream_number=2,
+                raw_text="AI 20.6.18 (Network AI)",
+                items=[AgendaSlotItem(ai_number="20.6.18", display_expr="20.6.18", topic_label="Network AI")],
+            )
+            win.active_snapshot = SessionPlanSnapshot(
+                meeting_number=win.meeting_number,
+                tdoc_id="S2-2610195",
+                streams={2: MeetingStreamInfo(2, "Str 2", "B3")},
+                slots=[slot],
+            )
+
+            # Initially Martin owns it
+            del_init, is_cov_init = win._get_slot_effective_delegate(slot)
+            self.assertEqual(del_init, "Martin")
+            self.assertFalse(is_cov_init)
+
+            # Appoint Thomas
+            win.db.set_session_appointment(
+                meeting_number=win.meeting_number,
+                slot_key=slot.slot_key,
+                appointed_delegate="Thomas",
+                original_owner="Martin",
+                reason="Ad-hoc cover",
+            )
+            win.delegation_plan = win.db.get_delegation_plan(win.meeting_number)
+            del_cov, is_cov = win._get_slot_effective_delegate(slot)
+            self.assertEqual(del_cov, "Thomas")
+            self.assertTrue(is_cov)
+
+            # Revert dispatch
+            win._on_revert_dispatch(slot)
+
+            # Must be back to Martin
+            del_rev, is_cov_rev = win._get_slot_effective_delegate(slot)
+            self.assertEqual(del_rev, "Martin")
+            self.assertFalse(is_cov_rev)
+            self.assertNotIn(slot.slot_key, win.delegation_plan.appointments)
+
+        finally:
+            win.close()
+
+    def test_export_ics_with_delegation_and_delegate_scoping(self):
+        """Verifies export_ics properly annotates delegate assignments and filters by target_delegate."""
+        slot1 = SessionSlot(
+            day_index=0,
+            day_name="Monday",
+            quarter="Q1",
+            start_time_local="09:00",
+            end_time_local="10:30",
+            stream_number=1,
+            raw_text="AI 20.6.18 Network AI Procedures",
+            items=[AgendaSlotItem(ai_number="20.6.18", display_expr="20.6.18", topic_label="Network AI")],
+        )
+        slot2 = SessionSlot(
+            day_index=0,
+            day_name="Monday",
+            quarter="Q2",
+            start_time_local="11:00",
+            end_time_local="12:30",
+            stream_number=2,
+            raw_text="AI 5.2.1 Core Architecture",
+            items=[AgendaSlotItem(ai_number="5.2.1", display_expr="5.2.1", topic_label="Arch")],
+        )
+        snap = SessionPlanSnapshot(
+            meeting_number="177",
+            tdoc_id="S2-2610195",
+            streams={1: MeetingStreamInfo(1, "Main", "B2"), 2: MeetingStreamInfo(2, "Breakout 1", "B3")},
+            slots=[slot1, slot2],
+        )
+
+        plan = DelegationPlan(
+            meeting_number="177",
+            members={
+                "Martin": DelegationMember(name="Martin", color="#2563EB", is_self=True),
+                "Anna": DelegationMember(name="Anna", color="#059669"),
+            },
+            topic_owners={
+                "20.6.18": TopicOwnership("177", "20.6.18", "Martin"),
+                "5.2.1": TopicOwnership("177", "5.2.1", "Anna"),
+            },
+            appointments={
+                slot2.slot_key: SessionAppointment("177", slot2.slot_key, "Martin", "Anna", "Coverage"),
+            },
+        )
+
+        # 1. Full export with delegation_plan: both events should contain delegate annotations
+        full_ics_path = self.temp_dir / "full_schedule.ics"
+        SessionPlanExporter.export_ics(
+            snapshot=snap,
+            output_path=full_ics_path,
+            meeting_start_date_str="2026-10-12",
+            meeting_tz_offset_min=120,
+            delegation_plan=plan,
+        )
+        content_full = full_ics_path.read_text(encoding="utf-8")
+        self.assertIn("SUMMARY:[Str 1] [Martin] AI 20.6.18", content_full)
+        self.assertIn("SUMMARY:[Str 2] [Martin (cov)] AI 5.2.1", content_full)
+        self.assertIn("Delegate: Martin (Topic Owner)", content_full)
+        self.assertIn("Delegate: Martin (Ad-hoc coverage)", content_full)
+
+        # 2. Scoped export for Anna: slot2 was covered by Martin, so Anna has 0 assigned slots
+        anna_ics_path = self.temp_dir / "anna_schedule.ics"
+        SessionPlanExporter.export_ics(
+            snapshot=snap,
+            output_path=anna_ics_path,
+            meeting_start_date_str="2026-10-12",
+            meeting_tz_offset_min=120,
+            delegation_plan=plan,
+            target_delegate="Anna",
+        )
+        content_anna = anna_ics_path.read_text(encoding="utf-8")
+        self.assertNotIn("BEGIN:VEVENT", content_anna, "Anna has no scheduled slots since slot2 is covered by Martin")
+        self.assertIn("X-WR-CALNAME:SA2 #177 - Anna (S2-2610195)", content_anna)
+
+        # 3. Scoped export for Martin: both slot1 and slot2 are assigned to Martin
+        martin_ics_path = self.temp_dir / "martin_schedule.ics"
+        SessionPlanExporter.export_ics(
+            snapshot=snap,
+            output_path=martin_ics_path,
+            meeting_start_date_str="2026-10-12",
+            meeting_tz_offset_min=120,
+            delegation_plan=plan,
+            target_delegate="Martin",
+        )
+        content_martin = martin_ics_path.read_text(encoding="utf-8")
+        self.assertEqual(content_martin.count("BEGIN:VEVENT"), 2)
+        self.assertIn("X-WR-CALNAME:SA2 #177 - Martin (S2-2610195)", content_martin)
+
+
 
 if __name__ == "__main__":
     unittest.main()
