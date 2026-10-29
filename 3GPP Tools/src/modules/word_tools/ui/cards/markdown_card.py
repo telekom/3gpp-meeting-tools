@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -125,8 +126,9 @@ class WordMarkdownCard(QWidget):
         md_layout.setSpacing(10)
 
         self.pane_markdown = DocumentSelectorPane(
-            "📄 WORD DOCUMENT TO CONVERT",
+            "📄 WORD DOCUMENT TO CONVERT (.docx / .doc)",
             accepted_extensions=[".docx", ".doc", ".docm", ".md", ".markdown"],
+            drop_prompt="📥 Drag & Drop Word document (.docx / .doc) here\n(or click to browse)",
         )
         self.pane_markdown.file_selected.connect(self._on_w2m_file_selected)
         md_layout.addWidget(self.pane_markdown)
@@ -261,6 +263,7 @@ class WordMarkdownCard(QWidget):
         self.pane_m2w = DocumentSelectorPane(
             "📝 MARKDOWN DOCUMENT TO CONVERT (.md)",
             accepted_extensions=[".md", ".markdown", ".txt", ".docx", ".doc"],
+            drop_prompt="📥 Drag & Drop Markdown file (.md) here\n(or click to browse)",
         )
         # Hide Word-COM-only controls on the Markdown input pane
         self.pane_m2w.quick_active_btn.setVisible(False)
@@ -279,37 +282,41 @@ class WordMarkdownCard(QWidget):
         opts_layout.setContentsMargins(12, 10, 12, 10)
         opts_layout.setSpacing(8)
 
-        row1 = QHBoxLayout()
+        hdr_lbl = QLabel("<b>Conversion Options:</b>")
+        hdr_lbl.setStyleSheet("color: #334155; font-size: 11px;")
+        opts_layout.addWidget(hdr_lbl)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(24)
+        grid.setVerticalSpacing(6)
+
         self.m2w_media_cb = QCheckBox("Auto-detect companion media folder ({stem}_media/)")
         self.m2w_media_cb.setChecked(True)
         self.m2w_media_cb.setToolTip(
             "Automatically embeds figures and drawings located in the companion media folder or relative paths."
         )
-        row1.addWidget(self.m2w_media_cb)
+        grid.addWidget(self.m2w_media_cb, 0, 0)
 
-        self.m2w_diagrams_cb = QCheckBox("Render PlantUML diagrams (```plantuml)")
+        self.m2w_diagrams_cb = QCheckBox("Render PlantUML diagrams (```plantuml``` code blocks)")
         self.m2w_diagrams_cb.setChecked(True)
         self.m2w_diagrams_cb.setToolTip(
             "Compiles embedded PlantUML sequence and architecture code blocks into high-resolution figures on the fly."
         )
-        row1.addWidget(self.m2w_diagrams_cb)
-        row1.addStretch()
-        opts_layout.addLayout(row1)
+        grid.addWidget(self.m2w_diagrams_cb, 0, 1)
 
-        row2 = QHBoxLayout()
-        self.m2w_styles_cb = QCheckBox("Apply 3GPP contribution styles (3gpp_70.dotx & TableGrid)")
+        self.m2w_styles_cb = QCheckBox("Apply 3GPP contribution styles (3gpp_70.dotx && TableGrid)")
         self.m2w_styles_cb.setChecked(True)
         self.m2w_styles_cb.setToolTip(
             "Injects canonical 3GPP headings, typography, margins, and TableGrid formatting into the OpenXML package."
         )
-        row2.addWidget(self.m2w_styles_cb)
+        grid.addWidget(self.m2w_styles_cb, 1, 0)
 
         self.m2w_auto_open_cb = QCheckBox("Auto-open in Word after conversion")
         self.m2w_auto_open_cb.setChecked(True)
         self.m2w_auto_open_cb.setToolTip("Launches the generated document in Microsoft Word immediately upon completion.")
-        row2.addWidget(self.m2w_auto_open_cb)
-        row2.addStretch()
-        opts_layout.addLayout(row2)
+        grid.addWidget(self.m2w_auto_open_cb, 1, 1)
+
+        opts_layout.addLayout(grid)
 
         dest_row = QHBoxLayout()
         self.m2w_custom_dest_cb = QCheckBox("Save to custom output directory:")

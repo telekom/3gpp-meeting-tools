@@ -52,10 +52,11 @@ class DocumentSelectorPane(QWidget):
 
     file_selected = pyqtSignal(list)
 
-    def __init__(self, title: str, accepted_extensions=None):
+    def __init__(self, title: str, accepted_extensions=None, drop_prompt: Optional[str] = None):
         super().__init__()
         self.title = title
         self.accepted_extensions = accepted_extensions or [".docx", ".doc", ".docm"]
+        self.drop_prompt = drop_prompt or "📥 Drag & Drop document here\n(or click to browse)"
         self.selected_files = []
         self._setup_ui()
 
@@ -90,7 +91,7 @@ class DocumentSelectorPane(QWidget):
         drop_layout.setSpacing(6)
 
         self.drop_zone = ClickableDropLabel(
-            "📥 Drag & Drop document here\n(or click to browse)",
+            self.drop_prompt,
             self.accepted_extensions,
         )
         self.drop_zone.setCursor(Qt.PointingHandCursor)
@@ -214,7 +215,7 @@ class DocumentSelectorPane(QWidget):
 
     def clear_selection(self):
         self.selected_files = []
-        self.drop_zone.set_state("idle", "📥 Drag & Drop document here\n(or click to browse)")
+        self.drop_zone.set_state("idle", self.drop_prompt)
         self.lbl_meta.setText("")
         self.btn_clear.setEnabled(False)
 
