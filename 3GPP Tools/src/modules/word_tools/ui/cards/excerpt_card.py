@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QHeaderView,
     QShortcut,
     QFrame,
     QHBoxLayout,
@@ -139,7 +140,10 @@ class WordExcerptCard(QWidget):
 
         self.excerpt_tree = QTreeWidget()
         self.excerpt_tree.setHeaderLabels(["Heading", "Source file"])
-        self.excerpt_tree.setColumnWidth(0, 560)
+        header = self.excerpt_tree.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         excerpt_layout.addWidget(self.excerpt_tree, 1)
 
         action_row = QHBoxLayout()

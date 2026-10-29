@@ -120,7 +120,8 @@ class TestWordClauseMarkdownExport(unittest.TestCase):
         self.assertIs(tab.chk_also_markdown, tab.card_excerpt.chk_also_markdown)
 
     def test_spec_clause_dialog_has_markdown_checkbox(self):
-        """Verify SpecClauseDialog UI contains the Markdown export checkbox."""
+        """Verify SpecClauseDialog UI contains the Markdown export checkbox and 2-tier footer layout."""
+        from PyQt5.QtWidgets import QHeaderView
         with tempfile.TemporaryDirectory() as tmpdir:
             dlg = SpecClauseDialog(
                 spec_num="23.501",
@@ -133,6 +134,13 @@ class TestWordClauseMarkdownExport(unittest.TestCase):
             self.assertTrue(hasattr(dlg, "chk_also_markdown"))
             self.assertFalse(dlg.chk_also_markdown.isChecked())
             self.assertIn("Markdown", dlg.chk_also_markdown.text())
+            self.assertTrue(hasattr(dlg, "lbl_selection_count"))
+            self.assertTrue(hasattr(dlg, "lbl_filter_matches"))
+            self.assertTrue(hasattr(dlg, "open_after_cb"))
+            self.assertTrue(hasattr(dlg, "btn_clear"))
+            self.assertGreaterEqual(dlg.minimumWidth(), 740)
+            header = dlg.clause_tree.header()
+            self.assertEqual(header.sectionResizeMode(0), QHeaderView.Stretch)
             dlg.close()
 
 
