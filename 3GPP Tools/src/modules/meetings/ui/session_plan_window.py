@@ -37,6 +37,7 @@ from PyQt5.QtWidgets import (
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -47,15 +48,23 @@ from modules.meetings.core.session_plan_db import SessionPlanDatabase
 from modules.meetings.core.session_plan_diff import SessionPlanDiffEngine
 from modules.meetings.core.session_plan_exporter import SessionPlanExporter
 from modules.meetings.core.session_plan_models import (
+    DELEGATE_PALETTE,
     AgendaSlotItem,
+    DelegationMember,
+    DelegationPlan,
     MeetingStreamInfo,
+    SessionAppointment,
     SessionPlanSnapshot,
     SessionSlot,
+    TopicOwnership,
     UserSessionAnnotation,
 )
 from modules.meetings.core.session_plan_parser import SessionPlanParser
 from modules.meetings.core.session_plan_timezone import SessionPlanTimezone
 from modules.meetings.ui.session_plan_dialogs import (
+    DelegationImportDialog,
+    DelegationMemberDialog,
+    SessionDispatchDialog,
     SessionPlanDiffDialog,
     SessionPlanImportDialog,
     SessionPlanNoteDialog,
@@ -113,6 +122,11 @@ class SessionPlanWindow(QWidget):
         self.external_tracked_tokens = {t.lower() for t in (tracked_tokens or set())}
         self.db_tracked = self.db.get_tracked_topics(self.meeting_number)
         self.tracked_tokens = set(self.external_tracked_tokens) | set(self.db_tracked.keys())
+
+        # Delegation state
+        self.delegation_plan: DelegationPlan = self.db.get_delegation_plan(self.meeting_number)
+        self.grid_highlight_delegate: str = "ALL"  # "ALL", "SELF", or member name
+        self.dynamic_delegate_chips: List[QPushButton] = []
 
         # Timezone state
         self.tz_offset_min = 120  # Default +2 hours (Europe summer/Prague)
@@ -248,6 +262,7 @@ class SessionPlanWindow(QWidget):
         self._setup_agenda_view()
         self._setup_drafting_view()
         self._setup_tracked_view()
+        self._setup_team_view()
 
         layout.addWidget(self.view_stack, 1)
 
@@ -336,10 +351,12 @@ class SessionPlanWindow(QWidget):
         self.btn_agenda.setToolTip("Cross-references the official meeting agenda against scheduled sessions. Highlights which Agenda Items are scheduled vs unscheduled (missing from plan).")
         self.btn_drafting = QPushButton("🛠️ Drafting Radar (0)")
         self.btn_drafting.setToolTip("Chronological tracking of early morning (08:00), lunch (13:00), and evening (18:00) informal and formal drafting sessions.")
-        self.btn_tracked = QPushButton("🎯 My Topics (0)")
-        self.btn_tracked.setToolTip("Shows only sessions matching your followed Work Items and tracked Agenda Items, highlighting schedule conflicts.")
+        self.btn_tracked = QPushButton("🎯 Delegate Agenda (0)")
+        self.btn_tracked.setToolTip("View personal schedules by delegate (or your own agenda) and the entire delegation timeline.")
+        self.btn_team = QPushButton("👥 Team Allocations (Clean)")
+        self.btn_team.setToolTip("Distribute Agenda Items across team members, detect double-booking clashes, and appoint available delegates on a session-by-session basis.")
 
-        for idx, btn in enumerate([self.btn_grid, self.btn_agenda, self.btn_drafting, self.btn_tracked]):
+        for idx, btn in enumerate([self.btn_grid, self.btn_agenda, self.btn_drafting, self.btn_tracked, self.btn_team]):
             btn.setCheckable(True)
             btn.setStyleSheet("""
                 QPushButton {
@@ -441,6 +458,32 @@ class SessionPlanWindow(QWidget):
         self.room_strip_layout.addStretch()
         page_layout.addWidget(self.room_strip)
 
+        # Delegate Focus / Heatmap Highlight Strip
+        self.delegate_strip = QFrame()
+        self.delegate_strip.setStyleSheet("background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 4px 10px;")
+        self.delegate_strip_layout = QHBoxLayout(self.delegate_strip)
+        self.delegate_strip_layout.setContentsMargins(4, 2, 4, 2)
+        self.delegate_strip_layout.setSpacing(6)
+
+        lbl_f = QLabel("<b>Delegate Focus:</b>")
+        lbl_f.setStyleSheet("font-size: 11px; color: #475569;")
+        self.delegate_strip_layout.addWidget(lbl_f)
+
+        self.delegate_chip_group = QButtonGroup(self)
+        self.delegate_chip_group.setExclusive(True)
+
+        self.btn_chip_all = QPushButton("🌈 All Team")
+        self.btn_chip_all.setCheckable(True)
+        self.btn_chip_all.setChecked(True)
+        self.btn_chip_all.setStyleSheet("padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; border: 1px solid #3B82F6; background: #3B82F6; color: #FFFFFF;")
+        self.btn_chip_all.clicked.connect(lambda: self._on_delegate_highlight_clicked("ALL"))
+        self.delegate_chip_group.addButton(self.btn_chip_all)
+        self.delegate_strip_layout.addWidget(self.btn_chip_all)
+
+        self.dynamic_delegate_chips: List[QPushButton] = []
+        self.delegate_strip_layout.addStretch()
+        page_layout.addWidget(self.delegate_strip)
+
         # Overview Table (10 columns: 2 per day)
         self.grid_table = QTableWidget()
         self.grid_table.setColumnCount(10)
@@ -502,7 +545,7 @@ class SessionPlanWindow(QWidget):
 
         self.view_stack.addWidget(page)
 
-    # --- View 4: My Topics ---
+    # --- View 4: Delegate Agenda (formerly My Topics) ---
 
     def _setup_tracked_view(self):
         page = QWidget()
@@ -510,12 +553,25 @@ class SessionPlanWindow(QWidget):
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.setSpacing(6)
 
+        # Delegate Switcher Bar
+        top_bar = QHBoxLayout()
+        top_bar.setSpacing(8)
+        top_bar.addWidget(QLabel("<b>Delegate Agenda:</b>"))
+        self.delegate_agenda_combo = QComboBox()
+        self.delegate_agenda_combo.setMinimumWidth(230)
+        self.delegate_agenda_combo.setStyleSheet("padding: 3px 8px; font-weight: 600; border: 1px solid #CBD5E1; border-radius: 6px;")
+        self.delegate_agenda_combo.currentIndexChanged.connect(self._on_delegate_agenda_changed)
+        top_bar.addWidget(self.delegate_agenda_combo)
+
+        top_bar.addStretch()
+        page_layout.addLayout(top_bar)
+
         self.tracked_table = QTableWidget()
-        self.tracked_table.setColumnCount(6)
+        self.tracked_table.setColumnCount(7)
         self.tracked_table.setHorizontalHeaderLabels([
-            "Day", "Quarter", "Time (Venue / Vienna)", "Stream / Room", "Matched Topic", "My Notes / Priority / Conflict"
+            "Day", "Quarter", "Time (Venue / Vienna)", "Stream / Room", "Delegate", "Matched Topic", "My Notes / Priority / Conflict"
         ])
-        self.tracked_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self.tracked_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
         self.tracked_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.tracked_table.setAlternatingRowColors(True)
         self.tracked_table.cellDoubleClicked.connect(self._on_tracked_cell_double_clicked)
@@ -524,6 +580,117 @@ class SessionPlanWindow(QWidget):
         page_layout.addWidget(self.tracked_table)
         page_layout.addWidget(QLabel("💡 <i>Double-click any session to jump to the Overview Grid. Right-click to edit notes or copy details.</i>"))
 
+        self.view_stack.addWidget(page)
+
+    # --- View 5: Team Allocations (HoD Dispatcher & Topic Ownership) ---
+
+    def _setup_team_view(self):
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setSpacing(8)
+
+        # 1. Roster Card
+        self.team_roster_card = QFrame()
+        self.team_roster_card.setStyleSheet("background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 6px 12px;")
+        rc_lay = QHBoxLayout(self.team_roster_card)
+        rc_lay.setContentsMargins(4, 4, 4, 4)
+        rc_lay.setSpacing(10)
+
+        rc_lay.addWidget(QLabel("<b>👥 Delegation Roster:</b>"))
+
+        self.team_chips_container = QWidget()
+        self.team_member_chips_layout = QHBoxLayout(self.team_chips_container)
+        self.team_member_chips_layout.setContentsMargins(0, 0, 0, 0)
+        self.team_member_chips_layout.setSpacing(6)
+        rc_lay.addWidget(self.team_chips_container)
+
+        self.btn_add_member = QPushButton("➕ Add Member...")
+        self.btn_add_member.setStyleSheet("padding: 3px 10px; font-size: 11px; font-weight: 600; border: 1px dashed #3B82F6; color: #2563EB; border-radius: 6px; background: #EFF6FF;")
+        self.btn_add_member.clicked.connect(self._on_add_delegation_member)
+        rc_lay.addWidget(self.btn_add_member)
+
+        rc_lay.addStretch()
+
+        # Action Buttons
+        self.btn_export_team_email = QPushButton("📧 Export Email Summary...")
+        self.btn_export_team_email.setStyleSheet("padding: 5px 12px; font-weight: 600; font-size: 11px; border-radius: 6px; background: #2563EB; color: #FFFFFF;")
+        self.btn_export_team_email.setToolTip("Generate an executive delegation summary email with color codes, topic distribution, and personal agendas.")
+        self.btn_export_team_email.clicked.connect(self._on_export_delegation_email)
+        rc_lay.addWidget(self.btn_export_team_email)
+
+        self.btn_copy_team_json = QPushButton("📋 Copy Plan JSON")
+        self.btn_copy_team_json.setStyleSheet("padding: 5px 10px; font-size: 11px; border-radius: 6px; border: 1px solid #CBD5E1; background: #F8FAFC;")
+        self.btn_copy_team_json.setToolTip("Copy machine-readable JSON representation of this team plan to clipboard.")
+        self.btn_copy_team_json.clicked.connect(self._on_copy_delegation_json)
+        rc_lay.addWidget(self.btn_copy_team_json)
+
+        self.btn_import_team_plan = QPushButton("📥 Import Team Plan...")
+        self.btn_import_team_plan.setStyleSheet("padding: 5px 10px; font-size: 11px; font-weight: 600; border-radius: 6px; border: 1px solid #CBD5E1; background: #F1F5F9;")
+        self.btn_import_team_plan.setToolTip("Import delegation plan from pasted email or exported .json file.")
+        self.btn_import_team_plan.clicked.connect(self._on_import_delegation_plan)
+        rc_lay.addWidget(self.btn_import_team_plan)
+
+        page_layout.addWidget(self.team_roster_card)
+
+        # 2. Tabs: Topic Ownership vs Clash & Dispatch Board
+        self.team_tabs = QTabWidget()
+
+        # --- Tab 1: Topic Ownership Matrix ---
+        tab_topics = QWidget()
+        tt_lay = QVBoxLayout(tab_topics)
+        tt_lay.setContentsMargins(4, 6, 4, 4)
+        tt_lay.setSpacing(6)
+
+        tt_filter_box = QHBoxLayout()
+        self.team_ai_search = QLineEdit()
+        self.team_ai_search.setPlaceholderText("🔍 Filter AI number, topic, or owner...")
+        self.team_ai_search.setClearButtonEnabled(True)
+        self.team_ai_search.textChanged.connect(self._filter_topic_ownership_table)
+        tt_filter_box.addWidget(self.team_ai_search)
+
+        self.btn_auto_assign_wis = QPushButton("🎯 Auto-Assign Followed WIs")
+        self.btn_auto_assign_wis.setToolTip("Assign topics matching your followed Work Items watchlist to yourself.")
+        self.btn_auto_assign_wis.clicked.connect(self._auto_assign_followed_wis_to_self)
+        tt_filter_box.addWidget(self.btn_auto_assign_wis)
+        tt_lay.addLayout(tt_filter_box)
+
+        self.team_topics_table = QTableWidget()
+        self.team_topics_table.setColumnCount(5)
+        self.team_topics_table.setHorizontalHeaderLabels([
+            "AI #", "Topic Description", "Scheduled Slots in Plan", "Lead Topic Owner", "Coverage Status"
+        ])
+        self.team_topics_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.team_topics_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.team_topics_table.setAlternatingRowColors(True)
+        tt_lay.addWidget(self.team_topics_table)
+        self.team_tabs.addTab(tab_topics, "📋 Topic Ownership Matrix")
+
+        # --- Tab 2: Clash & Dispatch Board ---
+        tab_clashes = QWidget()
+        tc_lay = QVBoxLayout(tab_clashes)
+        tc_lay.setContentsMargins(4, 6, 4, 4)
+        tc_lay.setSpacing(6)
+
+        self.clash_kpi_lbl = QLabel()
+        self.clash_kpi_lbl.setStyleSheet("font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 6px;")
+        tc_lay.addWidget(self.clash_kpi_lbl)
+
+        self.team_clashes_table = QTableWidget()
+        self.team_clashes_table.setColumnCount(6)
+        self.team_clashes_table.setHorizontalHeaderLabels([
+            "Slot (Day & Quarter)", "Time", "Colliding Delegate", "Stream A", "Stream B", "Action / Appoint Coverage"
+        ])
+        self.team_clashes_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.team_clashes_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self.team_clashes_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.team_clashes_table.setAlternatingRowColors(True)
+        tc_lay.addWidget(self.team_clashes_table)
+
+        tc_lay.addWidget(QLabel("💡 <i>Click 'Appoint Available Delegate' to inspect who is free in that time slot and appoint coverage on a session-by-session basis.</i>"))
+        self.team_tabs.addTab(tab_clashes, "⚡ Clash & Dispatch Board")
+
+        page_layout.addWidget(self.team_tabs, 1)
         self.view_stack.addWidget(page)
 
     # --- Data Loading & Rendering ---
@@ -555,16 +722,18 @@ class SessionPlanWindow(QWidget):
         self._render_current_views()
 
     def _render_current_views(self):
-        """Refreshes all 4 views with the currently active snapshot."""
+        """Refreshes all 5 views with the currently active snapshot."""
         if not self.active_snapshot:
             self._render_empty_views()
             return
 
         self._update_room_guide_strip()
+        self._update_overview_delegate_strip()
         self._render_overview_grid()
         self._render_agenda_mode()
         self._render_drafting_radar()
         self._render_tracked_topics()
+        self._render_team_view()
 
     def _update_room_guide_strip(self):
         """Updates room guide labels and toggle checkboxes with active snapshot metadata."""
@@ -586,6 +755,8 @@ class SessionPlanWindow(QWidget):
         self.agenda_table.setRowCount(0)
         self.drafting_table.setRowCount(0)
         self.tracked_table.setRowCount(0)
+        self.team_topics_table.setRowCount(0)
+        self.team_clashes_table.setRowCount(0)
 
     def _is_slot_tracked(self, s: SessionSlot) -> bool:
         """Determines whether a slot matches any user-tracked topic, WI token, or agenda item."""
@@ -710,6 +881,13 @@ class SessionPlanWindow(QWidget):
         if self._is_slot_tracked(slot):
             tt += "<div style='margin-top:6px; padding:3px 6px; background:#F5F3FF; color:#5B21B6; border-radius:4px; font-weight:600;'>🎯 Tracked in My Topics</div>"
 
+        del_name, is_cov = self._get_slot_effective_delegate(slot)
+        if del_name:
+            member = self.delegation_plan.members.get(del_name) if self.delegation_plan else None
+            col = member.color if member else "#2563EB"
+            cov_str = " (Ad-Hoc Coverage)" if is_cov else " (Topic Owner)"
+            tt += f"<div style='margin-top:4px; padding:3px 6px; background:{col}1A; color:{col}; border-radius:4px; font-weight:600;'>👤 <b>Delegate:</b> {html.escape(del_name)}{cov_str}</div>"
+
         if ann and (ann.comment or ann.assigned_colleague):
             c_str = f" ({ann.assigned_colleague})" if ann.assigned_colleague else ""
             tt += f"<div style='margin-top:4px; padding:3px 6px; background:#F1F5F9; color:#334155; border-radius:4px;'>📝 <b>Note:</b> {html.escape(ann.comment)}{c_str}</div>"
@@ -720,11 +898,39 @@ class SessionPlanWindow(QWidget):
     def _create_slot_cell_widget(
         self, slot: SessionSlot, day_idx: int, period: str, stream_num: int, is_half: bool = False, tu: int = 0
     ) -> QWidget:
-        """Creates clean visual card for a session slot with zero inline timestamps."""
+        """Creates clean visual card for a session slot with delegate coloring and conflict tags."""
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(4, 3, 4, 3)
         lay.setSpacing(2)
+
+        del_name, is_cov = self._get_slot_effective_delegate(slot)
+        member = self.delegation_plan.members.get(del_name) if (self.delegation_plan and del_name) else None
+
+        collisions = self._detect_delegation_collisions()
+        is_collision = (del_name, slot.day_index, slot.quarter) in collisions if del_name else False
+
+        # Top delegate pill strip if assigned
+        if member:
+            del_col = member.color
+            cov_tag = " (cov)" if is_cov else ""
+            del_pill = QLabel(f"● {del_name}{cov_tag}")
+            del_pill.setStyleSheet(
+                f"background: {del_col}1F; color: {del_col}; font-weight: 700; font-size: 10px; "
+                f"border: 1px solid {del_col}55; border-radius: 4px; padding: 1px 4px;"
+            )
+            pill_row = QHBoxLayout()
+            pill_row.setContentsMargins(0, 0, 0, 0)
+            pill_row.setSpacing(4)
+            pill_row.addWidget(del_pill)
+
+            if is_collision:
+                warn_pill = QLabel("⚠️ CLASH")
+                warn_pill.setStyleSheet("background: #FEF3C7; color: #92400E; font-weight: bold; font-size: 9px; border: 1px solid #F59E0B; border-radius: 4px; padding: 1px 3px;")
+                pill_row.addWidget(warn_pill)
+
+            pill_row.addStretch()
+            lay.addLayout(pill_row)
 
         lbl = QLabel(slot.raw_text)
         lbl.setWordWrap(True)
@@ -732,7 +938,25 @@ class SessionPlanWindow(QWidget):
 
         is_tracked = self._is_slot_tracked(slot)
 
-        if slot.is_drafting:
+        # Dimming check if delegate focus is active on Overview Grid
+        is_dimmed = False
+        if self.grid_highlight_delegate != "ALL":
+            if self.grid_highlight_delegate == "SELF":
+                self_member = next((m for m in self.delegation_plan.members.values() if m.is_self), None)
+                target_name = self_member.name if self_member else ""
+                if not del_name or del_name.lower() != target_name.lower():
+                    is_dimmed = True
+            else:
+                if not del_name or del_name.lower() != self.grid_highlight_delegate.lower():
+                    is_dimmed = True
+
+        if is_dimmed:
+            lbl.setStyleSheet("background: #F8FAFC; color: #94A3B8; border: 1px solid #E2E8F0; border-radius: 4px; padding: 3px;")
+        elif is_collision:
+            lbl.setStyleSheet("background: #FFFBEB; color: #92400E; border: 1px solid #F59E0B; border-left: 4px solid #D97706; border-radius: 4px; padding: 4px; font-weight: 500;")
+        elif member:
+            lbl.setStyleSheet(f"background: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-left: 4px solid {member.color}; border-radius: 4px; padding: 4px; font-weight: 500;")
+        elif slot.is_drafting:
             lbl.setStyleSheet("background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; border-radius: 4px; padding: 4px; font-weight: 500;")
         elif is_tracked:
             lbl.setStyleSheet("background: #F5F3FF; color: #5B21B6; border: 1px solid #DDD6FE; border-radius: 4px; padding: 4px; font-weight: 500;")
@@ -984,26 +1208,74 @@ class SessionPlanWindow(QWidget):
             self.drafting_table.setItem(row, 5, QTableWidgetItem(s.raw_text))
 
     def _render_tracked_topics(self):
-        """Populates the My Topics view with parallel room conflict detection."""
-        tracked_slots = [s for s in self.active_snapshot.slots if self._is_slot_tracked(s)]
+        """Populates the Delegate Agenda view with delegate filtering and conflict detection."""
+        if not self.active_snapshot:
+            return
 
-        # Conflict detection: same day and quarter, multiple streams
+        # 1. Update Delegate Agenda combo items if needed
+        self.delegate_agenda_combo.blockSignals(True)
+        cur_selection = self.delegate_agenda_combo.currentData()
+        self.delegate_agenda_combo.clear()
+
+        self_member = next((m for m in self.delegation_plan.members.values() if m.is_self), None) if self.delegation_plan else None
+        if self_member:
+            self.delegate_agenda_combo.addItem(f"👤 Myself ({self_member.name})", "SELF")
+        else:
+            self.delegate_agenda_combo.addItem("👤 My Tracked Topics (Personal)", "SELF")
+
+        if self.delegation_plan:
+            for name, m in self.delegation_plan.members.items():
+                self.delegate_agenda_combo.addItem(f"● {name}", name)
+
+        self.delegate_agenda_combo.addItem("👥 Whole Delegation (Master Schedule)", "ALL")
+
+        # Restore selection
+        idx = self.delegate_agenda_combo.findData(cur_selection)
+        if idx >= 0:
+            self.delegate_agenda_combo.setCurrentIndex(idx)
+        else:
+            self.delegate_agenda_combo.setCurrentIndex(0)
+        self.delegate_agenda_combo.blockSignals(False)
+
+        selected_scope = self.delegate_agenda_combo.currentData() or "SELF"
+
+        # 2. Filter target slots based on scope
+        target_slots: List[SessionSlot] = []
+        for s in self.active_snapshot.slots:
+            del_name, _ = self._get_slot_effective_delegate(s)
+            if selected_scope == "ALL":
+                if del_name or self._is_slot_tracked(s):
+                    target_slots.append(s)
+            elif selected_scope == "SELF":
+                if self_member:
+                    if del_name and del_name.lower() == self_member.name.lower():
+                        target_slots.append(s)
+                    elif not del_name and self._is_slot_tracked(s):
+                        target_slots.append(s)
+                else:
+                    if self._is_slot_tracked(s):
+                        target_slots.append(s)
+            else:
+                if del_name and del_name.lower() == selected_scope.lower():
+                    target_slots.append(s)
+
+        # 3. Conflict detection: same day and quarter, multiple streams
         time_slot_map: Dict[Tuple[int, str], List[SessionSlot]] = {}
-        for s in tracked_slots:
+        for s in target_slots:
             time_slot_map.setdefault((s.day_index, s.quarter), []).append(s)
 
         conflicts = {k: slots for k, slots in time_slot_map.items() if len(slots) > 1}
 
         if conflicts:
-            self.btn_tracked.setText(f"🎯 My Topics ({len(tracked_slots)}) ⚠️ {len(conflicts)} Conflict(s)")
+            self.btn_tracked.setText(f"🎯 Delegate Agenda ({len(target_slots)}) ⚠️ {len(conflicts)} Clash(es)")
         else:
-            self.btn_tracked.setText(f"🎯 My Topics ({len(tracked_slots)})")
+            self.btn_tracked.setText(f"🎯 Delegate Agenda ({len(target_slots)})")
 
         self.btn_manage_topics.setText(f"⭐ Track Topics ({len(self.tracked_tokens)})")
-        self.tracked_table.setRowCount(len(tracked_slots))
+        self.tracked_table.setRowCount(len(target_slots))
 
         streams = self.active_snapshot.streams
-        for row, s in enumerate(tracked_slots):
+        for row, s in enumerate(target_slots):
             s_info = streams.get(s.stream_number)
             r_name = s_info.room_name if s_info else f"Stream {s.stream_number}"
 
@@ -1021,15 +1293,27 @@ class SessionPlanWindow(QWidget):
                 conflict_tag = f"⚠️ CONFLICT with {', '.join(other_streams)}"
                 note_display = f"{conflict_tag} | {note_str}" if note_str else conflict_tag
 
+            del_name, is_cov = self._get_slot_effective_delegate(s)
+            member = self.delegation_plan.members.get(del_name) if (self.delegation_plan and del_name) else None
+            cov_lbl = " (cov)" if is_cov else ""
+            del_txt = f"{del_name}{cov_lbl}" if del_name else "—"
+
             item_day = QTableWidgetItem(s.day_name)
             item_q = QTableWidgetItem(s.quarter)
             item_time = QTableWidgetItem(time_str)
             item_str = QTableWidgetItem(f"Str {s.stream_number} ({r_name})")
+            item_del = QTableWidgetItem(del_txt)
+            if member:
+                item_del.setForeground(QColor(member.color))
+                f = item_del.font()
+                f.setBold(True)
+                item_del.setFont(f)
+
             item_raw = QTableWidgetItem(s.raw_text)
             item_note = QTableWidgetItem(note_display or "—")
 
             if is_conflict:
-                for itm in [item_day, item_q, item_time, item_str, item_raw, item_note]:
+                for itm in [item_day, item_q, item_time, item_str, item_del, item_raw, item_note]:
                     itm.setBackground(QColor("#FEF3C7"))
                 item_note.setForeground(QColor("#B45309"))
 
@@ -1037,8 +1321,475 @@ class SessionPlanWindow(QWidget):
             self.tracked_table.setItem(row, 1, item_q)
             self.tracked_table.setItem(row, 2, item_time)
             self.tracked_table.setItem(row, 3, item_str)
-            self.tracked_table.setItem(row, 4, item_raw)
-            self.tracked_table.setItem(row, 5, item_note)
+            self.tracked_table.setItem(row, 4, item_del)
+            self.tracked_table.setItem(row, 5, item_raw)
+            self.tracked_table.setItem(row, 6, item_note)
+
+    # --- Delegation Engine & Team View ---
+
+    def _get_slot_effective_delegate(self, slot: SessionSlot) -> Tuple[Optional[str], bool]:
+        """
+        Returns (delegate_name, is_appointment_override).
+        Priority:
+        1. Explicit session appointment (slot override).
+        2. Topic ownership from extracted slot items.
+        3. Raw text match against assigned AI tokens.
+        """
+        if not self.delegation_plan:
+            return None, False
+
+        # 1. Slot override appointment
+        if slot.slot_key in self.delegation_plan.appointments:
+            return self.delegation_plan.appointments[slot.slot_key].appointed_delegate, True
+
+        # 2. Topic-level ownership from extracted slot items
+        for it in slot.items:
+            if it.ai_number and it.ai_number in self.delegation_plan.topic_owners:
+                return self.delegation_plan.topic_owners[it.ai_number].owner_name, False
+
+        # 3. Raw text match against assigned AI tokens
+        for ai_num, to in self.delegation_plan.topic_owners.items():
+            if ai_num and (ai_num in slot.raw_text or f"({ai_num})" in slot.raw_text):
+                return to.owner_name, False
+
+        return None, False
+
+    def _detect_delegation_collisions(self) -> Dict[Tuple[str, int, str], List[SessionSlot]]:
+        """
+        Detects parallel stream collisions for delegates.
+        Key: (delegate_name, day_index, quarter) -> list of colliding SessionSlots (>1 distinct streams)
+        """
+        if not self.active_snapshot or not self.delegation_plan:
+            return {}
+
+        slot_map: Dict[Tuple[str, int, str], List[SessionSlot]] = {}
+        for s in self.active_snapshot.slots:
+            del_name, _ = self._get_slot_effective_delegate(s)
+            if del_name:
+                key = (del_name, s.day_index, s.quarter)
+                slot_map.setdefault(key, []).append(s)
+
+        collisions = {}
+        for (del_name, d_idx, q_name), slots in slot_map.items():
+            distinct_streams = {s.stream_number for s in slots if s.stream_number > 0}
+            if len(distinct_streams) > 1:
+                collisions[(del_name, d_idx, q_name)] = slots
+
+        return collisions
+
+    def _compute_delegate_availability(self, target_slot: SessionSlot) -> Dict[str, dict]:
+        """
+        For each member in the roster, determines availability for target_slot:
+        returns: member_name -> {'status': 'free'|'busy', 'reason': str}
+        """
+        res = {}
+        if not self.active_snapshot or not self.delegation_plan:
+            return res
+
+        for name, m in self.delegation_plan.members.items():
+            busy_slots = []
+            for s in self.active_snapshot.slots:
+                if (
+                    s.day_index == target_slot.day_index
+                    and s.quarter == target_slot.quarter
+                    and s.stream_number != target_slot.stream_number
+                    and s.stream_number > 0
+                ):
+                    del_name, _ = self._get_slot_effective_delegate(s)
+                    if del_name and del_name.lower() == name.lower():
+                        busy_slots.append(s)
+
+            if busy_slots:
+                streams_str = ", ".join(f"Str {bs.stream_number}" for bs in busy_slots)
+                res[name] = {"status": "busy", "reason": f"Busy in {streams_str} ({busy_slots[0].raw_text[:28]}...)"}
+            else:
+                res[name] = {"status": "free", "reason": "Available (no parallel session)"}
+
+        return res
+
+    def _update_overview_delegate_strip(self):
+        """Updates the delegate highlight chips above the Overview Grid."""
+        if not hasattr(self, "delegate_strip_layout"):
+            return
+
+        for btn in self.dynamic_delegate_chips:
+            self.delegate_chip_group.removeButton(btn)
+            self.delegate_strip_layout.removeWidget(btn)
+            btn.deleteLater()
+        self.dynamic_delegate_chips.clear()
+
+        self_member = next((m for m in self.delegation_plan.members.values() if m.is_self), None) if self.delegation_plan else None
+        if self_member:
+            btn_me = QPushButton(f"👤 Only Me ({self_member.name})")
+            btn_me.setCheckable(True)
+            btn_me.setStyleSheet(
+                "padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; "
+                "border: 1px solid #CBD5E1; background: #FFFFFF; color: #334155;"
+            )
+            btn_me.clicked.connect(lambda: self._on_delegate_highlight_clicked("SELF"))
+            self.delegate_chip_group.addButton(btn_me)
+            self.delegate_strip_layout.insertWidget(self.delegate_strip_layout.count() - 1, btn_me)
+            self.dynamic_delegate_chips.append(btn_me)
+
+        if self.delegation_plan:
+            for name, m in self.delegation_plan.members.items():
+                btn_m = QPushButton(f"● {name}")
+                btn_m.setCheckable(True)
+                btn_m.setStyleSheet(
+                    f"padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; "
+                    f"border: 1px solid {m.color}66; background: #FFFFFF; color: {m.color};"
+                )
+                btn_m.clicked.connect(lambda _, n=name: self._on_delegate_highlight_clicked(n))
+                self.delegate_chip_group.addButton(btn_m)
+                self.delegate_strip_layout.insertWidget(self.delegate_strip_layout.count() - 1, btn_m)
+                self.dynamic_delegate_chips.append(btn_m)
+
+    def _on_delegate_highlight_clicked(self, key: str):
+        self.grid_highlight_delegate = key
+        self.btn_chip_all.setStyleSheet(
+            "padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; border: 1px solid #3B82F6; background: #3B82F6; color: #FFFFFF;"
+            if key == "ALL" else
+            "padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; border: 1px solid #CBD5E1; background: #FFFFFF; color: #334155;"
+        )
+        for btn in self.dynamic_delegate_chips:
+            text = btn.text()
+            is_active = (key == "SELF" and "Only Me" in text) or (f"● {key}" == text)
+            if is_active:
+                btn.setStyleSheet(
+                    "padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; border: 1px solid #0F172A; background: #0F172A; color: #FFFFFF;"
+                )
+            else:
+                m_color = "#334155"
+                for m in self.delegation_plan.members.values():
+                    if f"● {m.name}" == text:
+                        m_color = m.color
+                        break
+                btn.setStyleSheet(
+                    f"padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px; border: 1px solid {m_color}66; background: #FFFFFF; color: {m_color};"
+                )
+
+        self._render_overview_grid()
+
+    def _on_delegate_agenda_changed(self):
+        self._render_tracked_topics()
+
+    def _render_team_view(self):
+        """Refreshes the Team Allocations view: Roster chips, Topic Ownership Matrix, and Clash Board."""
+        if not self.delegation_plan:
+            return
+
+        # 1. Update Roster Chips
+        while self.team_member_chips_layout.count():
+            item = self.team_member_chips_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        for name, m in self.delegation_plan.members.items():
+            chip = QPushButton(f"● {name}" + (" (Me)" if m.is_self else ""))
+            chip.setStyleSheet(
+                f"padding: 3px 10px; font-size: 11px; font-weight: 600; border-radius: 12px; "
+                f"border: 1px solid {m.color}88; background: {m.color}15; color: {m.color};"
+            )
+            chip.setCursor(Qt.PointingHandCursor)
+            chip.clicked.connect(lambda _, mem=m: self._on_edit_delegation_member(mem))
+            chip.setContextMenuPolicy(Qt.CustomContextMenu)
+            chip.customContextMenuRequested.connect(lambda pos, n=name, mem=m, btn=chip: self._show_member_context_menu(pos, n, mem, btn))
+            self.team_member_chips_layout.addWidget(chip)
+
+        # 2. Topic Ownership Matrix
+        scheduled_ais: Dict[str, List[SessionSlot]] = {}
+        if self.active_snapshot:
+            for s in self.active_snapshot.slots:
+                for it in s.items:
+                    if it.ai_number:
+                        scheduled_ais.setdefault(it.ai_number, []).append(s)
+
+        if self.agenda_map:
+            all_ais = sorted(self.agenda_map.keys(), key=self._ai_sort_key)
+        else:
+            all_ais = sorted(scheduled_ais.keys(), key=self._ai_sort_key)
+
+        self.team_topics_table.setRowCount(len(all_ais))
+        collisions = self._detect_delegation_collisions()
+        members_list = list(self.delegation_plan.members.values())
+
+        for row, ai_num in enumerate(all_ais):
+            if ai_num in self.agenda_map:
+                ai_item = self.agenda_map[ai_num]
+                desc = ai_item.description
+            else:
+                matched_s = scheduled_ais.get(ai_num, [])
+                desc = matched_s[0].raw_text if matched_s else f"Agenda Item {ai_num}"
+
+            slots_for_ai = scheduled_ais.get(ai_num, [])
+            slots_summary = ", ".join(f"{s.day_name[:3]} {s.quarter} (Str {s.stream_number})" for s in slots_for_ai[:3])
+            if len(slots_for_ai) > 3:
+                slots_summary += f" +{len(slots_for_ai)-3} more"
+            if not slots_summary:
+                slots_summary = "— (Not scheduled)"
+
+            to = self.delegation_plan.topic_owners.get(ai_num)
+            owner_name = to.owner_name if to else ""
+
+            has_clash = False
+            if owner_name and slots_for_ai:
+                for s in slots_for_ai:
+                    if (owner_name, s.day_index, s.quarter) in collisions:
+                        has_clash = True
+                        break
+
+            item_ai = QTableWidgetItem(ai_num)
+            item_desc = QTableWidgetItem(desc)
+            item_slots = QTableWidgetItem(slots_summary)
+
+            combo = QComboBox()
+            combo.addItem("— Unassigned —", "")
+            for m in members_list:
+                combo.addItem(f"● {m.name}", m.name)
+
+            if owner_name:
+                idx = combo.findData(owner_name)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+
+            combo.currentIndexChanged.connect(lambda _, a=ai_num, c=combo: self._on_topic_owner_changed(a, c.currentData()))
+
+            if has_clash:
+                status_txt = "🔴 Collision in parallel stream"
+                status_col = "#991B1B"
+                status_bg = "#FEF2F2"
+            elif owner_name:
+                status_txt = f"🟢 Covered ({len(slots_for_ai)} slot(s))" if slots_for_ai else "⚪ Assigned (unscheduled)"
+                status_col = "#065F46"
+                status_bg = "#ECFDF5"
+            else:
+                status_txt = "🟡 Unassigned"
+                status_col = "#92400E"
+                status_bg = "#FFFBEB"
+
+            item_status = QTableWidgetItem(status_txt)
+            item_status.setForeground(QColor(status_col))
+            item_status.setBackground(QColor(status_bg))
+
+            self.team_topics_table.setItem(row, 0, item_ai)
+            self.team_topics_table.setItem(row, 1, item_desc)
+            self.team_topics_table.setItem(row, 2, item_slots)
+            self.team_topics_table.setCellWidget(row, 3, combo)
+            self.team_topics_table.setItem(row, 4, item_status)
+
+        # 3. Clash & Dispatch Board
+        clash_count = len(collisions)
+        self.btn_team.setText(f"👥 Team Allocations ({clash_count} ⚠️)" if clash_count else "👥 Team Allocations (Clean)")
+        self.team_tabs.setTabText(1, f"⚡ Clash & Dispatch Board ({clash_count})")
+
+        if clash_count == 0:
+            self.clash_kpi_lbl.setText("✅ No collisions detected! All parallel streams have distinct delegates or single coverage.")
+            self.clash_kpi_lbl.setStyleSheet("background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 6px;")
+            self.team_clashes_table.setRowCount(0)
+        else:
+            self.clash_kpi_lbl.setText(f"⚠️ {clash_count} Double-Booking Collision(s) Detected! Appoint an available delegate to cover parallel rooms.")
+            self.clash_kpi_lbl.setStyleSheet("background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 6px;")
+            self.team_clashes_table.setRowCount(clash_count)
+
+            for row, ((del_name, d_idx, q_name), slots) in enumerate(collisions.items()):
+                s_a = slots[0]
+                s_b = slots[1] if len(slots) > 1 else slots[0]
+
+                time_str = SessionPlanTimezone.format_dual_time_range(
+                    s_a.start_time_local, s_a.end_time_local, self.tz_offset_min
+                )
+
+                item_slot = QTableWidgetItem(f"{s_a.day_name} {s_a.quarter}")
+                item_time = QTableWidgetItem(time_str)
+
+                item_del = QTableWidgetItem(del_name)
+                m = self.delegation_plan.members.get(del_name)
+                if m:
+                    item_del.setForeground(QColor(m.color))
+                f = item_del.font()
+                f.setBold(True)
+                item_del.setFont(f)
+
+                s_info_a = self.active_snapshot.streams.get(s_a.stream_number) if self.active_snapshot else None
+                r_a = s_info_a.room_name if s_info_a else f"Stream {s_a.stream_number}"
+                item_stra = QTableWidgetItem(f"Str {s_a.stream_number} ({r_a}): {s_a.raw_text}")
+
+                s_info_b = self.active_snapshot.streams.get(s_b.stream_number) if self.active_snapshot else None
+                r_b = s_info_b.room_name if s_info_b else f"Stream {s_b.stream_number}"
+                item_strb = QTableWidgetItem(f"Str {s_b.stream_number} ({r_b}): {s_b.raw_text}")
+
+                btn_appoint = QPushButton("⚡ Appoint Available Delegate...")
+                btn_appoint.setStyleSheet("padding: 3px 8px; font-size: 11px; font-weight: 600; border-radius: 6px; background: #059669; color: #FFFFFF;")
+                btn_appoint.clicked.connect(lambda _, slot=s_b, orig=del_name: self._on_dispatch_slot(slot, orig))
+
+                self.team_clashes_table.setItem(row, 0, item_slot)
+                self.team_clashes_table.setItem(row, 1, item_time)
+                self.team_clashes_table.setItem(row, 2, item_del)
+                self.team_clashes_table.setItem(row, 3, item_stra)
+                self.team_clashes_table.setItem(row, 4, item_strb)
+                self.team_clashes_table.setCellWidget(row, 5, btn_appoint)
+
+    def _show_member_context_menu(self, pos: QPoint, name: str, member: DelegationMember, btn: QPushButton):
+        menu = QMenu(self)
+        menu.addAction("✏️ Edit Member...", lambda: self._on_edit_delegation_member(member))
+        if not member.is_self:
+            menu.addAction("👤 Set as Myself", lambda: self._on_set_self_delegate(name))
+        menu.addSeparator()
+        menu.addAction("🗑️ Remove Member", lambda: self._on_delete_delegation_member(name))
+        menu.exec_(btn.mapToGlobal(pos))
+
+    def _on_add_delegation_member(self):
+        existing = list(self.delegation_plan.members.keys()) if self.delegation_plan else []
+        dlg = DelegationMemberDialog(parent=self, member=None, existing_names=existing)
+        if dlg.exec_() == QDialog.Accepted:
+            new_mem = dlg.get_member()
+            self.db.save_delegation_member(self.meeting_number, new_mem)
+            self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
+            self._render_current_views()
+
+    def _on_edit_delegation_member(self, member: DelegationMember):
+        existing = list(self.delegation_plan.members.keys()) if self.delegation_plan else []
+        dlg = DelegationMemberDialog(parent=self, member=member, existing_names=existing)
+        if dlg.exec_() == QDialog.Accepted:
+            updated_mem = dlg.get_member()
+            self.db.save_delegation_member(self.meeting_number, updated_mem)
+            self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
+            self._render_current_views()
+
+    def _on_delete_delegation_member(self, name: str):
+        ans = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to remove '{name}' from the delegation roster?\nTheir assigned topics and appointments will be cleared.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if ans == QMessageBox.Yes:
+            self.db.delete_delegation_member(self.meeting_number, name)
+            self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
+            self._render_current_views()
+
+    def _on_set_self_delegate(self, name: str):
+        self.db.set_self_delegate(self.meeting_number, name)
+        self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
+        self._render_current_views()
+
+    def _on_topic_owner_changed(self, ai_number: str, owner_name: str):
+        self.db.set_topic_owner(self.meeting_number, ai_number, owner_name)
+        self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
+        self._render_overview_grid()
+        self._render_tracked_topics()
+        # Refresh collisions status pills
+        collisions = self._detect_delegation_collisions()
+        clash_count = len(collisions)
+        self.btn_team.setText(f"👥 Team Allocations ({clash_count} ⚠️)" if clash_count else "👥 Team Allocations (Clean)")
+        self.team_tabs.setTabText(1, f"⚡ Clash & Dispatch Board ({clash_count})")
+
+    def _on_dispatch_slot(self, slot: SessionSlot, original_owner: str):
+        members = list(self.delegation_plan.members.values()) if self.delegation_plan else []
+        if not members:
+            QMessageBox.information(self, "No Roster", "Please add delegation members before appointing coverage.")
+            return
+
+        avail = self._compute_delegate_availability(slot)
+        dlg = SessionDispatchDialog(slot, original_owner, members, avail, self)
+        if dlg.exec_() == QDialog.Accepted:
+            appointed, reason = dlg.get_result()
+            if appointed:
+                self.db.set_session_appointment(
+                    meeting_number=self.meeting_number,
+                    slot_key=slot.slot_key,
+                    appointed_delegate=appointed,
+                    original_owner=original_owner,
+                    reason=reason,
+                )
+            else:
+                self.db.delete_session_appointment(self.meeting_number, slot.slot_key)
+
+            self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
+            self._render_current_views()
+
+    def _filter_topic_ownership_table(self, query: str):
+        q = query.lower().strip()
+        for r in range(self.team_topics_table.rowCount()):
+            ai_item = self.team_topics_table.item(r, 0)
+            desc_item = self.team_topics_table.item(r, 1)
+            combo = self.team_topics_table.cellWidget(r, 3)
+            owner_txt = combo.currentText() if combo else ""
+            txt = f"{ai_item.text()} {desc_item.text()} {owner_txt}".lower() if ai_item and desc_item else ""
+            self.team_topics_table.setRowHidden(r, bool(q and q not in txt))
+
+    def _auto_assign_followed_wis_to_self(self):
+        self_member = next((m for m in self.delegation_plan.members.values() if m.is_self), None) if self.delegation_plan else None
+        if not self_member:
+            QMessageBox.warning(self, "No Self Identity", "Please set one of the delegation members as 'Myself' first.")
+            return
+
+        count = 0
+        if self.agenda_map:
+            for ai_num, item in self.agenda_map.items():
+                acronym = getattr(item, "acronym", "") or ""
+                desc = getattr(item, "description", "") or ""
+                matches = (
+                    ai_num.lower() in self.tracked_tokens
+                    or (acronym and acronym.lower() in self.tracked_tokens)
+                    or any(t in desc.lower() for t in self.tracked_tokens if t)
+                )
+                if matches:
+                    self.db.set_topic_owner(self.meeting_number, ai_num, self_member.name)
+                    count += 1
+
+        self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
+        self._render_current_views()
+        QMessageBox.information(self, "Auto-Assignment Complete", f"Assigned {count} topic(s) to {self_member.name}.")
+
+    def _on_export_delegation_email(self):
+        if not self.active_snapshot or not self.delegation_plan:
+            return
+        subject, html_body, plain_text = SessionPlanExporter.generate_delegation_email_summary(
+            snapshot=self.active_snapshot,
+            plan=self.delegation_plan,
+            meeting_tz_offset_min=self.tz_offset_min,
+            tz_name=self.tz_name,
+            agenda_map=self.agenda_map,
+        )
+        QApplication.clipboard().setText(html_body)
+        QMessageBox.information(
+            self,
+            "Delegation Summary Copied",
+            f"Subject: {subject}\n\nPre-formatted executive rich HTML email summary copied to clipboard!\nYou can paste it directly into Microsoft Outlook or Teams.",
+        )
+
+    def _on_copy_delegation_json(self):
+        if not self.delegation_plan:
+            return
+        payload = SessionPlanExporter.serialize_delegation_plan_json(self.delegation_plan)
+        QApplication.clipboard().setText(payload)
+        QMessageBox.information(
+            self,
+            "Plan JSON Copied",
+            "Delegation Plan JSON copied to clipboard.\nColleagues can import this using 'Import Team Plan'.",
+        )
+
+    def _on_import_delegation_plan(self):
+        dlg = DelegationImportDialog(
+            current_roster=list(self.delegation_plan.members.keys()) if self.delegation_plan else [],
+            parent=self,
+        )
+        if dlg.exec_() == QDialog.Accepted:
+            data, is_merge, claimed_self = dlg.get_data()
+            if data:
+                count = self.db.import_delegation_plan_dict(self.meeting_number, data, merge=is_merge)
+                if claimed_self:
+                    self.db.set_self_delegate(self.meeting_number, claimed_self)
+                self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
+                self._render_current_views()
+                QMessageBox.information(
+                    self,
+                    "Import Complete",
+                    f"Successfully imported delegation plan ({count} items updated).\nYour identity is set to: {claimed_self or 'Default'}.",
+                )
 
     # --- Live Clock & Timezone ---
 
@@ -1208,7 +1959,7 @@ class SessionPlanWindow(QWidget):
             return
         d_item = self.tracked_table.item(r, 0)
         q_item = self.tracked_table.item(r, 1)
-        topic_item = self.tracked_table.item(r, 4)
+        topic_item = self.tracked_table.item(r, 5)
         if not d_item or not q_item or not topic_item:
             return
 
