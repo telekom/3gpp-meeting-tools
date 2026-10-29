@@ -690,10 +690,8 @@ class CrPcrGeneratorEngine:
 
             self._splice_with_word(merged_working_path, fragment_paths)
 
-            # 5. Lock in 3GPP styles and sensitivity label
+            # 5. Lock in 3GPP styles, table formatting, and sensitivity label
             self._progress(85, "Applying 3GPP styles and corporate sensitivity label...")
-            # Restore 3GPP formatting parts with enhanced QuickStyle visibility
-            WordExcerptEngine._copy_formatting_parts(get_template_cr_path(), merged_working_path)
             ensure_3gpp_package_styles(merged_working_path)
 
             # Apply sensitivity label in a fresh Word session

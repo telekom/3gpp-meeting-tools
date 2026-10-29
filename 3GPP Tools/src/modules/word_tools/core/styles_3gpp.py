@@ -280,12 +280,34 @@ LINKED_CHAR_STYLES = [
     ("CRSeparatorChar", "CR_Separator Char", "CRSeparator", "Arial", True, False),
 ]
 
+TABLE_GRID_XML = """
+<w:style xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:type="table" w:styleId="TableGrid">
+  <w:name w:val="Table Grid"/>
+  <w:basedOn w:val="TableNormal"/>
+  <w:uiPriority w:val="39"/>
+  <w:pPr>
+    <w:spacing w:after="0" w:line="240" w:lineRule="auto"/>
+  </w:pPr>
+  <w:tblPr>
+    <w:tblBorders>
+      <w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+      <w:left w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+      <w:bottom w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+      <w:right w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+      <w:insideH w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+      <w:insideV w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+    </w:tblBorders>
+  </w:tblPr>
+</w:style>
+"""
+
 
 def promote_3gpp_styles_in_xml(xml_bytes: bytes) -> bytes:
     """
     Parses word/styles.xml, ensures that all official 3GPP styles have <w:qFormat/>
     so they are displayed prominently in the Microsoft Word QuickStyle ribbon gallery,
     removes semiHidden/unhideWhenUsed flags, sets uiPriority='1' (top of Styles pane),
+    guarantees that TableGrid table style is defined with standard borders,
     and injects missing authentic 3GPP linked character styles.
     """
     ns = {"w": W_NS}
@@ -294,16 +316,21 @@ def promote_3gpp_styles_in_xml(xml_bytes: bytes) -> bytes:
     # 1. Update existing styles
     existing_style_ids = set()
     existing_names = set()
+    has_table_grid = False
 
     for style in root.findall(".//w:style", ns):
         s_id = style.get(f"{{{W_NS}}}styleId", "")
         if s_id:
             existing_style_ids.add(s_id.lower())
+            if s_id.lower() == "tablegrid":
+                has_table_grid = True
 
         name_el = style.find("w:name", ns)
         name_val = name_el.get(f"{{{W_NS}}}val", "").strip().lower() if name_el is not None else ""
         if name_val:
             existing_names.add(name_val)
+            if name_val == "table grid":
+                has_table_grid = True
 
         if name_val in ALL_3GPP_STYLE_NAMES_LOWER or s_id.lower() in ALL_3GPP_STYLE_NAMES_LOWER:
             # Ensure qFormat
@@ -326,7 +353,14 @@ def promote_3gpp_styles_in_xml(xml_bytes: bytes) -> bytes:
                 pri = etree.SubElement(style, f"{{{W_NS}}}uiPriority")
             pri.set(f"{{{W_NS}}}val", "1")
 
-    # 2. Inject missing authentic 3GPP linked character styles
+    # 2. Ensure TableGrid table style exists so table borders and gridlines render properly
+    if not has_table_grid:
+        tg_elem = etree.fromstring(TABLE_GRID_XML.strip().encode("utf-8"))
+        root.append(tg_elem)
+        existing_style_ids.add("tablegrid")
+        existing_names.add("table grid")
+
+    # 3. Inject missing authentic 3GPP linked character styles
     for s_id, s_name, linked_para_id, font_name, is_bold, is_italic in LINKED_CHAR_STYLES:
         if s_id.lower() not in existing_style_ids and s_name.lower() not in existing_names:
             char_style = etree.SubElement(
@@ -358,6 +392,120 @@ def promote_3gpp_styles_in_xml(xml_bytes: bytes) -> bytes:
                 etree.SubElement(para_st, f"{{{W_NS}}}link", {f"{{{W_NS}}}val": s_id})
 
     return etree.tostring(root, xml_declaration=True, encoding="utf-8", standalone=True)
+
+
+def merge_and_promote_3gpp_styles(target_styles_bytes: bytes, template_styles_bytes: bytes) -> bytes:
+    """
+    Non-destructively merges authentic 3GPP styles into a document's existing styles.xml.
+    Preserves all existing document styles (including table styles like TableGrid,
+    custom table borders, formatting, and fonts) while ensuring that:
+    1. TableGrid table style exists with proper 0.5pt single borders.
+    2. Any missing official 3GPP styles from the template are injected.
+    3. All 3GPP styles are promoted with <w:qFormat/> and uiPriority="1".
+    4. Essential linked character companion styles are injected.
+    """
+    import copy
+
+    ns = {"w": W_NS}
+    target_root = etree.fromstring(target_styles_bytes)
+
+    # 1. Inspect existing styles in target
+    existing_style_ids = set()
+    existing_names = set()
+    has_table_grid = False
+
+    for style in target_root.findall(".//w:style", ns):
+        s_id = style.get(f"{{{W_NS}}}styleId", "")
+        if s_id:
+            existing_style_ids.add(s_id.lower())
+            if s_id.lower() == "tablegrid":
+                has_table_grid = True
+
+        name_el = style.find("w:name", ns)
+        name_val = name_el.get(f"{{{W_NS}}}val", "").strip().lower() if name_el is not None else ""
+        if name_val:
+            existing_names.add(name_val)
+            if name_val == "table grid":
+                has_table_grid = True
+
+    # 2. Ensure TableGrid style is present so table borders/gridlines are preserved
+    if not has_table_grid:
+        tg_elem = etree.fromstring(TABLE_GRID_XML.strip().encode("utf-8"))
+        target_root.append(tg_elem)
+        existing_style_ids.add("tablegrid")
+        existing_names.add("table grid")
+
+    # 3. Additively merge missing 3GPP styles from template without overwriting existing styles
+    if template_styles_bytes:
+        try:
+            template_root = etree.fromstring(template_styles_bytes)
+            for style in template_root.findall(".//w:style", ns):
+                s_id = style.get(f"{{{W_NS}}}styleId", "")
+                name_el = style.find("w:name", ns)
+                name_val = name_el.get(f"{{{W_NS}}}val", "").strip().lower() if name_el is not None else ""
+
+                is_3gpp = (name_val in ALL_3GPP_STYLE_NAMES_LOWER) or (s_id.lower() in ALL_3GPP_STYLE_NAMES_LOWER)
+                if is_3gpp:
+                    if s_id.lower() not in existing_style_ids and name_val not in existing_names:
+                        target_root.append(copy.deepcopy(style))
+                        if s_id:
+                            existing_style_ids.add(s_id.lower())
+                        if name_val:
+                            existing_names.add(name_val)
+        except Exception as e:
+            logger.debug("Failed merging 3GPP styles from template: %s", e)
+
+    # 4. Promote all 3GPP styles in target
+    for style in target_root.findall(".//w:style", ns):
+        s_id = style.get(f"{{{W_NS}}}styleId", "")
+        name_el = style.find("w:name", ns)
+        name_val = name_el.get(f"{{{W_NS}}}val", "").strip().lower() if name_el is not None else ""
+
+        if name_val in ALL_3GPP_STYLE_NAMES_LOWER or s_id.lower() in ALL_3GPP_STYLE_NAMES_LOWER:
+            if style.find("w:qFormat", ns) is None:
+                etree.SubElement(style, f"{{{W_NS}}}qFormat")
+            sh = style.find("w:semiHidden", ns)
+            if sh is not None:
+                style.remove(sh)
+            uh = style.find("w:unhideWhenUsed", ns)
+            if uh is not None:
+                style.remove(uh)
+            pri = style.find("w:uiPriority", ns)
+            if pri is None:
+                pri = etree.SubElement(style, f"{{{W_NS}}}uiPriority")
+            pri.set(f"{{{W_NS}}}val", "1")
+
+    # 5. Inject missing linked character companion styles
+    for s_id, s_name, linked_para_id, font_name, is_bold, is_italic in LINKED_CHAR_STYLES:
+        if s_id.lower() not in existing_style_ids and s_name.lower() not in existing_names:
+            char_style = etree.SubElement(
+                target_root,
+                f"{{{W_NS}}}style",
+                {
+                    f"{{{W_NS}}}type": "character",
+                    f"{{{W_NS}}}customStyle": "1",
+                    f"{{{W_NS}}}styleId": s_id,
+                },
+            )
+            etree.SubElement(char_style, f"{{{W_NS}}}name", {f"{{{W_NS}}}val": s_name})
+            etree.SubElement(char_style, f"{{{W_NS}}}link", {f"{{{W_NS}}}val": linked_para_id})
+            etree.SubElement(char_style, f"{{{W_NS}}}uiPriority", {f"{{{W_NS}}}val": "1"})
+            etree.SubElement(char_style, f"{{{W_NS}}}qFormat")
+            rPr = etree.SubElement(char_style, f"{{{W_NS}}}rPr")
+            etree.SubElement(rPr, f"{{{W_NS}}}rFonts", {f"{{{W_NS}}}ascii": font_name, f"{{{W_NS}}}hAnsi": font_name})
+            if is_bold:
+                etree.SubElement(rPr, f"{{{W_NS}}}b")
+            if is_italic:
+                etree.SubElement(rPr, f"{{{W_NS}}}i")
+            etree.SubElement(rPr, f"{{{W_NS}}}lang", {f"{{{W_NS}}}val": "en-GB", f"{{{W_NS}}}eastAsia": "en-US"})
+
+        para_styles = target_root.xpath(f".//w:style[@w:styleId='{linked_para_id}']", namespaces=ns)
+        if para_styles:
+            para_st = para_styles[0]
+            if para_st.find("w:link", ns) is None:
+                etree.SubElement(para_st, f"{{{W_NS}}}link", {f"{{{W_NS}}}val": s_id})
+
+    return etree.tostring(target_root, xml_declaration=True, encoding="utf-8", standalone=True)
 
 
 def promote_3gpp_styles_in_word(doc) -> int:
@@ -613,16 +761,17 @@ def get_3gpp_package_part(part_name: str) -> bytes:
 
 def ensure_3gpp_package_styles(docx_path: Path) -> None:
     """
-    Injects or replaces word/styles.xml, word/theme/theme1.xml, and word/fontTable.xml
-    in the target .docx file with the authentic 3GPP styles dictionary.
+    Non-destructively ensures that the target .docx file contains all official 3GPP styles
+    and the standard TableGrid style with proper borders and lines.
+    Preserves all existing document styles, tables, themes, and fonts.
     """
     ext_path = to_extended_path(docx_path)
     if not os.path.exists(ext_path):
         raise FileNotFoundError(f"Target document does not exist: {docx_path}")
 
-    styles_xml = get_3gpp_package_part("word/styles.xml")
-    theme_xml = get_3gpp_package_part("word/theme/theme1.xml")
-    font_table_xml = get_3gpp_package_part("word/fontTable.xml")
+    template_styles_xml = get_3gpp_package_part("word/styles.xml")
+    template_theme_xml = get_3gpp_package_part("word/theme/theme1.xml")
+    template_font_table_xml = get_3gpp_package_part("word/fontTable.xml")
 
     tmp_path = docx_path.with_name(docx_path.name + ".stylepatch.tmp")
     ext_tmp = to_extended_path(tmp_path)
@@ -635,29 +784,46 @@ def ensure_3gpp_package_styles(docx_path: Path) -> None:
         with zipfile.ZipFile(io.BytesIO(source_bytes), "r") as zin, zipfile.ZipFile(
             out_buf, "w", compression=zipfile.ZIP_DEFLATED
         ) as zout:
+            namelist = set(zin.namelist())
+
+            # Non-destructive merge: preserve existing document styles, merge 3GPP styles & ensure TableGrid
+            if "word/styles.xml" in namelist:
+                existing_styles = zin.read("word/styles.xml")
+                merged_styles = merge_and_promote_3gpp_styles(existing_styles, template_styles_xml)
+            else:
+                merged_styles = promote_3gpp_styles_in_xml(template_styles_xml)
+
             for item in zin.infolist():
                 if item.filename == "word/styles.xml":
-                    zout.writestr(item, styles_xml)
+                    zout.writestr(item, merged_styles)
                 elif item.filename == "word/theme/theme1.xml":
-                    zout.writestr(item, theme_xml)
+                    # Preserve existing theme (colors, fonts, effects)
+                    zout.writestr(item, zin.read(item.filename))
                 elif item.filename == "word/fontTable.xml":
-                    zout.writestr(item, font_table_xml)
+                    # Preserve existing font table
+                    zout.writestr(item, zin.read(item.filename))
                 elif item.filename == "word/settings.xml":
-                    # Remove <w:linkStyles/> to prevent Microsoft Word from overwriting 3GPP styles on document open
+                    # Remove <w:linkStyles/> to prevent Microsoft Word from overwriting styles on document open
                     try:
                         settings_text = zin.read(item.filename).decode("utf-8")
-                        settings_text = re.sub(r"<w:linkStyles\s*/>", "", settings_text)
+                        settings_text = re.sub(r"<(?:\w+:)?linkStyles\b[^>]*/?>", "", settings_text)
                         zout.writestr(item, settings_text.encode("utf-8"))
                     except Exception:
                         zout.writestr(item, zin.read(item.filename))
                 else:
                     zout.writestr(item, zin.read(item.filename))
 
+            # Only provide theme/fontTable if completely absent from target document
+            if "word/theme/theme1.xml" not in namelist and template_theme_xml:
+                zout.writestr("word/theme/theme1.xml", template_theme_xml)
+            if "word/fontTable.xml" not in namelist and template_font_table_xml:
+                zout.writestr("word/fontTable.xml", template_font_table_xml)
+
         with open(ext_tmp, "wb") as tf:
             tf.write(out_buf.getvalue())
 
         os.replace(ext_tmp, ext_path)
-        logger.info("Injected authentic 3GPP styles into %s", docx_path.name)
+        logger.info("Ensured authentic 3GPP styles and table formatting in %s", docx_path.name)
     finally:
         if os.path.exists(ext_tmp):
             try:
