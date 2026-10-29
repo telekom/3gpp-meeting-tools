@@ -4,6 +4,8 @@ Semi-transparent visual overlay for drag & drop file ingestion across Meetings &
 Aligned with ModernDropZone Fluent design tokens.
 """
 
+from typing import List, Optional
+
 from PyQt5.QtCore import QRectF, Qt
 from PyQt5.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
 from PyQt5.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
@@ -33,7 +35,12 @@ class _OverlayCard(QFrame):
 class DropOverlayWidget(QWidget):
     """Semi-transparent visual overlay aligned with ModernDropZone design tokens."""
 
-    def __init__(self, parent=None, title: str = "Drop Chairman's Notes / Agenda file(s) to import"):
+    def __init__(
+        self,
+        parent=None,
+        title: str = "Drop Chairman's Notes / Agenda file(s) to import",
+        supported_exts: Optional[List[str]] = None,
+    ):
         super().__init__(parent)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.hide()
@@ -74,7 +81,7 @@ class DropOverlayWidget(QWidget):
         badges_row = QHBoxLayout()
         badges_row.setSpacing(6)
         badges_row.setAlignment(Qt.AlignCenter)
-        for ext in [".docx", ".doc", ".htm", ".zip"]:
+        for ext in (supported_exts or [".docx", ".doc", ".htm", ".zip"]):
             b = QLabel(ext)
             b.setStyleSheet("""
                 QLabel {
@@ -95,3 +102,9 @@ class DropOverlayWidget(QWidget):
         card_layout.addLayout(badges_row)
 
         layout.addWidget(card)
+
+    def paintEvent(self, event):
+        """Paint soft semi-transparent scrim across parent window."""
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(15, 23, 42, 85))  # Slate-900 at ~33% opacity
+
