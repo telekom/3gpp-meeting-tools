@@ -219,6 +219,13 @@ class SpecClauseExcerptDialog(QDialog):
         self.open_after_cb.setStyleSheet("color: #4A5568; font-size: 12px; margin-left: 8px;")
         bottom_layout.addWidget(self.open_after_cb)
 
+        self.chk_also_markdown = QCheckBox("Also export as Markdown (with figures)")
+        self.chk_also_markdown.setStyleSheet("color: #4A5568; font-size: 12px; margin-left: 8px;")
+        self.chk_also_markdown.setToolTip(
+            "Automatically convert the extracted clause(s) to Markdown (.md) and extract all embedded figures and diagrams into a companion media folder."
+        )
+        bottom_layout.addWidget(self.chk_also_markdown)
+
         bottom_layout.addStretch()
 
         self.btn_extract = QPushButton("✂️ Extract Selected Clauses...")
@@ -469,6 +476,7 @@ class SpecClauseExcerptDialog(QDialog):
             headings=self._headings,
             selected_ids=selected_ids,
             output_path=output_path,
+            export_markdown=self.chk_also_markdown.isChecked(),
         )
         self._extract_thread.progress.connect(self._on_extract_progress)
         self._extract_thread.finished_path.connect(self._on_extract_finished)
@@ -496,11 +504,24 @@ class SpecClauseExcerptDialog(QDialog):
         if self.open_after_cb.isChecked() and p.exists():
             open_document(p)
 
-        QMessageBox.information(
-            self,
-            "Extraction Complete",
-            f"Successfully extracted selected clauses to:\n{p}",
-        )
+        thread = self._extract_thread
+        if thread and getattr(thread, "export_markdown", False) and getattr(thread, "md_path", None):
+            md_path = thread.md_path
+            img_count = getattr(thread, "images_count", 0)
+            img_msg = f"\n• Figures extracted: {img_count}" if img_count else "\n• Figures extracted: 0"
+            msg = (
+                f"Successfully extracted selected clauses!\n\n"
+                f"📄 Word Document:\n{p}\n\n"
+                f"📝 Markdown Document:\n{md_path}"
+                f"{img_msg}"
+            )
+            QMessageBox.information(self, "Extraction Complete", msg)
+        else:
+            QMessageBox.information(
+                self,
+                "Extraction Complete",
+                f"Successfully extracted selected clauses to:\n{p}",
+            )
 
     def _on_extract_failed(self, err_msg: str):
         self.progress_bar.setRange(0, 100)
@@ -550,3 +571,6 @@ class SpecClauseExcerptDialog(QDialog):
             self._extract_thread.requestInterruption()
             self._extract_thread.wait(500)
         super().closeEvent(event)
+
+
+SpecClauseDialog = SpecClauseExcerptDialog

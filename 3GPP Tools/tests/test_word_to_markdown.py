@@ -187,6 +187,39 @@ class TestWordToMarkdown(unittest.TestCase):
         self.assertTrue(tab.run_markdown_btn.isEnabled())
         self.assertFalse(tab.md_progress.isVisible())
 
+    def test_word_markdown_card_ignores_non_markdown_extensions(self):
+        """Verify WordMarkdownCard ignores non-markdown conversion events (e.g. PDF/VSDX)."""
+        tab = WordExtractorTab()
+        non_md = self.test_dir / "sample.pdf"
+        non_md.write_text("dummy", encoding="utf-8")
+
+        tab.on_conversion_success(str(non_md))
+        self.assertTrue(tab.card_markdown.md_result_frame.isHidden())
+        self.assertIsNone(tab.card_markdown._last_md_output_path)
+
+    def test_main_window_markdown_handler(self):
+        """Verify DragDropUI._on_word_convert_markdown_requested accepts dict and positional options."""
+        from unittest.mock import MagicMock
+        from main_window import DragDropUI
+
+        mw = MagicMock()
+        mw.queue_manager = MagicMock()
+        DragDropUI._on_word_convert_markdown_requested(
+            mw,
+            "test.docx",
+            {"revisions_mode": "accept", "extract_media": True, "output_dir": "out", "include_header": False},
+        )
+
+        mw.queue_manager.add_item.assert_called_once()
+        args, kwargs = mw.queue_manager.add_item.call_args
+        self.assertEqual(args[0], Path("test.docx"))
+        self.assertEqual(args[1], "word_to_markdown")
+        params = kwargs.get("params")
+        self.assertEqual(params["revisions"], "accept")
+        self.assertTrue(params["extract_media"])
+        self.assertEqual(params["output_dir"], "out")
+        self.assertFalse(params["include_header"])
+
 
 if __name__ == "__main__":
     unittest.main()

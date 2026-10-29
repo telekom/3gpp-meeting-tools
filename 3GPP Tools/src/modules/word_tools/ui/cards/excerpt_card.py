@@ -8,6 +8,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QShortcut,
@@ -158,6 +159,14 @@ class WordExcerptCard(QWidget):
         action_row.addWidget(self.excerpt_clear_btn)
 
         action_row.addStretch()
+
+        self.chk_also_markdown = QCheckBox("Also export as Markdown (with figures)")
+        self.chk_also_markdown.setToolTip(
+            "Automatically convert the extracted sections to Markdown (.md) and extract all embedded figures and diagrams into a companion media folder."
+        )
+        self.chk_also_markdown.setStyleSheet("color: #334155; font-weight: 500; margin-right: 8px;")
+        action_row.addWidget(self.chk_also_markdown)
+
         self.excerpt_extract_btn = QPushButton("✂️ Extract Selected Sections")
         self.excerpt_extract_btn.setObjectName("primaryBtn")
         self.excerpt_extract_btn.setEnabled(False)
@@ -413,8 +422,13 @@ class WordExcerptCard(QWidget):
             output += ".docx"
         self.excerpt_extract_btn.setEnabled(False)
         self.excerpt_extract_btn.setText("⏳ Extracting...")
+        also_md = self.chk_also_markdown.isChecked()
         self._excerpt_extract_thread = WordExcerptThread(
-            self._excerpt_paths, self._excerpt_headings, selected, output
+            self._excerpt_paths,
+            self._excerpt_headings,
+            selected,
+            output,
+            export_markdown=also_md,
         )
         self.excerpt_progress.setRange(0, 100)
         self.excerpt_progress.setValue(0)
@@ -440,7 +454,20 @@ class WordExcerptCard(QWidget):
         self.excerpt_progress_label.setText(message)
 
     def _on_excerpt_finished(self, path):
-        QMessageBox.information(self, "Extraction Complete", f"Created:\n{path}")
+        thread = self._excerpt_extract_thread
+        if thread and getattr(thread, "export_markdown", False) and getattr(thread, "md_path", None):
+            md_path = thread.md_path
+            img_count = getattr(thread, "images_count", 0)
+            img_msg = f"\n• Figures extracted: {img_count}" if img_count else "\n• Figures extracted: 0"
+            msg = (
+                f"Successfully extracted selected sections!\n\n"
+                f"📄 Word Document:\n{path}\n\n"
+                f"📝 Markdown Document:\n{md_path}"
+                f"{img_msg}"
+            )
+            QMessageBox.information(self, "Extraction Complete", msg)
+        else:
+            QMessageBox.information(self, "Extraction Complete", f"Created:\n{path}")
 
     def _on_excerpt_extract_failed(self, message):
         QMessageBox.critical(self, "Extraction Failed", message)
