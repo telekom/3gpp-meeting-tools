@@ -30,6 +30,7 @@ from modules.meetings.core.session_plan_models import (
 from modules.meetings.ui.session_plan_dialogs import (
     DelegationImportDialog,
     DelegationMemberDialog,
+    MultiDelegateSelectDialog,
     SessionDispatchDialog,
 )
 from modules.meetings.ui.session_plan_window import SessionPlanWindow
@@ -636,6 +637,172 @@ class TestSessionPlanWindowDelegationIntegration(unittest.TestCase):
         content_martin = martin_ics_path.read_text(encoding="utf-8")
         self.assertEqual(content_martin.count("BEGIN:VEVENT"), 2)
         self.assertIn("X-WR-CALNAME:SA2 #177 - Martin (S2-2610195)", content_martin)
+
+    def test_multi_delegate_models_and_all_expansion(self):
+        # 1. TopicOwnership with single, multi, and ALL
+        to1 = TopicOwnership("177", "20.6.18", "Martin")
+        self.assertFalse(to1.is_all())
+        self.assertEqual(to1.get_owners(), ["Martin"])
+
+        to2 = TopicOwnership("177", "20.6.0", "Martin, Anna")
+        self.assertFalse(to2.is_all())
+        self.assertEqual(to2.get_owners(), ["Martin", "Anna"])
+
+        to3 = TopicOwnership("177", "20.6.0", "ALL")
+        self.assertTrue(to3.is_all())
+        self.assertEqual(to3.get_owners(["Martin", "Anna", "Thomas"]), ["Martin", "Anna", "Thomas"])
+
+        to4 = TopicOwnership("177", "20.6.0", "👥 All Team")
+        self.assertTrue(to4.is_all())
+        self.assertEqual(to4.get_owners(["Martin", "Anna"]), ["Martin", "Anna"])
+
+        # 2. SessionAppointment with single, multi, and ALL
+        ap1 = SessionAppointment("177", "Tuesday|Q1|0|1", "Thomas")
+        self.assertFalse(ap1.is_all())
+        self.assertEqual(ap1.get_appointed_delegates(), ["Thomas"])
+
+        ap2 = SessionAppointment("177", "Tuesday|Q1|0|1", "Martin, Anna")
+        self.assertFalse(ap2.is_all())
+        self.assertEqual(ap2.get_appointed_delegates(), ["Martin", "Anna"])
+
+        ap3 = SessionAppointment("177", "Tuesday|Q1|0|1", "ALL")
+        self.assertTrue(ap3.is_all())
+        self.assertEqual(ap3.get_appointed_delegates(["Martin", "Anna"]), ["Martin", "Anna"])
+
+    def test_multi_delegate_select_dialog(self):
+        members = [
+            DelegationMember(name="Martin", color="#2563EB", is_self=True),
+            DelegationMember(name="Anna", color="#047857"),
+            DelegationMember(name="Thomas", color="#7C3AED"),
+        ]
+
+        # 1. Initialize with Martin and Anna
+        dlg = MultiDelegateSelectDialog("AI 20.6.0: General Topics", members, "Martin, Anna")
+        self.assertIn("Martin", dlg.get_selected_delegates())
+        self.assertIn("Anna", dlg.get_selected_delegates())
+        self.assertNotIn("Thomas", dlg.get_selected_delegates())
+        self.assertEqual(dlg.get_owner_string(), "Martin, Anna")
+        self.assertFalse(dlg.chk_all.isChecked())
+
+        # 2. Toggle All Team
+        dlg.chk_all.setChecked(True)
+        self.assertEqual(len(dlg.get_selected_delegates()), 3)
+        self.assertEqual(dlg.get_owner_string(), "ALL")
+
+        # 3. Uncheck Thomas -> should revert master checkbox and return "Martin, Anna"
+        dlg._checkboxes["Thomas"].setChecked(False)
+        self.assertFalse(dlg.chk_all.isChecked())
+        self.assertEqual(dlg.get_owner_string(), "Martin, Anna")
+
+        # 4. Clear all
+        dlg._set_all_individual_checked(False)
+        self.assertEqual(dlg.get_owner_string(), "")
+
+    def test_window_multi_delegate_slot_and_clash_detection(self):
+        win = SessionPlanWindow(
+            meeting_dir=self.temp_dir,
+            mtg_info=self.mtg_info,
+            agenda_map={},
+            tracked_tokens=set(),
+        )
+        try:
+            mtg_num = win.meeting_number
+            slot1 = SessionSlot(
+                id=101,
+                day_index=1,
+                day_name="Tuesday",
+                quarter="Q1",
+                sub_slot=1,  # TU1
+                stream_number=1,
+                raw_text="AI 20.6.0 General Architecture Wrap-up",
+                items=[AgendaSlotItem(ai_number="20.6.0", display_expr="AI 20.6.0", topic_label="General")],
+            )
+            slot2 = SessionSlot(
+                id=102,
+                day_index=1,
+                day_name="Tuesday",
+                quarter="Q1",
+                sub_slot=1,  # TU1 - SIMULTANEOUS COLLISION with Slot 1!
+                stream_number=2,
+                raw_text="AI 5.2.1 Core Network Features",
+                items=[AgendaSlotItem(ai_number="5.2.1", display_expr="AI 5.2.1", topic_label="Core")],
+            )
+
+            snap = SessionPlanSnapshot(
+                id=1,
+                meeting_number=mtg_num,
+                tdoc_id="S2-2610195",
+                slots=[slot1, slot2],
+            )
+            win.active_snapshot = snap
+
+            # Setup delegation plan: Martin and Anna in roster
+            # AI 20.6.0 is assigned to ALL (both Martin and Anna)
+            # AI 5.2.1 is assigned to Martin
+            m1 = DelegationMember(name="Martin", color="#2563EB", is_self=True)
+            m2 = DelegationMember(name="Anna", color="#047857")
+            win.db.save_delegation_member(mtg_num, m1)
+            win.db.save_delegation_member(mtg_num, m2)
+            win.db.set_topic_owner(mtg_num, "20.6.0", "ALL")
+            win.db.set_topic_owner(mtg_num, "5.2.1", "Martin")
+            win.delegation_plan = win.db.get_delegation_plan(mtg_num)
+
+            # 1. Effective delegate resolution
+            dels1, is_cov1, is_all1 = win._get_slot_effective_delegates(slot1)
+            self.assertTrue(is_all1)
+            self.assertIn("Martin", dels1)
+            self.assertIn("Anna", dels1)
+
+            dels2, is_cov2, is_all2 = win._get_slot_effective_delegates(slot2)
+            self.assertFalse(is_all2)
+            self.assertEqual(dels2, ["Martin"])
+
+            # 2. Collision detection
+            # Martin has both Slot 1 (Str 1 TU1) and Slot 2 (Str 2 TU1) -> Martin has a collision!
+            # Anna is only on Slot 1 (Str 1 TU1) -> Anna has NO collision!
+            collisions = win._detect_delegation_collisions()
+            martin_clashes = collisions.get(("Martin", 1, "Q1"), [])
+            self.assertEqual(len(martin_clashes), 2, "Martin must have a parallel collision between Str 1 and Str 2")
+
+            anna_clashes = collisions.get(("Anna", 1, "Q1"), [])
+            self.assertEqual(len(anna_clashes), 0, "Anna must NOT have a collision since she is only in Str 1")
+
+            # 3. Availability engine for appointing coverage for Slot 2
+            avail = win._compute_delegate_availability(slot2)
+            self.assertEqual(avail["Martin"]["status"], "busy", "Martin is already on Str 1 during this quarter")
+            self.assertEqual(avail["Anna"]["status"], "busy", "Anna is also attending Str 1 (20.6.0 ALL) during this quarter")
+
+            # 4. Delegate Agenda view filtering
+            # First populate combo with new delegation roster
+            win._render_tracked_topics()
+
+            # Viewing 'Anna' must include Slot 1 (because 20.6.0 is for ALL), but NOT Slot 2
+            idx_anna = win.delegate_agenda_combo.findData("Anna")
+            self.assertGreaterEqual(idx_anna, 0)
+            win.delegate_agenda_combo.setCurrentIndex(idx_anna)
+            win._render_tracked_topics()
+            self.assertEqual(win.tracked_table.rowCount(), 1)
+            self.assertIn("All Team", win.tracked_table.item(0, 4).text())
+
+            # Viewing 'Martin' must include both Slot 1 and Slot 2
+            idx_martin = win.delegate_agenda_combo.findData("Martin")
+            self.assertGreaterEqual(idx_martin, 0)
+            win.delegate_agenda_combo.setCurrentIndex(idx_martin)
+            win._render_tracked_topics()
+            self.assertEqual(win.tracked_table.rowCount(), 2)
+
+            # 5. Email Export includes All Team in master topic ownership
+            subj, html_body, plain = SessionPlanExporter.generate_delegation_email_summary(
+                snapshot=snap,
+                plan=win.delegation_plan,
+                meeting_tz_offset_min=120,
+                tz_name="Venue Time",
+            )
+            self.assertIn("All Team", html_body)
+            self.assertIn("AI 20.6.0", html_body)
+            self.assertIn("AI 20.6.0: Agenda Item 20.6.0 -> All Team", plain)
+        finally:
+            win.close()
 
 
 

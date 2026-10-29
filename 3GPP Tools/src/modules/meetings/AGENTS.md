@@ -236,6 +236,8 @@ src/modules/meetings/
   - Enriches TDoc rows with live `Sub-Item` topic separators, `_agenda_order`, and `_sub_item_order` extracted from `TdocsByAgenda.htm` and Word Chairman's Notes.
 - **Delegation Topic Distribution & Session Clash Dispatching (`SessionPlanWindow`, `SessionPlanDatabase`, `SessionPlanExporter`):**
   - **Two-Tier Assignment Model:** Decouples high-level strategic **Topic Ownership** (e.g. *Martin owns AI 20.6.18 and AI 5.2.1*) from tactical **Session Appointments** (ad-hoc single-slot overrides when clashes occur).
+  - **Multi-Delegate & "All Team" Ownership:** Supports multi-delegate assignments and full delegation coverage (`👥 All Team` / `ALL`, e.g. for general topics like AI 20.6.0, as well as comma-separated combinations like `Martin, Anna`) via `MultiDelegateSelectDialog` and 1-click matrix dropdowns.
+  - **Per-Delegate Collision Evaluation:** When a general topic (like 20.6.0) or multi-delegate topic is scheduled, collisions are evaluated per individual delegate: only colleagues who are simultaneous double-booked in a parallel stream receive a clash warning (`⚠️ CLASH (<Name>)`), while unconflicted delegates remain marked as available and attending.
   - **Half-Quarter (TU1 / TU2) Time-Overlap Precision (`_slots_time_overlap`):**
     - Accurately models 45-minute half-quarters (`sub_slot=1` for TU1, `sub_slot=2` for TU2, and `sub_slot=0` for full quarters).
     - Sequential half-quarters (e.g., Stream 1 TU1 $\rightarrow$ Stream 2 TU2) are recognized as non-overlapping in time, completely eliminating false double-booking warnings.

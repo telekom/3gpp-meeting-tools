@@ -8,7 +8,7 @@ Dialogs for SA2 Session Plan Management:
 """
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
@@ -30,6 +30,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSpinBox,
     QSplitter,
     QTableWidget,
@@ -820,7 +821,7 @@ class SessionDispatchDialog(QDialog):
         self.table.setHorizontalHeaderLabels(["Status", "Delegate", "Current Schedule / Availability"])
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setSelectionMode(QTableWidget.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
 
         # Sort: Free members first, then Busy
@@ -884,12 +885,18 @@ class SessionDispatchDialog(QDialog):
         revert_btn.clicked.connect(self._revert_to_owner)
         btn_box.addWidget(revert_btn)
 
+        all_team_btn = QPushButton("👥 Appoint All Team")
+        all_team_btn.setStyleSheet("background: #4F46E5; color: #FFFFFF; font-weight: 600; padding: 6px 12px; border-radius: 6px;")
+        all_team_btn.setToolTip("Appoints all delegates in the roster to attend this session together.")
+        all_team_btn.clicked.connect(self._appoint_all_team)
+        btn_box.addWidget(all_team_btn)
+
         btn_box.addStretch()
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
         btn_box.addWidget(cancel_btn)
 
-        appoint_btn = QPushButton("⚡ Appoint Selected Delegate")
+        appoint_btn = QPushButton("⚡ Appoint Selected")
         appoint_btn.setStyleSheet("background: #059669; color: #FFFFFF; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
         appoint_btn.clicked.connect(self._validate_and_accept)
         btn_box.addWidget(appoint_btn)
@@ -899,22 +906,34 @@ class SessionDispatchDialog(QDialog):
         self.reverted = True
         self.accept()
 
+    def _appoint_all_team(self):
+        self.reverted = False
+        self.appointed_delegate = "ALL"
+        self.coverage_reason = self.reason_edit.text().strip() or "All team attending"
+        self.accept()
+
     def _validate_and_accept(self):
-        selected_rows = self.table.selectedItems()
+        selected_rows = sorted(list(set(item.row() for item in self.table.selectedItems())))
         if not selected_rows:
-            QMessageBox.warning(self, "No Delegate Selected", "Please select a delegate from the table.")
+            QMessageBox.warning(self, "No Delegate Selected", "Please select one or more delegates from the table.")
             return
 
-        row = self.table.currentRow()
-        item = self.table.item(row, 0)
-        delegate_name = item.data(Qt.UserRole)
-        is_free = "Free" in item.text()
+        del_names: List[str] = []
+        busy_names: List[str] = []
+        for r in selected_rows:
+            item = self.table.item(r, 0)
+            if item:
+                name = item.data(Qt.UserRole)
+                del_names.append(name)
+                if "Busy" in item.text():
+                    busy_names.append(name)
 
-        if not is_free:
+        if busy_names:
+            names_str = ", ".join(busy_names)
             ans = QMessageBox.question(
                 self,
                 "Delegate Double-Booking Warning",
-                f"Warning: {delegate_name} is already busy in another stream at this time!\n\nDo you still want to appoint {delegate_name}?",
+                f"Warning: The following delegate(s) are already busy in another stream at this time:\n{names_str}\n\nDo you still want to appoint them?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
@@ -922,7 +941,10 @@ class SessionDispatchDialog(QDialog):
                 return
 
         self.reverted = False
-        self.appointed_delegate = delegate_name
+        if len(del_names) == len(self.members) and len(self.members) > 1:
+            self.appointed_delegate = "ALL"
+        else:
+            self.appointed_delegate = ", ".join(del_names)
         self.coverage_reason = self.reason_edit.text().strip()
         self.accept()
 
@@ -931,6 +953,164 @@ class SessionDispatchDialog(QDialog):
         if getattr(self, "reverted", False):
             return None, ""
         return getattr(self, "appointed_delegate", None), getattr(self, "coverage_reason", "")
+
+
+class MultiDelegateSelectDialog(QDialog):
+    """
+    Dialog to select multiple delegates or 'All Team' for an Agenda Item or session.
+    """
+
+    def __init__(
+        self,
+        topic_title: str,
+        members: List[DelegationMember],
+        current_selection: Union[str, List[str]],
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.topic_title = topic_title
+        self.members = members
+        self.current_selection = current_selection
+
+        self.setWindowTitle("👥 Select Delegate(s)")
+        self.resize(440, 400)
+        self._checkboxes: Dict[str, QCheckBox] = {}
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        # Header info
+        header_card = QFrame()
+        header_card.setStyleSheet("background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 8px;")
+        h_lay = QVBoxLayout(header_card)
+        h_lay.setContentsMargins(6, 6, 6, 6)
+        h_lay.addWidget(QLabel("<b>Assign Delegate(s) for Topic:</b>"))
+        lbl_top = QLabel(self.topic_title)
+        lbl_top.setWordWrap(True)
+        lbl_top.setStyleSheet("color: #334155; font-size: 11px;")
+        h_lay.addWidget(lbl_top)
+        layout.addWidget(header_card)
+
+        # Parse current selection
+        initially_checked: Set[str] = set()
+        is_all_initial = False
+        if isinstance(self.current_selection, str):
+            clean_str = self.current_selection.strip()
+            if clean_str.upper() in ("ALL", "ALL TEAM", "ALL DELEGATES", "👥 ALL TEAM", "👥 ALL"):
+                is_all_initial = True
+                initially_checked = {m.name for m in self.members}
+            else:
+                initially_checked = {p.strip() for p in clean_str.split(",") if p.strip()}
+        elif isinstance(self.current_selection, (list, set)):
+            initially_checked = {str(x).strip() for x in self.current_selection if str(x).strip()}
+            if len(initially_checked) == len(self.members) and len(self.members) > 0:
+                is_all_initial = True
+
+        # "All Team" master checkbox
+        self.chk_all = QCheckBox("👥 All Team (Everyone in Delegation)")
+        self.chk_all.setStyleSheet("font-weight: 700; font-size: 12px; color: #1E40AF; padding: 4px;")
+        self.chk_all.setChecked(is_all_initial)
+        self.chk_all.toggled.connect(self._on_all_toggled)
+        layout.addWidget(self.chk_all)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("color: #E2E8F0;")
+        layout.addWidget(sep)
+
+        # Scrollable individual member checkboxes
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px;")
+        member_widget = QWidget()
+        member_lay = QVBoxLayout(member_widget)
+        member_lay.setContentsMargins(8, 8, 8, 8)
+        member_lay.setSpacing(6)
+
+        for m in self.members:
+            row_w = QWidget()
+            row_lay = QHBoxLayout(row_w)
+            row_lay.setContentsMargins(0, 0, 0, 0)
+            row_lay.setSpacing(8)
+
+            badge = QLabel("●")
+            badge.setStyleSheet(f"color: {m.color}; font-size: 14px;")
+            row_lay.addWidget(badge)
+
+            chk = QCheckBox(m.name + (" (Myself)" if m.is_self else ""))
+            chk.setStyleSheet("font-size: 12px; font-weight: 500;")
+            chk.setChecked(is_all_initial or m.name in initially_checked)
+            chk.toggled.connect(self._on_individual_toggled)
+            self._checkboxes[m.name] = chk
+
+            row_lay.addWidget(chk)
+            row_lay.addStretch()
+            member_lay.addWidget(row_w)
+
+        member_lay.addStretch()
+        scroll.setWidget(member_widget)
+        layout.addWidget(scroll)
+
+        # Quick action buttons
+        link_row = QHBoxLayout()
+        btn_sel_all = QPushButton("Select All")
+        btn_sel_all.setStyleSheet("padding: 2px 8px; font-size: 11px;")
+        btn_sel_all.clicked.connect(lambda: self._set_all_individual_checked(True))
+        btn_clr_all = QPushButton("Clear All")
+        btn_clr_all.setStyleSheet("padding: 2px 8px; font-size: 11px;")
+        btn_clr_all.clicked.connect(lambda: self._set_all_individual_checked(False))
+        link_row.addWidget(btn_sel_all)
+        link_row.addWidget(btn_clr_all)
+        link_row.addStretch()
+        layout.addLayout(link_row)
+
+        # Dialog buttons
+        btn_box = QHBoxLayout()
+        btn_box.addStretch()
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+        btn_ok = QPushButton("Apply Assignment")
+        btn_ok.setStyleSheet("background: #2563EB; color: #FFFFFF; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
+        btn_ok.clicked.connect(self.accept)
+        btn_box.addWidget(btn_cancel)
+        btn_box.addWidget(btn_ok)
+        layout.addLayout(btn_box)
+
+    def _on_all_toggled(self, checked: bool):
+        if getattr(self, "_block_sync", False):
+            return
+        self._set_all_individual_checked(checked)
+
+    def _set_all_individual_checked(self, checked: bool):
+        self._block_sync = True
+        for chk in self._checkboxes.values():
+            chk.setChecked(checked)
+        self.chk_all.setChecked(checked)
+        self._block_sync = False
+
+    def _on_individual_toggled(self):
+        if getattr(self, "_block_sync", False):
+            return
+        self._block_sync = True
+        all_checked = bool(self._checkboxes) and all(c.isChecked() for c in self._checkboxes.values())
+        self.chk_all.setChecked(all_checked)
+        self._block_sync = False
+
+    def get_selected_delegates(self) -> List[str]:
+        if self.chk_all.isChecked():
+            return [m.name for m in self.members]
+        return [name for name, chk in self._checkboxes.items() if chk.isChecked()]
+
+    def get_owner_string(self) -> str:
+        """Returns 'ALL' if all members are selected, otherwise comma-separated names or empty."""
+        selected = self.get_selected_delegates()
+        if not selected:
+            return ""
+        if len(selected) == len(self.members) and len(self.members) > 1:
+            return "ALL"
+        return ", ".join(selected)
 
 
 class DelegationImportDialog(QDialog):
