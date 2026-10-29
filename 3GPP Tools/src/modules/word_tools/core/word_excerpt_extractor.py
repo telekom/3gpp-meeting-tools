@@ -10,7 +10,7 @@ import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pythoncom
 import win32com.client
@@ -530,21 +530,70 @@ class WordExcerptThread(QThread):
     failed = pyqtSignal(str)
     progress = pyqtSignal(int, str)
 
-    def __init__(self, source_paths, headings, selected_ids, output_path):
+    def __init__(
+        self,
+        source_paths,
+        headings,
+        selected_ids,
+        output_path,
+        export_markdown: bool = False,
+        revisions: str = "accept",
+    ):
         super().__init__()
         self.source_paths = source_paths
         self.headings = headings
         self.selected_ids = selected_ids
         self.output_path = output_path
+        self.export_markdown = bool(export_markdown)
+        self.revisions = revisions
+        self.md_path: Optional[Path] = None
+        self.images_count: int = 0
 
     def run(self):
         try:
             logger.info("Extracting %d selected heading(s)...", len(self.selected_ids))
+
+            def _scale_progress(percent: int, message: str):
+                scaled = int(percent * 0.85) if self.export_markdown else percent
+                self.progress.emit(scaled, message)
+
             out = WordExcerptEngine(
                 self.source_paths, self.headings,
-                progress_callback=lambda percent, message: self.progress.emit(percent, message),
+                progress_callback=_scale_progress,
             ).extract(self.selected_ids, self.output_path)
-            logger.info("Excerpt created: %s", out)
+
+            if self.export_markdown:
+                self.progress.emit(88, "Converting excerpt to Markdown and extracting figures...")
+                from modules.meetings.core.tdoc_markdown_converter import convert_document_to_markdown
+                docx_file = Path(out).resolve()
+                out_dir = docx_file.parent
+                stem = docx_file.stem
+                media_dir = out_dir / f"{stem}_media"
+                media_rel = f"{stem}_media"
+
+                exported = convert_document_to_markdown(
+                    docx_file,
+                    out_dir=out_dir,
+                    tdoc_id=stem,
+                    revisions=self.revisions,
+                    media_dir=media_dir,
+                    media_rel=media_rel,
+                )
+                self.md_path = Path(exported.md_path) if exported and exported.md_path else out_dir / f"{stem}.md"
+                self.images_count = getattr(exported, "images", 0)
+
+                if media_dir.exists():
+                    try:
+                        if self.images_count == 0 or not os.listdir(to_extended_path(media_dir)):
+                            shutil.rmtree(to_extended_path(media_dir), ignore_errors=True)
+                    except Exception as clean_err:
+                        logger.debug("Failed checking/pruning media dir: %s", clean_err)
+
+                self.progress.emit(100, f"Extraction complete (Markdown & {self.images_count} figure(s) extracted).")
+            else:
+                self.progress.emit(100, "Extraction complete.")
+
+            logger.info("Excerpt created: %s (markdown=%s, images=%d)", out, self.export_markdown, self.images_count)
             self.finished_path.emit(str(out))
         except Exception as exc:
             logger.exception("Word excerpt extraction failed")

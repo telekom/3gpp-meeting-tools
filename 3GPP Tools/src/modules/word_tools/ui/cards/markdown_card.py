@@ -188,6 +188,8 @@ class WordMarkdownCard(QWidget):
 
     def on_conversion_success(self, out_path: str):
         p = Path(out_path).resolve()
+        if p.suffix.lower() not in (".md", ".markdown"):
+            return
         self._last_md_output_path = str(p)
         self._last_converted_md = str(p)
         self.md_progress.setVisible(False)

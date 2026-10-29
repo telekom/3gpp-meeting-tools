@@ -312,6 +312,7 @@ class WordExtractorTab(QWidget):
         self.excerpt_clear_sel_btn = self.card_excerpt.excerpt_clear_btn
         self.excerpt_tree = self.card_excerpt.excerpt_tree
         self.excerpt_drop = self.card_excerpt.excerpt_drop
+        self.chk_also_markdown = getattr(self.card_excerpt, "chk_also_markdown", None)
 
         # Markdown Card aliases
         self.pane_md = self.card_markdown.pane_markdown

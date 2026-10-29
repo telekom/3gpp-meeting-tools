@@ -183,11 +183,7 @@ class DragDropUI(QMainWindow):
             )
         )
         self.word_tab.convert_markdown_requested.connect(
-            lambda doc, rev, media, out_dir, hdr: self.queue_manager.add_item(
-                Path(doc),
-                "word_to_markdown",
-                {"fmt": "md", "revisions": rev, "extract_media": media, "output_dir": out_dir, "include_header": hdr}
-            )
+            self._on_word_convert_markdown_requested
         )
 
         db_path = get_project_root() / "db" / "3gpp_data.db"
@@ -774,6 +770,30 @@ class DragDropUI(QMainWindow):
             f.write(raw_text)
 
         self.queue_manager.add_item(puml_path, target_format, params=params)
+
+    def _on_word_convert_markdown_requested(self, doc: str, *args, **kwargs) -> None:
+        """Enqueues Word to Markdown conversion supporting dict or positional arguments."""
+        if args and isinstance(args[0], dict):
+            opts = args[0]
+        elif kwargs:
+            opts = kwargs
+        elif len(args) >= 1 and isinstance(args[0], str):
+            rev = args[0]
+            media = args[1] if len(args) > 1 else True
+            out_dir = args[2] if len(args) > 2 else None
+            hdr = args[3] if len(args) > 3 else True
+            opts = {"revisions": rev, "extract_media": media, "output_dir": out_dir, "include_header": hdr}
+        else:
+            opts = {}
+
+        params = {
+            "fmt": "md",
+            "revisions": opts.get("revisions_mode") or opts.get("revisions", "markup"),
+            "extract_media": opts.get("extract_media", True),
+            "output_dir": opts.get("output_dir"),
+            "include_header": opts.get("include_header", True),
+        }
+        self.queue_manager.add_item(Path(doc), "word_to_markdown", params=params)
 
     def on_conversion_failed(self, error_msg: str):
         if hasattr(self, 'word_tab') and hasattr(self.word_tab, 'on_conversion_failed'):
