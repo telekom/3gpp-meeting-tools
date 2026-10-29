@@ -158,8 +158,23 @@ class TopicOwnership:
     """Designates a default topic owner for an Agenda Item."""
     meeting_number: str                 # e.g. '177'
     ai_number: str                      # e.g. '20.6.18'
-    owner_name: str                     # e.g. 'Martin'
+    owner_name: str                     # e.g. 'Martin', 'Martin, Anna', or 'ALL'
     notes: str = ""
+
+    def is_all(self) -> bool:
+        """Returns True if this topic is assigned to the entire delegation."""
+        if not self.owner_name:
+            return False
+        clean = self.owner_name.strip().upper()
+        return clean in ("ALL", "ALL TEAM", "ALL DELEGATES", "👥 ALL TEAM", "👥 ALL")
+
+    def get_owners(self, all_roster_names: Optional[List[str]] = None) -> List[str]:
+        """Returns list of assigned delegate names, expanding 'ALL' if roster names are provided."""
+        if not self.owner_name:
+            return []
+        if self.is_all():
+            return list(all_roster_names) if all_roster_names else ["ALL"]
+        return [p.strip() for p in self.owner_name.split(",") if p.strip()]
 
 
 @dataclass
@@ -167,9 +182,24 @@ class SessionAppointment:
     """A session-specific coverage appointment (resolves collisions or ad-hoc coverage)."""
     meeting_number: str                 # e.g. '177'
     slot_key: str                       # e.g. 'Tuesday|Q2|0|2' (Day|Quarter|SubSlot|Stream)
-    appointed_delegate: str             # e.g. 'Thomas'
+    appointed_delegate: str             # e.g. 'Thomas', 'Thomas, Anna', or 'ALL'
     original_owner: str = ""            # e.g. 'Martin'
     reason: str = ""                    # e.g. 'Collision in Stream 1'
+
+    def is_all(self) -> bool:
+        """Returns True if this session is appointed to the entire delegation."""
+        if not self.appointed_delegate:
+            return False
+        clean = self.appointed_delegate.strip().upper()
+        return clean in ("ALL", "ALL TEAM", "ALL DELEGATES", "👥 ALL TEAM", "👥 ALL")
+
+    def get_appointed_delegates(self, all_roster_names: Optional[List[str]] = None) -> List[str]:
+        """Returns list of appointed delegate names, expanding 'ALL' if roster names are provided."""
+        if not self.appointed_delegate:
+            return []
+        if self.is_all():
+            return list(all_roster_names) if all_roster_names else ["ALL"]
+        return [p.strip() for p in self.appointed_delegate.split(",") if p.strip()]
 
 
 @dataclass

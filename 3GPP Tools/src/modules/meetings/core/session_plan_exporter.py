@@ -45,21 +45,62 @@ class SessionPlanExporter:
         return False
 
     @staticmethod
-    def get_slot_effective_delegate(slot: SessionSlot, plan: Optional[DelegationPlan]) -> Tuple[Optional[str], bool]:
+    def get_slot_effective_delegates(slot: SessionSlot, plan: Optional[DelegationPlan]) -> Tuple[List[str], bool, bool]:
         """
-        Resolves effective delegate and coverage flag: (delegate_name, is_coverage).
+        Resolves effective delegates list, is_coverage flag, and is_all flag: (delegates, is_cov, is_all).
         """
         if not plan:
-            return None, False
+            return [], False, False
+
+        roster_names = list(plan.members.keys())
+
         if slot.slot_key in plan.appointments:
-            return plan.appointments[slot.slot_key].appointed_delegate, True
+            app = plan.appointments[slot.slot_key]
+            return app.get_appointed_delegates(roster_names), True, app.is_all()
+
+        found_dels: List[str] = []
+        is_all_flag = False
         for it in slot.items:
             if it.ai_number in plan.topic_owners:
-                return plan.topic_owners[it.ai_number].owner_name, False
+                to = plan.topic_owners[it.ai_number]
+                if to.is_all():
+                    is_all_flag = True
+                    for rn in roster_names:
+                        if rn not in found_dels:
+                            found_dels.append(rn)
+                else:
+                    for owner in to.get_owners(roster_names):
+                        if owner not in found_dels:
+                            found_dels.append(owner)
+
+        if found_dels:
+            return found_dels, False, is_all_flag
+
         for ai_num, to in plan.topic_owners.items():
             if ai_num and (ai_num in slot.raw_text or f"({ai_num})" in slot.raw_text):
-                return to.owner_name, False
-        return None, False
+                if to.is_all():
+                    is_all_flag = True
+                    for rn in roster_names:
+                        if rn not in found_dels:
+                            found_dels.append(rn)
+                else:
+                    for owner in to.get_owners(roster_names):
+                        if owner not in found_dels:
+                            found_dels.append(owner)
+
+        return found_dels, False, is_all_flag
+
+    @classmethod
+    def get_slot_effective_delegate(cls, slot: SessionSlot, plan: Optional[DelegationPlan]) -> Tuple[Optional[str], bool]:
+        """
+        Backward-compatible single-string delegate helper.
+        """
+        dels, is_cov, is_all = cls.get_slot_effective_delegates(slot, plan)
+        if not dels:
+            return None, False
+        if is_all:
+            return "ALL", is_cov
+        return ", ".join(dels), is_cov
 
     @classmethod
     def export_mobile_html(
@@ -294,12 +335,20 @@ class SessionPlanExporter:
                     raw_esc = html.escape(s.raw_text)
 
                     del_badge = ""
-                    eff_del, is_cov = cls.get_slot_effective_delegate(s, delegation_plan)
-                    if eff_del and delegation_plan:
-                        m = delegation_plan.members.get(eff_del)
-                        if m:
-                            cov_lbl = " (cov)" if is_cov else ""
-                            del_badge = f'<span style="background:{m.bg_tint}; color:{m.color}; border:1px solid {m.border_tint}; border-radius:4px; padding:1px 5px; font-weight:700; font-size:11px; margin-left:4px;">● {html.escape(eff_del)}{cov_lbl}</span>'
+                    eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(s, delegation_plan)
+                    if is_all:
+                        cov_lbl = " (cov)" if is_cov else ""
+                        del_badge = f'<span style="background:#EEF2FF; color:#4338CA; border:1px solid #C7D2FE; border-radius:4px; padding:1px 5px; font-weight:700; font-size:11px; margin-left:4px;">👥 All Team{cov_lbl}</span>'
+                    elif eff_dels and delegation_plan:
+                        cov_lbl = " (cov)" if is_cov else ""
+                        badges_list = []
+                        for ed in eff_dels:
+                            m = delegation_plan.members.get(ed)
+                            if m:
+                                badges_list.append(f'<span style="background:{m.bg_tint}; color:{m.color}; border:1px solid {m.border_tint}; border-radius:4px; padding:1px 5px; font-weight:700; font-size:11px; margin-left:4px;">● {html.escape(ed)}{cov_lbl}</span>')
+                            else:
+                                badges_list.append(f'<span style="background:#F1F5F9; color:#334155; border:1px solid #CBD5E1; border-radius:4px; padding:1px 5px; font-weight:700; font-size:11px; margin-left:4px;">● {html.escape(ed)}{cov_lbl}</span>')
+                        del_badge = "".join(badges_list)
 
                     html_parts.append(f"""
     <div class="{' '.join(classes)}" data-text="{raw_esc.lower()}" data-tracked="{1 if is_tracked else 0}">
@@ -429,9 +478,10 @@ class SessionPlanExporter:
                 continue
 
             # Check delegate assignment / target delegate filtering
-            eff_del, is_cov = cls.get_slot_effective_delegate(s, delegation_plan)
+            eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(s, delegation_plan)
             if target_delegate:
-                if not eff_del or eff_del.strip().lower() != target_delegate.strip().lower():
+                td_lower = target_delegate.strip().lower()
+                if not (is_all or any(ed.strip().lower() == td_lower for ed in eff_dels)):
                     continue
 
             # Calculate physical date
@@ -461,8 +511,11 @@ class SessionPlanExporter:
             tohru = s_info.tohru_room if s_info else ""
 
             del_tag = ""
-            if eff_del:
-                del_tag = f"[{eff_del} (cov)] " if is_cov else f"[{eff_del}] "
+            if is_all:
+                del_tag = "[All Team (cov)] " if is_cov else "[All Team] "
+            elif eff_dels:
+                cov_s = " (cov)" if is_cov else ""
+                del_tag = f"[{', '.join(eff_dels)}{cov_s}] "
 
             summary_prefix = f"🛠️ [Drafting] {del_tag}" if s.is_drafting else f"[Str {s.stream_number}] {del_tag}"
             summary = f"{summary_prefix}{s.raw_text[:50]}"
@@ -476,8 +529,12 @@ class SessionPlanExporter:
                 f"Scheduled: {s.raw_text}",
             ]
 
-            if eff_del:
-                desc_lines.append(f"Delegate: {eff_del} ({'Ad-hoc coverage' if is_cov else 'Topic Owner'})")
+            if is_all:
+                desc_lines.append(f"Delegates: All Team ({'Ad-hoc coverage' if is_cov else 'General / All Team Topic'})")
+            elif len(eff_dels) == 1:
+                desc_lines.append(f"Delegate: {eff_dels[0]} ({'Ad-hoc coverage' if is_cov else 'Topic Owner'})")
+            elif eff_dels:
+                desc_lines.append(f"Delegates: {', '.join(eff_dels)} ({'Ad-hoc coverage' if is_cov else 'Topic Owner'})")
 
             note_obj = annotations.get(s.slot_key)
             if note_obj and note_obj.comment:
@@ -683,32 +740,26 @@ class SessionPlanExporter:
 
         subject = f"[SA2#{snapshot.meeting_number}] Delegation Plan & AI Distribution ({snapshot.tdoc_id})"
 
-        # Compute effective assignments for each slot in snapshot
-        # slot_key -> appointed or topic_owner name
-        slot_delegate_map: Dict[str, str] = {}
+        # Compute effective assignments for each slot in snapshot: slot_key -> List of delegate names
+        slot_delegate_map: Dict[str, List[str]] = {}
         for s in snapshot.slots:
-            if s.slot_key in appointments:
-                slot_delegate_map[s.slot_key] = appointments[s.slot_key].appointed_delegate
-            else:
-                for it in s.items:
-                    if it.ai_number in topic_owners:
-                        slot_delegate_map[s.slot_key] = topic_owners[it.ai_number].owner_name
-                        break
+            dels, _, is_all = cls.get_slot_effective_delegates(s, plan)
+            slot_delegate_map[s.slot_key] = dels
 
         # Calculate quarters workload per member
         member_workload: Dict[str, int] = {name: 0 for name in members}
         for s in snapshot.slots:
-            del_name = slot_delegate_map.get(s.slot_key)
-            if del_name in member_workload:
-                member_workload[del_name] += 1
+            for del_name in slot_delegate_map.get(s.slot_key, []):
+                if del_name in member_workload:
+                    member_workload[del_name] += 1
 
         # 1. Executive Roster Table
         roster_rows = ""
         plain_roster = []
         for name, m in members.items():
             wl = member_workload.get(name, 0)
-            owned_count = sum(1 for to in topic_owners.values() if to.owner_name.lower() == name.lower())
-            cov_count = sum(1 for ap in appointments.values() if ap.appointed_delegate.lower() == name.lower())
+            owned_count = sum(1 for to in topic_owners.values() if name in to.get_owners(list(members.keys())))
+            cov_count = sum(1 for ap in appointments.values() if name in ap.get_appointed_delegates(list(members.keys())))
             role_str = m.notes or "Delegate"
             roster_rows += f"""<tr>
               <td style='padding:6px 10px; border:1px solid #E2E8F0;'><span style='display:inline-block; width:10px; height:10px; background-color:{m.color}; border-radius:50%; margin-right:6px;'></span><b>{html.escape(name)}</b></td>
@@ -724,18 +775,29 @@ class SessionPlanExporter:
         plain_topics = []
         for ai_num in sorted(topic_owners.keys()):
             to = topic_owners[ai_num]
-            m = members.get(to.owner_name)
-            col = m.color if m else "#2563EB"
-            bg_col = m.bg_tint if m else "#E4ECFC"
-            bdr_col = m.border_tint if m else "#B2C8F8"
             ai_info = agenda_map.get(ai_num)
             desc = ai_info.description if ai_info else f"Agenda Item {ai_num}"
+            if to.is_all():
+                badge_html = "<span style='display:inline-block; padding:2px 8px; border-radius:4px; background-color:#EEF2FF; border:1px solid #C7D2FE; color:#4338CA; font-weight:600;'>👥 All Team</span>"
+                plain_owner = "All Team"
+            else:
+                assigned = to.get_owners(list(members.keys()))
+                badges = []
+                for oname in assigned:
+                    m = members.get(oname)
+                    col = m.color if m else "#2563EB"
+                    bg_col = m.bg_tint if m else "#E4ECFC"
+                    bdr_col = m.border_tint if m else "#B2C8F8"
+                    badges.append(f"<span style='display:inline-block; padding:2px 8px; border-radius:4px; background-color:{bg_col}; border:1px solid {bdr_col}; color:{col}; font-weight:600; margin-right:4px;'>● {html.escape(oname)}</span>")
+                badge_html = "".join(badges) or "—"
+                plain_owner = ", ".join(assigned) or "Unassigned"
+
             topic_rows += f"""<tr>
               <td style='padding:6px 10px; border:1px solid #E2E8F0;'><b>{html.escape(ai_num)}</b></td>
               <td style='padding:6px 10px; border:1px solid #E2E8F0;'>{html.escape(desc)}</td>
-              <td style='padding:6px 10px; border:1px solid #E2E8F0;'><span style='display:inline-block; padding:2px 8px; border-radius:4px; background-color:{bg_col}; border:1px solid {bdr_col}; color:{col}; font-weight:600;'>● {html.escape(to.owner_name)}</span></td>
+              <td style='padding:6px 10px; border:1px solid #E2E8F0;'>{badge_html}</td>
             </tr>"""
-            plain_topics.append(f"- AI {ai_num}: {desc} -> {to.owner_name}")
+            plain_topics.append(f"- AI {ai_num}: {desc} -> {plain_owner}")
 
         # 3. Ad-Hoc Session Coverages (Appointments)
         appt_rows = ""
@@ -746,20 +808,30 @@ class SessionPlanExporter:
             day_name = parts[0] if len(parts) > 0 else ""
             q_name = parts[1] if len(parts) > 1 else ""
             str_num = parts[3] if len(parts) > 3 else "1"
-            m_orig = members.get(ap.original_owner)
-            m_app = members.get(ap.appointed_delegate)
-            col_app = m_app.color if m_app else "#047857"
-            bg_app = m_app.bg_tint if m_app else "#E0EEEA"
-            bdr_app = m_app.border_tint if m_app else "#A7CFC4"
             orig_txt = f"for {ap.original_owner}" if ap.original_owner else ""
             reason_txt = f" ({ap.reason})" if ap.reason else ""
 
+            if ap.is_all():
+                badge_app = "<span style='display:inline-block; padding:2px 8px; border-radius:4px; background-color:#EEF2FF; border:1px solid #C7D2FE; color:#4338CA; font-weight:600;'>👥 All Team</span>"
+                plain_app = "All Team"
+            else:
+                assigned = ap.get_appointed_delegates(list(members.keys()))
+                badges = []
+                for oname in assigned:
+                    m_app = members.get(oname)
+                    col_app = m_app.color if m_app else "#047857"
+                    bg_app = m_app.bg_tint if m_app else "#E0EEEA"
+                    bdr_app = m_app.border_tint if m_app else "#A7CFC4"
+                    badges.append(f"<span style='display:inline-block; padding:2px 8px; border-radius:4px; background-color:{bg_app}; border:1px solid {bdr_app}; color:{col_app}; font-weight:600; margin-right:4px;'>● {html.escape(oname)}</span>")
+                badge_app = "".join(badges) or "—"
+                plain_app = ", ".join(assigned) or "Unassigned"
+
             appt_rows += f"""<tr>
               <td style='padding:6px 10px; border:1px solid #E2E8F0;'><b>{day_name}</b> {q_name} (Str {str_num})</td>
-              <td style='padding:6px 10px; border:1px solid #E2E8F0;'><span style='display:inline-block; padding:2px 8px; border-radius:4px; background-color:{bg_app}; border:1px solid {bdr_app}; color:{col_app}; font-weight:600;'>● {html.escape(ap.appointed_delegate)}</span> {html.escape(orig_txt)}</td>
+              <td style='padding:6px 10px; border:1px solid #E2E8F0;'>{badge_app} {html.escape(orig_txt)}</td>
               <td style='padding:6px 10px; border:1px solid #E2E8F0; color:#64748B;'>{html.escape(ap.reason or 'Ad-hoc cover')}</td>
             </tr>"""
-            plain_appts.append(f"- {day_name} {q_name} (Stream {str_num}): {ap.appointed_delegate} covering {orig_txt}{reason_txt}")
+            plain_appts.append(f"- {day_name} {q_name} (Stream {str_num}): {plain_app} covering {orig_txt}{reason_txt}")
 
         appt_html = f"""
         <div style="margin-bottom:20px;">
@@ -779,7 +851,7 @@ class SessionPlanExporter:
         individual_sections_html = ""
         plain_schedules = []
         for name, m in members.items():
-            del_slots = [s for s in snapshot.slots if slot_delegate_map.get(s.slot_key) == name]
+            del_slots = [s for s in snapshot.slots if name in slot_delegate_map.get(s.slot_key, [])]
             if not del_slots:
                 continue
 
@@ -790,7 +862,10 @@ class SessionPlanExporter:
                 )
                 s_info = snapshot.streams.get(s.stream_number)
                 r_name = s_info.room_name if s_info else f"Stream {s.stream_number}"
-                is_cov = (s.slot_key in appointments and appointments[s.slot_key].appointed_delegate == name)
+                is_cov = (
+                    s.slot_key in appointments
+                    and name in appointments[s.slot_key].get_appointed_delegates(list(members.keys()))
+                )
                 role_badge = "<span style='background:#FEF3C7; color:#92400E; padding:2px 6px; border-radius:4px; font-size:10px;'>Coverage</span>" if is_cov else "<span style='background:#EFF6FF; color:#1E40AF; padding:2px 6px; border-radius:4px; font-size:10px;'>Owner</span>"
 
                 del_rows += f"""<tr>

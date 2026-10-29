@@ -64,6 +64,7 @@ from modules.meetings.core.session_plan_timezone import SessionPlanTimezone
 from modules.meetings.ui.session_plan_dialogs import (
     DelegationImportDialog,
     DelegationMemberDialog,
+    MultiDelegateSelectDialog,
     SessionDispatchDialog,
     SessionPlanDiffDialog,
     SessionPlanImportDialog,
@@ -885,14 +886,20 @@ class SessionPlanWindow(QWidget):
         if self._is_slot_tracked(slot):
             tt += "<div style='margin-top:6px; padding:3px 6px; background:#F5F3FF; color:#5B21B6; border-radius:4px; font-weight:600;'>🎯 Tracked in My Topics</div>"
 
-        del_name, is_cov = self._get_slot_effective_delegate(slot)
-        if del_name:
-            member = self.delegation_plan.members.get(del_name) if self.delegation_plan else None
-            col = member.color if member else "#2563EB"
+        del_names, is_cov, is_all = self._get_slot_effective_delegates(slot)
+        if is_all:
+            cov_str = " (Ad-Hoc Coverage)" if is_cov else " (General / All Team Topic)"
+            tt += f"<div style='margin-top:4px; padding:3px 6px; background:#EEF2FF; border:1px solid #C7D2FE; color:#4338CA; border-radius:4px; font-weight:600;'>👥 <b>Delegates:</b> All Team{cov_str}</div>"
+        elif del_names:
             cov_str = " (Ad-Hoc Coverage)" if is_cov else " (Topic Owner)"
-            bg_t = member.bg_tint if member else DelegationMember.compute_tint(col, 0.12)
-            bdr_t = member.border_tint if member else DelegationMember.compute_tint(col, 0.35)
-            tt += f"<div style='margin-top:4px; padding:3px 6px; background:{bg_t}; border:1px solid {bdr_t}; color:{col}; border-radius:4px; font-weight:600;'>👤 <b>Delegate:</b> {html.escape(del_name)}{cov_str}</div>"
+            badges_html = []
+            for dn in del_names:
+                m = self.delegation_plan.members.get(dn) if self.delegation_plan else None
+                col = m.color if m else "#2563EB"
+                bg_t = m.bg_tint if m else DelegationMember.compute_tint(col, 0.12)
+                bdr_t = m.border_tint if m else DelegationMember.compute_tint(col, 0.35)
+                badges_html.append(f"<span style='background:{bg_t}; border:1px solid {bdr_t}; color:{col}; padding:1px 5px; border-radius:3px; font-weight:700;'>● {html.escape(dn)}</span>")
+            tt += f"<div style='margin-top:4px; padding:3px 6px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:4px;'>👤 <b>Delegate(s):</b> {' '.join(badges_html)}{cov_str}</div>"
 
         if ann and (ann.comment or ann.assigned_colleague):
             c_str = f" ({ann.assigned_colleague})" if ann.assigned_colleague else ""
@@ -910,21 +917,28 @@ class SessionPlanWindow(QWidget):
         lay.setContentsMargins(4, 3, 4, 3)
         lay.setSpacing(2)
 
-        del_name, is_cov = self._get_slot_effective_delegate(slot)
-        member = self.delegation_plan.members.get(del_name) if (self.delegation_plan and del_name) else None
+        del_names, is_cov, is_all = self._get_slot_effective_delegates(slot)
+        assigned_members = [
+            self.delegation_plan.members[name]
+            for name in del_names
+            if self.delegation_plan and name in self.delegation_plan.members
+        ]
 
         collisions = self._detect_delegation_collisions()
-        quarter_clashes = collisions.get((del_name, slot.day_index, slot.quarter), []) if del_name else []
-        is_collision = any(slot.id == cs.id or slot.slot_key == cs.slot_key for cs in quarter_clashes)
+        colliding_members = []
+        for d_name in del_names:
+            quarter_clashes = collisions.get((d_name, slot.day_index, slot.quarter), [])
+            if any(slot.id == cs.id or slot.slot_key == cs.slot_key for cs in quarter_clashes):
+                colliding_members.append(d_name)
+        is_collision = len(colliding_members) > 0
 
         # Top delegate pill strip if assigned
-        if member:
-            del_col = member.color
+        if is_all:
             cov_tag = " (cov)" if is_cov else ""
-            del_pill = QLabel(f"● {del_name}{cov_tag}")
+            del_pill = QLabel(f"👥 All Team{cov_tag}")
             del_pill.setStyleSheet(
-                f"background: {member.bg_tint}; color: {del_col}; font-weight: 700; font-size: 10px; "
-                f"border: 1px solid {member.border_tint}; border-radius: 4px; padding: 1px 5px;"
+                "background: #EEF2FF; color: #4338CA; font-weight: 700; font-size: 10px; "
+                "border: 1px solid #C7D2FE; border-radius: 4px; padding: 1px 5px;"
             )
             pill_row = QHBoxLayout()
             pill_row.setContentsMargins(0, 0, 0, 0)
@@ -932,7 +946,38 @@ class SessionPlanWindow(QWidget):
             pill_row.addWidget(del_pill)
 
             if is_collision:
-                warn_pill = QLabel("⚠️ CLASH")
+                c_who = f" ({colliding_members[0]})" if len(colliding_members) == 1 else ""
+                warn_pill = QLabel(f"⚠️ CLASH{c_who}")
+                warn_pill.setStyleSheet("background: #FEF3C7; color: #92400E; font-weight: bold; font-size: 9px; border: 1px solid #F59E0B; border-radius: 4px; padding: 1px 3px;")
+                pill_row.addWidget(warn_pill)
+
+            pill_row.addStretch()
+            lay.addLayout(pill_row)
+        elif assigned_members:
+            pill_row = QHBoxLayout()
+            pill_row.setContentsMargins(0, 0, 0, 0)
+            pill_row.setSpacing(3)
+            cov_tag = " (cov)" if is_cov else ""
+
+            if len(assigned_members) <= 2:
+                for m in assigned_members:
+                    del_pill = QLabel(f"● {m.name}{cov_tag}")
+                    del_pill.setStyleSheet(
+                        f"background: {m.bg_tint}; color: {m.color}; font-weight: 700; font-size: 10px; "
+                        f"border: 1px solid {m.border_tint}; border-radius: 4px; padding: 1px 4px;"
+                    )
+                    pill_row.addWidget(del_pill)
+            else:
+                del_pill = QLabel(f"👥 {len(assigned_members)} Delegates{cov_tag}")
+                del_pill.setStyleSheet(
+                    "background: #F1F5F9; color: #334155; font-weight: 700; font-size: 10px; "
+                    "border: 1px solid #CBD5E1; border-radius: 4px; padding: 1px 5px;"
+                )
+                pill_row.addWidget(del_pill)
+
+            if is_collision:
+                c_who = f" ({colliding_members[0]})" if len(colliding_members) == 1 else ""
+                warn_pill = QLabel(f"⚠️ CLASH{c_who}")
                 warn_pill.setStyleSheet("background: #FEF3C7; color: #92400E; font-weight: bold; font-size: 9px; border: 1px solid #F59E0B; border-radius: 4px; padding: 1px 3px;")
                 pill_row.addWidget(warn_pill)
 
@@ -947,32 +992,37 @@ class SessionPlanWindow(QWidget):
 
         # Dimming check if delegate focus is active on Overview Grid
         is_dimmed = False
+        is_focused = False
         if self.grid_highlight_delegate != "ALL":
             if self.grid_highlight_delegate == "SELF":
                 self_member = next((m for m in self.delegation_plan.members.values() if m.is_self), None)
                 target_name = self_member.name if self_member else ""
-                if not del_name or del_name.lower() != target_name.lower():
+                if is_all or any(dn.lower() == target_name.lower() for dn in del_names):
+                    is_focused = True
+                else:
                     is_dimmed = True
             else:
-                if not del_name or del_name.lower() != self.grid_highlight_delegate.lower():
+                target_name = self.grid_highlight_delegate.lower()
+                if is_all or any(dn.lower() == target_name for dn in del_names):
+                    is_focused = True
+                else:
                     is_dimmed = True
 
         if is_dimmed:
             lbl.setStyleSheet("background: #F8FAFC; color: #94A3B8; border: 1px solid #E2E8F0; border-radius: 4px; padding: 3px;")
         elif is_collision:
             lbl.setStyleSheet("background: #FFFBEB; color: #92400E; border: 1px solid #F59E0B; border-left: 4px solid #D97706; border-radius: 4px; padding: 4px; font-weight: 500;")
-        elif member:
-            is_focused = (
-                self.grid_highlight_delegate != "ALL"
-                and (
-                    (self.grid_highlight_delegate == "SELF" and member.is_self)
-                    or (self.grid_highlight_delegate.lower() == del_name.lower())
-                )
-            )
+        elif is_all:
             if is_focused:
-                lbl.setStyleSheet(f"background: {member.bg_tint}; color: #0F172A; border: 1.5px solid {member.color}; border-left: 5px solid {member.color}; border-radius: 4px; padding: 4px; font-weight: 600;")
+                lbl.setStyleSheet("background: #EEF2FF; color: #0F172A; border: 1.5px solid #4338CA; border-left: 5px solid #4338CA; border-radius: 4px; padding: 4px; font-weight: 600;")
             else:
-                lbl.setStyleSheet(f"background: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-left: 4px solid {member.color}; border-radius: 4px; padding: 4px; font-weight: 500;")
+                lbl.setStyleSheet("background: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-left: 4px solid #4338CA; border-radius: 4px; padding: 4px; font-weight: 500;")
+        elif assigned_members:
+            primary_m = assigned_members[0]
+            if is_focused:
+                lbl.setStyleSheet(f"background: {primary_m.bg_tint}; color: #0F172A; border: 1.5px solid {primary_m.color}; border-left: 5px solid {primary_m.color}; border-radius: 4px; padding: 4px; font-weight: 600;")
+            else:
+                lbl.setStyleSheet(f"background: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-left: 4px solid {primary_m.color}; border-radius: 4px; padding: 4px; font-weight: 500;")
         elif slot.is_drafting:
             lbl.setStyleSheet("background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; border-radius: 4px; padding: 4px; font-weight: 500;")
         elif is_tracked:
@@ -1259,21 +1309,21 @@ class SessionPlanWindow(QWidget):
         # 2. Filter target slots based on scope
         target_slots: List[SessionSlot] = []
         for s in self.active_snapshot.slots:
-            del_name, _ = self._get_slot_effective_delegate(s)
+            del_names, is_cov, is_all = self._get_slot_effective_delegates(s)
             if selected_scope == "ALL":
-                if del_name or self._is_slot_tracked(s):
+                if del_names or is_all or self._is_slot_tracked(s):
                     target_slots.append(s)
             elif selected_scope == "SELF":
                 if self_member:
-                    if del_name and del_name.lower() == self_member.name.lower():
+                    if is_all or any(dn.lower() == self_member.name.lower() for dn in del_names):
                         target_slots.append(s)
-                    elif not del_name and self._is_slot_tracked(s):
+                    elif not del_names and self._is_slot_tracked(s):
                         target_slots.append(s)
                 else:
                     if self._is_slot_tracked(s):
                         target_slots.append(s)
             else:
-                if del_name and del_name.lower() == selected_scope.lower():
+                if is_all or any(dn.lower() == selected_scope.lower() for dn in del_names):
                     target_slots.append(s)
 
         # 3. Conflict detection: same day and quarter, multiple streams
@@ -1310,10 +1360,14 @@ class SessionPlanWindow(QWidget):
                 conflict_tag = f"⚠️ CONFLICT with {', '.join(other_streams)}"
                 note_display = f"{conflict_tag} | {note_str}" if note_str else conflict_tag
 
-            del_name, is_cov = self._get_slot_effective_delegate(s)
-            member = self.delegation_plan.members.get(del_name) if (self.delegation_plan and del_name) else None
+            del_names, is_cov, is_all = self._get_slot_effective_delegates(s)
             cov_lbl = " (cov)" if is_cov else ""
-            del_txt = f"{del_name}{cov_lbl}" if del_name else "—"
+            if is_all:
+                del_txt = f"👥 All Team{cov_lbl}"
+            elif del_names:
+                del_txt = f"{', '.join(del_names)}{cov_lbl}"
+            else:
+                del_txt = "—"
 
             item_day = QTableWidgetItem(s.day_name)
             item_day.setData(Qt.UserRole, s)
@@ -1321,8 +1375,21 @@ class SessionPlanWindow(QWidget):
             item_time = QTableWidgetItem(time_str)
             item_str = QTableWidgetItem(f"Str {s.stream_number} ({r_name})")
             item_del = QTableWidgetItem(del_txt)
-            if member:
-                item_del.setForeground(QColor(member.color))
+
+            if is_all:
+                item_del.setForeground(QColor("#4338CA"))
+                f = item_del.font()
+                f.setBold(True)
+                item_del.setFont(f)
+            elif len(del_names) == 1 and self.delegation_plan:
+                m = self.delegation_plan.members.get(del_names[0])
+                if m:
+                    item_del.setForeground(QColor(m.color))
+                    f = item_del.font()
+                    f.setBold(True)
+                    item_del.setFont(f)
+            elif len(del_names) > 1:
+                item_del.setForeground(QColor("#0F172A"))
                 f = item_del.font()
                 f.setBold(True)
                 item_del.setFont(f)
@@ -1345,32 +1412,67 @@ class SessionPlanWindow(QWidget):
 
     # --- Delegation Engine & Team View ---
 
-    def _get_slot_effective_delegate(self, slot: SessionSlot) -> Tuple[Optional[str], bool]:
+    def _get_slot_effective_delegates(self, slot: SessionSlot) -> Tuple[List[str], bool, bool]:
         """
-        Returns (delegate_name, is_appointment_override).
+        Returns (delegates_list, is_appointment_override, is_all).
         Priority:
         1. Explicit session appointment (slot override).
         2. Topic ownership from extracted slot items.
         3. Raw text match against assigned AI tokens.
         """
         if not self.delegation_plan:
-            return None, False
+            return [], False, False
+
+        roster_names = list(self.delegation_plan.members.keys())
 
         # 1. Slot override appointment
         if slot.slot_key in self.delegation_plan.appointments:
-            return self.delegation_plan.appointments[slot.slot_key].appointed_delegate, True
+            app = self.delegation_plan.appointments[slot.slot_key]
+            dels = app.get_appointed_delegates(roster_names)
+            return dels, True, app.is_all()
 
         # 2. Topic-level ownership from extracted slot items
+        found_dels: List[str] = []
+        is_all_flag = False
         for it in slot.items:
             if it.ai_number and it.ai_number in self.delegation_plan.topic_owners:
-                return self.delegation_plan.topic_owners[it.ai_number].owner_name, False
+                to = self.delegation_plan.topic_owners[it.ai_number]
+                if to.is_all():
+                    is_all_flag = True
+                    for rn in roster_names:
+                        if rn not in found_dels:
+                            found_dels.append(rn)
+                else:
+                    for owner in to.get_owners(roster_names):
+                        if owner not in found_dels:
+                            found_dels.append(owner)
+
+        if found_dels:
+            return found_dels, False, is_all_flag
 
         # 3. Raw text match against assigned AI tokens
         for ai_num, to in self.delegation_plan.topic_owners.items():
             if ai_num and (ai_num in slot.raw_text or f"({ai_num})" in slot.raw_text):
-                return to.owner_name, False
+                if to.is_all():
+                    is_all_flag = True
+                    for rn in roster_names:
+                        if rn not in found_dels:
+                            found_dels.append(rn)
+                else:
+                    for owner in to.get_owners(roster_names):
+                        if owner not in found_dels:
+                            found_dels.append(owner)
 
-        return None, False
+        return found_dels, False, is_all_flag
+
+    def _get_slot_effective_delegate(self, slot: SessionSlot) -> Tuple[Optional[str], bool]:
+        """Backward-compatible single-string delegate helper."""
+        dels, is_cov, is_all = self._get_slot_effective_delegates(slot)
+        if not dels:
+            return None, False
+        if is_all:
+            return "ALL", is_cov
+        return ", ".join(dels), is_cov
 
     def _slots_time_overlap(self, s1: SessionSlot, s2: SessionSlot) -> bool:
         """
@@ -1396,8 +1498,8 @@ class SessionPlanWindow(QWidget):
 
         slot_map: Dict[Tuple[str, int, str], List[SessionSlot]] = {}
         for s in self.active_snapshot.slots:
-            del_name, _ = self._get_slot_effective_delegate(s)
-            if del_name:
+            del_names, _, _ = self._get_slot_effective_delegates(s)
+            for del_name in del_names:
                 key = (del_name, s.day_index, s.quarter)
                 slot_map.setdefault(key, []).append(s)
 
@@ -1434,8 +1536,9 @@ class SessionPlanWindow(QWidget):
                     and s.stream_number > 0
                     and self._slots_time_overlap(s, target_slot)
                 ):
-                    del_name, _ = self._get_slot_effective_delegate(s)
-                    if del_name and del_name.lower() == name.lower():
+                    del_names, _, _ = self._get_slot_effective_delegates(s)
+                    if any(dn.lower() == name.lower() for dn in del_names):
+                        busy_slots.append(s)
                         busy_slots.append(s)
 
             if busy_slots:
@@ -1579,13 +1682,17 @@ class SessionPlanWindow(QWidget):
 
             to = self.delegation_plan.topic_owners.get(ai_num)
             owner_name = to.owner_name if to else ""
+            owners_list = to.get_owners([m.name for m in members_list]) if to else []
 
             has_clash = False
-            if owner_name and slots_for_ai:
+            if owners_list and slots_for_ai:
                 for s in slots_for_ai:
-                    quarter_clashes = collisions.get((owner_name, s.day_index, s.quarter), [])
-                    if any(s.id == cs.id or s.slot_key == cs.slot_key for cs in quarter_clashes):
-                        has_clash = True
+                    for o_name in owners_list:
+                        quarter_clashes = collisions.get((o_name, s.day_index, s.quarter), [])
+                        if any(s.id == cs.id or s.slot_key == cs.slot_key for cs in quarter_clashes):
+                            has_clash = True
+                            break
+                    if has_clash:
                         break
 
             item_ai = QTableWidgetItem(ai_num)
@@ -1594,22 +1701,29 @@ class SessionPlanWindow(QWidget):
 
             combo = QComboBox()
             combo.addItem("— Unassigned —", "")
+            combo.addItem("👥 All Team", "ALL")
             for m in members_list:
                 combo.addItem(f"● {m.name}", m.name)
+
+            if owner_name and owner_name != "ALL" and owner_name not in [m.name for m in members_list]:
+                combo.addItem(f"👥 {owner_name}", owner_name)
+
+            combo.addItem("✏️ Custom Multi-Delegate...", "__CUSTOM__")
 
             if owner_name:
                 idx = combo.findData(owner_name)
                 if idx >= 0:
                     combo.setCurrentIndex(idx)
 
-            combo.currentIndexChanged.connect(lambda _, a=ai_num, c=combo: self._on_topic_owner_changed(a, c.currentData()))
+            combo.activated.connect(lambda _, a=ai_num, d=desc, c=combo: self._on_topic_owner_combo_activated(a, d, c))
 
             if has_clash:
                 status_txt = "🔴 Collision in parallel stream"
                 status_col = "#991B1B"
                 status_bg = "#FEF2F2"
             elif owner_name:
-                status_txt = f"🟢 Covered ({len(slots_for_ai)} slot(s))" if slots_for_ai else "⚪ Assigned (unscheduled)"
+                cov_lbl = "All Team" if to and to.is_all() else (f"{len(owners_list)} delegates" if len(owners_list) > 1 else owner_name)
+                status_txt = f"🟢 Covered ({cov_lbl} · {len(slots_for_ai)} slot(s))" if slots_for_ai else f"⚪ Assigned ({cov_lbl})"
                 status_col = "#065F46"
                 status_bg = "#ECFDF5"
             else:
@@ -1633,6 +1747,7 @@ class SessionPlanWindow(QWidget):
             return
         collisions = self._detect_delegation_collisions()
         scheduled_ais = self._get_scheduled_ais_map()
+        members_list = list(self.delegation_plan.members.values())
         for row in range(self.team_topics_table.rowCount()):
             ai_item = self.team_topics_table.item(row, 0)
             if not ai_item:
@@ -1640,14 +1755,18 @@ class SessionPlanWindow(QWidget):
             ai_num = ai_item.text().strip()
             to = self.delegation_plan.topic_owners.get(ai_num)
             owner_name = to.owner_name if to else ""
+            owners_list = to.get_owners([m.name for m in members_list]) if to else []
             slots_for_ai = scheduled_ais.get(ai_num, [])
 
             has_clash = False
-            if owner_name and slots_for_ai:
+            if owners_list and slots_for_ai:
                 for s in slots_for_ai:
-                    quarter_clashes = collisions.get((owner_name, s.day_index, s.quarter), [])
-                    if any(s.id == cs.id or s.slot_key == cs.slot_key for cs in quarter_clashes):
-                        has_clash = True
+                    for o_name in owners_list:
+                        quarter_clashes = collisions.get((o_name, s.day_index, s.quarter), [])
+                        if any(s.id == cs.id or s.slot_key == cs.slot_key for cs in quarter_clashes):
+                            has_clash = True
+                            break
+                    if has_clash:
                         break
 
             if has_clash:
@@ -1655,7 +1774,8 @@ class SessionPlanWindow(QWidget):
                 status_col = "#991B1B"
                 status_bg = "#FEF2F2"
             elif owner_name:
-                status_txt = f"🟢 Covered ({len(slots_for_ai)} slot(s))" if slots_for_ai else "⚪ Assigned (unscheduled)"
+                cov_lbl = "All Team" if to and to.is_all() else (f"{len(owners_list)} delegates" if len(owners_list) > 1 else owner_name)
+                status_txt = f"🟢 Covered ({cov_lbl} · {len(slots_for_ai)} slot(s))" if slots_for_ai else f"⚪ Assigned ({cov_lbl})"
                 status_col = "#065F46"
                 status_bg = "#ECFDF5"
             else:
@@ -1804,6 +1924,26 @@ class SessionPlanWindow(QWidget):
         self._render_tracked_topics()
         self._render_team_clashes()
         self._update_team_topic_status_cells()
+
+    def _on_topic_owner_combo_activated(self, ai_num: str, desc: str, combo: QComboBox):
+        choice = combo.currentData()
+        if choice == "__CUSTOM__":
+            members = list(self.delegation_plan.members.values()) if self.delegation_plan else []
+            to = self.delegation_plan.topic_owners.get(ai_num) if self.delegation_plan else None
+            cur = to.owner_name if to else ""
+            dlg = MultiDelegateSelectDialog(f"AI {ai_num}: {desc}", members, cur, self)
+            if dlg.exec_() == QDialog.Accepted:
+                new_owner = dlg.get_owner_string()
+                self._on_topic_owner_changed(ai_num, new_owner)
+                self._render_team_topics()
+            else:
+                to = self.delegation_plan.topic_owners.get(ai_num) if self.delegation_plan else None
+                cur = to.owner_name if to else ""
+                idx = combo.findData(cur)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+        else:
+            self._on_topic_owner_changed(ai_num, choice)
 
     def _on_dispatch_slot(self, slot: SessionSlot, original_owner: str):
         members = list(self.delegation_plan.members.values()) if self.delegation_plan else []
@@ -2108,15 +2248,16 @@ class SessionPlanWindow(QWidget):
         if self.delegation_plan and self.delegation_plan.members and s:
             menu.addSeparator()
             del_name, is_cov = self._get_slot_effective_delegate(s)
+            disp_name = "All Team" if del_name == "ALL" else (del_name or "")
             app = self.delegation_plan.appointments.get(s.slot_key)
             orig_owner = app.original_owner if (app and app.original_owner) else (del_name or "")
             if is_cov:
-                act_disp = menu.addAction(f"⚡ Change Coverage for this Session (Covered by {del_name})...")
+                act_disp = menu.addAction(f"⚡ Change Coverage for this Session (Covered by {disp_name})...")
                 act_disp.triggered.connect(lambda _, slot=s, orig=orig_owner: self._on_dispatch_slot(slot, orig))
                 act_rev = menu.addAction(f"↺ Revert Coverage to {orig_owner or 'Topic Owner'}")
                 act_rev.triggered.connect(lambda _, slot=s: self._on_revert_dispatch(slot))
             else:
-                curr_str = f"({del_name})" if del_name else "(Unassigned)"
+                curr_str = f"({disp_name})" if disp_name else "(Unassigned)"
                 act_disp = menu.addAction(f"⚡ Appoint Coverage for this Session {curr_str}...")
                 act_disp.triggered.connect(lambda _, slot=s, orig=orig_owner: self._on_dispatch_slot(slot, orig))
 
@@ -2185,17 +2326,18 @@ class SessionPlanWindow(QWidget):
                 menu.addSeparator()
                 for s in slots_here:
                     del_name, is_cov = self._get_slot_effective_delegate(s)
+                    disp_name = "All Team" if del_name == "ALL" else (del_name or "")
                     app = self.delegation_plan.appointments.get(s.slot_key)
                     orig_owner = app.original_owner if (app and app.original_owner) else (del_name or "")
                     str_lbl = f"Str {s.stream_number}: " if len(slots_here) > 1 else ""
 
                     if is_cov:
-                        act_disp = menu.addAction(f"⚡ Change Coverage for {str_lbl}this Session (Covered by {del_name})...")
+                        act_disp = menu.addAction(f"⚡ Change Coverage for {str_lbl}this Session (Covered by {disp_name})...")
                         act_disp.triggered.connect(lambda _, slot=s, orig=orig_owner: self._on_dispatch_slot(slot, orig))
                         act_rev = menu.addAction(f"↺ Revert Coverage for {str_lbl}this Session to {orig_owner or 'Topic Owner'}")
                         act_rev.triggered.connect(lambda _, slot=s: self._on_revert_dispatch(slot))
                     else:
-                        curr_str = f"({del_name})" if del_name else "(Unassigned)"
+                        curr_str = f"({disp_name})" if disp_name else "(Unassigned)"
                         act_disp = menu.addAction(f"⚡ Appoint Coverage for {str_lbl}this Session {curr_str}...")
                         act_disp.triggered.connect(lambda _, slot=s, orig=orig_owner: self._on_dispatch_slot(slot, orig))
 
