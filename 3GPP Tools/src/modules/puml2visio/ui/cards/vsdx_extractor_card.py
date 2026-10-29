@@ -64,6 +64,7 @@ class VsdxExtractorCard(QWidget):
         )
         self.drop_label_extractor.setMaximumHeight(65)
         self.drop_label_extractor.file_dropped.connect(self._on_extractor_file_dropped)
+        self.drop_label_extractor.file_selected.connect(self._on_extractor_file_dropped)
         drop_row.addWidget(self.drop_label_extractor, 1)
 
         self.browse_vsdx_btn = QPushButton("📂 Browse .vsdx...")

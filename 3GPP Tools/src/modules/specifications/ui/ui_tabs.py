@@ -1388,6 +1388,7 @@ class SpecificationsTab(QWidget):
                 copy_sub = menu.addMenu("📋  Quick Copy")
                 copy_sub.setToolTipsVisible(True)
                 copy_sub.setToolTip("Copy specification metadata in plain text and rich HTML form.")
+                copy_sub.menuAction().setToolTip("Copy specification metadata in plain text and rich HTML form.")
 
                 def _on_action_copy_about_to_show(sub=copy_sub, s=spec_num, r=row_idx):
                     sub.clear()
@@ -1406,7 +1407,7 @@ class SpecificationsTab(QWidget):
                 folder_action = menu.addAction("📂  Open Local Folder")
                 folder_action.triggered.connect(lambda _, s=spec_num: self._open_spec_folder(s))
 
-                def _update_menu_state(act=folder_action, path=spec_target_dir, idx_act=index_action, s=spec_num, r=row_idx):
+                def _update_menu_state(act=folder_action, path=spec_target_dir, idx_act=index_action, s=spec_num, r=row_idx, csub=copy_sub):
                     if path.exists() and any(path.iterdir()):
                         act.setText("📂  Open Local Folder")
                         act.setEnabled(True)
@@ -1415,6 +1416,7 @@ class SpecificationsTab(QWidget):
                         act.setEnabled(False)
                     ver = self._get_row_version(r)
                     if ver:
+                        csub.setTitle(f"📋  Quick Copy (v{ver})")
                         is_idx = (
                             self.spec_search_db.is_version_indexed(s, ver)
                             if hasattr(self, "spec_search_db") and self.spec_search_db
@@ -1425,6 +1427,7 @@ class SpecificationsTab(QWidget):
                         else:
                             idx_act.setText(f"📥  Index v{ver} into Spec Search DB")
                     else:
+                        csub.setTitle("📋  Quick Copy")
                         idx_act.setText("📥  Index into Spec Search DB")
 
                 menu.addSeparator()

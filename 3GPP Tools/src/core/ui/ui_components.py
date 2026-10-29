@@ -1012,71 +1012,9 @@ class ProxyDialog(QDialog):
 # ==========================================
 # --- DRAG & DROP INTERACTION WIDGET ---
 # ==========================================
-
-
-class InteractiveDropLabel(QLabel):
-    file_dropped = pyqtSignal(list)
-
-    def __init__(self, text, accepted_extensions):
-        super().__init__(text)
-        self.accepted_extensions = accepted_extensions
-        self.setAlignment(Qt.AlignCenter)
-        self.setAcceptDrops(True)
-
-        self.default_style = (
-            "QLabel { border: 3px dashed #B0B0B0; border-radius: 10px; font-size: 15px; "
-            "font-weight: bold; color: #777; background-color: #FAFAFA; }"
-        )
-        self.hover_style = (
-            "QLabel { border: 3px dashed #395396; border-radius: 10px; font-size: 15px; "
-            "font-weight: bold; color: #395396; background-color: #EBF3FC; }"
-        )
-        self.busy_style = (
-            "QLabel { border: 3px dashed #D83B01; border-radius: 10px; font-size: 15px; "
-            "font-weight: bold; color: #D83B01; background-color: #FDF4F0; }"
-        )
-        self.error_style = (
-            "QLabel { border: 3px dashed #D32F2F; border-radius: 10px; font-size: 15px; "
-            "font-weight: bold; color: #D32F2F; background-color: #FDEDED; }"
-        )
-
-        self.setStyleSheet(self.default_style)
-
-    def set_state(self, state, text=None):
-        if text:
-            self.setText(text)
-        if state in ("ready", "idle"):
-            self.setStyleSheet(self.default_style)
-        elif state == "busy":
-            self.setStyleSheet(self.busy_style)
-        elif state == "error":
-            self.setStyleSheet(self.error_style)
-
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            urls = event.mimeData().urls()
-            if any(
-                url.toLocalFile().lower().endswith(ext)
-                for url in urls
-                for ext in self.accepted_extensions
-            ):
-                self.setStyleSheet(self.hover_style)
-                event.accept()
-                return
-        event.ignore()
-
-    def dragLeaveEvent(self, event):
-        self.setStyleSheet(self.default_style)
-
-    def dropEvent(self, event):
-        self.setStyleSheet(self.default_style)
-        valid_files = []
-        for url in event.mimeData().urls():
-            file_path = url.toLocalFile()
-            if any(
-                file_path.lower().endswith(ext)
-                for ext in self.accepted_extensions
-            ):
-                valid_files.append(file_path)
-        if valid_files:
-            self.file_dropped.emit(valid_files)
+from core.ui.drop_zone import (
+    ModernDropZone,
+    InteractiveDropLabel,
+    ClickableDropLabel,
+    format_file_size,
+)

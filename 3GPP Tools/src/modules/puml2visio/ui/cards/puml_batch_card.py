@@ -84,6 +84,7 @@ class PumlBatchCard(QWidget):
         )
         self.drop_label_puml.setMaximumHeight(80)
         self.drop_label_puml.file_dropped.connect(self._on_puml_files_dropped)
+        self.drop_label_puml.file_selected.connect(self._on_puml_files_dropped)
         layout.addWidget(self.drop_label_puml)
 
         # Buttons Toolbar

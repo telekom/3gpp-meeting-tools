@@ -38,6 +38,7 @@ from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     CARD_FRAME_STYLE,
     SEARCH_INPUT_STYLE,
+    ModernDropZone,
 )
 from modules.word_tools.core.sensitivity_label import (
     batch_set_sensitivity_label,
@@ -197,10 +198,21 @@ class BatchSensitivityLabelDialog(QDialog):
         self.btn_clear_files.clicked.connect(self._clear_files)
         btn_files_bar.addWidget(self.btn_clear_files)
 
-        self.lbl_file_count = QLabel("0 documents selected (drag & drop files here)")
+        self.lbl_file_count = QLabel("0 documents queued")
         self.lbl_file_count.setStyleSheet("font-size: 11px; color: #64748B; margin-left: 8px;")
         btn_files_bar.addWidget(self.lbl_file_count, 1)
         files_layout.addLayout(btn_files_bar)
+
+        self.drop_zone_files = ModernDropZone(
+            accepted_extensions=[".docx", ".doc", ".docm"],
+            title="Drop Word documents here to queue for batch labeling",
+            subtitle="Click to browse files • supports .docx, .doc, .docm",
+            compact=True,
+            browse_on_click=True,
+        )
+        self.drop_zone_files.file_dropped.connect(lambda paths: self._add_file_paths([Path(p) for p in paths]))
+        self.drop_zone_files.file_selected.connect(lambda paths: self._add_file_paths([Path(p) for p in paths]))
+        files_layout.addWidget(self.drop_zone_files)
 
         self.tbl_files = QTableWidget()
         self.tbl_files.setColumnCount(3)
@@ -338,6 +350,8 @@ class BatchSensitivityLabelDialog(QDialog):
 
     def _clear_files(self):
         self._selected_files.clear()
+        if hasattr(self, "drop_zone_files"):
+            self.drop_zone_files.clear()
         self._refresh_file_table()
 
     def _refresh_file_table(self):
