@@ -169,7 +169,9 @@ class DocumentSelectorPane(QWidget):
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
     def _browse_local_file(self):
-        filter_str = f"Word Documents (*{' *'.join(self.accepted_extensions)});;All Files (*.*)"
+        ext_First = self.accepted_extensions[0].lower() if self.accepted_extensions else ".docx"
+        label = "Markdown Documents" if ext_First in (".md", ".markdown") else "Word Documents"
+        filter_str = f"{label} (*{' *'.join(self.accepted_extensions)});;All Files (*.*)"
         files, _ = QFileDialog.getOpenFileNames(
             self,
             f"Select {self.title}",

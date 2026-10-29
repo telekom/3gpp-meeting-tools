@@ -3,13 +3,14 @@ Core engine and background worker for converting Markdown documents to Microsoft
 
 Features:
 - Headless OpenXML document synthesis using python-docx and lxml.
-- Full support for headings (H1-H6), rich text runs (bold, italic, strike, code, links).
+- Full support for headings (H1-H6), rich text runs (bold, italic, underline, strike, sup/sub, code, clickable hyperlinks, line breaks).
+- Recursive nested list rendering (ordered & unordered lists without flattening sub-items).
 - Table conversion with canonical 3GPP TableGrid borders, shaded header rows, and page-repeat headers.
-- GitHub-style callout alert boxes (> [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION]).
+- GitHub-style callout alert boxes (> [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION]) preserving inline formatting.
 - Automatic embedded figure and media resolution (relative paths, companion {stem}_media/ folder).
 - Image dimension safety: auto-scaling wide figures to fit standard printable page margins.
-- On-the-fly vector conversion: renders SVG images to high-resolution PNGs via QtSvg.
-- On-the-fly diagram rendering: compiles PlantUML fenced code blocks (```plantuml) into embedded figures.
+- On-the-fly vector & metafile conversion: renders SVG images via QtSvg and EMF/WMF via metafile converter to high-resolution PNGs.
+- On-the-fly diagram rendering: compiles PlantUML fenced code blocks (```plantuml) into embedded figures with extracted diagram titles.
 - Standard 3GPP styles injection (ensure_3gpp_package_styles) and enterprise sensitivity labeling.
 """
 
@@ -25,8 +26,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from PyQt5.QtCore import QObject, QThread, pyqtSignal
-from PyQt5.QtCore import QByteArray, QSize
+from PyQt5.QtCore import QByteArray, QObject, QSize, QThread, pyqtSignal
 from PyQt5.QtGui import QImage, QPainter
 from PyQt5.QtSvg import QSvgRenderer
 
@@ -34,8 +34,9 @@ import docx
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.image.image import Image as DocxImage
-from docx.oxml import parse_xml
-from docx.oxml.ns import nsdecls
+from docx.opc.constants import RELATIONSHIP_TYPE
+from docx.oxml import OxmlElement, parse_xml
+from docx.oxml.ns import nsdecls, qn
 from docx.shared import Inches, Pt, RGBColor
 import markdown
 from bs4 import BeautifulSoup, NavigableString, Tag
@@ -59,6 +60,17 @@ CALLOUT_CONFIG = {
     "WARNING": ("#F59E0B", "FFFBEB", "⚠️ WARNING"),
     "CAUTION": ("#EF4444", "FEF2F2", "🛑 CAUTION"),
 }
+
+PLANTUML_START_DIRECTIVES = (
+    "@startuml",
+    "@startmindmap",
+    "@startwbs",
+    "@startgantt",
+    "@startjson",
+    "@startyaml",
+    "@startditaa",
+    "@startsalt",
+)
 
 
 def render_svg_to_png(svg_path: Path, output_png_path: Path, max_dimension: int = 1600) -> bool:
@@ -93,6 +105,34 @@ def render_svg_to_png(svg_path: Path, output_png_path: Path, max_dimension: int 
         return False
 
 
+def render_metafile_to_png(metafile_path: Path, output_png_path: Path) -> bool:
+    """Converts a Windows Metafile (.emf / .wmf) to PNG using the application metafile converter."""
+    try:
+        from modules.meetings.core.tdoc_markdown_converter import convert_metafiles
+
+        output_png_path.parent.mkdir(parents=True, exist_ok=True)
+        convert_metafiles([(metafile_path, output_png_path)], dpi=150)
+        return output_png_path.is_file() and output_png_path.stat().st_size > 0
+    except Exception as e:
+        logger.debug(f"Metafile to PNG conversion failed for '{metafile_path}': {e}")
+        return False
+
+
+def _extract_plantuml_title(puml_code: str) -> Optional[str]:
+    """Extracts an explicit diagram title from PlantUML source code if defined."""
+    for line in puml_code.splitlines():
+        s = line.strip()
+        m_title = re.match(r"^title\s+(.+)$", s, re.IGNORECASE)
+        if m_title:
+            return m_title.group(1).strip().strip('"')
+        m_start = re.match(r"^@startuml\s+(.+)$", s, re.IGNORECASE)
+        if m_start:
+            cand = m_start.group(1).strip().strip('"')
+            if cand and not cand.startswith("-"):
+                return cand
+    return None
+
+
 def render_plantuml_to_png(puml_code: str, output_png_path: Path) -> bool:
     """Compiles PlantUML sequence/architecture text into a PNG using the bundled plantuml.jar."""
     java_exe, _ = get_best_java()
@@ -104,7 +144,7 @@ def render_plantuml_to_png(puml_code: str, output_png_path: Path) -> bool:
         return False
 
     code = puml_code.strip()
-    if not code.startswith("@start"):
+    if not code.lower().startswith("@start"):
         code = f"@startuml\n{code}\n@enduml"
 
     with tempfile.TemporaryDirectory() as td:
@@ -115,7 +155,10 @@ def render_plantuml_to_png(puml_code: str, output_png_path: Path) -> bool:
         kwargs = {"creationflags": 0x08000000} if os.name == "nt" else {}
         try:
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=45, **kwargs)
+            png_files = sorted(Path(td).glob("*.png"))
             gen_png = Path(td) / "diagram.png"
+            if not gen_png.exists() and png_files:
+                gen_png = png_files[0]
             if gen_png.exists() and gen_png.stat().st_size > 0:
                 output_png_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(gen_png, output_png_path)
@@ -132,45 +175,91 @@ def resolve_image_path(
     src: str,
     md_path: Path,
     companion_media_dir: Optional[Path] = None,
+    auto_detect_media: bool = True,
 ) -> Optional[Path]:
     """Resolves an image reference from Markdown into a local file path."""
     if not src:
         return None
 
-    clean_src = urllib.parse.unquote(src.strip())
+    raw = src.strip()
+    if raw.lower().startswith("file:///"):
+        raw = raw[8:] if len(raw) > 9 and raw[9] == ":" else raw[7:]
+
+    clean_src = urllib.parse.unquote(raw.split("?")[0].split("#")[0].strip())
+    if not clean_src:
+        return None
+
     p = Path(clean_src)
 
     # 1. Absolute path check
-    if p.is_file():
-        return p
+    try:
+        if p.is_Absolute() if hasattr(p, "is_Absolute") else p.is_absolute():
+            if p.is_file():
+                return p
+    except Exception:
+        pass
 
     # 2. Relative to markdown file parent
-    cand = (md_path.parent / clean_src).resolve()
-    if cand.is_file():
-        return cand
+    try:
+        cand = (md_path.parent / clean_src).resolve()
+        if cand.is_file():
+            return cand
+    except Exception:
+        pass
 
-    # 3. Companion media directory ({stem}_media/)
+    # 3. Explicit companion media directory
     if companion_media_dir and companion_media_dir.is_dir():
         cand = (companion_media_dir / p.name).resolve()
         if cand.is_file():
             return cand
 
-    # Auto-detected companion media directory
-    cand = (md_path.parent / f"{md_path.stem}_media" / p.name).resolve()
-    if cand.is_file():
-        return cand
-
-    # 4. Standard media subdirectories
-    for sub in ["media", "images", "assets", "figures"]:
-        cand = (md_path.parent / sub / p.name).resolve()
+    # 4. Auto-detected companion media directory ({stem}_media/) and standard subdirectories
+    if auto_detect_media:
+        cand = (md_path.parent / f"{md_path.stem}_media" / p.name).resolve()
         if cand.is_file():
             return cand
+
+        for sub in ("media", "images", "assets", "figures"):
+            cand = (md_path.parent / sub / p.name).resolve()
+            if cand.is_file():
+                return cand
 
     return None
 
 
-def add_runs_from_element(para, element, base_style: Optional[Dict[str, Any]] = None) -> None:
-    """Recursively processes HTML children and adds formatted text runs to a Word paragraph."""
+def _apply_run_style(run, style: Dict[str, Any]) -> None:
+    """Applies formatting attributes from a style dictionary to a python-docx Run."""
+    if style.get("bold"):
+        run.bold = True
+    if style.get("italic"):
+        run.italic = True
+    if style.get("underline"):
+        run.underline = True
+    if style.get("strike"):
+        run.font.strike = True
+    if style.get("superscript"):
+        run.font.superscript = True
+    if style.get("subscript"):
+        run.font.subscript = True
+    if style.get("code"):
+        run.font.name = "Consolas"
+        run.font.size = Pt(9.5)
+        run.font.color.rgb = RGBColor(0xBE, 0x18, 0x5D)
+    if style.get("color"):
+        run.font.color.rgb = style["color"]
+    if style.get("size"):
+        run.font.size = style["size"]
+    if style.get("font_name"):
+        run.font.name = style["font_name"]
+
+
+def add_runs_from_element(
+    para,
+    element,
+    base_style: Optional[Dict[str, Any]] = None,
+    skip_tags: Tuple[str, ...] = (),
+) -> None:
+    """Recursively processes HTML children and adds formatted text runs (and clickable hyperlinks) to a Word paragraph."""
     base_style = base_style or {}
 
     for child in element.children:
@@ -179,44 +268,171 @@ def add_runs_from_element(para, element, base_style: Optional[Dict[str, Any]] = 
             if not text:
                 continue
             run = para.add_run(text)
-            if base_style.get("bold"):
-                run.bold = True
-            if base_style.get("italic"):
-                run.italic = True
-            if base_style.get("strike"):
-                run.font.strike = True
-            if base_style.get("code"):
-                run.font.name = "Consolas"
-                run.font.size = Pt(9.5)
-                run.font.color.rgb = RGBColor(0xBE, 0x18, 0x5D)
-            if base_style.get("color"):
-                run.font.color.rgb = base_style["color"]
-            if base_style.get("size"):
-                run.font.size = base_style["size"]
-            if base_style.get("font_name"):
-                run.font.name = base_style["font_name"]
+            _apply_run_style(run, base_style)
+            if base_style.get("hyperlink_rid"):
+                hl = OxmlElement("w:hyperlink")
+                hl.set(qn("r:id"), base_style["hyperlink_rid"])
+                hl.append(run._r)
+                para._p.append(hl)
 
         elif isinstance(child, Tag):
             tag_name = child.name.lower()
+            if tag_name in skip_tags or tag_name == "img":
+                continue
+            if tag_name == "br":
+                para.add_run().add_break()
+                continue
+
             new_style = dict(base_style)
             if tag_name in ("b", "strong"):
                 new_style["bold"] = True
             elif tag_name in ("i", "em"):
                 new_style["italic"] = True
+            elif tag_name in ("u", "ins"):
+                new_style["underline"] = True
             elif tag_name in ("s", "del", "strike"):
                 new_style["strike"] = True
+            elif tag_name == "sup":
+                new_style["superscript"] = True
+            elif tag_name == "sub":
+                new_style["subscript"] = True
             elif tag_name == "code":
                 new_style["code"] = True
             elif tag_name == "a":
+                href = (child.get("href") or "").strip()
                 new_style["color"] = RGBColor(0x02, 0x84, 0xC7)
-                new_style["italic"] = True
-            add_runs_from_element(para, child, new_style)
+                new_style["underline"] = True
+                if href.startswith(("http://", "https://", "mailto:", "ftp://")):
+                    try:
+                        r_id = para.part.relate_to(href, RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
+                        new_style["hyperlink_rid"] = r_id
+                    except Exception:
+                        pass
+
+            add_runs_from_element(para, child, new_style, skip_tags=skip_tags)
+
+
+def _embed_image_tag(
+    doc,
+    img_tag: Tag,
+    md_path: Path,
+    comp_dir: Optional[Path],
+    auto_detect_media: bool,
+    temp_cache_path: Path,
+    max_image_width_in: float,
+    stats: Dict[str, int],
+    suppress_caption: bool = False,
+) -> None:
+    """Resolves, converts (if SVG/EMF/WMF), scales, and embeds a single <img> tag into the document."""
+    src = img_tag.get("src", "")
+    alt = img_tag.get("alt", "")
+    title = img_tag.get("title", "")
+
+    resolved = resolve_image_path(src, md_path, comp_dir, auto_detect_media=auto_detect_media)
+    img_to_embed = resolved
+
+    if resolved:
+        ext_lower = resolved.suffix.lower()
+        if ext_lower in (".svg", ".svgz"):
+            svg_png = temp_cache_path / f"svg_{stats['images'] + 1}.png"
+            if render_svg_to_png(resolved, svg_png):
+                img_to_embed = svg_png
+        elif ext_lower in (".emf", ".wmf"):
+            meta_png = temp_cache_path / f"meta_{stats['images'] + 1}.png"
+            if render_metafile_to_png(resolved, meta_png):
+                img_to_embed = meta_png
+
+    if img_to_embed and img_to_embed.is_file():
+        try:
+            img_obj = DocxImage.from_file(str(img_to_embed))
+            max_w = Inches(max_image_width_in)
+            target_w = max_w if img_obj.width > max_w else img_obj.width
+
+            p_img = doc.add_paragraph()
+            p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p_img.paragraph_format.space_before = Pt(8)
+            p_img.paragraph_format.space_after = Pt(4)
+            r_img = p_img.add_run()
+            r_img.add_picture(str(img_to_embed), width=target_w)
+            stats["images"] += 1
+
+            caption_text = title or alt
+            if caption_text and not suppress_caption:
+                p_cap = doc.add_paragraph()
+                p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                p_cap.paragraph_format.space_before = Pt(0)
+                p_cap.paragraph_format.space_after = Pt(8)
+                r_cap = p_cap.add_run(caption_text)
+                r_cap.italic = True
+                r_cap.font.size = Pt(9)
+                r_cap.font.color.rgb = RGBColor(0x64, 0x74, 0x8B)
+        except Exception as e:
+            p_err = doc.add_paragraph(f"[Image: {alt or src} (render error: {e})]")
+            p_err.runs[0].font.color.rgb = RGBColor(0xDC, 0x26, 0x26)
+    else:
+        p_miss = doc.add_paragraph(f"[Image not found: {alt or src}]")
+        p_miss.runs[0].font.color.rgb = RGBColor(0xDC, 0x26, 0x26)
+
+
+def _process_list(
+    doc,
+    list_element: Tag,
+    md_path: Path,
+    comp_dir: Optional[Path],
+    auto_detect_media: bool,
+    temp_cache_path: Path,
+    max_image_width_in: float,
+    stats: Dict[str, int],
+    level: int = 0,
+) -> None:
+    """Recursively renders <ul> and <ol> lists while preserving nested sub-list hierarchy."""
+    is_num = list_element.name.lower() == "ol"
+    style_name = "List Number" if is_num else "List Bullet"
+
+    for li in list_element.find_all("li", recursive=False):
+        p_li = doc.add_paragraph(style=style_name)
+        p_li.paragraph_format.space_after = Pt(3)
+        p_li.paragraph_format.line_spacing = 1.15
+        if level > 0:
+            p_li.paragraph_format.left_indent = Inches(0.25 * (level + 1))
+
+        # Add runs from the list item excluding nested <ul>/<ol> sub-lists
+        add_runs_from_element(p_li, li, skip_tags=("ul", "ol"))
+        stats["paragraphs"] += 1
+
+        # Embed any images inside the list item
+        for img_tag in li.find_all("img", recursive=False):
+            _embed_image_tag(
+                doc,
+                img_tag,
+                md_path,
+                comp_dir,
+                auto_detect_media,
+                temp_cache_path,
+                max_image_width_in,
+                stats,
+            )
+
+        # Recursively process nested lists
+        for sub_list in li.find_all(["ul", "ol"], recursive=False):
+            _process_list(
+                doc,
+                sub_list,
+                md_path,
+                comp_dir,
+                auto_detect_media,
+                temp_cache_path,
+                max_image_width_in,
+                stats,
+                level=level + 1,
+            )
 
 
 def convert_markdown_to_docx(
     md_path: Union[str, Path],
     output_docx_path: Optional[Union[str, Path]] = None,
     companion_media_dir: Optional[Union[str, Path]] = None,
+    auto_detect_media: bool = True,
     render_diagrams: bool = True,
     apply_3gpp_styles: bool = True,
     max_image_width_in: float = 6.0,
@@ -244,7 +460,7 @@ def convert_markdown_to_docx(
     comp_dir: Optional[Path] = None
     if companion_media_dir:
         comp_dir = Path(companion_media_dir).resolve()
-    else:
+    elif auto_detect_media:
         auto_cand = md.parent / f"{md.stem}_media"
         if auto_cand.is_dir():
             comp_dir = auto_cand
@@ -278,6 +494,7 @@ def convert_markdown_to_docx(
     }
 
     temp_cache_dir = tempfile.TemporaryDirectory()
+    temp_cache_path = Path(temp_cache_dir.name)
 
     try:
         log("⚙️ Synthesizing Word document structure...")
@@ -298,51 +515,38 @@ def convert_markdown_to_docx(
 
             # 2. Paragraphs & Figures
             elif tag == "p":
-                img_tag = element.find("img")
-                if img_tag:
-                    src = img_tag.get("src", "")
-                    alt = img_tag.get("alt", "")
-                    title = img_tag.get("title", "")
-
-                    resolved = resolve_image_path(src, md, comp_dir)
-                    img_to_embed = resolved
-
-                    # Handle SVG conversion to PNG on-the-fly
-                    if resolved and resolved.suffix.lower() in (".svg", ".svgz"):
-                        svg_png = Path(temp_cache_dir.name) / f"svg_{stats['images'] + 1}.png"
-                        if render_svg_to_png(resolved, svg_png):
-                            img_to_embed = svg_png
-
-                    if img_to_embed and img_to_embed.is_file():
-                        try:
-                            img_obj = DocxImage.from_file(str(img_to_embed))
-                            max_w = Inches(max_image_width_in)
-                            target_w = max_w if img_obj.width > max_w else img_obj.width
-
-                            p_img = doc.add_paragraph()
-                            p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                            p_img.paragraph_format.space_before = Pt(8)
-                            p_img.paragraph_format.space_after = Pt(4)
-                            r_img = p_img.add_run()
-                            r_img.add_picture(str(img_to_embed), width=target_w)
-                            stats["images"] += 1
-
-                            caption_text = title or alt
-                            if caption_text:
-                                p_cap = doc.add_paragraph()
-                                p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                                p_cap.paragraph_format.space_before = Pt(0)
-                                p_cap.paragraph_format.space_after = Pt(8)
-                                r_cap = p_cap.add_run(caption_text)
-                                r_cap.italic = True
-                                r_cap.font.size = Pt(9)
-                                r_cap.font.color.rgb = RGBColor(0x64, 0x74, 0x8B)
-                        except Exception as e:
-                            p_err = doc.add_paragraph(f"[Image: {alt or src} (render error: {e})]")
-                            p_err.runs[0].font.color.rgb = RGBColor(0xDC, 0x26, 0x26)
-                    else:
-                        p_miss = doc.add_paragraph(f"[Image not found: {alt or src}]")
-                        p_miss.runs[0].font.color.rgb = RGBColor(0xDC, 0x26, 0x26)
+                img_tags = element.find_all("img")
+                if img_tags:
+                    rem_text = element.get_text().strip()
+                    has_inline_caption = bool(rem_text) and len(img_tags) == 1
+                    for img_tag in img_tags:
+                        _embed_image_tag(
+                            doc,
+                            img_tag,
+                            md,
+                            comp_dir,
+                            auto_detect_media,
+                            temp_cache_path,
+                            max_image_width_in,
+                            stats,
+                            suppress_caption=has_inline_caption,
+                        )
+                    if rem_text:
+                        para = doc.add_paragraph()
+                        if has_inline_caption:
+                            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            para.paragraph_format.space_before = Pt(0)
+                            para.paragraph_format.space_after = Pt(8)
+                            add_runs_from_element(
+                                para,
+                                element,
+                                base_style={"italic": True, "size": Pt(9), "color": RGBColor(0x64, 0x74, 0x8B)},
+                            )
+                        else:
+                            para.paragraph_format.space_after = Pt(6)
+                            para.paragraph_format.line_spacing = 1.15
+                            add_runs_from_element(para, element)
+                        stats["paragraphs"] += 1
                 else:
                     para = doc.add_paragraph()
                     para.paragraph_format.space_after = Pt(6)
@@ -394,10 +598,19 @@ def convert_markdown_to_docx(
                     r_title.bold = True
                     r_title.font.size = Pt(9.5)
                     r_title.font.color.rgb = RGBColor.from_string(bdr_hex)
-
-                if body_text:
-                    r_body = p.add_run(body_text)
-                    r_body.font.size = Pt(9.5)
+                    if body_text:
+                        r_body = p.add_run(body_text)
+                        r_body.font.size = Pt(9.5)
+                else:
+                    # Standard blockquote: preserve rich inline formatting
+                    p_children = element.find_all("p", recursive=False)
+                    if p_children:
+                        for idx_p, p_child in enumerate(p_children):
+                            if idx_p > 0:
+                                p.add_run().add_break()
+                            add_runs_from_element(p, p_child, base_style={"size": Pt(9.5), "italic": True})
+                    else:
+                        add_runs_from_element(p, element, base_style={"size": Pt(9.5), "italic": True})
 
                 stats["paragraphs"] += 1
 
@@ -449,15 +662,19 @@ def convert_markdown_to_docx(
                 doc.add_paragraph().paragraph_format.space_after = Pt(6)
                 stats["tables"] += 1
 
-            # 5. Lists (Unordered & Ordered)
+            # 5. Lists (Unordered & Ordered, including nested sub-lists)
             elif tag in ("ul", "ol"):
-                is_num = tag == "ol"
-                for li in element.find_all("li", recursive=False):
-                    p_li = doc.add_paragraph(style="List Number" if is_num else "List Bullet")
-                    p_li.paragraph_format.space_after = Pt(3)
-                    p_li.paragraph_format.line_spacing = 1.15
-                    add_runs_from_element(p_li, li)
-                    stats["paragraphs"] += 1
+                _process_list(
+                    doc,
+                    element,
+                    md,
+                    comp_dir,
+                    auto_detect_media,
+                    temp_cache_path,
+                    max_image_width_in,
+                    stats,
+                    level=0,
+                )
 
             # 6. Fenced Code Blocks & PlantUML Diagrams (<pre>)
             elif tag == "pre":
@@ -470,11 +687,16 @@ def convert_markdown_to_docx(
                         lang = cls.replace("language-", "").lower()
                         break
 
+                stripped_code = raw_code.strip()
+                is_puml = lang in ("plantuml", "puml", "uml") or stripped_code.lower().startswith(
+                    PLANTUML_START_DIRECTIVES
+                )
+
                 # PlantUML diagram rendering
-                if render_diagrams and lang in ("plantuml", "puml"):
+                if render_diagrams and is_puml:
                     log(f"🎨 Rendering PlantUML diagram #{stats['diagrams'] + 1}...")
                     png_name = f"diagram_{stats['diagrams'] + 1}.png"
-                    diag_png = Path(temp_cache_dir.name) / png_name
+                    diag_png = temp_cache_path / png_name
                     rendered = render_plantuml_to_png(raw_code, diag_png)
                     if rendered and diag_png.exists():
                         try:
@@ -489,11 +711,18 @@ def convert_markdown_to_docx(
                             r_diag = p_diag.add_run()
                             r_diag.add_picture(str(diag_png), width=target_w)
 
+                            extracted_title = _extract_plantuml_title(raw_code)
+                            cap_label = (
+                                f"Figure: {extracted_title}"
+                                if extracted_title
+                                else f"Figure: Sequence Diagram ({stats['diagrams'] + 1})"
+                            )
+
                             p_cap = doc.add_paragraph()
                             p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
                             p_cap.paragraph_format.space_before = Pt(0)
                             p_cap.paragraph_format.space_after = Pt(8)
-                            r_cap = p_cap.add_run(f"Figure: Sequence Diagram ({stats['diagrams'] + 1})")
+                            r_cap = p_cap.add_run(cap_label)
                             r_cap.italic = True
                             r_cap.font.size = Pt(9)
                             r_cap.font.color.rgb = RGBColor(0x64, 0x74, 0x8B)
@@ -523,11 +752,23 @@ def convert_markdown_to_docx(
                 r_code.font.color.rgb = RGBColor(0x33, 0x41, 0x55)
                 stats["paragraphs"] += 1
 
+            # 7. Horizontal Rules (<hr>)
+            elif tag == "hr":
+                p_hr = doc.add_paragraph()
+                p_hr.paragraph_format.space_before = Pt(6)
+                p_hr.paragraph_format.space_after = Pt(6)
+                pPr = p_hr._p.get_or_add_pPr()
+                pPr.append(
+                    parse_xml(
+                        f'<w:pBdr {nsdecls("w")}><w:bottom w:val="single" w:sz="6" w:space="1" w:color="CBD5E1"/></w:pBdr>'
+                    )
+                )
+
         out_docx.parent.mkdir(parents=True, exist_ok=True)
         doc.save(str(out_docx))
         log(f"💾 Saved base Word document to '{out_docx.name}'.")
 
-        # 7. Apply canonical 3GPP styles (TableGrid, heading hierarchy)
+        # 8. Apply canonical 3GPP styles (TableGrid, heading hierarchy)
         if apply_3gpp_styles:
             try:
                 ensure_3gpp_package_styles(out_docx)
@@ -535,7 +776,7 @@ def convert_markdown_to_docx(
             except Exception as e:
                 logger.warning(f"Could not apply 3GPP package styles: {e}")
 
-        # 8. Apply corporate sensitivity labels
+        # 9. Apply corporate sensitivity labels
         try:
             set_sensitivity_label(out_docx)
         except Exception:
@@ -572,6 +813,7 @@ class MarkdownToWordThread(QThread):
         doc_source: str,
         output_dir: Optional[Union[str, Path]] = None,
         companion_media_dir: Optional[Union[str, Path]] = None,
+        auto_detect_media: bool = True,
         render_diagrams: bool = True,
         apply_3gpp_styles: bool = True,
         auto_open: bool = False,
@@ -580,6 +822,7 @@ class MarkdownToWordThread(QThread):
         self.doc_source = str(doc_source)
         self.output_dir = Path(output_dir).resolve() if output_dir else None
         self.companion_media_dir = Path(companion_media_dir).resolve() if companion_media_dir else None
+        self.auto_detect_media = auto_detect_media
         self.render_diagrams = render_diagrams
         self.apply_3gpp_styles = apply_3gpp_styles
         self.auto_open = auto_open
@@ -627,6 +870,7 @@ class MarkdownToWordThread(QThread):
                 md_path=source_path,
                 output_docx_path=target_docx,
                 companion_media_dir=self.companion_media_dir,
+                auto_detect_media=self.auto_detect_media,
                 render_diagrams=self.render_diagrams,
                 apply_3gpp_styles=self.apply_3gpp_styles,
                 log_callback=lambda msg: self._log(msg, logging.INFO),
