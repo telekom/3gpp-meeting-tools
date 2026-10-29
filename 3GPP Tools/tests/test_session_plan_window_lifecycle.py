@@ -133,6 +133,87 @@ class TestSessionPlanWindowLifecycle(unittest.TestCase):
 
         self.assertFalse(floating_win.isVisible(), "Standalone top-level window should be closed by MainWindow.closeEvent")
 
+    def test_rich_slot_tooltip_formatting(self):
+        """Verify _build_rich_slot_tooltip produces modern, well-sectioned HTML."""
+        from modules.meetings.core.session_plan_models import (
+            SessionSlot,
+            AgendaSlotItem,
+            MeetingStreamInfo,
+            SessionPlanSnapshot,
+            UserSessionAnnotation,
+            DelegationMember,
+            TopicOwnership,
+        )
+
+        win = SessionPlanWindow(
+            meeting_dir=self.temp_dir,
+            mtg_info=self.mtg_info,
+            agenda_map={},
+            tracked_tokens=set(),
+        )
+        try:
+            snap = SessionPlanSnapshot(meeting_number="177")
+            snap.streams[2] = MeetingStreamInfo(
+                stream_number=2,
+                stream_name="Stream 2",
+                room_name="Breakout 1",
+                capacity=100,
+                convener="Mike",
+                tohru_room="SA2_Brk1",
+            )
+            win.active_snapshot = snap
+
+            # Add a delegate and topic ownership
+            member = DelegationMember(name="Dieter", color="#2563EB")
+            win.delegation_plan.members["Dieter"] = member
+            win.delegation_plan.topic_owners["20.6.12"] = TopicOwnership(
+                meeting_number="177", ai_number="20.6.12", owner_name="Dieter"
+            )
+
+            slot = SessionSlot(
+                day_index=2,
+                day_name="Wednesday",
+                quarter="Q2",
+                sub_slot=1,
+                stream_number=2,
+                raw_text="KI#12 – KI#16 (20.6.12 – 16)",
+                items=[
+                    AgendaSlotItem(
+                        ai_number="20.6.12",
+                        display_expr="KI#12 (Voice Services) (20.6.12) [5]",
+                        topic_label="Voice Services for 6G",
+                        tdoc_count_str="5",
+                    )
+                ],
+            )
+
+            # Add annotation
+            win.annotations[slot.slot_key] = UserSessionAnnotation(
+                target_type="slot",
+                target_key=slot.slot_key,
+                comment="Check CR from Nokia",
+                assigned_colleague="Colleague A",
+            )
+
+            tt = win._build_rich_slot_tooltip(slot, day_idx=2, period="Q2", stream_num=2, tu=1)
+
+            self.assertIn("Breakout 1 (100 seats)", tt)
+            self.assertIn("Venue Time", tt)
+            self.assertIn("Chair:</b> Mike", tt)
+            self.assertIn("TOHRU:</b> SA2_Brk1", tt)
+            self.assertIn("Chair's Slot Note:", tt)
+            self.assertIn("KI#12 – KI#16", tt)
+            self.assertIn("Agenda Items Covered", tt)
+            self.assertIn("AI 20.6.12:", tt)
+            self.assertIn("Voice Services for 6G", tt)
+            self.assertIn("Delegation:", tt)
+            self.assertIn("Dieter", tt)
+            self.assertIn("Topic Owner", tt)
+            self.assertIn("Personal Note:", tt)
+            self.assertIn("Check CR from Nokia", tt)
+        finally:
+            win.close()
+
 
 if __name__ == "__main__":
     unittest.main()
