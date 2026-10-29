@@ -328,8 +328,12 @@ class SessionPlanWindow(QWidget):
         export_menu = QMenu(self)
         export_menu.addAction("📱 Export Mobile HTML (Offline)...", self._export_mobile_html).setToolTip("Generate a responsive, single-file HTML view optimized for iPhone/Android Safari/Chrome.")
         export_menu.addAction("🌐 Open Mobile View in Default Browser", self._open_mobile_html_in_browser).setToolTip("Export and instantly open the mobile-optimized session plan in your browser.")
-        export_menu.addAction("📅 Export iCalendar (.ics)...", self._export_ics).setToolTip("Export calendar events with strict UTC timestamps for Outlook, Apple, or Google Calendar.")
-        export_menu.addAction("✉️ Copy Email Summary for Colleagues", self._copy_email_summary).setToolTip("Copy rich HTML email summary to clipboard ready to paste into Microsoft Outlook.")
+        export_menu.addSeparator()
+        export_menu.addAction("📅 Export Full Meeting .ics Calendar...", self._export_ics).setToolTip("Export calendar events with strict UTC timestamps for Outlook, Apple, or Google Calendar.")
+        export_menu.addAction("📅 Export Delegate .ics (Personal / Colleague)...", self._export_delegate_ics).setToolTip("Export personal calendar events scoped to a specific delegate with assigned topics.")
+        export_menu.addSeparator()
+        export_menu.addAction("✉️ Copy Personal/Tracked Email Summary", self._copy_email_summary).setToolTip("Copy rich HTML email summary of personal tracked topics to clipboard.")
+        export_menu.addAction("📧 Copy Complete Delegation Email Summary...", self._on_export_delegation_email).setToolTip("Copy rich HTML delegation plan and machine-readable interchange comment for team email sharing.")
         export_menu.addSeparator()
         export_menu.addAction("📂 Open Session Plans Folder", self._open_plans_folder).setToolTip("Open <meeting_dir>/Agenda/SessionPlans/ in Windows Explorer.")
         self.export_btn.setMenu(export_menu)
@@ -908,7 +912,8 @@ class SessionPlanWindow(QWidget):
         member = self.delegation_plan.members.get(del_name) if (self.delegation_plan and del_name) else None
 
         collisions = self._detect_delegation_collisions()
-        is_collision = (del_name, slot.day_index, slot.quarter) in collisions if del_name else False
+        quarter_clashes = collisions.get((del_name, slot.day_index, slot.quarter), []) if del_name else []
+        is_collision = any(slot.id == cs.id or slot.slot_key == cs.slot_key for cs in quarter_clashes)
 
         # Top delegate pill strip if assigned
         if member:
@@ -1299,6 +1304,7 @@ class SessionPlanWindow(QWidget):
             del_txt = f"{del_name}{cov_lbl}" if del_name else "—"
 
             item_day = QTableWidgetItem(s.day_name)
+            item_day.setData(Qt.UserRole, s)
             item_q = QTableWidgetItem(s.quarter)
             item_time = QTableWidgetItem(time_str)
             item_str = QTableWidgetItem(f"Str {s.stream_number} ({r_name})")
@@ -1354,10 +1360,24 @@ class SessionPlanWindow(QWidget):
 
         return None, False
 
+    def _slots_time_overlap(self, s1: SessionSlot, s2: SessionSlot) -> bool:
+        """
+        Determines whether two slots physically overlap in meeting time.
+        - Must be the same day and quarter.
+        - If either slot spans the full quarter (sub_slot == 0), they overlap.
+        - If both are half-quarters (sub_slot 1 or 2), they overlap iff sub_slot == sub_slot.
+        """
+        if s1.day_index != s2.day_index or s1.quarter != s2.quarter:
+            return False
+        if s1.sub_slot == 0 or s2.sub_slot == 0:
+            return True
+        return s1.sub_slot == s2.sub_slot
+
     def _detect_delegation_collisions(self) -> Dict[Tuple[str, int, str], List[SessionSlot]]:
         """
-        Detects parallel stream collisions for delegates.
-        Key: (delegate_name, day_index, quarter) -> list of colliding SessionSlots (>1 distinct streams)
+        Detects parallel stream collisions for delegates taking half-quarter TU1/TU2 into account.
+        Key: (delegate_name, day_index, quarter) -> list of colliding SessionSlots.
+        Only slots that physically overlap in time across different active streams (>0) are flagged.
         """
         if not self.active_snapshot or not self.delegation_plan:
             return {}
@@ -1369,11 +1389,19 @@ class SessionPlanWindow(QWidget):
                 key = (del_name, s.day_index, s.quarter)
                 slot_map.setdefault(key, []).append(s)
 
-        collisions = {}
+        collisions: Dict[Tuple[str, int, str], List[SessionSlot]] = {}
         for (del_name, d_idx, q_name), slots in slot_map.items():
-            distinct_streams = {s.stream_number for s in slots if s.stream_number > 0}
-            if len(distinct_streams) > 1:
-                collisions[(del_name, d_idx, q_name)] = slots
+            colliding_slots: List[SessionSlot] = []
+            for i, s1 in enumerate(slots):
+                for j, s2 in enumerate(slots):
+                    if i != j and s1.stream_number != s2.stream_number and s1.stream_number > 0 and s2.stream_number > 0:
+                        if self._slots_time_overlap(s1, s2):
+                            if s1 not in colliding_slots:
+                                colliding_slots.append(s1)
+                            if s2 not in colliding_slots:
+                                colliding_slots.append(s2)
+            if colliding_slots:
+                collisions[(del_name, d_idx, q_name)] = colliding_slots
 
         return collisions
 
@@ -1390,10 +1418,9 @@ class SessionPlanWindow(QWidget):
             busy_slots = []
             for s in self.active_snapshot.slots:
                 if (
-                    s.day_index == target_slot.day_index
-                    and s.quarter == target_slot.quarter
-                    and s.stream_number != target_slot.stream_number
+                    s.stream_number != target_slot.stream_number
                     and s.stream_number > 0
+                    and self._slots_time_overlap(s, target_slot)
                 ):
                     del_name, _ = self._get_slot_effective_delegate(s)
                     if del_name and del_name.lower() == name.lower():
@@ -1473,12 +1500,20 @@ class SessionPlanWindow(QWidget):
     def _on_delegate_agenda_changed(self):
         self._render_tracked_topics()
 
-    def _render_team_view(self):
-        """Refreshes the Team Allocations view: Roster chips, Topic Ownership Matrix, and Clash Board."""
+    def _get_scheduled_ais_map(self) -> Dict[str, List[SessionSlot]]:
+        """Maps AI numbers to the list of SessionSlots in which they are scheduled."""
+        scheduled_ais: Dict[str, List[SessionSlot]] = {}
+        if self.active_snapshot:
+            for s in self.active_snapshot.slots:
+                for it in s.items:
+                    if it.ai_number:
+                        scheduled_ais.setdefault(it.ai_number, []).append(s)
+        return scheduled_ais
+
+    def _render_team_roster_chips(self):
+        """Refreshes the horizontal roster chips strip at the top of the Team view."""
         if not self.delegation_plan:
             return
-
-        # 1. Update Roster Chips
         while self.team_member_chips_layout.count():
             item = self.team_member_chips_layout.takeAt(0)
             w = item.widget()
@@ -1494,17 +1529,17 @@ class SessionPlanWindow(QWidget):
             chip.setCursor(Qt.PointingHandCursor)
             chip.clicked.connect(lambda _, mem=m: self._on_edit_delegation_member(mem))
             chip.setContextMenuPolicy(Qt.CustomContextMenu)
-            chip.customContextMenuRequested.connect(lambda pos, n=name, mem=m, btn=chip: self._show_member_context_menu(pos, n, mem, btn))
+            chip.customContextMenuRequested.connect(
+                lambda pos, n=name, mem=m, btn=chip: self._show_member_context_menu(pos, n, mem, btn)
+            )
             self.team_member_chips_layout.addWidget(chip)
 
-        # 2. Topic Ownership Matrix
-        scheduled_ais: Dict[str, List[SessionSlot]] = {}
-        if self.active_snapshot:
-            for s in self.active_snapshot.slots:
-                for it in s.items:
-                    if it.ai_number:
-                        scheduled_ais.setdefault(it.ai_number, []).append(s)
+    def _render_team_topics(self):
+        """Populates the Topic Ownership Matrix table with comboboxes and status tags."""
+        if not self.delegation_plan:
+            return
 
+        scheduled_ais = self._get_scheduled_ais_map()
         if self.agenda_map:
             all_ais = sorted(self.agenda_map.keys(), key=self._ai_sort_key)
         else:
@@ -1535,7 +1570,8 @@ class SessionPlanWindow(QWidget):
             has_clash = False
             if owner_name and slots_for_ai:
                 for s in slots_for_ai:
-                    if (owner_name, s.day_index, s.quarter) in collisions:
+                    quarter_clashes = collisions.get((owner_name, s.day_index, s.quarter), [])
+                    if any(s.id == cs.id or s.slot_key == cs.slot_key for cs in quarter_clashes):
                         has_clash = True
                         break
 
@@ -1578,24 +1614,78 @@ class SessionPlanWindow(QWidget):
             self.team_topics_table.setCellWidget(row, 3, combo)
             self.team_topics_table.setItem(row, 4, item_status)
 
-        # 3. Clash & Dispatch Board
+    def _update_team_topic_status_cells(self):
+        """Fast status column refresh for the Topic Ownership Matrix without recreating controls."""
+        if not self.delegation_plan:
+            return
+        collisions = self._detect_delegation_collisions()
+        scheduled_ais = self._get_scheduled_ais_map()
+        for row in range(self.team_topics_table.rowCount()):
+            ai_item = self.team_topics_table.item(row, 0)
+            if not ai_item:
+                continue
+            ai_num = ai_item.text().strip()
+            to = self.delegation_plan.topic_owners.get(ai_num)
+            owner_name = to.owner_name if to else ""
+            slots_for_ai = scheduled_ais.get(ai_num, [])
+
+            has_clash = False
+            if owner_name and slots_for_ai:
+                for s in slots_for_ai:
+                    quarter_clashes = collisions.get((owner_name, s.day_index, s.quarter), [])
+                    if any(s.id == cs.id or s.slot_key == cs.slot_key for cs in quarter_clashes):
+                        has_clash = True
+                        break
+
+            if has_clash:
+                status_txt = "🔴 Collision in parallel stream"
+                status_col = "#991B1B"
+                status_bg = "#FEF2F2"
+            elif owner_name:
+                status_txt = f"🟢 Covered ({len(slots_for_ai)} slot(s))" if slots_for_ai else "⚪ Assigned (unscheduled)"
+                status_col = "#065F46"
+                status_bg = "#ECFDF5"
+            else:
+                status_txt = "🟡 Unassigned"
+                status_col = "#92400E"
+                status_bg = "#FFFBEB"
+
+            item_status = self.team_topics_table.item(row, 4)
+            if not item_status:
+                item_status = QTableWidgetItem(status_txt)
+                self.team_topics_table.setItem(row, 4, item_status)
+            else:
+                item_status.setText(status_txt)
+            item_status.setForeground(QColor(status_col))
+            item_status.setBackground(QColor(status_bg))
+
+    def _render_team_clashes(self):
+        """Renders the Clash & Dispatch Board with multi-stream choices and actions."""
+        if not self.delegation_plan:
+            return
+
+        collisions = self._detect_delegation_collisions()
         clash_count = len(collisions)
         self.btn_team.setText(f"👥 Team Allocations ({clash_count} ⚠️)" if clash_count else "👥 Team Allocations (Clean)")
         self.team_tabs.setTabText(1, f"⚡ Clash & Dispatch Board ({clash_count})")
 
         if clash_count == 0:
             self.clash_kpi_lbl.setText("✅ No collisions detected! All parallel streams have distinct delegates or single coverage.")
-            self.clash_kpi_lbl.setStyleSheet("background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 6px;")
+            self.clash_kpi_lbl.setStyleSheet(
+                "background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 6px;"
+            )
             self.team_clashes_table.setRowCount(0)
         else:
-            self.clash_kpi_lbl.setText(f"⚠️ {clash_count} Double-Booking Collision(s) Detected! Appoint an available delegate to cover parallel rooms.")
-            self.clash_kpi_lbl.setStyleSheet("background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 6px;")
+            self.clash_kpi_lbl.setText(
+                f"⚠️ {clash_count} Double-Booking Collision(s) Detected! Appoint an available delegate to cover parallel rooms."
+            )
+            self.clash_kpi_lbl.setStyleSheet(
+                "background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 6px;"
+            )
             self.team_clashes_table.setRowCount(clash_count)
 
             for row, ((del_name, d_idx, q_name), slots) in enumerate(collisions.items()):
                 s_a = slots[0]
-                s_b = slots[1] if len(slots) > 1 else slots[0]
-
                 time_str = SessionPlanTimezone.format_dual_time_range(
                     s_a.start_time_local, s_a.end_time_local, self.tz_offset_min
                 )
@@ -1615,13 +1705,24 @@ class SessionPlanWindow(QWidget):
                 r_a = s_info_a.room_name if s_info_a else f"Stream {s_a.stream_number}"
                 item_stra = QTableWidgetItem(f"Str {s_a.stream_number} ({r_a}): {s_a.raw_text}")
 
-                s_info_b = self.active_snapshot.streams.get(s_b.stream_number) if self.active_snapshot else None
-                r_b = s_info_b.room_name if s_info_b else f"Stream {s_b.stream_number}"
-                item_strb = QTableWidgetItem(f"Str {s_b.stream_number} ({r_b}): {s_b.raw_text}")
+                other_desc = []
+                for other_s in slots[1:]:
+                    s_inf = self.active_snapshot.streams.get(other_s.stream_number) if self.active_snapshot else None
+                    r_oth = s_inf.room_name if s_inf else f"Stream {other_s.stream_number}"
+                    other_desc.append(f"Str {other_s.stream_number} ({r_oth}): {other_s.raw_text}")
+                item_strb = QTableWidgetItem("\n".join(other_desc) if other_desc else f"Str {slots[1].stream_number}: {slots[1].raw_text}")
 
-                btn_appoint = QPushButton("⚡ Appoint Available Delegate...")
-                btn_appoint.setStyleSheet("padding: 3px 8px; font-size: 11px; font-weight: 600; border-radius: 6px; background: #059669; color: #FFFFFF;")
-                btn_appoint.clicked.connect(lambda _, slot=s_b, orig=del_name: self._on_dispatch_slot(slot, orig))
+                btn_appoint = QPushButton("⚡ Appoint Coverage ▾")
+                btn_appoint.setStyleSheet(
+                    "padding: 3px 8px; font-size: 11px; font-weight: 600; border-radius: 6px; background: #059669; color: #FFFFFF;"
+                )
+                menu = QMenu(btn_appoint)
+                for s_opt in slots:
+                    s_inf = self.active_snapshot.streams.get(s_opt.stream_number) if self.active_snapshot else None
+                    rm = s_inf.room_name if s_inf else f"Stream {s_opt.stream_number}"
+                    act = menu.addAction(f"Cover Str {s_opt.stream_number} ({rm}): {s_opt.raw_text[:30]}...")
+                    act.triggered.connect(lambda _, slot=s_opt, orig=del_name: self._on_dispatch_slot(slot, orig))
+                btn_appoint.setMenu(menu)
 
                 self.team_clashes_table.setItem(row, 0, item_slot)
                 self.team_clashes_table.setItem(row, 1, item_time)
@@ -1629,6 +1730,14 @@ class SessionPlanWindow(QWidget):
                 self.team_clashes_table.setItem(row, 3, item_stra)
                 self.team_clashes_table.setItem(row, 4, item_strb)
                 self.team_clashes_table.setCellWidget(row, 5, btn_appoint)
+
+    def _render_team_view(self):
+        """Refreshes the Team Allocations view: Roster chips, Topic Ownership Matrix, and Clash Board."""
+        if not self.delegation_plan:
+            return
+        self._render_team_roster_chips()
+        self._render_team_topics()
+        self._render_team_clashes()
 
     def _show_member_context_menu(self, pos: QPoint, name: str, member: DelegationMember, btn: QPushButton):
         menu = QMenu(self)
@@ -1680,11 +1789,8 @@ class SessionPlanWindow(QWidget):
         self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
         self._render_overview_grid()
         self._render_tracked_topics()
-        # Refresh collisions status pills
-        collisions = self._detect_delegation_collisions()
-        clash_count = len(collisions)
-        self.btn_team.setText(f"👥 Team Allocations ({clash_count} ⚠️)" if clash_count else "👥 Team Allocations (Clean)")
-        self.team_tabs.setTabText(1, f"⚡ Clash & Dispatch Board ({clash_count})")
+        self._render_team_clashes()
+        self._update_team_topic_status_cells()
 
     def _on_dispatch_slot(self, slot: SessionSlot, original_owner: str):
         members = list(self.delegation_plan.members.values()) if self.delegation_plan else []
@@ -1709,6 +1815,12 @@ class SessionPlanWindow(QWidget):
 
             self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
             self._render_current_views()
+
+    def _on_revert_dispatch(self, slot: SessionSlot):
+        """Removes ad-hoc appointment override, restoring ownership to original topic owner."""
+        self.db.delete_session_appointment(self.meeting_number, slot.slot_key)
+        self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
+        self._render_current_views()
 
     def _filter_topic_ownership_table(self, query: str):
         q = query.lower().strip()
@@ -1979,6 +2091,22 @@ class SessionPlanWindow(QWidget):
             act_note = menu.addAction(f"📝 Edit Note for {d_name} {q_name}...")
             act_note.triggered.connect(lambda: self._on_grid_cell_double_clicked(grid_r, c))
 
+        s = d_item.data(Qt.UserRole)
+        if self.delegation_plan and self.delegation_plan.members and s:
+            menu.addSeparator()
+            del_name, is_cov = self._get_slot_effective_delegate(s)
+            app = self.delegation_plan.appointments.get(s.slot_key)
+            orig_owner = app.original_owner if (app and app.original_owner) else (del_name or "")
+            if is_cov:
+                act_disp = menu.addAction(f"⚡ Change Coverage for this Session (Covered by {del_name})...")
+                act_disp.triggered.connect(lambda _, slot=s, orig=orig_owner: self._on_dispatch_slot(slot, orig))
+                act_rev = menu.addAction(f"↺ Revert Coverage to {orig_owner or 'Topic Owner'}")
+                act_rev.triggered.connect(lambda _, slot=s: self._on_revert_dispatch(slot))
+            else:
+                curr_str = f"({del_name})" if del_name else "(Unassigned)"
+                act_disp = menu.addAction(f"⚡ Appoint Coverage for this Session {curr_str}...")
+                act_disp.triggered.connect(lambda _, slot=s, orig=orig_owner: self._on_dispatch_slot(slot, orig))
+
         menu.addSeparator()
         act_copy = menu.addAction("📋 Copy Slot Details")
         act_copy.triggered.connect(lambda: self._copy_tracked_row(r))
@@ -2039,6 +2167,24 @@ class SessionPlanWindow(QWidget):
                     is_tr = token.lower() in self.tracked_tokens
                     act_tr = menu.addAction(f"{'⭐ Untrack' if is_tr else '⭐ Track'}: {label[:40]}")
                     act_tr.triggered.connect(lambda _, tok=token, lbl=label: self._toggle_track_ai(tok, lbl))
+
+            if self.delegation_plan and self.delegation_plan.members:
+                menu.addSeparator()
+                for s in slots_here:
+                    del_name, is_cov = self._get_slot_effective_delegate(s)
+                    app = self.delegation_plan.appointments.get(s.slot_key)
+                    orig_owner = app.original_owner if (app and app.original_owner) else (del_name or "")
+                    str_lbl = f"Str {s.stream_number}: " if len(slots_here) > 1 else ""
+
+                    if is_cov:
+                        act_disp = menu.addAction(f"⚡ Change Coverage for {str_lbl}this Session (Covered by {del_name})...")
+                        act_disp.triggered.connect(lambda _, slot=s, orig=orig_owner: self._on_dispatch_slot(slot, orig))
+                        act_rev = menu.addAction(f"↺ Revert Coverage for {str_lbl}this Session to {orig_owner or 'Topic Owner'}")
+                        act_rev.triggered.connect(lambda _, slot=s: self._on_revert_dispatch(slot))
+                    else:
+                        curr_str = f"({del_name})" if del_name else "(Unassigned)"
+                        act_disp = menu.addAction(f"⚡ Appoint Coverage for {str_lbl}this Session {curr_str}...")
+                        act_disp.triggered.connect(lambda _, slot=s, orig=orig_owner: self._on_dispatch_slot(slot, orig))
 
             menu.addSeparator()
             act_copy = menu.addAction("📋 Copy Slot Details")
@@ -2209,8 +2355,67 @@ class SessionPlanWindow(QWidget):
             only_tracked=False,
             tracked_tokens=self.tracked_tokens,
             annotations=self.annotations,
+            delegation_plan=self.delegation_plan,
         )
-        QMessageBox.information(self, "Calendar Exported", f"Generated .ics calendar file:\n{out_path}\n\nStrictly anchored in UTC so your Outlook and smartphone trigger reminders at the exact venue time.")
+        QMessageBox.information(
+            self,
+            "Calendar Exported",
+            f"Generated .ics calendar file:\n{out_path}\n\nStrictly anchored in UTC so your Outlook and smartphone trigger reminders at the exact venue time.",
+        )
+
+    def _export_delegate_ics(self):
+        """Exports an .ics calendar file scoped to a specific delegation member."""
+        if not self.active_snapshot:
+            return
+        if not self.delegation_plan or not self.delegation_plan.members:
+            QMessageBox.information(self, "No Roster", "Please add delegation members before exporting a delegate calendar.")
+            return
+
+        default_name = ""
+        if hasattr(self, "tracked_delegate_filter") and self.tracked_delegate_filter.currentIndex() > 0:
+            default_name = self.tracked_delegate_filter.currentData()
+        if not default_name:
+            for name, m in self.delegation_plan.members.items():
+                if m.is_self:
+                    default_name = name
+                    break
+        if not default_name:
+            default_name = list(self.delegation_plan.members.keys())[0]
+
+        from PyQt5.QtWidgets import QInputDialog
+        names = list(self.delegation_plan.members.keys())
+        default_idx = names.index(default_name) if default_name in names else 0
+        target, ok = QInputDialog.getItem(
+            self,
+            "Export Delegate Calendar",
+            "Select delegate to export .ics calendar for:",
+            names,
+            default_idx,
+            False,
+        )
+        if not ok or not target:
+            return
+
+        out_dir = self.meeting_dir / "Export"
+        safe_name = re.sub(r"[^\w\-]", "_", target)
+        out_path = out_dir / f"SA2_{self.meeting_number}_{safe_name}.ics"
+
+        SessionPlanExporter.export_ics(
+            snapshot=self.active_snapshot,
+            output_path=out_path,
+            meeting_start_date_str=self.start_date_str,
+            meeting_tz_offset_min=self.tz_offset_min,
+            only_tracked=False,
+            tracked_tokens=self.tracked_tokens,
+            annotations=self.annotations,
+            delegation_plan=self.delegation_plan,
+            target_delegate=target,
+        )
+        QMessageBox.information(
+            self,
+            "Delegate Calendar Exported",
+            f"Generated personalized .ics calendar file for {target}:\n{out_path}\n\nStrictly anchored in UTC with assigned session topics.",
+        )
 
     def _copy_email_summary(self):
         if not self.active_snapshot:

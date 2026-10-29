@@ -153,3 +153,8 @@ class DelegationPlan:
     topic_owners: Dict[str, TopicOwnership] = field(default_factory=dict)
     appointments: Dict[str, SessionAppointment] = field(default_factory=dict)
 
+    @property
+    def session_appointments(self) -> Dict[str, SessionAppointment]:
+        """Backward-compatible alias for appointments dictionary."""
+        return self.appointments
+
