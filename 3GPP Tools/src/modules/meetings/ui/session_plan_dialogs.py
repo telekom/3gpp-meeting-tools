@@ -8,18 +8,21 @@ Dialogs for SA2 Session Plan Management:
 """
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QButtonGroup,
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -29,6 +32,8 @@ from PyQt5.QtWidgets import (
     QRadioButton,
     QSpinBox,
     QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -36,9 +41,15 @@ from PyQt5.QtWidgets import (
 )
 
 from modules.meetings.core.session_plan_diff import SessionPlanDiffEngine, SessionPlanDiffResult
+from modules.meetings.core.session_plan_exporter import SessionPlanExporter
 from modules.meetings.core.session_plan_models import (
+    DELEGATE_PALETTE,
+    DelegationMember,
+    DelegationPlan,
+    SessionAppointment,
     SessionPlanSnapshot,
     SessionSlot,
+    TopicOwnership,
     UserSessionAnnotation,
 )
 from modules.meetings.core.session_plan_timezone import SessionPlanTimezone
@@ -606,3 +617,459 @@ class SessionPlanTrackedTopicsDialog(QDialog):
                 if acronym:
                     res[acronym.lower()] = label
         return res
+
+
+# --- Delegation Management Dialogs ---
+
+class DelegationMemberDialog(QDialog):
+    """Dialog to create or edit a delegation member with color swatch picker."""
+
+    def __init__(
+        self,
+        parent=None,
+        member: Optional[DelegationMember] = None,
+        existing_names: Optional[List[str]] = None,
+    ):
+        super().__init__(parent)
+        self.member = member
+        self.existing_names = [n.lower() for n in (existing_names or []) if not (member and n.lower() == member.name.lower())]
+        self.selected_color = member.color if member else DELEGATE_PALETTE[0]
+
+        self.setWindowTitle("👤 Edit Team Member" if member else "➕ Add Team Member")
+        self.resize(440, 360)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("e.g. Martin, Anna, Thomas")
+        if self.member:
+            self.name_edit.setText(self.member.name)
+        self.name_edit.textChanged.connect(self._update_preview)
+        form.addRow("<b>Delegate Name:</b>", self.name_edit)
+
+        self.email_edit = QLineEdit()
+        self.email_edit.setPlaceholderText("e.g. name@company.com (optional)")
+        if self.member:
+            self.email_edit.setText(self.member.email)
+        form.addRow("Email Address:", self.email_edit)
+
+        self.role_edit = QLineEdit()
+        self.role_edit.setPlaceholderText("e.g. Head of Delegation, RAN Specialist, Architecture")
+        if self.member:
+            self.role_edit.setText(self.member.notes)
+        form.addRow("Role / Notes:", self.role_edit)
+
+        self.self_chk = QCheckBox("This is me (My Identity)")
+        self.self_chk.setToolTip("Marking this sets this delegate as 'yourself' for 1-click personal timetable filtering.")
+        if self.member and self.member.is_self:
+            self.self_chk.setChecked(True)
+        self.self_chk.toggled.connect(self._update_preview)
+        form.addRow("", self.self_chk)
+
+        layout.addLayout(form)
+
+        # Color Swatches Palette
+        layout.addWidget(QLabel("<b>Delegate Color Palette:</b>"))
+        swatch_layout = QHBoxLayout()
+        swatch_layout.setSpacing(6)
+        self.swatch_buttons: List[QPushButton] = []
+
+        for col in DELEGATE_PALETTE:
+            btn = QPushButton()
+            btn.setFixedSize(26, 26)
+            btn.setCursor(Qt.PointingHandCursor)
+            is_active = (col.lower() == self.selected_color.lower())
+            border_style = "2px solid #0F172A" if is_active else "1px solid #CBD5E1"
+            btn.setStyleSheet(f"background-color: {col}; border-radius: 13px; border: {border_style};")
+            btn.clicked.connect(lambda _, c=col: self._select_palette_color(c))
+            swatch_layout.addWidget(btn)
+            self.swatch_buttons.append(btn)
+
+        # Custom color button
+        self.btn_custom_col = QPushButton("🎨 Custom...")
+        self.btn_custom_col.setFixedHeight(26)
+        self.btn_custom_col.clicked.connect(self._pick_custom_color)
+        swatch_layout.addWidget(self.btn_custom_col)
+        swatch_layout.addStretch()
+        layout.addLayout(swatch_layout)
+
+        # Live Badge Preview
+        preview_box = QHBoxLayout()
+        preview_box.addWidget(QLabel("Live Badge Preview:"))
+        self.preview_lbl = QLabel()
+        self.preview_lbl.setFixedHeight(28)
+        preview_box.addWidget(self.preview_lbl)
+        preview_box.addStretch()
+        layout.addLayout(preview_box)
+        self._update_preview()
+
+        # Dialog Buttons
+        btn_box = QHBoxLayout()
+        btn_box.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_box.addWidget(cancel_btn)
+
+        save_btn = QPushButton("💾 Save Member")
+        save_btn.setStyleSheet("background: #2563EB; color: #FFFFFF; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
+        save_btn.clicked.connect(self._validate_and_accept)
+        btn_box.addWidget(save_btn)
+        layout.addLayout(btn_box)
+
+    def _select_palette_color(self, hex_color: str):
+        self.selected_color = hex_color
+        for btn in self.swatch_buttons:
+            # Recompute border
+            bg = btn.palette().button().color().name()
+            # check stylesheet
+            is_active = hex_color in btn.styleSheet()
+            border_style = "2px solid #0F172A" if is_active else "1px solid #CBD5E1"
+            # Extract bg color from style
+            import re
+            m = re.search(r"background-color:\s*(#[0-9a-fA-F]+)", btn.styleSheet())
+            b_col = m.group(1) if m else "#2563EB"
+            btn.setStyleSheet(f"background-color: {b_col}; border-radius: 13px; border: {border_style};")
+        self._update_preview()
+
+    def _pick_custom_color(self):
+        col = QColorDialog.getColor(QColor(self.selected_color), self, "Select Delegate Color")
+        if col.isValid():
+            self._select_palette_color(col.name())
+
+    def _update_preview(self):
+        name = self.name_edit.text().strip() or "Delegate"
+        is_me = self.self_chk.isChecked()
+        suffix = " (Me)" if is_me else ""
+        col = self.selected_color
+        self.preview_lbl.setText(f"  ● {name}{suffix}  ")
+        self.preview_lbl.setStyleSheet(
+            f"background-color: {col}1A; color: {col}; border: 1px solid {col}66; border-radius: 6px; font-weight: 600; padding: 2px 8px;"
+        )
+
+    def _validate_and_accept(self):
+        name = self.name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Invalid Name", "Please enter a valid delegate name.")
+            return
+        if name.lower() in self.existing_names:
+            QMessageBox.warning(self, "Duplicate Name", f"A delegate named '{name}' already exists in this meeting roster.")
+            return
+        self.accept()
+
+    def get_member(self) -> DelegationMember:
+        return DelegationMember(
+            name=self.name_edit.text().strip(),
+            email=self.email_edit.text().strip(),
+            color=self.selected_color,
+            is_self=self.self_chk.isChecked(),
+            notes=self.role_edit.text().strip(),
+        )
+
+
+class SessionDispatchDialog(QDialog):
+    """
+    Availability-driven session appointment dialog.
+    Allows appointing a free delegate on a session-per-session basis to resolve collisions.
+    """
+
+    def __init__(
+        self,
+        slot: SessionSlot,
+        original_owner: str,
+        members: List[DelegationMember],
+        availability_map: Dict[str, dict],
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.slot = slot
+        self.original_owner = original_owner
+        self.members = members
+        self.availability_map = availability_map  # member_name -> {'status': 'free'|'busy', 'reason': ...}
+
+        self.setWindowTitle(f"⚡ Appoint Available Delegate — {slot.day_name} {slot.quarter}")
+        self.resize(540, 420)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        # Slot Info Card
+        card = QFrame()
+        card.setStyleSheet("background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px;")
+        card_lay = QVBoxLayout(card)
+        card_lay.setContentsMargins(6, 6, 6, 6)
+        card_lay.setSpacing(4)
+
+        time_str = f"{self.slot.start_time_local} – {self.slot.end_time_local}"
+        card_lay.addWidget(QLabel(f"<b>📅 {self.slot.day_name} · {self.slot.quarter} ({time_str}) · Stream {self.slot.stream_number}</b>"))
+        card_lay.addWidget(QLabel(f"<b>📋 Topic:</b> {html.escape(self.slot.raw_text)}"))
+        if self.original_owner:
+            card_lay.addWidget(QLabel(f"<b>Original Topic Owner:</b> {html.escape(self.original_owner)} (⚠️ Collision / Unavailable)"))
+        layout.addWidget(card)
+
+        layout.addWidget(QLabel("<b>Select Delegate by Real-Time Availability:</b>"))
+
+        # Table of Delegates ranked by availability
+        self.table = QTableWidget()
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["Status", "Delegate", "Current Schedule / Availability"])
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setAlternatingRowColors(True)
+
+        # Sort: Free members first, then Busy
+        sorted_members = sorted(
+            self.members,
+            key=lambda m: 0 if self.availability_map.get(m.name, {}).get("status") == "free" else 1,
+        )
+
+        self.table.setRowCount(len(sorted_members))
+        default_select_row = -1
+
+        for row, m in enumerate(sorted_members):
+            av = self.availability_map.get(m.name, {"status": "free", "reason": "No other sessions in this slot"})
+            is_free = (av.get("status") == "free")
+
+            if is_free and default_select_row == -1 and m.name.lower() != self.original_owner.lower():
+                default_select_row = row
+
+            status_txt = "🟢 Free" if is_free else "🔴 Busy"
+            status_item = QTableWidgetItem(status_txt)
+            status_item.setTextAlignment(Qt.AlignCenter)
+            status_item.setData(Qt.UserRole, m.name)
+
+            name_item = QTableWidgetItem(m.name + (" (Me)" if m.is_self else ""))
+            name_item.setForeground(QColor(m.color))
+            f = name_item.font()
+            f.setBold(True)
+            name_item.setFont(f)
+
+            reason_txt = "Available (no parallel session)" if is_free else av.get("reason", "Already scheduled")
+            reason_item = QTableWidgetItem(reason_txt)
+
+            if not is_free:
+                status_item.setForeground(QColor("#DC2626"))
+                reason_item.setForeground(QColor("#991B1B"))
+                reason_item.setBackground(QColor("#FEF2F2"))
+            else:
+                status_item.setForeground(QColor("#16A34A"))
+
+            self.table.setItem(row, 0, status_item)
+            self.table.setItem(row, 1, name_item)
+            self.table.setItem(row, 2, reason_item)
+
+        if default_select_row >= 0:
+            self.table.selectRow(default_select_row)
+
+        layout.addWidget(self.table)
+
+        # Appointment Reason / Note
+        form = QFormLayout()
+        self.reason_edit = QLineEdit()
+        self.reason_edit.setPlaceholderText("e.g. Collision with Stream 1; Martin covering AI 5.2.1")
+        self.reason_edit.setText(f"Collision in parallel stream with {self.original_owner}" if self.original_owner else "Ad-hoc session coverage")
+        form.addRow("<b>Coverage Reason:</b>", self.reason_edit)
+        layout.addLayout(form)
+
+        # Buttons
+        btn_box = QHBoxLayout()
+        revert_btn = QPushButton("↺ Revert to Topic Owner")
+        revert_btn.setToolTip("Removes any ad-hoc appointment for this slot, reverting it to the default topic owner.")
+        revert_btn.clicked.connect(self._revert_to_owner)
+        btn_box.addWidget(revert_btn)
+
+        btn_box.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_box.addWidget(cancel_btn)
+
+        appoint_btn = QPushButton("⚡ Appoint Selected Delegate")
+        appoint_btn.setStyleSheet("background: #059669; color: #FFFFFF; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
+        appoint_btn.clicked.connect(self._validate_and_accept)
+        btn_box.addWidget(appoint_btn)
+        layout.addLayout(btn_box)
+
+    def _revert_to_owner(self):
+        self.reverted = True
+        self.accept()
+
+    def _validate_and_accept(self):
+        selected_rows = self.table.selectedItems()
+        if not selected_rows:
+            QMessageBox.warning(self, "No Delegate Selected", "Please select a delegate from the table.")
+            return
+
+        row = self.table.currentRow()
+        item = self.table.item(row, 0)
+        delegate_name = item.data(Qt.UserRole)
+        is_free = "Free" in item.text()
+
+        if not is_free:
+            ans = QMessageBox.question(
+                self,
+                "Delegate Double-Booking Warning",
+                f"Warning: {delegate_name} is already busy in another stream at this time!\n\nDo you still want to appoint {delegate_name}?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if ans != QMessageBox.Yes:
+                return
+
+        self.reverted = False
+        self.appointed_delegate = delegate_name
+        self.coverage_reason = self.reason_edit.text().strip()
+        self.accept()
+
+    def get_result(self) -> Tuple[Optional[str], str]:
+        """Returns: (appointed_delegate_or_None_if_reverted, reason)."""
+        if getattr(self, "reverted", False):
+            return None, ""
+        return getattr(self, "appointed_delegate", None), getattr(self, "coverage_reason", "")
+
+
+class DelegationImportDialog(QDialog):
+    """Dialog to import a delegation plan from pasted email text or JSON file."""
+
+    def __init__(self, current_roster: Optional[List[str]] = None, parent=None):
+        super().__init__(parent)
+        self.current_roster = current_roster or []
+        self.parsed_data: Optional[dict] = None
+
+        self.setWindowTitle("📥 Import Delegation Plan (Email / JSON)")
+        self.resize(560, 460)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        header = QLabel(
+            "<b>Import Delegation Allocation:</b> Paste the email text containing the delegation plan, "
+            "or load an exported <code>.json</code> plan file."
+        )
+        header.setWordWrap(True)
+        layout.addWidget(header)
+
+        # File browse row
+        file_box = QHBoxLayout()
+        self.btn_file = QPushButton("📁 Browse .json File...")
+        self.btn_file.clicked.connect(self._browse_file)
+        file_box.addWidget(self.btn_file)
+        self.file_lbl = QLabel("No file loaded")
+        self.file_lbl.setStyleSheet("color: #64748B; font-style: italic;")
+        file_box.addWidget(self.file_lbl)
+        file_box.addStretch()
+        layout.addLayout(file_box)
+
+        # Text edit for paste
+        self.text_edit = QTextEdit()
+        self.text_edit.setPlaceholderText("Paste email body or JSON text here...\n(The tool automatically extracts the embedded plan payload)")
+        self.text_edit.textChanged.connect(self._on_text_changed)
+        layout.addWidget(self.text_edit)
+
+        # Status / Summary Banner
+        self.status_banner = QFrame()
+        self.status_banner.setStyleSheet("background: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 6px; padding: 8px;")
+        sb_lay = QVBoxLayout(self.status_banner)
+        sb_lay.setContentsMargins(6, 4, 6, 4)
+        self.status_lbl = QLabel("⏳ Waiting for plan input...")
+        self.status_lbl.setStyleSheet("color: #475569; font-weight: 500;")
+        sb_lay.addWidget(self.status_lbl)
+        layout.addWidget(self.status_banner)
+
+        # Personal Identity Selection
+        self.identity_box = QFrame()
+        id_lay = QHBoxLayout(self.identity_box)
+        id_lay.setContentsMargins(0, 0, 0, 0)
+        id_lay.addWidget(QLabel("<b>👤 Which delegate are you?</b>"))
+        self.identity_combo = QComboBox()
+        self.identity_combo.setToolTip("Select your own name from the imported roster to personalize your local view.")
+        id_lay.addWidget(self.identity_combo, 1)
+        layout.addWidget(self.identity_box)
+        self.identity_box.setEnabled(False)
+
+        # Merge Options
+        merge_box = QHBoxLayout()
+        self.rb_replace = QRadioButton("Replace current team plan")
+        self.rb_replace.setChecked(True)
+        self.rb_merge = QRadioButton("Merge into current team plan")
+        merge_box.addWidget(self.rb_replace)
+        merge_box.addWidget(self.rb_merge)
+        merge_box.addStretch()
+        layout.addLayout(merge_box)
+
+        # Buttons
+        btn_box = QHBoxLayout()
+        btn_box.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_box.addWidget(cancel_btn)
+
+        self.import_btn = QPushButton("📥 Import Plan")
+        self.import_btn.setStyleSheet("background: #2563EB; color: #FFFFFF; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
+        self.import_btn.setEnabled(False)
+        self.import_btn.clicked.connect(self.accept)
+        btn_box.addWidget(self.import_btn)
+        layout.addLayout(btn_box)
+
+    def _browse_file(self):
+        fpath, _ = QFileDialog.getOpenFileName(self, "Open Delegation Plan JSON", "", "JSON Files (*.json);;All Files (*.*)")
+        if fpath:
+            try:
+                content = Path(fpath).read_text(encoding="utf-8")
+                self.file_lbl.setText(Path(fpath).name)
+                self.text_edit.setPlainText(content)
+            except Exception as e:
+                QMessageBox.critical(self, "File Error", f"Failed to read file: {e}")
+
+    def _on_text_changed(self):
+        raw = self.text_edit.toPlainText().strip()
+        if not raw:
+            self.status_lbl.setText("⏳ Waiting for plan input...")
+            self.status_banner.setStyleSheet("background: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 6px; padding: 8px;")
+            self.import_btn.setEnabled(False)
+            self.identity_box.setEnabled(False)
+            self.parsed_data = None
+            return
+
+        parsed = SessionPlanExporter.parse_delegation_plan_json(raw)
+        if parsed:
+            self.parsed_data = parsed
+            members = parsed.get("members", [])
+            topics = parsed.get("topic_owners", {})
+            appts = parsed.get("appointments", {})
+            mtg = parsed.get("meeting_number", "")
+
+            self.status_lbl.setText(
+                f"✅ Valid Plan: SA2 #{mtg} · <b>{len(members)}</b> Delegates · <b>{len(topics)}</b> Topic Owners · <b>{len(appts)}</b> Ad-Hoc Coverages"
+            )
+            self.status_banner.setStyleSheet("background: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 6px; padding: 8px; color: #065F46;")
+            self.import_btn.setEnabled(True)
+            self.identity_box.setEnabled(True)
+
+            self.identity_combo.clear()
+            self.identity_combo.addItem("— (Don't claim identity) —", "")
+            for m in members:
+                m_name = m.get("name", "") if isinstance(m, dict) else str(m)
+                if m_name:
+                    self.identity_combo.addItem(m_name, m_name)
+        else:
+            self.parsed_data = None
+            self.status_lbl.setText("❌ No valid delegation plan detected in text. Ensure it contains 3GPP-DELEGATION-PLAN payload.")
+            self.status_banner.setStyleSheet("background: #FEF2F2; border: 1px solid #FECACA; border-radius: 6px; padding: 8px; color: #991B1B;")
+            self.import_btn.setEnabled(False)
+            self.identity_box.setEnabled(False)
+
+    def get_data(self) -> Tuple[dict, bool, str]:
+        """Returns: (parsed_data_dict, is_merge_bool, claimed_self_delegate_name)."""
+        claimed_self = self.identity_combo.currentData() or ""
+        return self.parsed_data, self.rb_merge.isChecked(), claimed_self
+

@@ -234,6 +234,24 @@ src/modules/meetings/
   - **📅 Strict UTC iCalendar (`.ics`):** Exports sessions to Outlook / Apple / Google Calendar with strict UTC `DTSTART`/`DTEND` timestamps, room/floor in Location, and convener/topics/notes in Description.
   - **✉️ Colleague Email Composer:** Formats rich HTML & plain text summaries ready to paste into Outlook summarizing what changed since the previous plan, today's drafting sessions, and tracked topics.
   - Enriches TDoc rows with live `Sub-Item` topic separators, `_agenda_order`, and `_sub_item_order` extracted from `TdocsByAgenda.htm` and Word Chairman's Notes.
+- **Delegation Topic Distribution & Session Clash Dispatching (`SessionPlanWindow`, `SessionPlanDatabase`, `SessionPlanExporter`):**
+  - **Two-Tier Assignment Model:** Decouples high-level strategic **Topic Ownership** (e.g. *Martin owns AI 20.6.18 and AI 5.2.1*) from tactical **Session Appointments** (ad-hoc single-slot overrides when clashes occur).
+  - **Dynamic "Who is Free?" Availability Engine (`_compute_delegate_availability`):**
+    - When a delegate is double-booked across parallel rooms (e.g., Stream 1 and Stream 2 at Tuesday Q2), the tool calculates real-time room occupancy for every team member.
+    - Identifies 🟢 *Free* delegates (0 parallel sessions) vs. 🔴 *Busy* delegates (with room/topic details).
+    - 1-click **`⚡ Appoint Available Delegate...`** opens `SessionDispatchDialog`, appointing a free colleague for that specific session without altering master topic ownership.
+  - **Multi-Delegate Color-Coded Heatmap & Focus Filtering:**
+    - Auto-assigns distinct, accessible palette colors (`DELEGATE_PALETTE`) to each team member.
+    - Overview Grid displays interactive delegate pills (`● Martin`, `● Thomas (cov)`), left-border color accents, and clash warning badges (`⚠️ CLASH`).
+    - Top ribbon focus bar (`[🌈 All Team] [👤 Only Me] [● Martin] [● Anna] ...`) allows 1-click spatial highlighting: dims unrelated rooms and lights up the selected person's weekly path.
+  - **Delegate Agenda View (`🎯 Delegate Agenda`):**
+    - Segmented switcher (`[👤 Myself ▾ | ● Anna | ● Thomas | 👥 Whole Delegation]`) renders personal timetables with dual venue/laptop times, rooms, roles, and conflict tags.
+    - 1-click iCalendar export for individual schedules.
+  - **Email & Machine-Readable Interchange (Frictionless Sharing):**
+    - **`📧 Export Email Summary...`** (`generate_delegation_email_summary`): Generates pre-formatted executive HTML/plain text for Outlook with color badges, topic ownership tables, ad-hoc coverage notes, and personal daily schedules.
+    - **Embedded Interchange Payload:** Automatically embeds `<!-- 3GPP-DELEGATION-PLAN: {...} -->` into the email or exports `.json`.
+    - **1-Click Colleague Ingestion (`DelegationImportDialog`):** Colleagues paste the email or load the `.json` file in their 3GPP Tools, select *"Which delegate are you?"*, and instantly personalize their local Overview Grid and personal agenda.
+    - **Persistence:** Roster, topic ownerships, and session appointments persist in `session_plans.db` (`delegation_roster`, `topic_owners`, `session_appointments`), surviving across intra-meeting session plan snapshot revisions (`Snap 1` $\rightarrow$ `Snap 2` $\rightarrow$ `Snap 3`).
 - **Agenda & Sub-Item Ordering Engine (`tdocs_parser.py`, `tdocs_models.py`, `tdoc_delegates.py`, `tdocs_window.py`):**
   - **Live HTML Superseding Precedence:** In Working Groups like SA2 where delegates rely on session agenda order, the live order in `TdocsByAgenda.htm` strictly supersedes the static Excel list order (`"TDoc sort order within agenda item"`), as Excel lists omit late revisions or late arrivals submitted during the meeting.
   - **3-Tier Precedence Hierarchy:**

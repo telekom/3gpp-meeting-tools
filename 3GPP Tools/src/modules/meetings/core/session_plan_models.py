@@ -89,3 +89,67 @@ class UserSessionAnnotation:
     assigned_colleague: str = ""   # e.g. 'Martin'
     comment: str = ""
     updated_at: Optional[datetime] = None
+
+
+# Harmonious, high-contrast, accessible delegate palette
+DELEGATE_PALETTE: List[str] = [
+    "#2563EB",  # Royal Blue
+    "#059669",  # Emerald Green
+    "#D97706",  # Warm Amber / Orange
+    "#7C3AED",  # Purple
+    "#E11D48",  # Rose Red
+    "#0891B2",  # Cyan Teal
+    "#4F46E5",  # Indigo
+    "#CA8A04",  # Yellow Gold
+    "#9333EA",  # Violet
+    "#0D9488",  # Teal
+]
+
+
+@dataclass
+class DelegationMember:
+    """A colleague/delegate within the delegation."""
+    name: str                           # e.g. 'Martin'
+    email: str = ""                     # e.g. 'martin@telekom.com'
+    color: str = "#2563EB"              # Hex color code from DELEGATE_PALETTE or custom
+    is_self: bool = False               # True if this delegate represents the local user
+    notes: str = ""                     # Optional role / comments
+
+    @property
+    def initials(self) -> str:
+        """Returns 2-letter uppercase initials for badge pills."""
+        parts = self.name.strip().split()
+        if not parts:
+            return "??"
+        if len(parts) == 1:
+            return parts[0][:2].upper()
+        return (parts[0][0] + parts[-1][0]).upper()
+
+
+@dataclass
+class TopicOwnership:
+    """Designates a default topic owner for an Agenda Item."""
+    meeting_number: str                 # e.g. '177'
+    ai_number: str                      # e.g. '20.6.18'
+    owner_name: str                     # e.g. 'Martin'
+    notes: str = ""
+
+
+@dataclass
+class SessionAppointment:
+    """A session-specific coverage appointment (resolves collisions or ad-hoc coverage)."""
+    meeting_number: str                 # e.g. '177'
+    slot_key: str                       # e.g. 'Tuesday|Q2|0|2' (Day|Quarter|SubSlot|Stream)
+    appointed_delegate: str             # e.g. 'Thomas'
+    original_owner: str = ""            # e.g. 'Martin'
+    reason: str = ""                    # e.g. 'Collision in Stream 1'
+
+
+@dataclass
+class DelegationPlan:
+    """Encapsulates the complete delegation state for a meeting."""
+    meeting_number: str = ""
+    members: Dict[str, DelegationMember] = field(default_factory=dict)
+    topic_owners: Dict[str, TopicOwnership] = field(default_factory=dict)
+    appointments: Dict[str, SessionAppointment] = field(default_factory=dict)
+

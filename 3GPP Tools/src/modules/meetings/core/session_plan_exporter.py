@@ -6,15 +6,21 @@ Multi-format exporter for 3GPP SA2 Meeting Session Plans.
 3. Colleague Email Summary: Pre-formatted executive HTML/text for Outlook paste.
 """
 import html
+import json
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from modules.meetings.core.session_plan_diff import SessionPlanDiffResult
 from modules.meetings.core.session_plan_models import (
+    DelegationMember,
+    DelegationPlan,
+    SessionAppointment,
     SessionPlanSnapshot,
     SessionSlot,
+    TopicOwnership,
     UserSessionAnnotation,
 )
 from modules.meetings.core.session_plan_timezone import SessionPlanTimezone
@@ -536,3 +542,274 @@ class SessionPlanExporter:
         """
 
         return subject, html_body
+
+    # --- Delegation Plan Serialization & Email Generation ---
+
+    @staticmethod
+    def serialize_delegation_plan_json(plan: DelegationPlan) -> str:
+        """Serializes a DelegationPlan to formatted JSON string."""
+        data = {
+            "3gpp_delegation_plan_version": 1,
+            "meeting_number": str(plan.meeting_number),
+            "members": [
+                {
+                    "name": m.name,
+                    "email": m.email,
+                    "color": m.color,
+                    "is_self": m.is_self,
+                    "notes": m.notes,
+                }
+                for m in plan.members.values()
+            ],
+            "topic_owners": {
+                ai: {"owner": to.owner_name, "notes": to.notes}
+                for ai, to in plan.topic_owners.items()
+            },
+            "appointments": {
+                sk: {
+                    "appointed_delegate": ap.appointed_delegate,
+                    "original_owner": ap.original_owner,
+                    "reason": ap.reason,
+                }
+                for sk, ap in plan.appointments.items()
+            },
+        }
+        return json.dumps(data, indent=2, ensure_ascii=False)
+
+    @staticmethod
+    def parse_delegation_plan_json(raw_text: str) -> Optional[dict]:
+        """
+        Parses delegation JSON from raw string, file content, or email text with embedded comment.
+        Looks for <!-- 3GPP-DELEGATION-PLAN: {...} --> or top-level JSON.
+        """
+        if not raw_text or not raw_text.strip():
+            return None
+
+        # 1. Look for embedded HTML comment payload
+        match = re.search(r"<!--\s*3GPP-DELEGATION-PLAN:\s*(\{.+?\})\s*-->", raw_text, re.DOTALL)
+        if match:
+            try:
+                data = json.loads(match.group(1))
+                if isinstance(data, dict) and "members" in data:
+                    return data
+            except Exception:
+                pass
+
+        # 2. Look for JSON markdown block or raw JSON object
+        json_match = re.search(r"```(?:json)?\s*(\{.+?\})\s*```", raw_text, re.DOTALL)
+        candidate = json_match.group(1) if json_match else raw_text.strip()
+
+        try:
+            data = json.loads(candidate)
+            if isinstance(data, dict) and ("members" in data or "topic_owners" in data):
+                return data
+        except Exception:
+            pass
+
+        return None
+
+    @classmethod
+    def generate_delegation_email_summary(
+        cls,
+        snapshot: SessionPlanSnapshot,
+        plan: DelegationPlan,
+        meeting_tz_offset_min: int,
+        tz_name: str,
+        agenda_map: Optional[dict] = None,
+    ) -> Tuple[str, str, str]:
+        """
+        Generates executive delegation email summary with:
+        1. Roster & Workload Breakdown (Color badges)
+        2. Master Topic Ownership Table
+        3. Ad-Hoc Session Coverages (Collision Appointments)
+        4. Individual Per-Delegate Daily Agendas
+        5. Embedded machine-readable JSON payload for 1-click import.
+        Returns: (subject, html_body, plain_text)
+        """
+        agenda_map = agenda_map or {}
+        members = plan.members
+        topic_owners = plan.topic_owners
+        appointments = plan.appointments
+
+        subject = f"[SA2#{snapshot.meeting_number}] Delegation Plan & AI Distribution ({snapshot.tdoc_id})"
+
+        # Compute effective assignments for each slot in snapshot
+        # slot_key -> appointed or topic_owner name
+        slot_delegate_map: Dict[str, str] = {}
+        for s in snapshot.slots:
+            if s.slot_key in appointments:
+                slot_delegate_map[s.slot_key] = appointments[s.slot_key].appointed_delegate
+            else:
+                for it in s.items:
+                    if it.ai_number in topic_owners:
+                        slot_delegate_map[s.slot_key] = topic_owners[it.ai_number].owner_name
+                        break
+
+        # Calculate quarters workload per member
+        member_workload: Dict[str, int] = {name: 0 for name in members}
+        for s in snapshot.slots:
+            del_name = slot_delegate_map.get(s.slot_key)
+            if del_name in member_workload:
+                member_workload[del_name] += 1
+
+        # 1. Executive Roster Table
+        roster_rows = ""
+        plain_roster = []
+        for name, m in members.items():
+            wl = member_workload.get(name, 0)
+            owned_count = sum(1 for to in topic_owners.values() if to.owner_name.lower() == name.lower())
+            cov_count = sum(1 for ap in appointments.values() if ap.appointed_delegate.lower() == name.lower())
+            role_str = m.notes or "Delegate"
+            roster_rows += f"""<tr>
+              <td style='padding:6px 10px; border:1px solid #E2E8F0;'><span style='display:inline-block; width:10px; height:10px; background-color:{m.color}; border-radius:50%; margin-right:6px;'></span><b>{html.escape(name)}</b></td>
+              <td style='padding:6px 10px; border:1px solid #E2E8F0;'>{html.escape(role_str)}</td>
+              <td style='padding:6px 10px; border:1px solid #E2E8F0; text-align:center;'>{owned_count} AIs</td>
+              <td style='padding:6px 10px; border:1px solid #E2E8F0; text-align:center;'>{cov_count} slots</td>
+              <td style='padding:6px 10px; border:1px solid #E2E8F0; text-align:center;'><b>{wl}</b> slots</td>
+            </tr>"""
+            plain_roster.append(f"- {name} ({role_str}): {owned_count} AIs owned, {wl} slots scheduled")
+
+        # 2. Topic Ownership Table
+        topic_rows = ""
+        plain_topics = []
+        for ai_num in sorted(topic_owners.keys()):
+            to = topic_owners[ai_num]
+            m = members.get(to.owner_name)
+            col = m.color if m else "#2563EB"
+            ai_info = agenda_map.get(ai_num)
+            desc = ai_info.description if ai_info else f"Agenda Item {ai_num}"
+            topic_rows += f"""<tr>
+              <td style='padding:6px 10px; border:1px solid #E2E8F0;'><b>{html.escape(ai_num)}</b></td>
+              <td style='padding:6px 10px; border:1px solid #E2E8F0;'>{html.escape(desc)}</td>
+              <td style='padding:6px 10px; border:1px solid #E2E8F0;'><span style='color:{col}; font-weight:600;'>{html.escape(to.owner_name)}</span></td>
+            </tr>"""
+            plain_topics.append(f"- AI {ai_num}: {desc} -> {to.owner_name}")
+
+        # 3. Ad-Hoc Session Coverages (Appointments)
+        appt_rows = ""
+        plain_appts = []
+        for sk in sorted(appointments.keys()):
+            ap = appointments[sk]
+            parts = sk.split("|")
+            day_name = parts[0] if len(parts) > 0 else ""
+            q_name = parts[1] if len(parts) > 1 else ""
+            str_num = parts[3] if len(parts) > 3 else "1"
+            m_orig = members.get(ap.original_owner)
+            m_app = members.get(ap.appointed_delegate)
+            col_app = m_app.color if m_app else "#059669"
+            orig_txt = f"for {ap.original_owner}" if ap.original_owner else ""
+            reason_txt = f" ({ap.reason})" if ap.reason else ""
+
+            appt_rows += f"""<tr>
+              <td style='padding:6px 10px; border:1px solid #E2E8F0;'><b>{day_name}</b> {q_name} (Str {str_num})</td>
+              <td style='padding:6px 10px; border:1px solid #E2E8F0;'><span style='color:{col_app}; font-weight:600;'>{html.escape(ap.appointed_delegate)}</span> {html.escape(orig_txt)}</td>
+              <td style='padding:6px 10px; border:1px solid #E2E8F0; color:#64748B;'>{html.escape(ap.reason or 'Ad-hoc cover')}</td>
+            </tr>"""
+            plain_appts.append(f"- {day_name} {q_name} (Stream {str_num}): {ap.appointed_delegate} covering {orig_txt}{reason_txt}")
+
+        appt_html = f"""
+        <div style="margin-bottom:20px;">
+          <h3 style="color:#B45309; font-size:14px; margin-bottom:8px;">⚡ Ad-Hoc Session Coverages & Clash Resolutions:</h3>
+          <table style="border-collapse:collapse; width:100%; font-size:12px; margin-bottom:12px;">
+            <tr style="background:#FFFBEB; color:#92400E;">
+              <th style="padding:6px 10px; border:1px solid #E2E8F0; text-align:left;">Slot</th>
+              <th style="padding:6px 10px; border:1px solid #E2E8F0; text-align:left;">Covering Delegate</th>
+              <th style="padding:6px 10px; border:1px solid #E2E8F0; text-align:left;">Reason</th>
+            </tr>
+            {appt_rows}
+          </table>
+        </div>
+        """ if appointments else ""
+
+        # 4. Individual Timetables (per delegate)
+        individual_sections_html = ""
+        plain_schedules = []
+        for name, m in members.items():
+            del_slots = [s for s in snapshot.slots if slot_delegate_map.get(s.slot_key) == name]
+            if not del_slots:
+                continue
+
+            del_rows = ""
+            for s in del_slots:
+                time_str = SessionPlanTimezone.format_dual_time_range(
+                    s.start_time_local, s.end_time_local, meeting_tz_offset_min
+                )
+                s_info = snapshot.streams.get(s.stream_number)
+                r_name = s_info.room_name if s_info else f"Stream {s.stream_number}"
+                is_cov = (s.slot_key in appointments and appointments[s.slot_key].appointed_delegate == name)
+                role_badge = "<span style='background:#FEF3C7; color:#92400E; padding:2px 6px; border-radius:4px; font-size:10px;'>Coverage</span>" if is_cov else "<span style='background:#EFF6FF; color:#1E40AF; padding:2px 6px; border-radius:4px; font-size:10px;'>Owner</span>"
+
+                del_rows += f"""<tr>
+                  <td style='padding:5px 8px; border:1px solid #E2E8F0;'><b>{s.day_name}</b> {s.quarter}</td>
+                  <td style='padding:5px 8px; border:1px solid #E2E8F0;'>{time_str}</td>
+                  <td style='padding:5px 8px; border:1px solid #E2E8F0;'>Str {s.stream_number} ({html.escape(r_name)})</td>
+                  <td style='padding:5px 8px; border:1px solid #E2E8F0;'>{role_badge} {html.escape(s.raw_text)}</td>
+                </tr>"""
+
+            individual_sections_html += f"""
+            <div style="margin-bottom:16px;">
+              <h4 style="color:{m.color}; margin-bottom:6px; font-size:13px;">📅 {html.escape(name)}'s Schedule ({len(del_slots)} sessions):</h4>
+              <table style="border-collapse:collapse; width:100%; font-size:11px; margin-bottom:8px;">
+                <tr style="background:#F8FAFC;">
+                  <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Slot</th>
+                  <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Time (Venue / Vienna)</th>
+                  <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Room</th>
+                  <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Topic</th>
+                </tr>
+                {del_rows}
+              </table>
+            </div>
+            """
+
+        # 5. Embedded Machine-Readable JSON Payload
+        json_payload = cls.serialize_delegation_plan_json(plan)
+        embedded_comment = f"\n<!-- 3GPP-DELEGATION-PLAN: {json_payload} -->\n"
+
+        html_body = f"""
+        <div style="font-family:Segoe UI, Helvetica, Arial, sans-serif; color:#1E293B; line-height:1.5;">
+          <p>Hi Team,</p>
+          <p>Here is the delegation plan and topic allocation for <b>SA2 #{snapshot.meeting_number}</b> (Session Plan: <b>{snapshot.tdoc_id}</b>).</p>
+          <p style="font-size:12px; color:#64748B;">📍 Venue Timezone: <b>{tz_name}</b></p>
+
+          <h3 style="color:#1E40AF; font-size:14px; margin-bottom:8px;">👥 Delegation Roster & Workload:</h3>
+          <table style="border-collapse:collapse; width:100%; font-size:12px; margin-bottom:16px;">
+            <tr style="background:#F1F5F9; color:#334155;">
+              <th style="padding:6px 10px; border:1px solid #E2E8F0; text-align:left;">Delegate</th>
+              <th style="padding:6px 10px; border:1px solid #E2E8F0; text-align:left;">Role</th>
+              <th style="padding:6px 10px; border:1px solid #E2E8F0; text-align:center;">Owned Topics</th>
+              <th style="padding:6px 10px; border:1px solid #E2E8F0; text-align:center;">Coverages</th>
+              <th style="padding:6px 10px; border:1px solid #E2E8F0; text-align:center;">Total Quarters</th>
+            </tr>
+            {roster_rows}
+          </table>
+
+          {appt_html}
+
+          <h3 style="color:#1E40AF; font-size:14px; margin-bottom:8px;">📋 Master Topic Ownership:</h3>
+          <table style="border-collapse:collapse; width:100%; font-size:12px; margin-bottom:16px;">
+            <tr style="background:#F1F5F9; color:#334155;">
+              <th style="padding:6px 10px; border:1px solid #E2E8F0; text-align:left;">AI</th>
+              <th style="padding:6px 10px; border:1px solid #E2E8F0; text-align:left;">Topic</th>
+              <th style="padding:6px 10px; border:1px solid #E2E8F0; text-align:left;">Lead Owner</th>
+            </tr>
+            {topic_rows}
+          </table>
+
+          <h3 style="color:#1E40AF; font-size:14px; margin-bottom:8px;">📅 Individual Delegate Schedules:</h3>
+          {individual_sections_html}
+
+          <p style="font-size:11px; color:#94A3B8; margin-top:20px;">
+            <i>Tip: To import this plan into your 3GPP Tools, copy this email text and click <b>Import Team Plan</b> in the Session Plan window.</i>
+          </p>
+        </div>
+        {embedded_comment}
+        """
+
+        plain_text = f"SA2 #{snapshot.meeting_number} Delegation Plan ({snapshot.tdoc_id})\n"
+        plain_text += f"Venue Timezone: {tz_name}\n\n"
+        plain_text += "--- ROSTER ---\n" + "\n".join(plain_roster) + "\n\n"
+        if plain_appts:
+            plain_text += "--- AD-HOC COVERAGES ---\n" + "\n".join(plain_appts) + "\n\n"
+        plain_text += "--- TOPIC OWNERSHIP ---\n" + "\n".join(plain_topics) + "\n"
+
+        return subject, html_body, plain_text

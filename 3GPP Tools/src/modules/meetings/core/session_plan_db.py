@@ -12,10 +12,15 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from modules.meetings.core.session_plan_models import (
+    DELEGATE_PALETTE,
     AgendaSlotItem,
+    DelegationMember,
+    DelegationPlan,
     MeetingStreamInfo,
+    SessionAppointment,
     SessionPlanSnapshot,
     SessionSlot,
+    TopicOwnership,
     UserSessionAnnotation,
 )
 
@@ -151,10 +156,52 @@ class SessionPlanDatabase:
                 )
             """)
 
+            # 8. Delegation Roster (Colleagues / Team Members)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS delegation_roster (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    meeting_number TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    email TEXT DEFAULT '',
+                    color TEXT DEFAULT '#2563EB',
+                    is_self INTEGER DEFAULT 0,
+                    notes TEXT DEFAULT '',
+                    UNIQUE(meeting_number, name)
+                )
+            """)
+
+            # 9. Topic Ownership (AI / Agenda Item to Lead Delegate)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS topic_owners (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    meeting_number TEXT NOT NULL,
+                    ai_number TEXT NOT NULL,
+                    owner_name TEXT NOT NULL,
+                    notes TEXT DEFAULT '',
+                    UNIQUE(meeting_number, ai_number)
+                )
+            """)
+
+            # 10. Session-Specific Appointments (Collision Overrides & Ad-hoc Coverage)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS session_appointments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    meeting_number TEXT NOT NULL,
+                    slot_key TEXT NOT NULL,
+                    appointed_delegate TEXT NOT NULL,
+                    original_owner TEXT DEFAULT '',
+                    reason TEXT DEFAULT '',
+                    UNIQUE(meeting_number, slot_key)
+                )
+            """)
+
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_slots_snap ON session_slots(snapshot_id);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_items_slot ON slot_agenda_items(slot_id);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ann_mtg ON user_session_annotations(meeting_number, target_key);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_trk_mtg ON user_tracked_topics(meeting_number);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_roster_mtg ON delegation_roster(meeting_number);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_town_mtg ON topic_owners(meeting_number);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sapp_mtg ON session_appointments(meeting_number);")
 
     # --- Meeting Metadata & Timezone ---
 
@@ -523,3 +570,303 @@ class SessionPlanDatabase:
                         "INSERT INTO user_tracked_topics (meeting_number, topic_token, topic_label) VALUES (?, ?, ?)",
                         (str(meeting_number), clean_tok, lbl or tok),
                     )
+
+    # --- Delegation Roster CRUD ---
+
+    def get_delegation_members(self, meeting_number: str) -> Dict[str, DelegationMember]:
+        """Returns map of name -> DelegationMember."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT name, email, color, is_self, notes FROM delegation_roster WHERE meeting_number = ? ORDER BY id ASC",
+                (str(meeting_number),),
+            ).fetchall()
+            result = {}
+            for r in rows:
+                result[r["name"]] = DelegationMember(
+                    name=r["name"],
+                    email=r["email"] or "",
+                    color=r["color"] or DELEGATE_PALETTE[len(result) % len(DELEGATE_PALETTE)],
+                    is_self=bool(r["is_self"]),
+                    notes=r["notes"] or "",
+                )
+            return result
+
+    def save_delegation_member(self, meeting_number: str, member: DelegationMember):
+        """Adds or updates a delegation member."""
+        with self._get_connection() as conn:
+            # If marking as self, unmark any previous self in this meeting
+            if member.is_self:
+                conn.execute(
+                    "UPDATE delegation_roster SET is_self = 0 WHERE meeting_number = ?",
+                    (str(meeting_number),),
+                )
+            conn.execute(
+                """
+                INSERT INTO delegation_roster (meeting_number, name, email, color, is_self, notes)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(meeting_number, name) DO UPDATE SET
+                    email = excluded.email,
+                    color = excluded.color,
+                    is_self = excluded.is_self,
+                    notes = excluded.notes
+                """,
+                (
+                    str(meeting_number),
+                    member.name.strip(),
+                    member.email.strip(),
+                    member.color.strip() or "#2563EB",
+                    1 if member.is_self else 0,
+                    member.notes.strip(),
+                ),
+            )
+
+    def delete_delegation_member(self, meeting_number: str, name: str):
+        """Deletes a delegation member and unassigns any of their topics/appointments."""
+        with self._get_connection() as conn:
+            clean_name = name.strip()
+            conn.execute(
+                "DELETE FROM delegation_roster WHERE meeting_number = ? AND name = ?",
+                (str(meeting_number), clean_name),
+            )
+            conn.execute(
+                "DELETE FROM topic_owners WHERE meeting_number = ? AND owner_name = ?",
+                (str(meeting_number), clean_name),
+            )
+            conn.execute(
+                "DELETE FROM session_appointments WHERE meeting_number = ? AND appointed_delegate = ?",
+                (str(meeting_number), clean_name),
+            )
+
+    def set_self_delegate(self, meeting_number: str, name: str):
+        """Designates the given member name as the local user ('is_self')."""
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE delegation_roster SET is_self = 0 WHERE meeting_number = ?",
+                (str(meeting_number),),
+            )
+            conn.execute(
+                "UPDATE delegation_roster SET is_self = 1 WHERE meeting_number = ? AND name = ?",
+                (str(meeting_number), name.strip()),
+            )
+
+    # --- Topic Ownership CRUD ---
+
+    def get_topic_owners(self, meeting_number: str) -> Dict[str, TopicOwnership]:
+        """Returns map of ai_number -> TopicOwnership."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT ai_number, owner_name, notes FROM topic_owners WHERE meeting_number = ? ORDER BY id ASC",
+                (str(meeting_number),),
+            ).fetchall()
+            return {
+                r["ai_number"]: TopicOwnership(
+                    meeting_number=str(meeting_number),
+                    ai_number=r["ai_number"],
+                    owner_name=r["owner_name"],
+                    notes=r["notes"] or "",
+                )
+                for r in rows
+            }
+
+    def set_topic_owner(self, meeting_number: str, ai_number: str, owner_name: str, notes: str = ""):
+        clean_ai = ai_number.strip()
+        clean_owner = owner_name.strip()
+        with self._get_connection() as conn:
+            if not clean_owner:
+                conn.execute(
+                    "DELETE FROM topic_owners WHERE meeting_number = ? AND ai_number = ?",
+                    (str(meeting_number), clean_ai),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO topic_owners (meeting_number, ai_number, owner_name, notes)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(meeting_number, ai_number) DO UPDATE SET
+                        owner_name = excluded.owner_name,
+                        notes = excluded.notes
+                    """,
+                    (str(meeting_number), clean_ai, clean_owner, notes.strip()),
+                )
+
+    def delete_topic_owner(self, meeting_number: str, ai_number: str):
+        with self._get_connection() as conn:
+            conn.execute(
+                "DELETE FROM topic_owners WHERE meeting_number = ? AND ai_number = ?",
+                (str(meeting_number), ai_number.strip()),
+            )
+
+    # --- Session Appointments CRUD (Collision / Ad-Hoc Overrides) ---
+
+    def get_session_appointments(self, meeting_number: str) -> Dict[str, SessionAppointment]:
+        """Returns map of slot_key -> SessionAppointment."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT slot_key, appointed_delegate, original_owner, reason FROM session_appointments WHERE meeting_number = ?",
+                (str(meeting_number),),
+            ).fetchall()
+            return {
+                r["slot_key"]: SessionAppointment(
+                    meeting_number=str(meeting_number),
+                    slot_key=r["slot_key"],
+                    appointed_delegate=r["appointed_delegate"],
+                    original_owner=r["original_owner"] or "",
+                    reason=r["reason"] or "",
+                )
+                for r in rows
+            }
+
+    def set_session_appointment(
+        self,
+        meeting_number: str,
+        slot_key: str,
+        appointed_delegate: str,
+        original_owner: str = "",
+        reason: str = "",
+    ):
+        clean_delegate = appointed_delegate.strip()
+        with self._get_connection() as conn:
+            if not clean_delegate:
+                conn.execute(
+                    "DELETE FROM session_appointments WHERE meeting_number = ? AND slot_key = ?",
+                    (str(meeting_number), slot_key.strip()),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO session_appointments (meeting_number, slot_key, appointed_delegate, original_owner, reason)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(meeting_number, slot_key) DO UPDATE SET
+                        appointed_delegate = excluded.appointed_delegate,
+                        original_owner = excluded.original_owner,
+                        reason = excluded.reason
+                    """,
+                    (str(meeting_number), slot_key.strip(), clean_delegate, original_owner.strip(), reason.strip()),
+                )
+
+    def delete_session_appointment(self, meeting_number: str, slot_key: str):
+        with self._get_connection() as conn:
+            conn.execute(
+                "DELETE FROM session_appointments WHERE meeting_number = ? AND slot_key = ?",
+                (str(meeting_number), slot_key.strip()),
+            )
+
+    # --- Aggregate Delegation Plan ---
+
+    def get_delegation_plan(self, meeting_number: str) -> DelegationPlan:
+        return DelegationPlan(
+            meeting_number=str(meeting_number),
+            members=self.get_delegation_members(meeting_number),
+            topic_owners=self.get_topic_owners(meeting_number),
+            appointments=self.get_session_appointments(meeting_number),
+        )
+
+    def export_delegation_plan_dict(self, meeting_number: str) -> dict:
+        """Serializes delegation state to JSON-serializable dictionary."""
+        plan = self.get_delegation_plan(meeting_number)
+        return {
+            "3gpp_delegation_plan_version": 1,
+            "meeting_number": str(meeting_number),
+            "members": [
+                {
+                    "name": m.name,
+                    "email": m.email,
+                    "color": m.color,
+                    "is_self": m.is_self,
+                    "notes": m.notes,
+                }
+                for m in plan.members.values()
+            ],
+            "topic_owners": {
+                ai: {"owner": to.owner_name, "notes": to.notes}
+                for ai, to in plan.topic_owners.items()
+            },
+            "appointments": {
+                sk: {
+                    "appointed_delegate": ap.appointed_delegate,
+                    "original_owner": ap.original_owner,
+                    "reason": ap.reason,
+                }
+                for sk, ap in plan.appointments.items()
+            },
+        }
+
+    def import_delegation_plan_dict(self, meeting_number: str, data: dict, merge: bool = False) -> int:
+        """
+        Imports delegation state from dictionary.
+        If merge=False, clears existing roster, topic owners, and appointments for this meeting.
+        Returns count of imported/updated items.
+        """
+        imported_count = 0
+        with self._get_connection() as conn:
+            m_num = str(meeting_number)
+            if not merge:
+                conn.execute("DELETE FROM delegation_roster WHERE meeting_number = ?", (m_num,))
+                conn.execute("DELETE FROM topic_owners WHERE meeting_number = ?", (m_num,))
+                conn.execute("DELETE FROM session_appointments WHERE meeting_number = ?", (m_num,))
+
+            # 1. Members
+            for m_data in data.get("members", []):
+                name = m_data.get("name", "").strip()
+                if not name:
+                    continue
+                email = m_data.get("email", "").strip()
+                color = m_data.get("color", "").strip() or "#2563EB"
+                is_self = 1 if m_data.get("is_self") else 0
+                notes = m_data.get("notes", "").strip()
+                conn.execute(
+                    """
+                    INSERT INTO delegation_roster (meeting_number, name, email, color, is_self, notes)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(meeting_number, name) DO UPDATE SET
+                        email = excluded.email,
+                        color = excluded.color,
+                        is_self = excluded.is_self,
+                        notes = excluded.notes
+                    """,
+                    (m_num, name, email, color, is_self, notes),
+                )
+                imported_count += 1
+
+            # 2. Topic Owners
+            for ai, to_data in data.get("topic_owners", {}).items():
+                owner = to_data.get("owner", "") if isinstance(to_data, dict) else str(to_data)
+                notes = to_data.get("notes", "") if isinstance(to_data, dict) else ""
+                if ai and owner:
+                    conn.execute(
+                        """
+                        INSERT INTO topic_owners (meeting_number, ai_number, owner_name, notes)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(meeting_number, ai_number) DO UPDATE SET
+                            owner_name = excluded.owner_name,
+                            notes = excluded.notes
+                        """,
+                        (m_num, str(ai).strip(), str(owner).strip(), str(notes).strip()),
+                    )
+                    imported_count += 1
+
+            # 3. Appointments
+            for sk, ap_data in data.get("appointments", {}).items():
+                if isinstance(ap_data, dict):
+                    app_del = ap_data.get("appointed_delegate", "").strip()
+                    orig_ow = ap_data.get("original_owner", "").strip()
+                    reason = ap_data.get("reason", "").strip()
+                else:
+                    app_del = str(ap_data).strip()
+                    orig_ow = ""
+                    reason = ""
+                if sk and app_del:
+                    conn.execute(
+                        """
+                        INSERT INTO session_appointments (meeting_number, slot_key, appointed_delegate, original_owner, reason)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT(meeting_number, slot_key) DO UPDATE SET
+                            appointed_delegate = excluded.appointed_delegate,
+                            original_owner = excluded.original_owner,
+                            reason = excluded.reason
+                        """,
+                        (m_num, str(sk).strip(), app_del, orig_ow, reason),
+                    )
+                    imported_count += 1
+
+        return imported_count
