@@ -202,7 +202,7 @@ class WordExtractorTab(QWidget):
 
         row2.addStretch()
 
-        row2.addWidget(QLabel("<b>Jump:</b>"))
+        self.lbl_jump = QLabel("<b>Jump:</b>")
         self.op_combo = QComboBox()
         self.op_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
         self.op_combo.addItems([
@@ -217,6 +217,11 @@ class WordExtractorTab(QWidget):
             "Consolidate / Anonymize Track Changes Authors",
         ])
         self.op_combo.currentIndexChanged.connect(self._on_op_combo_changed)
+        # Hide redundant Jump combo from ribbon so 7 Workbench pills have breathing room,
+        # while keeping self.op_combo fully functional for tests and backward-compatible APIs.
+        self.lbl_jump.setVisible(False)
+        self.op_combo.setVisible(False)
+        row2.addWidget(self.lbl_jump)
         row2.addWidget(self.op_combo)
 
         ribbon_layout.addLayout(row2)
