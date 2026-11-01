@@ -920,9 +920,23 @@ class MeetingsTab(QWidget):
                 existing_win.deleteLater()
                 del self.tdoc_windows[mtg_id]
 
+        if not filepath or not Path(filepath).exists():
+            logging.error(f"[Meetings] TDoc list for {mtg_id} not found at '{filepath}'.")
+            QMessageBox.warning(self, "TDoc List Missing", f"The TDoc list file was not found:\n{filepath}")
+            return
+
         tdocs_data = TDocsParser.parse_tdocs_excel(filepath)
         if not tdocs_data:
-            QMessageBox.warning(self, "Parse Error", "Could not read data from the Excel file.")
+            logging.warning(f"[Meetings] No TDocs could be read from '{filepath}' (meeting {mtg_id}).")
+            reply = QMessageBox.question(
+                self, "No TDocs Available",
+                "The cached TDoc list for this meeting contains no TDocs.\n\n"
+                "This usually means it was downloaded before any TDocs were allocated, "
+                "or the file is unreadable (see the console log for details).\n\n"
+                "Re-download the latest TDoc list from the 3GPP portal now?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if reply == QMessageBox.Yes:
+                self._download_and_open_tdocs(mtg_info, -1)
             return
 
         window = TDocsWindow(mtg_info, tdocs_data, filepath)

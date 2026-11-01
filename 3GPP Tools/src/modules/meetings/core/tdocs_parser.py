@@ -19,7 +19,12 @@ class TDocsParser:
         try:
             if os.path.exists(json_cache) and os.path.getmtime(json_cache) >= os.path.getmtime(filepath):
                 with open(json_cache, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    cached = json.load(f)
+                # Never trust an empty cache: it usually stems from an early portal export
+                # (headers only, no TDocs yet) and would otherwise mask newer data forever.
+                if cached:
+                    return cached
+                logger.info(f"Ignoring empty JSON cache for {filepath}; re-parsing Excel.")
         except Exception as e:
             logging.warning(f"Could not read JSON cache: {e}")
 
@@ -85,16 +90,30 @@ class TDocsParser:
 
             wb.close()
 
+            if not data:
+                logger.warning(
+                    f"TDoc list {filepath} contains a header row but no TDoc entries "
+                    f"(portal export is empty, TDocs probably not yet allocated/uploaded)."
+                )
+                # Remove any stale empty cache and do not persist an empty result.
+                try:
+                    if os.path.exists(json_cache):
+                        os.remove(json_cache)
+                except OSError:
+                    pass
+                return data
+
             try:
                 with open(json_cache, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2)
             except Exception as e:
                 logging.warning(f"Could not save JSON cache: {e}")
 
+            logger.info(f"Parsed {len(data)} TDocs from {filepath}")
             return data
 
         except Exception as e:
-            logging.error(f"Failed to parse Excel file {filepath}: {e}")
+            logger.exception(f"Failed to parse Excel file {filepath}: {e}")
             return []
 
     @classmethod
