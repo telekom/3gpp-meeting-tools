@@ -283,3 +283,10 @@ src/modules/meetings/
   - **Option C Visual Delegate (`AgendaItemDelegate`):** Compact presentation rendering the Agenda Item number centered on top and a subtle rounded pill badge (`#F1F5F9`, border `#CBD5E1`, text `#334155`) for the `Sub-Item` underneath within the 48px row height, preserving the standard 14-column layout without consuming extra horizontal space.
   - **Dynamic Sub-Item Filtering & Search Integration:** Auto-reveals a `Sub-Item` `CheckableComboBox` in the filter bar whenever sub-items are present in the meeting data, participates in zero-intersection facet evaluation, and incorporates sub-item tokens into global search text filtering.
   - **Two-Way Order Synchronization:** An `Order By ▾` dropdown combobox (`📋 Agenda Order`, `🔢 TDoc Number`, `🏢 Company`, `✉️ Most Emails`, `🗂️ Default / File Order`) defaults to `📋 Agenda Order` for SA2 meetings and maintains bi-directional synchronization with table column header clicks.
+
+### 3.12. TDoc List Excel Parsing & Empty-Export Handling (`tdocs_parser.py`, `ui_tabs.py`)
+- **Problem Solved:** Portal TDoc list exports downloaded before a meeting's TDocs are allocated (e.g. SA2#178 Calgary) contain only the header row. Previously the parser cached `[]` in the `<xlsx>.json` sidecar, which was then returned forever, and the UI showed a generic *"Could not read data from the Excel file"* dialog without any log entry.
+- **Rules:**
+  - `TDocsParser.parse_tdocs_excel` **never persists an empty result** and **ignores/removes an empty `.json` cache**, so a re-downloaded list is always re-parsed.
+  - Empty exports log a `WARNING` (header found, no TDoc rows); exceptions are logged with full traceback via `logger.exception`; successful parses log the TDoc count at `INFO`.
+  - `MeetingsTab._open_tdocs_window` logs missing files / empty data and offers a 1-click **re-download** from the 3GPP portal (`_download_and_open_tdocs`) instead of a dead-end error.
