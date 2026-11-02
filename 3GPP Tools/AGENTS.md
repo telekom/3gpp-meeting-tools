@@ -320,11 +320,17 @@ When modifying or extending this codebase, adhere to the following architectural
 
 ### 5.4. Database Integrity & Multi-Store Isolation
 The project intentionally separates domain data into distinct SQLite databases located in `src/db/`:
-1. `3gpp_data.db`: Meeting schedules, TDocs, specification catalogue metadata, work items.
+1. `3gpp_data.db`: Meeting schedules, TDocs, specification catalogue metadata, work items, and user tags/notes.
 2. `3gpp_protocol_data.db`: Structured protocol models, messages, and IE hierarchies.
 3. `3gpp_spec_search.db`: Extracted clause text with FTS5 trigram indexes.
-4. `user_tdocs.db`: User notes, personal review status, and triage archives.
+4. `3gpp_spec_history.db`: Historical CR/p-CR ledgers and TDoc cross-references.
+5. `user_tdocs.db`: User notes, personal review status, and triage archives.
 
+- **Strict Database Preservation & Git Safe Handling (`src/db/3gpp_data.db`):**
+  - **CRITICAL RESTRICTION FOR ALL AI AGENTS & SCRIPTS:** **NEVER execute `git checkout`, `git restore`, `git reset`, or `git clean` against `src/db/3gpp_data.db` (or any `.db` file in `src/db/`).**
+  - **Root Cause & Impact:** `3gpp_data.db` contains live runtime data (newly synchronized specification releases, meeting TDocs, work items, and delegate annotations). Discarding local changes to `3gpp_data.db` via Git silently rolls the database back to an older commit snapshot, erasing newly added specification versions (such as TR 23.801-01 v0.10.0), downloaded meeting schedules, and user annotations.
+  - **Skip-Worktree Protection:** `src/db/3gpp_data.db` has the Git `skip-worktree` bit configured (`git update-index --skip-worktree src/db/3gpp_data.db`). This ensures that local synchronizations and runtime SQLite writes are ignored by `git status` and protected from automated or accidental bulk working-tree resets (`git checkout .`, `git restore .`). Agents must never unset this flag or force-restore the database file.
+  - **Schema Migrations:** If database schemas change, always write programmatic SQLite migration scripts (`ALTER TABLE`, column inspection, or table creation with backward compatibility) rather than replacing the live database with a blank template or older snapshot.
 - **Cross-Database Queries:** Do not couple queries across these databases using SQLite `ATTACH` unless strictly isolated inside a dedicated maintenance script.
 - **WAL Compaction & Storage Hub (`DatabaseMaintenanceDialog`):** Provides an executive storage dashboard featuring top KPI summary cards (Total Storage, Reclaimable Freelist Space, WAL Log Health, User Table Counts), two-tier table rows with domain-specific icons and filenames, and animated progress feedback for `PRAGMA wal_checkpoint(TRUNCATE)` and `VACUUM` batch compaction. Destructive wiping actions (`🗑️ Wipe`) are visually isolated with warning styles to prevent misclicks. Features 1-click **📂 Open DB Folder** in Windows File Explorer.
 
