@@ -393,9 +393,9 @@ class SpecsDatabase:
 
     def search_files(self, spec_number: str = None, release_version: str = None,
                      series: str = None, tech: str = None, group: str = None, spec_type: str = None,
-                     tag: str = None) -> list:
+                     tag: str = None, tsg: str = None) -> list:
         join_tech = bool(tech and tech != "Any")
-        join_group = bool(group and group != "Any")
+        join_group = bool((group and group != "Any") or (tsg and tsg != "Any"))
         use_distinct = join_tech or join_group
 
         select_clause = "SELECT DISTINCT" if use_distinct else "SELECT"
@@ -446,18 +446,38 @@ class SpecsDatabase:
                 query += f" AND ({' OR '.join(clauses)})"
 
         if tech and tech != "Any":
-            query += " AND (r.name = ? OR sp.radio_technology LIKE ?)"
-            params.extend([tech, f"%{tech}%"])
+            tech_list = [t.strip() for t in tech.split(',') if t.strip()]
+            if tech_list:
+                clauses = ["(r.name = ? OR sp.radio_technology LIKE ?)" for _ in tech_list]
+                for t in tech_list:
+                    params.extend([t, f"%{t}%"])
+                query += f" AND ({' OR '.join(clauses)})"
 
-        # Non-intrusive prefix matching for TSG groups (e.g., 'RAN' matches 'RAN', 'RAN3', etc.)
+        if tsg and tsg != "Any":
+            if tsg == "SA":
+                query += " AND (p_grp.name LIKE 'SA%' OR s_grp.name LIKE 'SA%')"
+            elif tsg == "RAN":
+                query += " AND (p_grp.name LIKE 'RAN%' OR s_grp.name LIKE 'RAN%' OR p_grp.name LIKE 'GERAN%' OR s_grp.name LIKE 'GERAN%')"
+            elif tsg == "CT":
+                query += " AND (p_grp.name LIKE 'CT%' OR s_grp.name LIKE 'CT%' OR p_grp.name LIKE 'CN%' OR s_grp.name LIKE 'CN%')"
+
+        # Working Group matching: supports comma-separated WG names
         if group and group != "Any":
             group_list = [g.strip() for g in group.split(',') if g.strip()]
             if group_list:
-                group_clauses = []
-                for g in group_list:
-                    group_clauses.append("(p_grp.name = ? OR p_grp.name LIKE ? OR s_grp.name = ? OR s_grp.name LIKE ?)")
-                    params.extend([g, f"{g}%", g, f"{g}%"])
-                query += f" AND ({' OR '.join(group_clauses)})"
+                if not tsg and len(group_list) == 1 and group_list[0] in ("SA", "RAN", "CT"):
+                    g = group_list[0]
+                    if g == "SA":
+                        query += " AND (p_grp.name LIKE 'SA%' OR s_grp.name LIKE 'SA%')"
+                    elif g == "RAN":
+                        query += " AND (p_grp.name LIKE 'RAN%' OR s_grp.name LIKE 'RAN%' OR p_grp.name LIKE 'GERAN%' OR s_grp.name LIKE 'GERAN%')"
+                    elif g == "CT":
+                        query += " AND (p_grp.name LIKE 'CT%' OR s_grp.name LIKE 'CT%' OR p_grp.name LIKE 'CN%' OR s_grp.name LIKE 'CN%')"
+                else:
+                    placeholders = ",".join(["?"] * len(group_list))
+                    query += f" AND (p_grp.name IN ({placeholders}) OR s_grp.name IN ({placeholders}))"
+                    params.extend(group_list)
+                    params.extend(group_list)
 
         if spec_type and spec_type != "Any":
             query += " AND sp.type = ?"
@@ -470,9 +490,9 @@ class SpecsDatabase:
             cursor.execute(query, params)
             return cursor.fetchall()
 
-    def get_filtered_specs(self, series: str, tech: str, group: str, spec_type: str, tag: str = None) -> list:
+    def get_filtered_specs(self, series: str, tech: str, group: str, spec_type: str, tag: str = None, tsg: str = None) -> list:
         join_tech = bool(tech and tech != "Any")
-        join_group = bool(group and group != "Any")
+        join_group = bool((group and group != "Any") or (tsg and tsg != "Any"))
         query = """
             SELECT DISTINCT sp.number 
             FROM specifications sp
@@ -500,18 +520,38 @@ class SpecsDatabase:
                 query += f" AND ({' OR '.join(clauses)})"
 
         if tech and tech != "Any":
-            query += " AND (r.name = ? OR sp.radio_technology LIKE ?)"
-            params.extend([tech, f"%{tech}%"])
+            tech_list = [t.strip() for t in tech.split(',') if t.strip()]
+            if tech_list:
+                clauses = ["(r.name = ? OR sp.radio_technology LIKE ?)" for _ in tech_list]
+                for t in tech_list:
+                    params.extend([t, f"%{t}%"])
+                query += f" AND ({' OR '.join(clauses)})"
 
-        # Non-intrusive prefix matching for TSG groups
+        if tsg and tsg != "Any":
+            if tsg == "SA":
+                query += " AND (p_grp.name LIKE 'SA%' OR s_grp.name LIKE 'SA%')"
+            elif tsg == "RAN":
+                query += " AND (p_grp.name LIKE 'RAN%' OR s_grp.name LIKE 'RAN%' OR p_grp.name LIKE 'GERAN%' OR s_grp.name LIKE 'GERAN%')"
+            elif tsg == "CT":
+                query += " AND (p_grp.name LIKE 'CT%' OR s_grp.name LIKE 'CT%' OR p_grp.name LIKE 'CN%' OR s_grp.name LIKE 'CN%')"
+
+        # Working Group matching: supports comma-separated WG names
         if group and group != "Any":
             group_list = [g.strip() for g in group.split(',') if g.strip()]
             if group_list:
-                group_clauses = []
-                for g in group_list:
-                    group_clauses.append("(p_grp.name = ? OR p_grp.name LIKE ? OR s_grp.name = ? OR s_grp.name LIKE ?)")
-                    params.extend([g, f"{g}%", g, f"{g}%"])
-                query += f" AND ({' OR '.join(group_clauses)})"
+                if not tsg and len(group_list) == 1 and group_list[0] in ("SA", "RAN", "CT"):
+                    g = group_list[0]
+                    if g == "SA":
+                        query += " AND (p_grp.name LIKE 'SA%' OR s_grp.name LIKE 'SA%')"
+                    elif g == "RAN":
+                        query += " AND (p_grp.name LIKE 'RAN%' OR s_grp.name LIKE 'RAN%' OR p_grp.name LIKE 'GERAN%' OR s_grp.name LIKE 'GERAN%')"
+                    elif g == "CT":
+                        query += " AND (p_grp.name LIKE 'CT%' OR s_grp.name LIKE 'CT%' OR p_grp.name LIKE 'CN%' OR s_grp.name LIKE 'CN%')"
+                else:
+                    placeholders = ",".join(["?"] * len(group_list))
+                    query += f" AND (p_grp.name IN ({placeholders}) OR s_grp.name IN ({placeholders}))"
+                    params.extend(group_list)
+                    params.extend(group_list)
 
         if spec_type and spec_type != "Any":
             query += " AND sp.type = ?"

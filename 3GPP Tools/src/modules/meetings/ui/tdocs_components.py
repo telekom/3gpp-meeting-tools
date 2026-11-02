@@ -133,8 +133,9 @@ class CheckableComboBox(QComboBox):
 
         return super().eventFilter(obj, event)
 
-    def addItems(self, items, display_labels=None):
+    def addItems(self, items, display_labels=None, item_tooltips=None):
         display_labels = display_labels or {}
+        item_tooltips = item_tooltips or {}
         item_all = QStandardItem("(Select All)")
         item_all.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
         item_all.setCheckState(Qt.Checked)
@@ -148,13 +149,16 @@ class CheckableComboBox(QComboBox):
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Checked)
             item.setData(str(text), Qt.UserRole)
+            if raw_value in item_tooltips:
+                item.setToolTip(item_tooltips[raw_value])
             self.model().appendRow(item)
         self._refresh_text_and_tooltip()
         self.update()
 
-    def updateItems(self, items, display_labels=None):
+    def updateItems(self, items, display_labels=None, item_tooltips=None):
         previously_checked = set(self.getCheckedItems())
         display_labels = display_labels or {}
+        item_tooltips = item_tooltips or {}
 
         was_all_checked = True
         if self.model().rowCount() > 0:
@@ -187,6 +191,8 @@ class CheckableComboBox(QComboBox):
                 all_checked_now = False
 
             item.setData(raw_value, Qt.UserRole)
+            if raw_value in item_tooltips:
+                item.setToolTip(item_tooltips[raw_value])
             self.model().appendRow(item)
 
         root_item = self.model().item(0)
@@ -196,6 +202,33 @@ class CheckableComboBox(QComboBox):
         self.model().blockSignals(False)
         self._refresh_text_and_tooltip()
         self.update()  # Trigger paintEvent to update the button text
+
+    def currentData(self, role=Qt.UserRole):
+        """Backward compatibility helper returning selected values as comma-separated string."""
+        checked = self.getCheckedItems()
+        if not checked:
+            return ""
+        return ",".join(str(c) for c in checked)
+
+    def findData(self, data, role=Qt.UserRole):
+        """Backward compatibility helper finding item index by user role value."""
+        data_str = str(data).strip()
+        for i in range(1, self.model().rowCount()):
+            item = self.model().item(i)
+            if item and str(item.data(role)).strip() == data_str:
+                return i
+        return -1
+
+    def setCurrentIndex(self, index: int):
+        """Backward compatibility helper setting single item or clearing all."""
+        if index <= 0:
+            self.setCheckedItems([])
+        else:
+            item = self.model().item(index)
+            if item:
+                val = item.data(Qt.UserRole)
+                if val:
+                    self.setCheckedItems([str(val)])
 
     def setAvailability(self, available_values):
         """Grey zero-intersection choices while keeping every option selectable."""
