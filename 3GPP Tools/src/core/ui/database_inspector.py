@@ -30,7 +30,8 @@ class DatabaseInspectorDialog(QDialog):
     PAGE_SIZE = 200
 
     def __init__(self, db_path: Path, display_name: str = "", parent=None):
-        super().__init__(parent)
+        super().__init__(None)  # Pass None so Win32 does not set parent as GW_OWNER (prevents dialog from being forced always-on-top)
+        self._parent_ref = parent
         self.db_path = Path(db_path)
         self.display_name = display_name or self.db_path.name
         self._table_names: List[str] = []
@@ -40,6 +41,12 @@ class DatabaseInspectorDialog(QDialog):
         self.setWindowTitle(f"Database Inspector — {self.display_name}")
         self.setWindowFlags(Qt.Window)
         self.setWindowModality(Qt.NonModal)
+        self.setAttribute(Qt.WA_DeleteOnClose, False)
+        if parent:
+            try:
+                parent.destroyed.connect(self.close)
+            except Exception:
+                pass
         self.resize(1050, 700)
         self.setStyleSheet("background-color: #FAFAFA;")
 
