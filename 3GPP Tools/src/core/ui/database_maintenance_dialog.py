@@ -93,12 +93,19 @@ class DatabaseMaintenanceDialog(QDialog):
     log_msg = pyqtSignal(str, int)
 
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__(None)  # Pass None so Win32 does not set parent as GW_OWNER (prevents dialog from being forced always-on-top)
+        self._parent_ref = parent
         self.setWindowTitle("Database Maintenance & Compaction Hub")
         # Standard window without WindowStaysOnTopHint so it doesn't force itself over external apps
         self.setWindowFlags(Qt.Window)
         # Non-modal so it never blocks the main window or other dialogs
         self.setWindowModality(Qt.NonModal)
+        self.setAttribute(Qt.WA_DeleteOnClose, False)
+        if parent:
+            try:
+                parent.destroyed.connect(self.close)
+            except Exception:
+                pass
         self.resize(1020, 560)
         self.setMinimumSize(940, 480)
         self.setStyleSheet("background-color: #FAFAFA;")
