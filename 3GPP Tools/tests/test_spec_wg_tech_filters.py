@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import QApplication
 
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.specifications.core.database import SpecsDatabase
-from modules.specifications.ui.ui_tabs import SpecificationsTab, USEFUL_WGS
+from modules.specifications.ui.ui_tabs import SpecificationsTab, USEFUL_WGS, ACTIVE_WG_ORDER, FULL_WG_ORDER
 
 
 class TestSpecWgTechFilters(unittest.TestCase):
@@ -60,7 +60,7 @@ class TestSpecWgTechFilters(unittest.TestCase):
         self.assertNotIn("RAN6", items)
 
     def test_toggle_to_full_wg_scope(self):
-        """Verify toggling to full list reveals legacy WGs sorted alphabetically with (Legacy) display tags."""
+        """Verify toggling to full list reveals legacy WGs grouped cleanly below active groups."""
         self.tab.wg_scope_btn.setChecked(True)
         self.tab._toggle_wg_scope()
 
@@ -72,21 +72,23 @@ class TestSpecWgTechFilters(unittest.TestCase):
         display_texts = [model.item(i).text() for i in range(1, model.rowCount())]
 
         self.assertEqual(len(items), 33)
-        # In Full mode, items are sorted alphabetically, starting with AHG and CN1
-        self.assertEqual(items[0], "AHG")
-        self.assertEqual(items[1], "CN1")
+        # Active groups always come first in standard 3GPP hierarchy (SA -> RAN -> CT)
+        self.assertEqual(items[:18], ACTIVE_WG_ORDER)
+        self.assertEqual(items[0], "SA")
+        self.assertEqual(items[1], "SA1")
+        self.assertEqual(items[7], "RAN")
+        self.assertEqual(items[13], "CT")
 
-        # Legacy groups should now be present with (Legacy) labels
-        self.assertIn("CN1", items)
-        self.assertIn("GERAN", items)
-        self.assertIn("SMG01", items)
-        self.assertIn("RAN6", items)
+        # Legacy groups are placed below the active groups
+        self.assertEqual(items[18:], FULL_WG_ORDER[18:])
+        self.assertIn("CN1", items[18:])
+        self.assertIn("GERAN", items[18:])
+        self.assertIn("SMG01", items[18:])
+        self.assertIn("RAN6", items[18:])
 
-        self.assertIn("AHG (Legacy)", display_texts)
-        self.assertIn("CN1 (Legacy)", display_texts)
-        self.assertIn("GERAN (Legacy)", display_texts)
-        self.assertIn("RAN6 (Legacy)", display_texts)
-        self.assertIn("SA2", display_texts)  # Active groups remain clean
+        # Display names are clean without ugly suffixes, while tooltips carry legacy context
+        self.assertIn("CN1", display_texts)
+        self.assertTrue(all("(Legacy)" not in t for t in display_texts))
 
         # Toggle back to active
         self.tab.wg_scope_btn.setChecked(False)

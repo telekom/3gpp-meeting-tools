@@ -30,6 +30,7 @@ class CheckableComboBox(QComboBox):
 
         # Native, non-editable combobox behavior
         self.setEditable(False)
+        self.setMaxVisibleItems(25)
 
         self.setView(QListView(self))
         self.setModel(QStandardItemModel(self))
@@ -38,6 +39,11 @@ class CheckableComboBox(QComboBox):
 
         # Install filter ONLY to catch clicks on the dropdown list (viewport)
         self.view().viewport().installEventFilter(self)
+
+    def showPopup(self):
+        super().showPopup()
+        if self.view():
+            self.view().scrollToTop()
 
     def _refresh_text_and_tooltip(self):
         """Calculates custom text and tooltip based on checked items and updates activeFilter state."""
@@ -152,6 +158,7 @@ class CheckableComboBox(QComboBox):
             if raw_value in item_tooltips:
                 item.setToolTip(item_tooltips[raw_value])
             self.model().appendRow(item)
+        self.setCurrentIndex(0)
         self._refresh_text_and_tooltip()
         self.update()
 
@@ -200,6 +207,7 @@ class CheckableComboBox(QComboBox):
             root_item.setCheckState(Qt.Checked if all_checked_now else Qt.Unchecked)
 
         self.model().blockSignals(False)
+        self.setCurrentIndex(0)
         self._refresh_text_and_tooltip()
         self.update()  # Trigger paintEvent to update the button text
 
