@@ -34,12 +34,13 @@ def extract_document_root(docx_path: Path) -> Optional[ET.Element]:
 
 
 def _extract_p_text(p_elem: ET.Element, preserve_line_breaks: bool = False) -> str:
-    """Extracts clean text from a <w:p> node, preserving spaces, tabs, line breaks, and numeric superscripts."""
+    """Extracts clean text from a <w:p> node, preserving spaces, tabs, line breaks, subscripts (e.g. K_NF), and superscripts."""
     text_pieces: List[str] = []
     current_valign: Optional[str] = None
 
     for node in p_elem.iter():
         tag = node.tag
+        tag_local = tag.rsplit("}", 1)[-1]
         if tag == TAG_R:
             current_valign = None
             rpr = node.find(TAG_RPR)
@@ -47,12 +48,24 @@ def _extract_p_text(p_elem: ET.Element, preserve_line_breaks: bool = False) -> s
                 va = rpr.find(TAG_VERTALIGN)
                 if va is not None:
                     current_valign = va.get(f"{W_NS}val")
-        elif tag == TAG_T and node.text:
+        elif tag_local == "sub":
+            current_valign = "subscript"
+        elif tag_local == "sup":
+            current_valign = "superscript"
+        elif tag_local == "e":
+            current_valign = None
+        elif (tag == TAG_T or tag.endswith("}t")) and node.text:
             txt = node.text
-            if current_valign == "superscript" and any(ch.isdigit() for ch in txt):
-                txt = txt.translate(_SUPERSCRIPT_TRANS)
-            elif current_valign == "subscript" and any(ch.isdigit() for ch in txt):
-                txt = txt.translate(_SUBSCRIPT_TRANS)
+            if current_valign == "superscript":
+                if any(ch.isdigit() for ch in txt) and all(ch in "0123456789+-=()" for ch in txt):
+                    txt = txt.translate(_SUPERSCRIPT_TRANS)
+                else:
+                    txt = f"^{txt}" if not txt.startswith("^") else txt
+            elif current_valign == "subscript":
+                if any(ch.isdigit() for ch in txt) and all(ch in "0123456789+-=()" for ch in txt):
+                    txt = txt.translate(_SUBSCRIPT_TRANS)
+                else:
+                    txt = f"_{txt}" if not txt.startswith("_") else txt
             text_pieces.append(txt)
         elif tag == TAG_TAB:
             text_pieces.append(" ")
