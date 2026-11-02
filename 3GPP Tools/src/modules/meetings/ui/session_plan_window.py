@@ -2423,6 +2423,36 @@ class SessionPlanWindow(QWidget):
 
             if self.delegation_plan and self.delegation_plan.members:
                 menu.addSeparator()
+
+                # Direct Topic Owner Assignment Submenu for each AI covered
+                for s in slots_here:
+                    for it in s.items:
+                        if not it.ai_number:
+                            continue
+                        current_to = self.delegation_plan.topic_owners.get(it.ai_number)
+                        curr_owner_str = current_to.owner_name if current_to else ""
+                        curr_disp = f" ({curr_owner_str})" if curr_owner_str else " (Unassigned)"
+                        ai_menu = menu.addMenu(f"👤 Assign Topic Owner (AI {it.ai_number}){curr_disp}...")
+
+                        act_all = ai_menu.addAction("👥 All Team")
+                        act_all.triggered.connect(lambda _, ai=it.ai_number: self._set_topic_owner_direct(ai, "ALL"))
+
+                        ai_menu.addSeparator()
+                        for m_name in self.delegation_plan.members.keys():
+                            is_curr = (curr_owner_str == m_name)
+                            prefix = "✓ " if is_curr else "● "
+                            act_m = ai_menu.addAction(f"{prefix}{m_name}")
+                            act_m.triggered.connect(lambda _, ai=it.ai_number, n=m_name: self._set_topic_owner_direct(ai, n))
+
+                        ai_menu.addSeparator()
+                        act_multi = ai_menu.addAction("⚡ Custom Multi-Delegate...")
+                        act_multi.triggered.connect(lambda _, ai=it.ai_number, cur=curr_owner_str: self._open_multi_delegate_dialog(ai, cur))
+
+                        if curr_owner_str:
+                            act_clear = ai_menu.addAction("✕ Clear (Unassign)")
+                            act_clear.triggered.connect(lambda _, ai=it.ai_number: self._set_topic_owner_direct(ai, ""))
+
+                menu.addSeparator()
                 for s in slots_here:
                     del_name, is_cov = self._get_slot_effective_delegate(s)
                     disp_name = "All Team" if del_name == "ALL" else (del_name or "")
@@ -2449,6 +2479,25 @@ class SessionPlanWindow(QWidget):
     def _copy_slot_text(self, text: str):
         from PyQt5.QtWidgets import QApplication
         QApplication.clipboard().setText(text)
+
+    def _set_topic_owner_direct(self, ai_number: str, owner_name: str):
+        """Directly updates topic owner from Overview Grid context menu and refreshes views."""
+        self.db.set_topic_owner(self.meeting_number, ai_number, owner_name)
+        self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
+        self._render_current_views()
+
+    def _open_multi_delegate_dialog(self, ai_number: str, current_owner: str):
+        """Opens MultiDelegateSelectDialog for compound multi-delegate ownership from grid."""
+        from modules.meetings.ui.session_plan_dialogs import MultiDelegateSelectDialog
+        ai_desc = ""
+        if self.agenda_map and ai_number in self.agenda_map:
+            ai_desc = getattr(self.agenda_map[ai_number], "description", "")
+        title = f"AI {ai_number}: {ai_desc}" if ai_desc else f"AI {ai_number}"
+        members_list = list(self.delegation_plan.members.values()) if self.delegation_plan else []
+        dlg = MultiDelegateSelectDialog(title, members_list, current_owner, parent=self)
+        if dlg.exec_() == QDialog.Accepted:
+            new_owner = dlg.get_owner_string()
+            self._set_topic_owner_direct(ai_number, new_owner)
 
     def _on_snapshot_changed(self, idx: int):
         snap_id = self.snap_combo.itemData(idx)

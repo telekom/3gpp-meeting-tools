@@ -666,13 +666,6 @@ class DelegationMemberDialog(QDialog):
             self.role_edit.setText(self.member.notes)
         form.addRow("Role / Notes:", self.role_edit)
 
-        self.self_chk = QCheckBox("This is me (My Identity)")
-        self.self_chk.setToolTip("Marking this sets this delegate as 'yourself' for 1-click personal timetable filtering.")
-        if self.member and self.member.is_self:
-            self.self_chk.setChecked(True)
-        self.self_chk.toggled.connect(self._update_preview)
-        form.addRow("", self.self_chk)
-
         layout.addLayout(form)
 
         # Color Swatches Palette
@@ -741,12 +734,10 @@ class DelegationMemberDialog(QDialog):
 
     def _update_preview(self):
         name = self.name_edit.text().strip() or "Delegate"
-        is_me = self.self_chk.isChecked()
-        suffix = " (Me)" if is_me else ""
         col = self.selected_color
         bg_t = DelegationMember.compute_tint(col, 0.12)
         bdr_t = DelegationMember.compute_tint(col, 0.35)
-        self.preview_lbl.setText(f"  ● {name}{suffix}  ")
+        self.preview_lbl.setText(f"  ● {name}  ")
         self.preview_lbl.setStyleSheet(
             f"background-color: {bg_t}; color: {col}; border: 1px solid {bdr_t}; border-radius: 6px; font-weight: 600; padding: 2px 8px;"
         )
@@ -766,7 +757,7 @@ class DelegationMemberDialog(QDialog):
             name=self.name_edit.text().strip(),
             email=self.email_edit.text().strip(),
             color=self.selected_color,
-            is_self=self.self_chk.isChecked(),
+            is_self=self.member.is_self if self.member else False,
             notes=self.role_edit.text().strip(),
         )
 
@@ -845,7 +836,7 @@ class SessionDispatchDialog(QDialog):
             status_item.setTextAlignment(Qt.AlignCenter)
             status_item.setData(Qt.UserRole, m.name)
 
-            name_item = QTableWidgetItem(m.name + (" (Me)" if m.is_self else ""))
+            name_item = QTableWidgetItem(m.name)
             name_item.setForeground(QColor(m.color))
             f = name_item.font()
             f.setBold(True)
@@ -1039,7 +1030,7 @@ class MultiDelegateSelectDialog(QDialog):
             badge.setStyleSheet(f"color: {m.color}; font-size: 14px;")
             row_lay.addWidget(badge)
 
-            chk = QCheckBox(m.name + (" (Myself)" if m.is_self else ""))
+            chk = QCheckBox(m.name)
             chk.setStyleSheet("font-size: 12px; font-weight: 500;")
             chk.setChecked(is_all_initial or m.name in initially_checked)
             chk.toggled.connect(self._on_individual_toggled)
