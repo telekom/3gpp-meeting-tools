@@ -8,6 +8,14 @@ from modules.word_tools.core.word_config import WordConfig
 from modules.word_tools.core.word_excerpt_extractor import HeadingInfo
 from modules.word_tools.core.word_excerpt_naming import (
     NAMING_SCHEMES,
+    CR_NAMING_SCHEMES,
+    CR_SCHEME_STANDARD,
+    CR_SCHEME_NO_TIMESTAMP,
+    CR_SCHEME_WITH_TOPIC,
+    CR_SCHEME_SPEC_CLAUSES,
+    CR_SCHEME_TDOC_SPEC,
+    CR_SCHEME_GENERIC,
+    generate_cr_pcr_export_name,
     SCHEME_CLAUSES_ONLY,
     SCHEME_CLAUSES_TIMESTAMP,
     SCHEME_GENERIC,
@@ -298,6 +306,190 @@ class TestWordExcerptCardUI(unittest.TestCase):
         self.assertTrue(mock_get_save.called)
         called_args = mock_get_save.call_args[0]
         self.assertIn(proposed_filename, called_args[2])
+
+
+    def test_generate_cr_pcr_export_name_standard_pcr(self):
+        h1 = HeadingInfo("0:10", "C:/docs/23501.docx", 0, 10, 20, 2, "5.2 Key derivation for K_NF")
+        name = generate_cr_pcr_export_name(
+            mode="pcr",
+            spec_num="23.501",
+            spec_type="TS",
+            version="18.2.0",
+            tdoc_id="S2-2401234",
+            headings=[h1],
+            selected_ids=["0:10"],
+            scheme=CR_SCHEME_STANDARD,
+            timestamp="20261102_1745",
+        )
+        self.assertEqual(name, "S2-2401234_pCR_TS23501_v18.2.0_Cl_5.2_20261102_1745.docx")
+
+    def test_generate_cr_pcr_export_name_no_tdoc(self):
+        h1 = HeadingInfo("0:10", "C:/docs/23501.docx", 0, 10, 20, 2, "5.2 Key derivation")
+        name = generate_cr_pcr_export_name(
+            mode="pcr",
+            spec_num="23.501",
+            spec_type="TS",
+            version="18.2.0",
+            tdoc_id="Draft-TDoc",
+            headings=[h1],
+            selected_ids=["0:10"],
+            scheme=CR_SCHEME_STANDARD,
+            timestamp="20261102_1745",
+        )
+        # Draft-TDoc should be omitted from filename
+        self.assertEqual(name, "pCR_TS23501_v18.2.0_Cl_5.2_20261102_1745.docx")
+
+    def test_generate_cr_pcr_export_name_formal_cr(self):
+        h1 = HeadingInfo("0:10", "C:/docs/23501.docx", 0, 10, 20, 2, "5.2 Key derivation")
+        name = generate_cr_pcr_export_name(
+            mode="cr",
+            spec_num="23.501",
+            spec_type="TS",
+            version="18.2.0",
+            tdoc_id="S2-2401234",
+            cr_num="0845",
+            cr_rev="1",
+            headings=[h1],
+            selected_ids=["0:10"],
+            scheme=CR_SCHEME_STANDARD,
+            timestamp="20261102_1745",
+        )
+        self.assertEqual(name, "S2-2401234_CR0845r1_TS23501_v18.2.0_Cl_5.2_20261102_1745.docx")
+
+    def test_generate_cr_pcr_export_name_schemes(self):
+        h1 = HeadingInfo("0:10", "C:/docs/23501.docx", 0, 10, 20, 2, "5.2 Key derivation")
+        h2 = HeadingInfo("0:20", "C:/docs/23501.docx", 0, 20, 30, 2, "5.3 Security Handling")
+        headings = [h1, h2]
+        selected = ["0:10", "0:20"]
+
+        # No timestamp
+        name_no_ts = generate_cr_pcr_export_name(
+            mode="pcr", spec_num="23.501", version="18.2.0", tdoc_id="S2-2401234",
+            headings=headings, selected_ids=selected, scheme=CR_SCHEME_NO_TIMESTAMP,
+        )
+        self.assertEqual(name_no_ts, "S2-2401234_pCR_TS23501_v18.2.0_Cl_5.2_5.3.docx")
+
+        # With topic
+        name_topic = generate_cr_pcr_export_name(
+            mode="pcr", spec_num="23.501", version="18.2.0", tdoc_id="S2-2401234",
+            work_item="5G_ProSe", headings=headings, selected_ids=selected,
+            scheme=CR_SCHEME_WITH_TOPIC, timestamp="20261102_1745",
+        )
+        self.assertEqual(name_topic, "S2-2401234_pCR_TS23501_v18.2.0_Cl_5.2_5.3_5G_ProSe_20261102_1745.docx")
+
+        # Spec + Clauses (no TDoc)
+        name_spec_cl = generate_cr_pcr_export_name(
+            mode="pcr", spec_num="23.501", version="18.2.0", tdoc_id="S2-2401234",
+            headings=headings, selected_ids=selected,
+            scheme=CR_SCHEME_SPEC_CLAUSES, timestamp="20261102_1745",
+        )
+        self.assertEqual(name_spec_cl, "pCR_TS23501_v18.2.0_Cl_5.2_5.3_20261102_1745.docx")
+
+        # TDoc + Spec (no clauses)
+        name_tdoc_spec = generate_cr_pcr_export_name(
+            mode="pcr", spec_num="23.501", version="18.2.0", tdoc_id="S2-2401234",
+            headings=headings, selected_ids=selected, scheme=CR_SCHEME_TDOC_SPEC,
+        )
+        self.assertEqual(name_tdoc_spec, "S2-2401234_pCR_TS23501_v18.2.0.docx")
+
+        # Generic
+        name_generic = generate_cr_pcr_export_name(
+            mode="pcr", spec_num="23.501", version="18.2.0", scheme=CR_SCHEME_GENERIC,
+        )
+        self.assertEqual(name_generic, "pcr_contribution.docx")
+
+    def test_word_config_cr_naming_scheme_persistence(self):
+        current = WordConfig.get_cr_naming_scheme()
+        self.assertTrue(isinstance(current, str))
+        WordConfig.set_cr_naming_scheme("cr_no_timestamp")
+        self.assertEqual(WordConfig.get_cr_naming_scheme(), "cr_no_timestamp")
+        WordConfig.set_cr_naming_scheme(current)
+
+
+class TestCrPcrDialogNamingUI(unittest.TestCase):
+    """Test suite for CrPcrDialog differentiated export naming UI integration."""
+
+    @classmethod
+    def setUpClass(cls):
+        from PyQt5.QtWidgets import QApplication
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_cr_pcr_dialog_naming_ui_components_exist(self):
+        from modules.word_tools.ui.cr_pcr_dialog import CrPcrDialog
+        dlg = CrPcrDialog(
+            spec_num="23.501",
+            version="18.2.0",
+            auto_start=False,
+        )
+        self.assertTrue(hasattr(dlg, "naming_combo"))
+        self.assertTrue(hasattr(dlg, "filename_edit"))
+        self.assertTrue(hasattr(dlg, "btn_reset_name"))
+        self.assertGreaterEqual(dlg.naming_combo.count(), 5)
+        # Initial text contains TS23501
+        self.assertIn("TS23501", dlg.filename_edit.text())
+        dlg.close()
+
+    def test_cr_pcr_dialog_preview_filename_updates_with_selection(self):
+        from modules.word_tools.ui.cr_pcr_dialog import CrPcrDialog
+        h1 = HeadingInfo("0:10", "C:/docs/23501.docx", 0, 10, 20, 2, "5.2 Key derivation")
+        h2 = HeadingInfo("0:20", "C:/docs/23501.docx", 0, 20, 30, 2, "5.3 Security Handling")
+        dlg = CrPcrDialog(
+            spec_num="23.501",
+            version="18.2.0",
+            ordered_paths=["C:/docs/23501.docx"],
+            headings=[h1, h2],
+            auto_start=False,
+        )
+        dlg.input_tdoc_id.setText("S2-2401234")
+
+        # Initially no clauses selected
+        self.assertIn("S2-2401234", dlg.filename_edit.text())
+        self.assertIn("TS23501", dlg.filename_edit.text())
+
+        # Select a clause in tree
+        item0 = dlg.clause_tree.topLevelItem(0)
+        item0.setCheckState(0, 2)  # Qt.Checked
+        dlg._update_change_block_summary()
+
+        updated_text = dlg.filename_edit.text()
+        self.assertIn("Cl_5.2", updated_text)
+
+        # Switch to no timestamp scheme
+        idx = dlg.naming_combo.findData("cr_no_timestamp")
+        dlg.naming_combo.setCurrentIndex(idx)
+        no_ts_text = dlg.filename_edit.text()
+        self.assertEqual(no_ts_text, "S2-2401234_pCR_TS23501_v18.2.0_Cl_5.2.docx")
+
+        # Switch to formal CR mode
+        dlg.radio_cr.setChecked(True)
+        dlg.input_cr_num.setText("0845")
+        dlg.input_cr_rev.setText("1")
+        dlg._update_preview_filename(force=True)
+        cr_text = dlg.filename_edit.text()
+        self.assertEqual(cr_text, "S2-2401234_CR0845r1_TS23501_v18.2.0_Cl_5.2.docx")
+
+        # Manually edit filename
+        dlg.filename_edit.setText("Custom_Contribution.docx")
+        dlg._on_filename_text_edited("Custom_Contribution.docx")
+        self.assertTrue(dlg._custom_filename_active)
+
+        # Uncheck clause - text should remain custom
+        item0.setCheckState(0, 0)
+        dlg._update_change_block_summary()
+        self.assertEqual(dlg.filename_edit.text(), "Custom_Contribution.docx")
+
+        # Reset button restores auto name
+        dlg.btn_reset_name.click()
+        self.assertFalse(dlg._custom_filename_active)
+        self.assertIn("TS23501", dlg.filename_edit.text())
+        dlg.close()
+
+    def test_word_settings_dialog_has_cr_naming_combo(self):
+        from modules.word_tools.ui.word_settings_dialog import WordSettingsDialog
+        dlg = WordSettingsDialog()
+        self.assertTrue(hasattr(dlg, "combo_cr_naming"))
+        self.assertGreaterEqual(dlg.combo_cr_naming.count(), 5)
+        dlg.deleteLater()
 
 
 if __name__ == "__main__":

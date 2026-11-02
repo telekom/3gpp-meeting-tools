@@ -83,6 +83,10 @@ from modules.word_tools.core.styles_3gpp import (
 )
 from modules.word_tools.core.word_config import WordConfig
 from modules.word_tools.core.word_excerpt_extractor import HeadingInfo
+from modules.word_tools.core.word_excerpt_naming import (
+    CR_NAMING_SCHEMES,
+    generate_cr_pcr_export_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +101,7 @@ class CrPcrDialog(QDialog):
 
     def __init__(
         self,
-        spec_num: str,
+        spec_num: str = "",
         spec_type: str = "TS",
         version: str = "",
         release: str = "",
@@ -111,15 +115,28 @@ class CrPcrDialog(QDialog):
         initial_mode: str = "pcr",
         parent=None,
         auto_start: bool = True,
+        **kwargs,
     ):
         super().__init__(None)  # Pass None so Win32 does not set parent as GW_OWNER (prevents dialog from being forced always-on-top of main window)
         self._parent_ref = parent
-        self.spec_num = spec_num.strip()
+
+        if "initial_spec" in kwargs and not spec_num:
+            spec_num = kwargs.pop("initial_spec")
+        if "mode" in kwargs:
+            initial_mode = kwargs.pop("mode")
+        if "initial_version" in kwargs and not version:
+            version = kwargs.pop("initial_version")
+        if "initial_file" in kwargs and not ordered_paths:
+            f = kwargs.pop("initial_file")
+            if f:
+                ordered_paths = [f]
+
+        self.spec_num = str(spec_num or "").strip()
         self.spec_type = (spec_type or "TS").upper().strip()
-        self.version = version.strip()
-        self.release = release.strip()
-        self.fname = fname.strip()
-        self.url = url.strip()
+        self.version = str(version or "").strip()
+        self.release = str(release or "").strip()
+        self.fname = str(fname or "").strip()
+        self.url = str(url or "").strip()
         self.spec_dl_dir = Path(spec_dl_dir) if spec_dl_dir else Path.cwd()
         self.meeting_info = meeting_info or {}
         self.tdoc_info = tdoc_info or {}
@@ -132,6 +149,7 @@ class CrPcrDialog(QDialog):
         self._headings: List[HeadingInfo] = list(headings) if headings else []
         self._all_new_map: Dict[str, bool] = {}
         self._is_updating_checks = False
+        self._custom_filename_active = False
 
         cfg = WordConfig.load()
         self.default_company = cfg.get("default_source_company", "")
@@ -166,6 +184,8 @@ class CrPcrDialog(QDialog):
             self._on_prep_finished(self._ordered_paths, self._headings)
         elif auto_start and self.spec_num and self.version:
             self._start_spec_preparation()
+
+        self._update_preview_filename()
 
     @property
     def headings(self) -> List[HeadingInfo]:
@@ -520,6 +540,53 @@ class CrPcrDialog(QDialog):
         self.status_label = QLabel("Ready to select clauses and generate contribution.")
         self.status_label.setStyleSheet("color: #4A5568; font-size: 11px; font-style: italic;")
 
+        # -------------------------------------------------------------
+        # 3b. Export Naming Scheme & Filename Preview Strip
+        # -------------------------------------------------------------
+        naming_layout = QHBoxLayout()
+        naming_layout.setSpacing(6)
+        naming_layout.setContentsMargins(0, 0, 0, 0)
+
+        lbl_naming = QLabel("<b>Naming:</b>")
+        lbl_naming.setStyleSheet("color: #475569; font-size: 11px;")
+        naming_layout.addWidget(lbl_naming)
+
+        self.naming_combo = QComboBox()
+        self.naming_combo.setStyleSheet("font-size: 11px;")
+        for scheme_id, scheme_label in CR_NAMING_SCHEMES:
+            self.naming_combo.addItem(scheme_label, scheme_id)
+        current_scheme = WordConfig.get_cr_naming_scheme()
+        idx = self.naming_combo.findData(current_scheme)
+        if idx >= 0:
+            self.naming_combo.setCurrentIndex(idx)
+        self.naming_combo.currentIndexChanged.connect(self._on_naming_scheme_changed)
+        naming_layout.addWidget(self.naming_combo)
+
+        lbl_file = QLabel("<b>Export File:</b>")
+        lbl_file.setStyleSheet("color: #475569; font-size: 11px; margin-left: 4px;")
+        naming_layout.addWidget(lbl_file)
+
+        self.filename_edit = QLineEdit()
+        self.filename_edit.setStyleSheet(SEARCH_INPUT_STYLE + "; font-size: 11px; padding: 4px 6px;")
+        self.filename_edit.setPlaceholderText("Auto-generated differentiated filename (editable)...")
+        self.filename_edit.textEdited.connect(self._on_filename_text_edited)
+        naming_layout.addWidget(self.filename_edit, 1)
+
+        self.btn_reset_name = QPushButton("🔄 Reset")
+        self.btn_reset_name.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY + "; font-size: 11px; padding: 3px 8px;")
+        self.btn_reset_name.setToolTip("Reset filename to auto-generated differentiated name based on metadata and selected clauses")
+        self.btn_reset_name.clicked.connect(self._reset_filename_to_auto)
+        naming_layout.addWidget(self.btn_reset_name)
+
+        main_layout.addLayout(naming_layout)
+
+        # Wire live reactive metadata updates to filename preview
+        self.input_tdoc_id.textChanged.connect(lambda: self._update_preview_filename())
+        self.input_cr_num.textChanged.connect(lambda: self._update_preview_filename())
+        self.input_cr_rev.textChanged.connect(lambda: self._update_preview_filename())
+        self.input_work_item.textChanged.connect(lambda: self._update_preview_filename())
+        self.input_title.textChanged.connect(lambda: self._update_preview_filename())
+
         progress_box = QVBoxLayout()
         progress_box.setSpacing(3)
         progress_box.addWidget(self.status_label)
@@ -566,6 +633,7 @@ class CrPcrDialog(QDialog):
         self.current_mode = "cr" if is_cr else "pcr"
         self.mode_stack.setCurrentIndex(1 if is_cr else 0)
         self._update_change_block_summary()
+        self._update_preview_filename(force=True)
 
     def _save_default_company(self, text: str):
         comp = text.strip()
@@ -760,6 +828,59 @@ class CrPcrDialog(QDialog):
 
         btn_type = "pCR" if self.current_mode == "pcr" else "CR"
         self.btn_generate.setText(f"🚀 Generate {btn_type} ({len(blocks)} Section{'s' if len(blocks) != 1 else ''})...")
+        self._update_preview_filename()
+
+    # -----------------------------------------------------------------
+    # Differentiated Export Naming Helpers
+    # -----------------------------------------------------------------
+
+    def _on_naming_scheme_changed(self):
+        scheme = self.naming_combo.currentData()
+        if scheme:
+            WordConfig.set_cr_naming_scheme(scheme)
+        self._custom_filename_active = False
+        self._update_preview_filename(force=True)
+
+    def _on_filename_text_edited(self, text: str):
+        self._custom_filename_active = bool(text.strip())
+
+    def _reset_filename_to_auto(self):
+        self._custom_filename_active = False
+        self._update_preview_filename(force=True)
+
+    def _compute_auto_filename(self) -> str:
+        scheme = self.naming_combo.currentData() if hasattr(self, "naming_combo") else "cr_standard"
+        is_cr = self.current_mode == "cr"
+        tdoc_id = self.input_tdoc_id.text().strip() if hasattr(self, "input_tdoc_id") else ""
+        cr_num = self.input_cr_num.text().strip() if is_cr and hasattr(self, "input_cr_num") else ""
+        cr_rev = self.input_cr_rev.text().strip() if is_cr and hasattr(self, "input_cr_rev") else ""
+        work_item = self.input_work_item.text().strip() if hasattr(self, "input_work_item") else ""
+        title = self.input_title.text().strip() if hasattr(self, "input_title") else ""
+        selected_ids = self._get_selected_ids() if hasattr(self, "clause_tree") else []
+
+        return generate_cr_pcr_export_name(
+            mode=self.current_mode,
+            spec_num=self.spec_num,
+            spec_type=self.spec_type,
+            version=self.version,
+            tdoc_id=tdoc_id,
+            cr_num=cr_num,
+            cr_rev=cr_rev,
+            work_item=work_item,
+            title=title,
+            headings=self._headings,
+            selected_ids=selected_ids,
+            scheme=scheme or "cr_standard",
+            ext=".docx",
+        )
+
+    def _update_preview_filename(self, force: bool = False):
+        if not hasattr(self, "filename_edit"):
+            return
+        if self._custom_filename_active and not force:
+            return
+        auto_name = self._compute_auto_filename()
+        self.filename_edit.setText(auto_name)
 
     # -----------------------------------------------------------------
     # Generation Action
@@ -805,10 +926,13 @@ class CrPcrDialog(QDialog):
             affects_cn=self.chk_cn.isChecked() if is_cr else False,
         )
 
-        clean_spec = self.spec_num.replace(".", "_")
-        prefix = f"{meta.tdoc_id}_" if meta.tdoc_id and meta.tdoc_id != "Draft-TDoc" else ""
-        default_out_name = f"{prefix}{self.current_mode.upper()}_{self.spec_type}{clean_spec}_v{self.version}.docx"
-        default_out_path = str(self.spec_dl_dir / default_out_name)
+        proposed_name = self.filename_edit.text().strip() if hasattr(self, "filename_edit") else ""
+        if not proposed_name:
+            proposed_name = self._compute_auto_filename()
+        if not proposed_name.lower().endswith(".docx"):
+            proposed_name += ".docx"
+
+        default_out_path = str(self.spec_dl_dir / proposed_name)
 
         output_path, _ = QFileDialog.getSaveFileName(
             self,

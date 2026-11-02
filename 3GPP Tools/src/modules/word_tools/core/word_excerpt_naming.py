@@ -29,6 +29,23 @@ NAMING_SCHEMES = [
     (SCHEME_GENERIC, "Generic (extracted_sections)"),
 ]
 
+# Supported CR / pCR naming schemes
+CR_SCHEME_STANDARD = "cr_standard"              # TDoc + Mode + Spec + Clauses + Timestamp (Recommended)
+CR_SCHEME_NO_TIMESTAMP = "cr_no_timestamp"      # TDoc + Mode + Spec + Clauses
+CR_SCHEME_WITH_TOPIC = "cr_with_topic"          # TDoc + Mode + Spec + Clauses & Topic + Timestamp
+CR_SCHEME_SPEC_CLAUSES = "cr_spec_clauses"      # Mode + Spec + Clauses + Timestamp
+CR_SCHEME_TDOC_SPEC = "cr_tdoc_spec"            # TDoc + Mode + Spec + Version
+CR_SCHEME_GENERIC = "cr_generic"                # Generic (contribution.docx)
+
+CR_NAMING_SCHEMES = [
+    (CR_SCHEME_STANDARD, "TDoc + Mode + Spec + Clauses + Timestamp (Recommended)"),
+    (CR_SCHEME_NO_TIMESTAMP, "TDoc + Mode + Spec + Clauses"),
+    (CR_SCHEME_WITH_TOPIC, "TDoc + Mode + Spec + Clauses & Topic + Timestamp"),
+    (CR_SCHEME_SPEC_CLAUSES, "Mode + Spec + Clauses + Timestamp"),
+    (CR_SCHEME_TDOC_SPEC, "TDoc + Mode + Spec + Version"),
+    (CR_SCHEME_GENERIC, "Generic (contribution.docx)"),
+]
+
 
 def sanitize_filename_token(text: str, max_len: int = 40) -> str:
     """Sanitizes a string to be safely used as part of a Windows/Unix filename."""
@@ -233,3 +250,158 @@ def generate_differentiated_export_name(
         base = base[:100].rstrip("._")
 
     return f"{base}{ext_clean}"
+
+def generate_cr_pcr_export_name(
+    mode: str,
+    spec_num: str,
+    spec_type: str = "TS",
+    version: str = "",
+    tdoc_id: Optional[str] = None,
+    cr_num: Optional[str] = None,
+    cr_rev: Optional[str] = None,
+    work_item: Optional[str] = None,
+    title: Optional[str] = None,
+    headings: Sequence[Any] = (),
+    selected_ids: Sequence[str] = (),
+    scheme: str = CR_SCHEME_STANDARD,
+    timestamp: Optional[str] = None,
+    ext: str = ".docx",
+) -> str:
+    """Generates a clean, differentiated, 3GPP-standard filename for a CR or pCR document.
+
+    Examples:
+    - cr_standard (pCR): 'S2-2401234_pCR_TS23501_v18.2.0_Cl_5.2_20261102_1745.docx'
+    - cr_standard (CR):  'S2-2401234_CR0845r1_TS23501_v18.2.0_Cl_5.2_20261102_1745.docx'
+    - cr_no_timestamp:   'S2-2401234_pCR_TS23501_v18.2.0_Cl_5.2.docx'
+    - cr_with_topic:     'S2-2401234_pCR_TS23501_v18.2.0_Cl_5.2_5G_ProSe_20261102_1745.docx'
+    - cr_spec_clauses:   'pCR_TS23501_v18.2.0_Cl_5.2_20261102_1745.docx'
+    - cr_tdoc_spec:      'S2-2401234_pCR_TS23501_v18.2.0.docx'
+    - cr_generic:        'contribution.docx'
+    """
+    ext_clean = ext if ext.startswith(".") else f".{ext}"
+    mode_clean = str(mode or "pcr").lower().strip()
+    is_cr = mode_clean == "cr"
+
+    if scheme == CR_SCHEME_GENERIC:
+        return f"{mode_clean}_contribution{ext_clean}"
+
+    if timestamp is None:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+    else:
+        timestamp = sanitize_filename_token(timestamp, 20)
+
+    # 1. Mode token: CR (with CR# and rev if provided) or pCR
+    if is_cr:
+        clean_cr = re.sub(r"(?i)^cr\s*", "", str(cr_num or "").strip())
+        if clean_cr and clean_cr not in ("<CR#>", "CR#", ""):
+            clean_rev = str(cr_rev or "").strip()
+            if clean_rev and clean_rev not in ("-", "", "0"):
+                mode_token = f"CR{clean_cr}r{clean_rev}"
+            else:
+                mode_token = f"CR{clean_cr}"
+        else:
+            mode_token = "CR"
+    else:
+        mode_token = "pCR"
+
+    # 2. TDoc ID token
+    tdoc_clean = str(tdoc_id or "").strip()
+    if tdoc_clean and tdoc_clean.lower() not in ("draft-tdoc", "draft", "none", "n/a", "<tdoc>"):
+        tdoc_token = sanitize_filename_token(tdoc_clean, 25)
+    else:
+        tdoc_token = ""
+
+    # 3. Spec & Version token
+    spec_clean = str(spec_num or "").strip()
+    if spec_clean:
+        compact_num = spec_clean.replace(".", "")
+        st = (spec_type or "TS").upper().strip()
+        spec_tag = f"{st}{compact_num}"
+    else:
+        spec_tag = "Spec"
+
+    ver_clean = str(version or "").lstrip("vV").strip()
+    if ver_clean:
+        spec_tag += f"_v{ver_clean}"
+
+    # 4. Clauses token
+    normalized_headings = normalize_selected_headings(headings, selected_ids)
+    clauses_token = build_clauses_token(normalized_headings, include_title=False)
+    if clauses_token == "sections":
+        clauses_token = ""
+
+    # 5. Topic token (Work Item or Title)
+    topic_token = ""
+    if work_item and str(work_item).strip():
+        topic_token = sanitize_filename_token(str(work_item).strip(), 25)
+    elif title and str(title).strip():
+        words = re.findall(r"[A-Za-z0-9_]+", str(title).strip())
+        topic_token = sanitize_filename_token("_".join(words[:3]), 25) if words else ""
+
+    # 6. Assemble based on scheme
+    parts: List[str] = []
+
+    if scheme == CR_SCHEME_STANDARD:
+        if tdoc_token:
+            parts.append(tdoc_token)
+        parts.append(mode_token)
+        parts.append(spec_tag)
+        if clauses_token:
+            parts.append(clauses_token)
+        if timestamp:
+            parts.append(timestamp)
+
+    elif scheme == CR_SCHEME_NO_TIMESTAMP:
+        if tdoc_token:
+            parts.append(tdoc_token)
+        parts.append(mode_token)
+        parts.append(spec_tag)
+        if clauses_token:
+            parts.append(clauses_token)
+
+    elif scheme == CR_SCHEME_WITH_TOPIC:
+        if tdoc_token:
+            parts.append(tdoc_token)
+        parts.append(mode_token)
+        parts.append(spec_tag)
+        if clauses_token:
+            parts.append(clauses_token)
+        if topic_token:
+            parts.append(topic_token)
+        if timestamp:
+            parts.append(timestamp)
+
+    elif scheme == CR_SCHEME_SPEC_CLAUSES:
+        # Strictly omit TDoc ID
+        parts.append(mode_token)
+        parts.append(spec_tag)
+        if clauses_token:
+            parts.append(clauses_token)
+        if timestamp:
+            parts.append(timestamp)
+
+    elif scheme == CR_SCHEME_TDOC_SPEC:
+        # Strictly omit clauses
+        if tdoc_token:
+            parts.append(tdoc_token)
+        parts.append(mode_token)
+        parts.append(spec_tag)
+
+    else:
+        # Fallback to standard
+        if tdoc_token:
+            parts.append(tdoc_token)
+        parts.append(mode_token)
+        parts.append(spec_tag)
+        if clauses_token:
+            parts.append(clauses_token)
+        if timestamp:
+            parts.append(timestamp)
+
+    base = "_".join(p for p in parts if p)
+    base = re.sub(r"_+", "_", base).strip("._")
+    if len(base) > 110:
+        base = base[:110].rstrip("._")
+
+    return f"{base}{ext_clean}"
+
