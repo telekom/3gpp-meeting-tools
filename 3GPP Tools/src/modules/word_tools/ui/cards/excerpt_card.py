@@ -33,9 +33,15 @@ from core.ui.ui_components import (
     InteractiveDropLabel,
     SEARCH_INPUT_STYLE,
 )
+from modules.word_tools.core.word_config import WordConfig
 from modules.word_tools.core.word_excerpt_extractor import (
     WordExcerptThread,
     WordHeadingScanThread,
+)
+from modules.word_tools.core.word_excerpt_naming import (
+    NAMING_SCHEMES,
+    SCHEME_SOURCE_CLAUSES_TIMESTAMP,
+    generate_differentiated_export_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,6 +59,7 @@ class WordExcerptCard(QWidget):
         self._excerpt_extract_thread: Optional[WordExcerptThread] = None
         self._active_scan_threads: list = []
         self._excerpt_scan_gen: int = 0
+        self._custom_filename_active: bool = False
         self._setup_ui()
 
     def _setup_ui(self):
@@ -144,7 +151,54 @@ class WordExcerptCard(QWidget):
         header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.excerpt_tree.itemChanged.connect(self._on_tree_item_changed)
         excerpt_layout.addWidget(self.excerpt_tree, 1)
+
+        # Export Naming & Differentiation Strip
+        naming_frame = QFrame()
+        naming_frame.setStyleSheet("""
+            QFrame {
+                background-color: #F8FAFC;
+                border: 1px solid #E2E8F0;
+                border-radius: 6px;
+            }
+        """)
+        naming_layout = QHBoxLayout(naming_frame)
+        naming_layout.setContentsMargins(10, 6, 10, 6)
+        naming_layout.setSpacing(8)
+
+        lbl_naming = QLabel("<b>🏷️ Naming:</b>")
+        lbl_naming.setStyleSheet("color: #334155; font-size: 11px;")
+        naming_layout.addWidget(lbl_naming)
+
+        self.excerpt_naming_combo = QComboBox()
+        self.excerpt_naming_combo.setStyleSheet("font-size: 11px;")
+        for scheme_id, scheme_label in NAMING_SCHEMES:
+            self.excerpt_naming_combo.addItem(scheme_label, scheme_id)
+        current_scheme = WordConfig.get_excerpt_naming_scheme()
+        idx = self.excerpt_naming_combo.findData(current_scheme)
+        if idx >= 0:
+            self.excerpt_naming_combo.setCurrentIndex(idx)
+        self.excerpt_naming_combo.currentIndexChanged.connect(self._on_naming_scheme_changed)
+        naming_layout.addWidget(self.excerpt_naming_combo)
+
+        lbl_file = QLabel("<b>Export File:</b>")
+        lbl_file.setStyleSheet("color: #475569; font-size: 11px; margin-left: 4px;")
+        naming_layout.addWidget(lbl_file)
+
+        self.excerpt_filename_edit = QLineEdit()
+        self.excerpt_filename_edit.setStyleSheet(SEARCH_INPUT_STYLE + "; font-size: 11px; padding: 4px 6px;")
+        self.excerpt_filename_edit.setPlaceholderText("Auto-generated differentiated filename (editable)...")
+        self.excerpt_filename_edit.textEdited.connect(self._on_filename_text_edited)
+        naming_layout.addWidget(self.excerpt_filename_edit, 1)
+
+        self.excerpt_reset_name_btn = QPushButton("🔄 Reset")
+        self.excerpt_reset_name_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY + "; font-size: 11px; padding: 3px 8px;")
+        self.excerpt_reset_name_btn.setToolTip("Reset filename to auto-generated differentiated name based on selected clauses")
+        self.excerpt_reset_name_btn.clicked.connect(self._reset_filename_to_auto)
+        naming_layout.addWidget(self.excerpt_reset_name_btn)
+
+        excerpt_layout.addWidget(naming_frame)
 
         action_row = QHBoxLayout()
         self.excerpt_select_all_btn = QPushButton("Select All")
@@ -219,6 +273,7 @@ class WordExcerptCard(QWidget):
         self._excerpt_headings = []
         self.excerpt_tree.clear()
         self.excerpt_extract_btn.setEnabled(False)
+        self._update_preview_filename()
 
     def _disconnect_running_scan(self):
         self._excerpt_scan_gen += 1
@@ -317,6 +372,7 @@ class WordExcerptCard(QWidget):
         QMessageBox.critical(self, "Heading Scan Failed", message)
 
     def _populate_excerpt_tree(self):
+        self.excerpt_tree.blockSignals(True)
         self.excerpt_tree.clear()
         by_source = {}
         for h in self._excerpt_headings:
@@ -342,6 +398,8 @@ class WordExcerptCard(QWidget):
                     if level > h.level:
                         del parents[level]
         self.excerpt_tree.expandToDepth(1)
+        self.excerpt_tree.blockSignals(False)
+        self._update_preview_filename()
 
     def _filter_excerpt_tree(self, text):
         needle = text.strip().lower()
@@ -372,6 +430,7 @@ class WordExcerptCard(QWidget):
                 self.lbl_excerpt_match_count.setText("")
 
     def _select_all_excerpt_headings(self):
+        self.excerpt_tree.blockSignals(True)
         def select(item):
             if item.data(0, Qt.UserRole) and not item.isHidden():
                 item.setCheckState(0, Qt.Checked)
@@ -379,17 +438,23 @@ class WordExcerptCard(QWidget):
                 select(item.child(i))
         for i in range(self.excerpt_tree.topLevelItemCount()):
             select(self.excerpt_tree.topLevelItem(i))
+        self.excerpt_tree.blockSignals(False)
+        self._update_preview_filename()
 
     def _select_level1_excerpt_headings(self):
-        self._clear_excerpt_selection()
+        self.excerpt_tree.blockSignals(True)
+        self._clear_excerpt_selection(update_preview=False)
         for i in range(self.excerpt_tree.topLevelItemCount()):
             src_item = self.excerpt_tree.topLevelItem(i)
             for c in range(src_item.childCount()):
                 item = src_item.child(c)
                 if item.data(0, Qt.UserRole) and not item.isHidden():
                     item.setCheckState(0, Qt.Checked)
+        self.excerpt_tree.blockSignals(False)
+        self._update_preview_filename()
 
-    def _clear_excerpt_selection(self):
+    def _clear_excerpt_selection(self, update_preview: bool = True):
+        self.excerpt_tree.blockSignals(True)
         def clear(item):
             if item.data(0, Qt.UserRole):
                 item.setCheckState(0, Qt.Unchecked)
@@ -397,6 +462,46 @@ class WordExcerptCard(QWidget):
                 clear(item.child(i))
         for i in range(self.excerpt_tree.topLevelItemCount()):
             clear(self.excerpt_tree.topLevelItem(i))
+        self.excerpt_tree.blockSignals(False)
+        if update_preview:
+            self._update_preview_filename()
+
+    def _on_tree_item_changed(self, item, column):
+        if column == 0:
+            self._update_preview_filename()
+
+    def _on_naming_scheme_changed(self):
+        scheme = self.excerpt_naming_combo.currentData()
+        if scheme:
+            WordConfig.set_excerpt_naming_scheme(scheme)
+        self._custom_filename_active = False
+        self._update_preview_filename(force=True)
+
+    def _on_filename_text_edited(self, text: str):
+        self._custom_filename_active = bool(text.strip())
+
+    def _reset_filename_to_auto(self):
+        self._custom_filename_active = False
+        self._update_preview_filename(force=True)
+
+    def _update_preview_filename(self, force: bool = False):
+        if self._custom_filename_active and not force:
+            return
+        selected = self._selected_excerpt_ids()
+        scheme = (
+            self.excerpt_naming_combo.currentData()
+            if hasattr(self, "excerpt_naming_combo")
+            else "source_clauses_timestamp"
+        )
+        auto_name = generate_differentiated_export_name(
+            source_paths=self._excerpt_paths or self._excerpt_input_paths,
+            headings=self._excerpt_headings,
+            selected_ids=selected,
+            scheme=scheme or "source_clauses_timestamp",
+            ext=".docx",
+        )
+        if hasattr(self, "excerpt_filename_edit"):
+            self.excerpt_filename_edit.setText(auto_name)
 
     def _selected_excerpt_ids(self):
         selected = []
@@ -416,8 +521,30 @@ class WordExcerptCard(QWidget):
             QMessageBox.information(self, "No Selection", "Select at least one heading to extract.")
             return
         default_dir = str(Path(self._excerpt_paths[0]).parent) if self._excerpt_paths else ""
+
+        proposed_name = (
+            self.excerpt_filename_edit.text().strip()
+            if hasattr(self, "excerpt_filename_edit")
+            else ""
+        )
+        if not proposed_name:
+            scheme = (
+                self.excerpt_naming_combo.currentData()
+                if hasattr(self, "excerpt_naming_combo")
+                else "source_clauses_timestamp"
+            )
+            proposed_name = generate_differentiated_export_name(
+                source_paths=self._excerpt_paths or self._excerpt_input_paths,
+                headings=self._excerpt_headings,
+                selected_ids=selected,
+                scheme=scheme or "source_clauses_timestamp",
+                ext=".docx",
+            )
+        if not proposed_name.lower().endswith(".docx"):
+            proposed_name += ".docx"
+
         output, _ = QFileDialog.getSaveFileName(
-            self, "Save Extracted Sections", str(Path(default_dir) / "extracted_sections.docx"),
+            self, "Save Extracted Sections", str(Path(default_dir) / proposed_name),
             "Word Document (*.docx)"
         )
         if not output:

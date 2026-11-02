@@ -40,6 +40,7 @@ class WordConfig:
             "save_document_after_setting_sensitivity_label": False,
             "libreoffice_path": "",
             "default_source_company": "",
+            "excerpt_naming_scheme": "source_clauses_timestamp",
         }
         try:
             if CONFIG_PATH.exists():
@@ -162,3 +163,14 @@ class WordConfig:
         cfg = WordConfig.load()
         cfg["libreoffice_path"] = path_str.strip()
         WordConfig.save(cfg)
+
+    @staticmethod
+    def get_excerpt_naming_scheme() -> str:
+        return WordConfig.load().get("excerpt_naming_scheme", "source_clauses_timestamp")
+
+    @staticmethod
+    def set_excerpt_naming_scheme(scheme: str):
+        cfg = WordConfig.load()
+        cfg["excerpt_naming_scheme"] = scheme
+        WordConfig.save(cfg)
+
