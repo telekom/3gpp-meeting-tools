@@ -56,7 +56,7 @@ import zlib
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, Iterator, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 __version__ = "2.2.0"
 log = logging.getLogger("tdoc2md")
@@ -648,28 +648,79 @@ class DocxConverter:
         return self.result
 
     # ---------------- blocks ----------------
+    def _iter_blocks(self, container):
+        """Flatten the supported block wrappers for rendering and scope lookahead."""
+        W = self.W
+        for el in container:
+            if el.tag in (W + "p", W + "tbl"):
+                yield el
+            elif ln(el.tag) == "sdt":
+                content = el.find(W + "sdtContent")
+                if content is not None:
+                    yield from self._iter_blocks(content)
+            elif ln(el.tag) in ("customXml", "sdtContent", "ins", "moveTo", "smartTag"):
+                yield from self._iter_blocks(el)
+            elif ln(el.tag) == "AlternateContent":
+                choice = next((c for c in el if ln(c.tag) == "Choice"), None)
+                if choice is not None:
+                    yield from self._iter_blocks(choice)
+
+    def _scope_paragraph(self, paragraph) -> ParaRender:
+        """Use the inline renderer's text rules without exporting media twice."""
+        def text_only(el):
+            clone = ET.Element(el.tag, el.attrib)
+            clone.text, clone.tail = el.text, el.tail
+            for child in el:
+                if ln(child.tag) not in ("drawing", "pict", "object"):
+                    clone.append(text_only(child))
+            return clone
+
+        segments = []
+        for child in text_only(paragraph):
+            if ln(child.tag) != "pPr":
+                self._walk(child, "NORMAL", segments)
+        return self._render_segments(segments)
+
     def _block_has_revisions(self, container: List[Any], start_idx: int) -> bool:
-        """Return True if any element in the change block contains revision marks."""
+        """Look ahead within the same scope, using the renderer's visible text."""
         W = self.W
         for j in range(start_idx + 1, len(container)):
+            if self.cancellation_check and self.cancellation_check():
+                return False
             el = container[j]
             if el.tag == W + "p":
-                txt = "".join(el.itertext()).strip()
-                if txt:
-                    plain = re.sub(r"\s+", " ", txt).strip()
-                    if change_boundary_qualifier(plain) is not None or (len(plain) <= 120 and LEGACY_BOUNDARY_RE.search(plain)):
+                para = self._scope_paragraph(el)
+                if para.has_content:
+                    plain = re.sub(r"\s+", " ", para.plain).strip()
+                    if (change_boundary_qualifier(plain) is not None
+                            or (len(plain) <= 120 and
+                                (LEGACY_BOUNDARY_RE.search(plain) or ALL_NEW_RE.search(plain)))):
                         break
-            if el.find(".//" + W + "ins") is not None or el.find(".//" + W + "del") is not None:
+            if any(node.tag in (W + "ins", W + "del", W + "moveTo", W + "moveFrom")
+                   for node in el.iter()):
                 return True
         return False
+
+    def _new_scope_note(self) -> str:
+        if not self.in_incremental_new_block:
+            return "> **[Change scope: new text for the target specification; inline revisions retain their separate edit layer]**"
+        reference = (self.result.cover.get("revision of") or self.meta.get("is revision of")
+                     or self.meta.get("revision of"))
+        context = " Document revision of: %s." % reference if reference else ""
+        return (
+            "> **[Change scope: all text in this block is new to the target specification; "
+            "inline markers preserve Word tracked edits. Unmarked text is also within the all-new scope."
+            + context + "]**"
+        )
 
     def _render_blocks(self, container, top: bool, in_cell: bool) -> List[str]:
         blocks: List[str] = []
         W = self.W
+        container = list(self._iter_blocks(container))
         for idx, el in enumerate(container):
             if self.cancellation_check and self.cancellation_check():
                 break
-            tag, l = el.tag, ln(el.tag)
+            tag = el.tag
             if tag == W + "p":
                 b = self._render_para_block(el, top, in_cell, container=container, idx=idx)
                 if b:
@@ -678,16 +729,6 @@ class DocxConverter:
                 b = self._render_table(el, top, in_cell)
                 if b:
                     blocks.append(b)
-            elif l == "sdt":
-                sc = el.find(W + "sdtContent")
-                if sc is not None:
-                    blocks.extend(self._render_blocks(sc, top, in_cell))
-            elif l in ("customXml", "sdtContent", "ins", "moveTo", "smartTag"):
-                blocks.extend(self._render_blocks(el, top, in_cell))
-            elif l == "AlternateContent":
-                choice = next((c for c in el if ln(c.tag) == "Choice"), None)
-                if choice is not None:
-                    blocks.extend(self._render_blocks(choice, top, in_cell))
         return blocks
 
     def _para_props(self, p):
@@ -764,28 +805,7 @@ class DocxConverter:
                 self.marker_count += 1
                 marker = "> **[%s]**" % plain
                 if self.in_new_block:
-                    if self.in_incremental_new_block:
-                        prev_ref = (
-                            self.result.cover.get("revision of")
-                            or self.meta.get("is revision of")
-                            or self.meta.get("revision of")
-                        )
-                        if prev_ref:
-                            marker += (
-                                "\n\n> **[Change scope: new text for the target specification; "
-                                "inline revisions show changes wrt %s. Unmarked text represents the starting point baseline.]**"
-                                % prev_ref
-                            )
-                        else:
-                            marker += (
-                                "\n\n> **[Change scope: new text for the target specification; "
-                                "inline revisions show changes wrt predecessor contribution. Unmarked text represents the starting point baseline.]**"
-                            )
-                    else:
-                        marker += (
-                            "\n\n> **[Change scope: new text for the target specification; "
-                            "inline revisions retain their separate edit layer]**"
-                        )
+                    marker += "\n\n" + self._new_scope_note()
                 return marker
             words = plain.split()
             first = words[0] if words else ""
@@ -799,22 +819,11 @@ class DocxConverter:
                     self.in_incremental_new_block = self._block_has_revisions(container, idx)
                 else:
                     self.in_incremental_new_block = False
-                if self.in_incremental_new_block:
-                    prev_ref = (
-                        self.result.cover.get("revision of")
-                        or self.meta.get("is revision of")
-                        or self.meta.get("revision of")
-                    )
-                    ref_str = (" wrt %s" % prev_ref) if prev_ref else " wrt predecessor contribution"
-                    return (
-                        "> **[Change scope: new text for the target specification; "
-                        "inline revisions show changes%s. Unmarked text represents the starting point baseline.]** %s"
-                        % (ref_str, text)
-                    )
-                return "> **[Change scope: new text for the target specification; inline revisions retain their separate edit layer]** %s" % text
+                return self._new_scope_note() + " " + text
             if heading and PLACEHOLDER_CLAUSE_RE.match(first):
+                if not self.in_new_block:
+                    self.in_incremental_new_block = False
                 self.in_new_block = True
-                self.in_incremental_new_block = False
                 note = "> **[Note to LLM: entering new placeholder clause '%s']**\n\n" % first
 
         if heading:
@@ -1129,10 +1138,9 @@ class DocxConverter:
 
             if (kind == "text" and state_merged and state_merged[-1][0] == "text"
                     and state_merged[-1][1] == state):
-                comb = state_merged[-1][2] + formatted
-                # Collapse seams like **** -> "" or ~~~~ -> ""
-                comb = comb.replace("****", "").replace("~~~~", "")
-                state_merged[-1][2] = comb
+                # Equal formats were merged before rendering. Preserve literal
+                # delimiters and formatting boundaries between different formats.
+                state_merged[-1][2] += formatted
                 state_merged[-1][3] += plain_val
             else:
                 state_merged.append([kind, state, formatted, plain_val])
@@ -1731,6 +1739,7 @@ def build_header(tdoc_id: str, meta: Dict[str, str], res: DocResult, original: s
     title = _pick(meta, cover, "title")
     is_tdoc = bool(
         TDOC_RE.search(tdoc_id)
+        or res.detected_type in ("CR", "pCR", "LS")
         or (meta and any(k in meta for k in ("tdoc", "tdoc_id", "agenda item", "work item", "spec")))
         or any(k in cover for k in ("source", "agenda item", "work item", "spec"))
     )
