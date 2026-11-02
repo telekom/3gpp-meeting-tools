@@ -23,6 +23,11 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from core.utils.paths import get_temp_root, to_extended_path
 from modules.word_tools.core.sensitivity_label import set_sensitivity_label
 from modules.word_tools.core.styles_3gpp import ensure_3gpp_package_styles
+from modules.word_tools.core.word_excerpt_naming import (
+    NAMING_SCHEMES,
+    SCHEME_SOURCE_CLAUSES_TIMESTAMP,
+    generate_differentiated_export_name,
+)
 
 logger = logging.getLogger(__name__)
 

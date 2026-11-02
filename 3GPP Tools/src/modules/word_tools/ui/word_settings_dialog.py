@@ -44,6 +44,7 @@ from modules.word_tools.core.styles_3gpp import (
     uninstall_3gpp_dotx_template,
 )
 from modules.word_tools.core.word_config import WordConfig
+from modules.word_tools.core.word_excerpt_naming import NAMING_SCHEMES
 
 
 class SensitivityLabelEditDialog(QDialog):
@@ -169,6 +170,12 @@ class WordSettingsDialog(QDialog):
         self.edit_company.setStyleSheet(SEARCH_INPUT_STYLE)
         self.edit_company.setPlaceholderText("e.g., T-Mobile, Ericsson, Qualcomm...")
         def_form.addRow("Default Source / Company:", self.edit_company)
+
+        self.combo_excerpt_naming = QComboBox()
+        self.combo_excerpt_naming.setStyleSheet(SEARCH_INPUT_STYLE)
+        for scheme_id, scheme_label in NAMING_SCHEMES:
+            self.combo_excerpt_naming.addItem(scheme_label, scheme_id)
+        def_form.addRow("Default Excerpt Naming:", self.combo_excerpt_naming)
         main_layout.addWidget(grp_defaults)
 
         # 3. Enterprise Sensitivity Labels
@@ -308,6 +315,11 @@ class WordSettingsDialog(QDialog):
         self.chk_save_after_label.setChecked(cfg.get("save_document_after_setting_sensitivity_label", False))
         self.edit_company.setText(cfg.get("default_source_company", ""))
         self.edit_lo_path.setText(cfg.get("libreoffice_path", ""))
+
+        scheme = cfg.get("excerpt_naming_scheme", "source_clauses_timestamp")
+        idx = self.combo_excerpt_naming.findData(scheme)
+        if idx >= 0:
+            self.combo_excerpt_naming.setCurrentIndex(idx)
 
         self._labels_cache = [dict(l) for l in cfg.get("sensitivity_labels", WordConfig.DEFAULT_SENSITIVITY_LABELS)]
         active_id = cfg.get("active_sensitivity_label_id") or cfg.get("sensitivity_level_label_id", "")
@@ -577,5 +589,6 @@ class WordSettingsDialog(QDialog):
         cfg["sensitivity_labels"] = self._labels_cache
         cfg["default_source_company"] = self.edit_company.text().strip()
         cfg["libreoffice_path"] = self.edit_lo_path.text().strip()
+        cfg["excerpt_naming_scheme"] = self.combo_excerpt_naming.currentData() or "source_clauses_timestamp"
         WordConfig.save(cfg)
         self.accept()
