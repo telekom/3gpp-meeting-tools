@@ -710,6 +710,10 @@ class DocxConverter:
                 except ValueError:
                     pass
         name, heading, style_num = self.styles.info(style_id)
+        if heading is None and style_id:
+            m = re.match(r"(?i)^heading\s*([1-9])$", style_id.strip())
+            if m:
+                heading = int(m.group(1))
         if heading is None and outline is not None and outline < 9:
             heading = outline + 1
         if num is None:
@@ -815,7 +819,10 @@ class DocxConverter:
 
         if heading:
             level = max(1, min(heading, 6))
-            htxt = text.replace("\n", " ")
+            htxt = text.replace("\n", " ").strip()
+            # If the entire heading text was bolded in Word, strip outer ** to avoid redundant Markdown bolding
+            if htxt.startswith("**") and htxt.endswith("**") and len(htxt) >= 4:
+                htxt = htxt[2:-2].strip()
             if label and label != "-":
                 htxt = "%s %s" % (label, htxt)
             return note + "%s %s" % ("#" * level, htxt)
@@ -827,29 +834,210 @@ class DocxConverter:
             indent = "  " * (num[1] if num else 0)
             text = "%s%s %s" % (indent, label, text)
         elif style_name in ("TH", "TF") and "![" not in text and "\n" not in text:
-            text = "**%s**" % text
+            if not (text.startswith("**") and text.endswith("**")):
+                text = "**%s**" % text
         return note + text
 
+    # ---------------- formatting helpers ----------------
+    def _extract_rpr_format(self, rPr, base_fmt: Optional[dict] = None) -> dict:
+        """Extracts run-level font styles (subscript, superscript, bold, italic, strike, code)."""
+        fmt = dict(base_fmt or {})
+        if rPr is None:
+            return fmt
+        W = self.W
+        va = rPr.find(W + "vertAlign")
+        if va is not None:
+            val = get_attr(va, "val")
+            if val == "subscript":
+                fmt["sub"] = True
+            elif val == "superscript":
+                fmt["sup"] = True
+        b = rPr.find(W + "b")
+        if b is None:
+            b = rPr.find(W + "bCs")
+        if b is not None and get_attr(b, "val", "true") not in ("0", "false", "off"):
+            fmt["bold"] = True
+        i_elem = rPr.find(W + "i")
+        if i_elem is None:
+            i_elem = rPr.find(W + "iCs")
+        if i_elem is not None and get_attr(i_elem, "val", "true") not in ("0", "false", "off"):
+            fmt["italic"] = True
+        strike = rPr.find(W + "strike")
+        if strike is None:
+            strike = rPr.find(W + "dstrike")
+        if strike is not None and get_attr(strike, "val", "true") not in ("0", "false", "off"):
+            fmt["strike"] = True
+        u = rPr.find(W + "u")
+        if u is not None and get_attr(u, "val", "none") not in ("none", "0", "false", "off"):
+            fmt["underline"] = True
+        rf = rPr.find(W + "rFonts")
+        if rf is not None:
+            font_names = " ".join(get_attr(rf, a, "") for a in ("ascii", "hAnsi", "cs")).lower()
+            if any(mono in font_names for mono in ("consolas", "courier", "monospace")):
+                fmt["code"] = True
+        return fmt
+
+    @staticmethod
+    def _apply_inline_format(val: str, fmt: dict) -> str:
+        """Applies Markdown / HTML formatting to a text segment, keeping whitespace outside delimiters."""
+        if not val or not fmt:
+            return val
+        if not val.strip():
+            return val
+        l_space = val[:len(val) - len(val.lstrip())]
+        r_space = val[len(val.rstrip()):]
+        core = val[len(l_space):len(val) - len(r_space)]
+
+        res = core
+        if fmt.get("sub"):
+            res = f"<sub>{res}</sub>"
+        elif fmt.get("sup"):
+            res = f"<sup>{res}</sup>"
+
+        if fmt.get("code") and not fmt.get("sub") and not fmt.get("sup"):
+            if "`" in res:
+                res = f"`` {res} ``"
+            else:
+                res = f"`{res}`"
+
+        if not fmt.get("code"):
+            if fmt.get("strike"):
+                res = f"~~{res}~~"
+            if fmt.get("underline"):
+                res = f"<u>{res}</u>"
+            if fmt.get("bold") and fmt.get("italic"):
+                res = f"***{res}***"
+            elif fmt.get("bold"):
+                res = f"**{res}**"
+            elif fmt.get("italic"):
+                res = f"*{res}*"
+
+        link = fmt.get("link")
+        if link:
+            res = f"[{res}]({link})"
+
+        return l_space + res + r_space
+
+    @staticmethod
+    def _apply_plain_format(val: str, fmt: dict) -> str:
+        """Emits plain text representation preserving subscripts (e.g. K_NF) and superscripts."""
+        if not val or not fmt:
+            return val
+        if not val.strip():
+            return val
+        l_space = val[:len(val) - len(val.lstrip())]
+        r_space = val[len(val.rstrip()):]
+        core = val[len(l_space):len(val) - len(r_space)]
+
+        if fmt.get("sub"):
+            res = f"_{core}" if not core.startswith("_") else core
+        elif fmt.get("sup"):
+            res = f"^{core}" if not core.startswith("^") else core
+        else:
+            res = core
+        return l_space + res + r_space
+
     # ---------------- inline walking ----------------
-    def _walk(self, el, state: str, out: List[Tuple[str, str, str]]):
+    def _walk(self, el, state: str, out: List[Any], fmt: Optional[dict] = None):
+        if fmt is None:
+            fmt = {}
+        else:
+            fmt = dict(fmt)
         W = self.W
         tag = el.tag
         l = ln(tag)
+
+        # ---------------- Office Math (OMML) Elements ----------------
+        if tag.startswith("{http://schemas.openxmlformats.org/officeDocument/2006/math}") or l in (
+            "oMath", "oMathPara", "sSub", "sSup", "sSubSup", "f", "d"
+        ):
+            if l in ("oMath", "oMathPara"):
+                for c in el:
+                    self._walk(c, state, out, fmt)
+                return
+            if l == "sSub":
+                e = next((c for c in el if ln(c.tag) == "e"), None)
+                sub = next((c for c in el if ln(c.tag) == "sub"), None)
+                if e is not None:
+                    self._walk(e, state, out, fmt)
+                if sub is not None:
+                    sub_fmt = dict(fmt)
+                    sub_fmt["sub"] = True
+                    self._walk(sub, state, out, sub_fmt)
+                return
+            if l == "sSup":
+                e = next((c for c in el if ln(c.tag) == "e"), None)
+                sup = next((c for c in el if ln(c.tag) == "sup"), None)
+                if e is not None:
+                    self._walk(e, state, out, fmt)
+                if sup is not None:
+                    sup_fmt = dict(fmt)
+                    sup_fmt["sup"] = True
+                    self._walk(sup, state, out, sup_fmt)
+                return
+            if l == "sSubSup":
+                e = next((c for c in el if ln(c.tag) == "e"), None)
+                sub = next((c for c in el if ln(c.tag) == "sub"), None)
+                sup = next((c for c in el if ln(c.tag) == "sup"), None)
+                if e is not None:
+                    self._walk(e, state, out, fmt)
+                if sub is not None:
+                    sub_fmt = dict(fmt)
+                    sub_fmt["sub"] = True
+                    self._walk(sub, state, out, sub_fmt)
+                if sup is not None:
+                    sup_fmt = dict(fmt)
+                    sup_fmt["sup"] = True
+                    self._walk(sup, state, out, sup_fmt)
+                return
+            if l == "f":
+                num = next((c for c in el if ln(c.tag) == "num"), None)
+                den = next((c for c in el if ln(c.tag) == "den"), None)
+                if num is not None:
+                    self._walk(num, state, out, fmt)
+                out.append(("text", state, " / ", fmt))
+                if den is not None:
+                    self._walk(den, state, out, fmt)
+                return
+            if l == "d":
+                dPr = next((c for c in el if ln(c.tag) == "dPr"), None)
+                beg_chr = "("
+                end_chr = ")"
+                if dPr is not None:
+                    beg = next((c for c in dPr if ln(c.tag) == "begChr"), None)
+                    if beg is not None:
+                        beg_chr = get_attr(beg, "val", "(") or ""
+                    end = next((c for c in dPr if ln(c.tag) == "endChr"), None)
+                    if end is not None:
+                        end_chr = get_attr(end, "val", ")") or ""
+                if beg_chr:
+                    out.append(("text", state, beg_chr, fmt))
+                for c in el:
+                    if ln(c.tag) == "e":
+                        self._walk(c, state, out, fmt)
+                if end_chr:
+                    out.append(("text", state, end_chr, fmt))
+                return
+            if l == "t":
+                out.append(("text", state, el.text or "", fmt))
+                return
+
+        # ---------------- WordprocessingML Elements ----------------
         if tag.startswith(W) or not W:
             if l == "t":
-                out.append(("text", state, el.text or ""))
+                out.append(("text", state, el.text or "", fmt))
                 return
             if l == "delText":
-                out.append(("text", "DEL", el.text or ""))
+                out.append(("text", "DEL", el.text or "", fmt))
                 return
             if l in ("tab", "ptab"):
-                out.append(("text", state, "\t"))
+                out.append(("text", state, "\t", fmt))
                 return
             if l in ("br", "cr"):
-                out.append(("text", state, "\n"))
+                out.append(("text", state, "\n", fmt))
                 return
             if l == "noBreakHyphen":
-                out.append(("text", state, "-"))
+                out.append(("text", state, "-", fmt))
                 return
             if l == "sym":
                 try:
@@ -858,7 +1046,7 @@ class DocxConverter:
                         code -= 0xF000
                     ch = SYMBOL_MAP.get(code, chr(code) if 0x20 <= code < 0x7F else "")
                     if ch:
-                        out.append(("text", state, ch))
+                        out.append(("text", state, ch, fmt))
                 except ValueError:
                     pass
                 return
@@ -873,6 +1061,23 @@ class DocxConverter:
                     v = rPr.find(W + "vanish")
                     if v is not None and get_attr(v, "val", "true") not in ("0", "false", "off"):
                         return
+                r_fmt = self._extract_rpr_format(rPr, base_fmt=fmt)
+                for c in el:
+                    self._walk(c, state, out, r_fmt)
+                return
+            if l == "hyperlink":
+                rid = rel_attr(el, "id")
+                link_target = None
+                if rid and rid in self.rels:
+                    tgt, typ, ext = self.rels[rid]
+                    if typ == "hyperlink" or ext or tgt.startswith(("http://", "https://", "ftp://", "mailto:")):
+                        link_target = tgt
+                hl_fmt = dict(fmt)
+                if link_target:
+                    hl_fmt["link"] = link_target
+                for c in el:
+                    self._walk(c, state, out, hl_fmt)
+                return
             if l in ("ins", "moveTo"):
                 state = "DEL" if state == "DEL" else "INS"
             elif l in ("del", "moveFrom"):
@@ -891,24 +1096,53 @@ class DocxConverter:
             target = choice if choice is not None else next((c for c in el if ln(c.tag) == "Fallback"), None)
             if target is not None:
                 for c in target:
-                    self._walk(c, state, out)
+                    self._walk(c, state, out, fmt)
             return
         for c in el:
-            self._walk(c, state, out)
+            self._walk(c, state, out, fmt)
 
-    def _render_segments(self, segs: List[Tuple[str, str, str]]) -> ParaRender:
-        merged: List[List[str]] = []
-        for kind, state, val in segs:
-            if kind == "text" and merged and merged[-1][0] == "text" and merged[-1][1] == state:
-                merged[-1][2] += val
+    def _render_segments(self, segs: List[Any]) -> ParaRender:
+        # Phase 1: Merge contiguous text segments sharing the exact same state and formatting
+        fmt_merged: List[List[Any]] = []
+        for seg in segs:
+            if len(seg) == 4:
+                kind, state, val, fmt = seg
             else:
-                merged.append([kind, state, val])
-        out, plain = [], []
-        has_rev, ins_content, other_content, has_content = False, False, False, False
-        for kind, state, val in merged:
+                kind, state, val = seg[:3]
+                fmt = {}
+            if (kind == "text" and fmt_merged and fmt_merged[-1][0] == "text"
+                    and fmt_merged[-1][1] == state and fmt_merged[-1][3] == fmt):
+                fmt_merged[-1][2] += val
+            else:
+                fmt_merged.append([kind, state, val, fmt])
+
+        # Phase 2: Apply inline formatting and collapse revision/style seams
+        state_merged: List[List[str]] = []
+        for kind, state, val, fmt in fmt_merged:
             if kind == "text":
                 val = val.replace("\xa0", " ").replace("\t", " ")
-                visible = bool(val) if state != "NORMAL" else bool(val.strip())
+                formatted = self._apply_inline_format(val, fmt)
+                plain_val = self._apply_plain_format(val, fmt)
+            else:
+                formatted = val
+                plain_val = val
+
+            if (kind == "text" and state_merged and state_merged[-1][0] == "text"
+                    and state_merged[-1][1] == state):
+                comb = state_merged[-1][2] + formatted
+                # Collapse seams like **** -> "" or ~~~~ -> ""
+                comb = comb.replace("****", "").replace("~~~~", "")
+                state_merged[-1][2] = comb
+                state_merged[-1][3] += plain_val
+            else:
+                state_merged.append([kind, state, formatted, plain_val])
+
+        # Phase 3: Format revision blocks and plain text
+        out, plain = [], []
+        has_rev, ins_content, other_content, has_content = False, False, False, False
+        for kind, state, f_val, p_val in state_merged:
+            if kind == "text":
+                visible = bool(f_val) if state != "NORMAL" else bool(f_val.strip())
             else:
                 visible = True
             if visible:
@@ -919,8 +1153,8 @@ class DocxConverter:
                 elif state == "NORMAL":
                     other_content = True
             if state != "DEL" and kind == "text":
-                plain.append(val)
-            rendered = self._fmt_segment(kind, state, val)
+                plain.append(p_val)
+            rendered = self._fmt_segment(kind, state, f_val)
             if rendered.strip():
                 has_content = True
             out.append(rendered)
