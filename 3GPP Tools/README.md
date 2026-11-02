@@ -298,7 +298,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
     * **1-Click Launch from Spec Search (`🎯 Find Origin CR`):** Directly in the Spec Search console bar, 1-click navigation launches the ranked Change History dialog pre-set with active query, clause, and origin relevance sorting.
 
 * **✂️ 3GPP Specification Clause & Excerpt Extractor:**
-  * **Instant Excerpt Dialog from Version Menu:** Select any specification release in the Specifications tab and click **`✂️ Extract Clauses (Excerpt)...`** to launch a modeless clause extractor window.
+  * **Instant Excerpt Dialog from Version Menu:** Select any specification release in the Specifications tab and click **✂️ Extract Clauses (Excerpt)...** to launch a modeless clause extractor window. Configured as an independent top-level floating window without staying pinned on top of the main window or external apps.
   * **Automated Background Fetch & Smart Unzipping:** Automatically downloads missing archives from 3GPP FTP, skips YAML, OpenAPI, and PDF files, and extracts clean Word documents while filtering out revision marks (`-rm`).
   * **Multi-Part & Legacy Support:** Naturally sequences multi-part split specifications (e.g., `_s00_s04`, `_s05_s08`) and automatically converts legacy binary `.doc` files to `.docx` via COM automation or headless LibreOffice.
   * **Interactive Tree Browser with Search Filter:** Filter clauses by number or keyword (e.g., `5.2`, `registration`, `NWDAF`) in an interactive tree view with auto-cascading checkboxes.
@@ -807,7 +807,7 @@ python -m main_tools
 8. Under the Specifications tab, use **🎯 Quick Fetch** to surgically inject single specifications or series into the database without a full sync.
 9. **Extracting Clauses (Word Excerpt):**
    * In the **Specifications** tab, click the **Documents** dropdown for any specification release and choose **`✂️ Extract Clauses (Excerpt)...`**.
-   * The modeless **Extract Clauses** dialog opens immediately. Missing specification ZIPs download and unpack in the background, multi-part documents (`_s00_s04`, etc.) are sequenced, legacy `.doc` files are converted to `.docx`, and change-mark files (`-rm`) are filtered out.
+   * The modeless **Extract Clauses** dialog opens immediately as an independent floating window (without owner pinning, allowing delegates to freely navigate the main window, compare specs, or switch to Word without the dialog staying pinned on top). Missing specification ZIPs download and unpack in the background, multi-part documents (_s00_s04, etc.) are sequenced, legacy .doc files are converted to .docx, and change-mark files (-rm) are filtered out.
    * Filter clauses by keyword or number, select desired clauses in the hierarchy (parent check states automatically cascade to all subclauses), and click **`✂️ Extract Selected Clauses...`** to generate a clean, formatted Word document with source typography and corporate sensitivity labels.
 10. **Exporting Specifications to Markdown:**
     * In the **Specifications** tab, click the **Documents** dropdown for any release to export directly into Markdown:

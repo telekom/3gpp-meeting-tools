@@ -110,8 +110,10 @@ class CrPcrDialog(QDialog):
         tdoc_info: Optional[Dict[str, str]] = None,
         initial_mode: str = "pcr",
         parent=None,
+        auto_start: bool = True,
     ):
-        super().__init__(parent)
+        super().__init__(None)  # Pass None so Win32 does not set parent as GW_OWNER (prevents dialog from being forced always-on-top of main window)
+        self._parent_ref = parent
         self.spec_num = spec_num.strip()
         self.spec_type = (spec_type or "TS").upper().strip()
         self.version = version.strip()
@@ -137,7 +139,17 @@ class CrPcrDialog(QDialog):
         self.setWindowTitle(
             f"📝 Draft 3GPP Contribution: {self.spec_type} {self.spec_num} v{self.version}"
         )
-        self.setWindowFlags(self.windowFlags() | Qt.Window)
+        # Modeless top-level independent window configuration:
+        # Note: Must use Qt.Window rather than self.windowFlags() | Qt.Window so Qt.Dialog (0x3)
+        # is cleared, allowing the window to freely move behind the main app window in z-order.
+        self.setWindowFlags(Qt.Window)
+        self.setWindowModality(Qt.NonModal)
+        self.setAttribute(Qt.WA_DeleteOnClose, False)
+        if parent is not None:
+            try:
+                parent.destroyed.connect(self.close)
+            except Exception:
+                pass
         self.resize(1020, 780)
         self.setMinimumWidth(850)
         self.setMinimumHeight(600)
@@ -152,7 +164,7 @@ class CrPcrDialog(QDialog):
         # If headings are already provided, populate tree immediately
         if self._ordered_paths and self._headings:
             self._on_prep_finished(self._ordered_paths, self._headings)
-        elif self.spec_num and self.version:
+        elif auto_start and self.spec_num and self.version:
             self._start_spec_preparation()
 
     @property
@@ -910,8 +922,12 @@ class CrPcrDialog(QDialog):
     def closeEvent(self, event):
         if self._prep_thread and self._prep_thread.isRunning():
             self._prep_thread.requestInterruption()
-            self._prep_thread.wait(200)
+            if not self._prep_thread.wait(1000):
+                self._prep_thread.terminate()
+                self._prep_thread.wait(500)
         if self._gen_thread and self._gen_thread.isRunning():
             self._gen_thread.requestInterruption()
-            self._gen_thread.wait(500)
+            if not self._gen_thread.wait(1000):
+                self._gen_thread.terminate()
+                self._gen_thread.wait(500)
         super().closeEvent(event)
