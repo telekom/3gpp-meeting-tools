@@ -239,26 +239,32 @@ class WordExcerptEngine:
                 # with managed Office installations.
                 self._progress(55, "Finalizing single-document excerpt...")
                 logger.info("   -> Single source fragment: skipping Microsoft Word merge.")
+                working = fragments[0]
+
+                # The fragment was saved directly from a copy of the source package,
+                # so its formatting parts already originate from that source.  Apply
+                # the required corporate label in a fresh Word session and lock in 3GPP styles
+                # inside the isolated temp working directory before copying to the final destination.
+                self._progress(80, "Applying corporate sensitivity label and 3GPP styles...")
+                pythoncom.CoInitialize()
+                try:
+                    self._apply_label_in_fresh_word(working)
+                finally:
+                    pythoncom.CoUninitialize()
+                WordExcerptEngine._wait_for_file_unlocked(working)
+                ensure_3gpp_package_styles(working)
+
+                # Only a completely finalized, closed file is copied to the user target.
                 ext_output = to_extended_path(output)
+                os.makedirs(to_extended_path(output.parent), exist_ok=True)
                 if os.path.exists(ext_output):
                     try:
                         os.remove(ext_output)
                     except OSError:
                         pass
-                shutil.copy2(to_extended_path(fragments[0]), ext_output)
+                shutil.copy2(to_extended_path(working), ext_output)
                 if not os.path.exists(ext_output) or os.path.getsize(ext_output) == 0:
                     raise RuntimeError("Failed to create the single-document excerpt output.")
-
-                # The fragment was saved directly from a copy of the source package,
-                # so its formatting parts already originate from that source.  Apply
-                # the required corporate label in a fresh Word session and lock in 3GPP styles.
-                self._progress(80, "Applying corporate sensitivity label and 3GPP styles...")
-                pythoncom.CoInitialize()
-                try:
-                    self._apply_label_in_fresh_word(output)
-                finally:
-                    pythoncom.CoUninitialize()
-                ensure_3gpp_package_styles(output)
             else:
                 self._progress(55, "Combining excerpts with Microsoft Word...")
                 self._merge_with_word(fragments, output)
@@ -326,6 +332,19 @@ class WordExcerptEngine:
         raise RuntimeError(
             f"Microsoft Word/OneDrive did not release the output file in time: {target}"
         ) from last_exc
+
+    @staticmethod
+    def _wait_for_file_unlocked(file_path: Path, max_wait: float = 6.0, delay: float = 0.2) -> bool:
+        """Waits for Word or background indexers to release locks on file_path."""
+        ext_path = to_extended_path(file_path)
+        start = time.time()
+        while time.time() - start < max_wait:
+            try:
+                with open(ext_path, "a+b"):
+                    return True
+            except (PermissionError, OSError):
+                time.sleep(delay)
+        return False
 
     @staticmethod
     def _configure_word(word):
@@ -406,6 +425,16 @@ class WordExcerptEngine:
                         pass
             doc = None
             word = None
+            try:
+                import gc
+                gc.collect()
+            except Exception:
+                pass
+            try:
+                pythoncom.PumpWaitingMessages()
+            except Exception:
+                pass
+            WordExcerptEngine._wait_for_file_unlocked(output)
 
     @staticmethod
     def _merge_with_word(fragments: Sequence[Path], output: Path):
