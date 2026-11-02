@@ -83,6 +83,21 @@ logger = logging.getLogger(__name__)
 
 PART_NUM_REGEX = re.compile(r"\d{4,5}-(\d{1,2})(?:[-_.]|$)")
 
+USEFUL_SA = ("SA", "SA1", "SA2", "SA3", "SA4", "SA5", "SA6")
+USEFUL_RAN = ("RAN", "RAN1", "RAN2", "RAN3", "RAN4", "RAN5")
+USEFUL_CT = ("CT", "CT1", "CT3", "CT4", "CT6")
+USEFUL_WGS = set(USEFUL_SA + USEFUL_RAN + USEFUL_CT)
+
+LEGACY_WGS = {
+    "AHG",
+    "CN1", "CN3", "CN4", "CN5",
+    "GERAN", "GERAN1", "GERAN2", "GERAN3",
+    "ITU",
+    "RAN6",
+    "SMG01", "SMG03",
+    "T2", "T3",
+}
+
 # (Styles and WG palettes imported from core.ui.ui_components)
 
 
@@ -108,6 +123,7 @@ class SpecificationsTab(QWidget):
         self.download_dir = self.default_dl_dir
         self.table_filters = {"series": "", "tech": "", "group": "", "spec_type": "Any"}
         self._current_tsg = ""
+        self._show_all_wgs = False
         self.saved_search = ""
         self.saved_version = ""
         self.saved_downloaded_only = False
@@ -200,6 +216,7 @@ class SpecificationsTab(QWidget):
                     self.favorites = set(data.get("favorites", []))
                     self.favorites_only = data.get("favorites_only", False)
                     self.copy_link_mode = data.get("copy_link_mode", "both")
+                    self._show_all_wgs = data.get("show_all_wgs", False)
                     saved_filters = data.get("table_filters", {})
                     if isinstance(saved_filters, dict):
                         self.table_filters.update(saved_filters)
@@ -219,6 +236,7 @@ class SpecificationsTab(QWidget):
                 "favorites": sorted(list(self.favorites)),
                 "favorites_only": self.favorites_only,
                 "copy_link_mode": getattr(self, "copy_link_mode", "both"),
+                "show_all_wgs": getattr(self, "_show_all_wgs", False),
                 "table_filters": self.table_filters,
             }
             with open(self.config_file, "w", encoding="utf-8") as f:
@@ -420,33 +438,38 @@ class SpecificationsTab(QWidget):
             filter_layout.addWidget(btn)
         self.chip_buttons = self.tsg_buttons  # Backward compatibility alias
 
-        # Working Group Dropdown
-        wg_lbl = QLabel("WG:")
-        wg_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold; margin-left: 4px;")
-        filter_layout.addWidget(wg_lbl)
-
-        self.wg_combo = QComboBox()
+        # Working Group CheckableComboBox
+        self.wg_combo = CheckableComboBox("WG")
         self.wg_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
-        self.wg_combo.setMinimumWidth(135)
-        self.wg_combo.currentIndexChanged.connect(self._on_wg_combo_changed)
+        self.wg_combo.setMinimumWidth(125)
+        self.wg_combo.selectionChanged.connect(self._on_wg_filter_changed)
+        self.wg_combo.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.wg_combo.customContextMenuRequested.connect(self._show_wg_context_menu)
         filter_layout.addWidget(self.wg_combo)
+
+        # Working Group Scope Toggle (Active / Useful vs Full)
+        self.wg_scope_btn = QPushButton("Active WGs")
+        self.wg_scope_btn.setCheckable(True)
+        self.wg_scope_btn.setCursor(Qt.PointingHandCursor)
+        self.wg_scope_btn.setStyleSheet(SEGMENT_BTN_STYLE)
+        self.wg_scope_btn.clicked.connect(self._toggle_wg_scope)
+        self._set_wg_scope(getattr(self, "_show_all_wgs", False))
+        filter_layout.addWidget(self.wg_scope_btn)
 
         # Series Multi-Select CheckableComboBox
         self.series_combo = CheckableComboBox("Series")
         self.series_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
-        self.series_combo.setMinimumWidth(130)
+        self.series_combo.setMinimumWidth(125)
         self.series_combo.addItems(self.filter_options.get("series", []))
         self.series_combo.selectionChanged.connect(self._on_series_filter_changed)
         filter_layout.addWidget(self.series_combo)
 
-        # Radio Technology Dropdown
-        self.tech_combo = QComboBox()
+        # Radio Technology Multi-Select CheckableComboBox
+        self.tech_combo = CheckableComboBox("Tech")
         self.tech_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
-        self.tech_combo.setMinimumWidth(100)
-        self.tech_combo.addItem("All Tech", "")
-        for tech in self.filter_options.get("techs", []):
-            self.tech_combo.addItem(tech, tech)
-        self.tech_combo.currentIndexChanged.connect(self._on_tech_combo_changed)
+        self.tech_combo.setMinimumWidth(105)
+        self.tech_combo.addItems(self.filter_options.get("techs", []))
+        self.tech_combo.selectionChanged.connect(self._on_tech_filter_changed)
         filter_layout.addWidget(self.tech_combo)
 
         # Spec Type Segmented Buttons (All, TS, TR)
@@ -617,24 +640,35 @@ class SpecificationsTab(QWidget):
         """Synchronize UI controls with internal self.table_filters, favorites, and downloaded states."""
         # 1. Align TSG and WG
         grp = self.table_filters.get("group", "")
-        if grp.startswith("SA"):
-            self._current_tsg = "SA"
-        elif grp.startswith("RAN"):
-            self._current_tsg = "RAN"
-        elif grp.startswith("CT") or grp.startswith("CN"):
-            self._current_tsg = "CT"
+        grp_list = [g.strip() for g in grp.split(",") if g.strip()] if grp else []
+
+        if any(g not in USEFUL_WGS for g in grp_list) and not self._show_all_wgs:
+            self._set_wg_scope(True)
+
+        if len(grp_list) == 1 and grp_list[0] in ("SA", "RAN", "CT"):
+            self._current_tsg = grp_list[0]
+            self._populate_wg_combo()
+            self.wg_combo.setCheckedItems([])
+            self.table_filters["group"] = ""
+        elif grp_list:
+            tsgs = set()
+            for g in grp_list:
+                if g.startswith("SA"):
+                    tsgs.add("SA")
+                elif g.startswith("RAN") or g.startswith("GERAN"):
+                    tsgs.add("RAN")
+                elif g.startswith("CT") or g.startswith("CN"):
+                    tsgs.add("CT")
+            if len(tsgs) == 1:
+                self._current_tsg = list(tsgs)[0]
+            else:
+                self._current_tsg = ""
+            self._populate_wg_combo()
+            self.wg_combo.setCheckedItems(grp_list)
         else:
             self._current_tsg = ""
-
-        self._populate_wg_combo()
-        if grp:
-            idx = self.wg_combo.findData(grp)
-            if idx >= 0:
-                self.wg_combo.setCurrentIndex(idx)
-            else:
-                self.wg_combo.setCurrentIndex(0)
-        else:
-            self.wg_combo.setCurrentIndex(0)
+            self._populate_wg_combo()
+            self.wg_combo.setCheckedItems([])
 
         # 2. Align Series
         ser = self.table_filters.get("series", "")
@@ -646,14 +680,11 @@ class SpecificationsTab(QWidget):
 
         # 3. Align Tech
         tech = self.table_filters.get("tech", "")
-        if tech:
-            idx = self.tech_combo.findData(tech)
-            if idx >= 0:
-                self.tech_combo.setCurrentIndex(idx)
-            else:
-                self.tech_combo.setCurrentIndex(0)
+        if tech and tech != "Any":
+            tech_list = [t.strip() for t in tech.split(",") if t.strip()]
+            self.tech_combo.setCheckedItems(tech_list)
         else:
-            self.tech_combo.setCurrentIndex(0)
+            self.tech_combo.setCheckedItems([])
 
         # 4. Align Type
         stype = self.table_filters.get("spec_type", "Any")
@@ -669,43 +700,85 @@ class SpecificationsTab(QWidget):
         self._update_active_tags()
 
     def _populate_wg_combo(self):
-        self.wg_combo.blockSignals(True)
-        current_data = self.wg_combo.currentData() or self.table_filters.get("group", "")
-        self.wg_combo.clear()
-
         all_groups = self.filter_options.get("groups", [])
         clean_groups = [g for g in all_groups if g and g != "-"]
 
-        if self._current_tsg == "SA":
-            self.wg_combo.addItem("All SA WGs", "SA")
-            sa_groups = [g for g in clean_groups if g.startswith("SA") and g != "SA"]
-            for g in sorted(sa_groups):
-                self.wg_combo.addItem(g, g)
-        elif self._current_tsg == "RAN":
-            self.wg_combo.addItem("All RAN WGs", "RAN")
-            ran_groups = [g for g in clean_groups if g.startswith("RAN") and g != "RAN"]
-            for g in sorted(ran_groups):
-                self.wg_combo.addItem(g, g)
-        elif self._current_tsg == "CT":
-            self.wg_combo.addItem("All CT WGs", "CT")
-            ct_groups = [g for g in clean_groups if (g.startswith("CT") or g.startswith("CN")) and g != "CT"]
-            for g in sorted(ct_groups):
-                self.wg_combo.addItem(g, g)
-        else:
-            self.wg_combo.addItem("All Working Groups", "")
-            for g in sorted(clean_groups):
-                self.wg_combo.addItem(g, g)
-
-        if current_data:
-            idx = self.wg_combo.findData(current_data)
-            if idx >= 0:
-                self.wg_combo.setCurrentIndex(idx)
+        if not self._show_all_wgs:
+            # --- ACTIVE / USEFUL WORKING GROUPS ONLY ---
+            if self._current_tsg == "SA":
+                target_groups = [g for g in clean_groups if g in USEFUL_SA]
+            elif self._current_tsg == "RAN":
+                target_groups = [g for g in clean_groups if g in USEFUL_RAN]
+            elif self._current_tsg == "CT":
+                target_groups = [g for g in clean_groups if g in USEFUL_CT]
             else:
-                self.wg_combo.setCurrentIndex(0)
-        else:
-            self.wg_combo.setCurrentIndex(0)
+                target_groups = [g for g in clean_groups if g in USEFUL_WGS]
 
+            # Sort logically by 3GPP hierarchy: SA, then RAN, then CT
+            active_order = list(USEFUL_SA) + list(USEFUL_RAN) + list(USEFUL_CT)
+            target_groups.sort(key=lambda g: active_order.index(g) if g in active_order else 999)
+            display_labels = {g: g for g in target_groups}
+        else:
+            # --- FULL LIST (INCLUDING LEGACY & DISBANDED GROUPS) ---
+            if self._current_tsg == "SA":
+                target_groups = [g for g in clean_groups if g.startswith("SA")]
+            elif self._current_tsg == "RAN":
+                target_groups = [g for g in clean_groups if g.startswith("RAN") or g.startswith("GERAN")]
+            elif self._current_tsg == "CT":
+                target_groups = [g for g in clean_groups if g.startswith("CT") or g.startswith("CN")]
+            else:
+                target_groups = [g for g in clean_groups]
+
+            # In Full mode, sort alphabetically so legacy groups (AHG, CN, etc.) appear in standard A-Z order
+            target_groups.sort()
+            display_labels = {
+                g: f"{g} (Legacy)" if g in LEGACY_WGS else g
+                for g in target_groups
+            }
+
+        if hasattr(self, "wg_scope_btn"):
+            self.wg_scope_btn.blockSignals(True)
+            self.wg_scope_btn.setChecked(self._show_all_wgs)
+            if self._show_all_wgs:
+                self.wg_scope_btn.setText(f"Full List ({len(target_groups)})")
+                self.wg_scope_btn.setToolTip(
+                    f"Currently showing full list of {len(target_groups)} Working Groups (including legacy/disbanded groups).\n"
+                    "Click to limit to active/useful groups only."
+                )
+            else:
+                self.wg_scope_btn.setText(f"Active WGs ({len(target_groups)})")
+                self.wg_scope_btn.setToolTip(
+                    f"Currently showing {len(target_groups)} active/useful 3GPP Working Groups (SA, RAN, CT).\n"
+                    "Click to extend to full list including legacy groups (CN, GERAN, SMG, etc.)."
+                )
+            self.wg_scope_btn.blockSignals(False)
+
+        self.wg_combo.blockSignals(True)
+        self.wg_combo.updateItems(target_groups, display_labels=display_labels, item_tooltips=WG_DESCRIPTIONS)
         self.wg_combo.blockSignals(False)
+
+    def _toggle_wg_scope(self):
+        self._set_wg_scope(self.wg_scope_btn.isChecked())
+
+    def _set_wg_scope(self, show_all: bool):
+        self._show_all_wgs = show_all
+        self._populate_wg_combo()
+        self.save_settings_timer.start()
+
+    def _show_wg_context_menu(self, pos):
+        menu = QMenu(self)
+        act_active = menu.addAction("⚡ Show Active / Useful Working Groups Only")
+        act_active.setCheckable(True)
+        act_active.setChecked(not self._show_all_wgs)
+        act_full = menu.addAction("🌐 Show Full List (Include Legacy & Disbanded Groups)")
+        act_full.setCheckable(True)
+        act_full.setChecked(self._show_all_wgs)
+
+        action = menu.exec_(self.wg_combo.mapToGlobal(pos))
+        if action == act_active and self._show_all_wgs:
+            self._set_wg_scope(False)
+        elif action == act_full and not self._show_all_wgs:
+            self._set_wg_scope(True)
 
     def _on_tsg_button_clicked(self, tsg_val: str):
         if self._current_tsg == tsg_val and tsg_val != "":
@@ -714,7 +787,8 @@ class SpecificationsTab(QWidget):
             self._current_tsg = tsg_val
 
         self._populate_wg_combo()
-        self.table_filters["group"] = self.wg_combo.currentData() or ""
+        self.wg_combo.setCheckedItems([])
+        self.table_filters["group"] = ""
         self._update_chip_styles()
         self._update_active_tags()
         self.save_settings_timer.start()
@@ -724,21 +798,20 @@ class SpecificationsTab(QWidget):
         """Backward compatibility wrapper for TSG chip clicks."""
         self._on_tsg_button_clicked(tsg_val)
 
-    def _on_wg_combo_changed(self):
-        data = self.wg_combo.currentData() or ""
-        if self._current_tsg == "":
-            if data.startswith("SA"):
-                self._current_tsg = "SA"
-            elif data.startswith("RAN"):
-                self._current_tsg = "RAN"
-            elif data.startswith("CT") or data.startswith("CN"):
-                self._current_tsg = "CT"
+    def _on_wg_filter_changed(self, checked_items: list):
+        if self.wg_combo.isAllChecked() or not checked_items:
+            self.table_filters["group"] = ""
+        else:
+            self.table_filters["group"] = ",".join(checked_items)
 
-        self.table_filters["group"] = data
         self._update_chip_styles()
         self._update_active_tags()
         self.save_settings_timer.start()
         self.filter_timer.start()
+
+    def _on_wg_combo_changed(self):
+        """Backward compatibility alias for wg combo changes."""
+        self._on_wg_filter_changed(self.wg_combo.getCheckedItems())
 
     def _on_wg_badge_clicked(self, wg: str):
         """Filters the specification list by the clicked Working Group badge."""
@@ -753,21 +826,20 @@ class SpecificationsTab(QWidget):
         elif wg_upper.startswith("CT") or wg_upper.startswith("CN"):
             tsg = "CT"
 
+        if wg not in USEFUL_WGS and not self._show_all_wgs:
+            self._set_wg_scope(True)
+
         if self._current_tsg != tsg and tsg != "":
             self._current_tsg = tsg
             self._populate_wg_combo()
             self._update_chip_styles()
 
-        idx = self.wg_combo.findData(wg)
-        if idx >= 0:
-            self.wg_combo.setCurrentIndex(idx)
-        else:
-            self._current_tsg = ""
-            self._populate_wg_combo()
-            self._update_chip_styles()
-            fallback_idx = self.wg_combo.findData(wg)
-            if fallback_idx >= 0:
-                self.wg_combo.setCurrentIndex(fallback_idx)
+        self.wg_combo.setCheckedItems([wg])
+        self.table_filters["group"] = wg
+        self._update_chip_styles()
+        self._update_active_tags()
+        self.save_settings_timer.start()
+        self.filter_timer.start()
 
     def _on_series_filter_changed(self, checked_items: list):
         if self.series_combo.isAllChecked() or not checked_items:
@@ -779,12 +851,19 @@ class SpecificationsTab(QWidget):
         self.save_settings_timer.start()
         self.filter_timer.start()
 
-    def _on_tech_combo_changed(self):
-        data = self.tech_combo.currentData() or ""
-        self.table_filters["tech"] = data
+    def _on_tech_filter_changed(self, checked_items: list):
+        if self.tech_combo.isAllChecked() or not checked_items:
+            self.table_filters["tech"] = ""
+        else:
+            self.table_filters["tech"] = ",".join(checked_items)
+
         self._update_active_tags()
         self.save_settings_timer.start()
         self.filter_timer.start()
+
+    def _on_tech_combo_changed(self):
+        """Backward compatibility alias for tech combo changes."""
+        self._on_tech_filter_changed(self.tech_combo.getCheckedItems())
 
     def _on_type_button_clicked(self, type_val: str):
         self.table_filters["spec_type"] = type_val
@@ -864,9 +943,13 @@ class SpecificationsTab(QWidget):
             disp_tag = self.tag_filter if len(self.tag_filter) <= 15 else f"{self.tag_filter[:12]}..."
             tags.append((f'🏷️ {disp_tag} ✕', self._reset_tag_filter))
 
+        if self._current_tsg:
+            tags.append((f'TSG: {self._current_tsg} ✕', self._reset_tsg_filter))
+
         grp = self.table_filters.get("group", "")
         if grp:
-            tags.append((f'Group: {grp} ✕', self._reset_group_filter))
+            disp_grp = grp if len(grp) <= 15 else f"{grp[:12]}..."
+            tags.append((f'WG: {disp_grp} ✕', self._reset_group_filter))
 
         ser = self.table_filters.get("series", "")
         if ser:
@@ -875,7 +958,8 @@ class SpecificationsTab(QWidget):
 
         tech = self.table_filters.get("tech", "")
         if tech and tech != "Any":
-            tags.append((f'Tech: {tech} ✕', self._reset_tech_filter))
+            disp_tech = tech if len(tech) <= 15 else f"{tech[:12]}..."
+            tags.append((f'Tech: {disp_tech} ✕', self._reset_tech_filter))
 
         stype = self.table_filters.get("spec_type", "Any")
         if stype and stype != "Any":
@@ -904,10 +988,18 @@ class SpecificationsTab(QWidget):
             tag_btn.clicked.connect(callback)
             self.active_tags_container_layout.addWidget(tag_btn)
 
-    def _reset_group_filter(self):
+    def _reset_tsg_filter(self):
         self._current_tsg = ""
         self._populate_wg_combo()
-        self.wg_combo.setCurrentIndex(0)
+        self.wg_combo.setCheckedItems([])
+        self.table_filters["group"] = ""
+        self._update_chip_styles()
+        self._update_active_tags()
+        self.save_settings_timer.start()
+        self.filter_timer.start()
+
+    def _reset_group_filter(self):
+        self.wg_combo.setCheckedItems([])
         self.table_filters["group"] = ""
         self._update_chip_styles()
         self._update_active_tags()
@@ -922,7 +1014,7 @@ class SpecificationsTab(QWidget):
         self.filter_timer.start()
 
     def _reset_tech_filter(self):
-        self.tech_combo.setCurrentIndex(0)
+        self.tech_combo.setCheckedItems([])
         self.table_filters["tech"] = ""
         self._update_active_tags()
         self.save_settings_timer.start()
@@ -957,10 +1049,10 @@ class SpecificationsTab(QWidget):
 
         self._current_tsg = ""
         self._populate_wg_combo()
-        self.wg_combo.setCurrentIndex(0)
+        self.wg_combo.setCheckedItems([])
 
         self.series_combo.setCheckedItems([])
-        self.tech_combo.setCurrentIndex(0)
+        self.tech_combo.setCheckedItems([])
 
         for t_val, btn in self.type_buttons.items():
             btn.setChecked(t_val == "Any")
@@ -1242,6 +1334,7 @@ class SpecificationsTab(QWidget):
 
             is_filtered = any(
                 [
+                    self._current_tsg,
                     self.table_filters["series"],
                     self.table_filters["tech"],
                     self.table_filters["group"],
@@ -1253,6 +1346,7 @@ class SpecificationsTab(QWidget):
                 spec_number=spec_query if spec_query else None,
                 release_version=version_query if version_query else None,
                 tag=self.tag_filter,
+                tsg=self._current_tsg if self._current_tsg else None,
                 **self.table_filters,
             )
 
