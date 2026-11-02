@@ -57,8 +57,10 @@ class SpecClauseExcerptDialog(QDialog):
         url: str,
         spec_dl_dir: Path,
         parent=None,
+        auto_start: bool = True,
     ):
-        super().__init__(parent)
+        super().__init__(None)  # Pass None so Win32 does not set parent as GW_OWNER (prevents dialog from being forced always-on-top of the main window)
+        self._parent_ref = parent
         self.spec_num = spec_num.strip()
         self.spec_type = (spec_type or "TS").upper().strip()
         self.version = version.strip()
@@ -74,7 +76,17 @@ class SpecClauseExcerptDialog(QDialog):
         self._is_updating_checks = False
 
         self.setWindowTitle(f"✂️ Extract Clauses: {self.spec_type} {self.spec_num} v{self.version}")
-        self.setWindowFlags(self.windowFlags() | Qt.Window)
+        # Modeless top-level independent window configuration:
+        # Note: Must use Qt.Window rather than self.windowFlags() | Qt.Window so Qt.Dialog (0x3)
+        # is cleared, allowing the window to freely move behind the main app window in z-order.
+        self.setWindowFlags(Qt.Window)
+        self.setWindowModality(Qt.NonModal)
+        self.setAttribute(Qt.WA_DeleteOnClose, False)
+        if parent is not None:
+            try:
+                parent.destroyed.connect(self.close)
+            except Exception:
+                pass
         self.resize(900, 700)
         self.setMinimumWidth(740)
         self.setMinimumHeight(540)
@@ -85,7 +97,8 @@ class SpecClauseExcerptDialog(QDialog):
         """)
 
         self._setup_ui()
-        self._start_preparation()
+        if auto_start and self.spec_num and self.version:
+            self._start_preparation()
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
@@ -587,7 +600,7 @@ class SpecClauseExcerptDialog(QDialog):
             spec_dl_dir=self.spec_dl_dir,
             ordered_paths=self._ordered_paths,
             headings=self._headings,
-            parent=self.parent(),
+            parent=self._parent_ref or self.parent(),
         )
         dlg._populate_tree()
         dlg._is_updating_checks = True
@@ -610,10 +623,14 @@ class SpecClauseExcerptDialog(QDialog):
         """Cleanly abort active worker threads if dialog is closed."""
         if self._prep_thread and self._prep_thread.isRunning():
             self._prep_thread.requestInterruption()
-            self._prep_thread.wait(200)
+            if not self._prep_thread.wait(1000):
+                self._prep_thread.terminate()
+                self._prep_thread.wait(500)
         if self._extract_thread and self._extract_thread.isRunning():
             self._extract_thread.requestInterruption()
-            self._extract_thread.wait(500)
+            if not self._extract_thread.wait(1000):
+                self._extract_thread.terminate()
+                self._extract_thread.wait(500)
         super().closeEvent(event)
 
 

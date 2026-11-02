@@ -1862,7 +1862,17 @@ class SpecificationsTab(QWidget):
                 pass
 
         dialog.extraction_completed.connect(_on_extraction_done)
+        if not hasattr(self, "_active_excerpt_dialogs"):
+            self._active_excerpt_dialogs = []
+        self._active_excerpt_dialogs.append(dialog)
+        dialog.destroyed.connect(
+            lambda: self._active_excerpt_dialogs.remove(dialog)
+            if hasattr(self, "_active_excerpt_dialogs") and dialog in self._active_excerpt_dialogs
+            else None
+        )
         dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def _open_cr_pcr_dialog(self, combo: QComboBox):
         if sip.isdeleted(combo):
@@ -1894,7 +1904,17 @@ class SpecificationsTab(QWidget):
             spec_dl_dir=spec_dl_dir,
             parent=self,
         )
+        if not hasattr(self, "_active_cr_dialogs"):
+            self._active_cr_dialogs = []
+        self._active_cr_dialogs.append(cr_dlg)
+        cr_dlg.destroyed.connect(
+            lambda: self._active_cr_dialogs.remove(cr_dlg)
+            if hasattr(self, "_active_cr_dialogs") and cr_dlg in self._active_cr_dialogs
+            else None
+        )
         cr_dlg.show()
+        cr_dlg.raise_()
+        cr_dlg.activateWindow()
 
     def _handle_document_action(self, combo: QComboBox, doc_type: str, btn: QPushButton):
         handle_document_action(self, combo, doc_type, btn)
