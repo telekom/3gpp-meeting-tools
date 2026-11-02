@@ -920,14 +920,16 @@ class CrPcrDialog(QDialog):
             self._update_dotx_indicator()
 
     def closeEvent(self, event):
-        if self._prep_thread and self._prep_thread.isRunning():
-            self._prep_thread.requestInterruption()
-            if not self._prep_thread.wait(1000):
-                self._prep_thread.terminate()
-                self._prep_thread.wait(500)
-        if self._gen_thread and self._gen_thread.isRunning():
-            self._gen_thread.requestInterruption()
-            if not self._gen_thread.wait(1000):
-                self._gen_thread.terminate()
-                self._gen_thread.wait(500)
+        prep = getattr(self, "_prep_thread", None)
+        if prep and prep.isRunning():
+            prep.requestInterruption()
+            if not prep.wait(1000):
+                prep.terminate()
+                prep.wait(500)
+        gen = getattr(self, "_gen_thread", None)
+        if gen and gen.isRunning():
+            gen.requestInterruption()
+            if not gen.wait(1000):
+                gen.terminate()
+                gen.wait(500)
         super().closeEvent(event)

@@ -1715,6 +1715,8 @@ class TDocsWindow(QWidget):
         spec_num = tdoc_info.get("Spec", "") or tdoc_info.get("Spec#", "")
         version = tdoc_info.get("Version", "")
 
+        if not hasattr(self, "_active_cr_dialogs"):
+            self._active_cr_dialogs = []
         dialog = CrPcrDialog(
             spec_num=spec_num,
             version=version,
@@ -1722,7 +1724,11 @@ class TDocsWindow(QWidget):
             tdoc_info=tdoc_info,
             parent=self,
         )
+        self._active_cr_dialogs.append(dialog)
+        dialog.destroyed.connect(lambda: self._active_cr_dialogs.remove(dialog) if dialog in self._active_cr_dialogs else None)
         dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def _open_email_manager(self):
         self.email_window = EmailManagerWindow(self.meeting_dir, {

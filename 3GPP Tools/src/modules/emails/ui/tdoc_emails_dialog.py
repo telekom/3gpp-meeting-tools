@@ -37,8 +37,14 @@ class StandaloneEmailReaderWindow(QWidget):
     tdoc_selected = pyqtSignal(str)
 
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__(None)  # Pass None so Win32 does not set parent as GW_OWNER
+        self._parent_ref = parent
         self.setWindowFlags(Qt.Window)
+        if parent:
+            try:
+                parent.destroyed.connect(self.close)
+            except Exception:
+                pass
         self.setWindowTitle("📖 Email Message Viewer")
         self.resize(850, 650)
         self.setStyleSheet("QWidget { background-color: #FAFAFA; }")
@@ -87,7 +93,13 @@ class TDocEmailsDialog(QDialog):
 
     def __init__(self, target_tdoc: str, family_tdocs: list, db_path: Path, wg: str = "SA2", save_callback=None,
                  parent=None):
-        super().__init__(parent)
+        super().__init__(None)  # Pass None so Win32 does not set parent as GW_OWNER
+        self._parent_ref = parent
+        if parent:
+            try:
+                parent.destroyed.connect(self.close)
+            except Exception:
+                pass
         self.target_tdoc = target_tdoc.upper()
         self.family_tdocs = [t.upper() for t in family_tdocs]
         if self.target_tdoc not in self.family_tdocs:

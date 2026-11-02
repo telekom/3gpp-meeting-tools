@@ -498,6 +498,8 @@ class DragDropUI(QMainWindow):
         if not hasattr(self, 'db_maintenance_dialog') or not self.db_maintenance_dialog.isVisible():
             self.db_maintenance_dialog = DatabaseMaintenanceDialog(self)
             self.db_maintenance_dialog.show()
+            self.db_maintenance_dialog.raise_()
+            self.db_maintenance_dialog.activateWindow()
         else:
             self.db_maintenance_dialog.raise_()
             self.db_maintenance_dialog.activateWindow()
@@ -507,7 +509,10 @@ class DragDropUI(QMainWindow):
         if not hasattr(self, 'task_manager_dialog') or not self.task_manager_dialog.isVisible():
             self.task_manager_dialog = ProcessManagerDialog(self)
             self.task_manager_dialog.show()
+            self.task_manager_dialog.raise_()
+            self.task_manager_dialog.activateWindow()
         else:
+            self.task_manager_dialog.raise_()
             self.task_manager_dialog.activateWindow()
 
     # --- AUTO-SAVE LOGIC ---

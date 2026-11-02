@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import sqlite3
 from pathlib import Path
 from typing import Any, List, Optional, Sequence, Tuple
@@ -58,17 +59,21 @@ class DatabaseInspectorDialog(QDialog):
         """Safely quote an SQLite identifier after it came from SQLite metadata."""
         return '"' + identifier.replace('"', '""') + '"'
 
-    def _connect_read_only(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect_read_only(self):
         """
-        Open the database through SQLite's read-only URI mode.
+        Open the database through SQLite's read-only URI mode and close it on context exit.
 
         mode=ro prevents the inspector from creating or modifying database files.
         query_only provides a second guard against accidental writes.
         """
         uri = self.db_path.resolve().as_uri() + "?mode=ro"
         conn = sqlite3.connect(uri, uri=True, timeout=5.0)
-        conn.execute("PRAGMA query_only = ON;")
-        return conn
+        try:
+            conn.execute("PRAGMA query_only = ON;")
+            yield conn
+        finally:
+            conn.close()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)

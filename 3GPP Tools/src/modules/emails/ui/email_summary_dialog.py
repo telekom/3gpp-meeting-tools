@@ -26,9 +26,16 @@ class EmailSummaryDialog(QDialog):
         family_tdocs: List[str],
         emails_data: List[Dict],
         save_callback=None,
-        parent=None
+        parent=None,
+        auto_start: bool = True,
     ):
-        super().__init__(parent)
+        super().__init__(None)  # Pass None so Win32 does not set parent as GW_OWNER
+        self._parent_ref = parent
+        if parent:
+            try:
+                parent.destroyed.connect(self.close)
+            except Exception:
+                pass
         self.tdoc_id = tdoc_id.upper()
         self.family_tdocs = family_tdocs
         self.emails_data = emails_data
@@ -50,7 +57,8 @@ class EmailSummaryDialog(QDialog):
 
         self._setup_ui()
         self._refresh_models()
-        self._start_summary()
+        if auto_start:
+            self._start_summary()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -272,5 +280,7 @@ class EmailSummaryDialog(QDialog):
     def closeEvent(self, event):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
-            self.worker.wait(300)
+            if not self.worker.wait(500):
+                self.worker.terminate()
+                self.worker.wait(200)
         event.accept()
