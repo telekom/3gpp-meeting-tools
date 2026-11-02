@@ -88,15 +88,16 @@ USEFUL_RAN = ("RAN", "RAN1", "RAN2", "RAN3", "RAN4", "RAN5")
 USEFUL_CT = ("CT", "CT1", "CT3", "CT4", "CT6")
 USEFUL_WGS = set(USEFUL_SA + USEFUL_RAN + USEFUL_CT)
 
-LEGACY_WGS = {
-    "AHG",
-    "CN1", "CN3", "CN4", "CN5",
-    "GERAN", "GERAN1", "GERAN2", "GERAN3",
-    "ITU",
-    "RAN6",
-    "SMG01", "SMG03",
-    "T2", "T3",
-}
+# Canonical ordering: Active groups always first in standard 3GPP hierarchy (SA -> RAN -> CT)
+ACTIVE_WG_ORDER = list(USEFUL_SA) + list(USEFUL_RAN) + list(USEFUL_CT)
+
+LEGACY_RAN = ("RAN6", "GERAN", "GERAN1", "GERAN2", "GERAN3")
+LEGACY_CT = ("CN1", "CN3", "CN4", "CN5", "T2", "T3")
+LEGACY_OTHER = ("SMG01", "SMG03", "AHG", "ITU")
+LEGACY_WGS = set(LEGACY_RAN + LEGACY_CT + LEGACY_OTHER)
+
+# Ordered full catalog: Active groups first, followed by legacy/closed groups grouped by TSG/domain
+FULL_WG_ORDER = ACTIVE_WG_ORDER + list(LEGACY_RAN) + list(LEGACY_CT) + list(LEGACY_OTHER)
 
 # (Styles and WG palettes imported from core.ui.ui_components)
 
@@ -714,10 +715,7 @@ class SpecificationsTab(QWidget):
             else:
                 target_groups = [g for g in clean_groups if g in USEFUL_WGS]
 
-            # Sort logically by 3GPP hierarchy: SA, then RAN, then CT
-            active_order = list(USEFUL_SA) + list(USEFUL_RAN) + list(USEFUL_CT)
-            target_groups.sort(key=lambda g: active_order.index(g) if g in active_order else 999)
-            display_labels = {g: g for g in target_groups}
+            target_groups.sort(key=lambda g: ACTIVE_WG_ORDER.index(g) if g in ACTIVE_WG_ORDER else 999)
         else:
             # --- FULL LIST (INCLUDING LEGACY & DISBANDED GROUPS) ---
             if self._current_tsg == "SA":
@@ -725,16 +723,12 @@ class SpecificationsTab(QWidget):
             elif self._current_tsg == "RAN":
                 target_groups = [g for g in clean_groups if g.startswith("RAN") or g.startswith("GERAN")]
             elif self._current_tsg == "CT":
-                target_groups = [g for g in clean_groups if g.startswith("CT") or g.startswith("CN")]
+                target_groups = [g for g in clean_groups if g.startswith("CT") or g.startswith("CN") or g in ("T2", "T3")]
             else:
                 target_groups = [g for g in clean_groups]
 
-            # In Full mode, sort alphabetically so legacy groups (AHG, CN, etc.) appear in standard A-Z order
-            target_groups.sort()
-            display_labels = {
-                g: f"{g} (Legacy)" if g in LEGACY_WGS else g
-                for g in target_groups
-            }
+            # In Full mode, active groups appear first (SA -> RAN -> CT), followed by legacy groups grouped by domain
+            target_groups.sort(key=lambda g: FULL_WG_ORDER.index(g) if g in FULL_WG_ORDER else 999)
 
         if hasattr(self, "wg_scope_btn"):
             self.wg_scope_btn.blockSignals(True)
@@ -754,7 +748,7 @@ class SpecificationsTab(QWidget):
             self.wg_scope_btn.blockSignals(False)
 
         self.wg_combo.blockSignals(True)
-        self.wg_combo.updateItems(target_groups, display_labels=display_labels, item_tooltips=WG_DESCRIPTIONS)
+        self.wg_combo.updateItems(target_groups, item_tooltips=WG_DESCRIPTIONS)
         self.wg_combo.blockSignals(False)
 
     def _toggle_wg_scope(self):
