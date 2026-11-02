@@ -57,7 +57,13 @@ class CallFlowDialog(QDialog):
     diagram_generated = pyqtSignal(str, bool)  # (puml_code, should_replace)
 
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__(None)  # Pass None so Win32 does not set parent as GW_OWNER
+        self._parent_ref = parent
+        if parent:
+            try:
+                parent.destroyed.connect(self.close)
+            except Exception:
+                pass
         self.setWindowTitle("🤖 Generate PlantUML from 3GPP Call Flow")
         self.resize(1120, 740)
 
@@ -715,9 +721,15 @@ class CallFlowDialog(QDialog):
         self.refine_btn.setEnabled(ready)
 
     def closeEvent(self, event):
-        if self.worker and self.worker.isRunning():
-            self.worker.cancel()
-            self.worker.wait(300)
-        if self.validator and self.validator.isRunning():
-            self.validator.wait(300)
+        worker = getattr(self, "worker", None)
+        if worker and worker.isRunning():
+            worker.cancel()
+            if not worker.wait(500):
+                worker.terminate()
+                worker.wait(200)
+        validator = getattr(self, "validator", None)
+        if validator and validator.isRunning():
+            if not validator.wait(500):
+                validator.terminate()
+                validator.wait(200)
         event.accept()

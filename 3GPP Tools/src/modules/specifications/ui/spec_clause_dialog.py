@@ -30,9 +30,13 @@ from core.ui.ui_components import (
     SEARCH_INPUT_STYLE,
 )
 
+from modules.word_tools.core.word_config import WordConfig
 from modules.word_tools.core.word_excerpt_extractor import (
     HeadingInfo,
     WordExcerptThread,
+)
+from modules.word_tools.core.word_excerpt_naming import (
+    generate_differentiated_export_name,
 )
 from modules.word_tools.core.document_opener import open_document
 from modules.specifications.ui.threads import SpecExcerptPrepThread
@@ -506,7 +510,16 @@ class SpecClauseExcerptDialog(QDialog):
             return
 
         clean_spec = self.spec_num.replace(".", "_")
-        default_out_name = f"{self.spec_type}_{clean_spec}_v{self.version}_excerpt.docx"
+        scheme = WordConfig.get_excerpt_naming_scheme()
+        prefix = f"{self.spec_type}_{clean_spec}_v{self.version}"
+        default_out_name = generate_differentiated_export_name(
+            source_paths=self._ordered_paths,
+            headings=self._headings,
+            selected_ids=selected_ids,
+            scheme=scheme,
+            custom_prefix=prefix,
+            ext=".docx",
+        )
         default_out_path = str(self.spec_dl_dir / default_out_name)
 
         output_path, _ = QFileDialog.getSaveFileName(
@@ -617,20 +630,28 @@ class SpecClauseExcerptDialog(QDialog):
         finally:
             dlg._is_updating_checks = False
         dlg._update_change_block_summary()
+        if not hasattr(self, "_active_cr_dialogs"):
+            self._active_cr_dialogs = []
+        self._active_cr_dialogs.append(dlg)
+        dlg.destroyed.connect(lambda: self._active_cr_dialogs.remove(dlg) if dlg in self._active_cr_dialogs else None)
         dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
 
     def closeEvent(self, event):
         """Cleanly abort active worker threads if dialog is closed."""
-        if self._prep_thread and self._prep_thread.isRunning():
-            self._prep_thread.requestInterruption()
-            if not self._prep_thread.wait(1000):
-                self._prep_thread.terminate()
-                self._prep_thread.wait(500)
-        if self._extract_thread and self._extract_thread.isRunning():
-            self._extract_thread.requestInterruption()
-            if not self._extract_thread.wait(1000):
-                self._extract_thread.terminate()
-                self._extract_thread.wait(500)
+        prep = getattr(self, "_prep_thread", None)
+        if prep and prep.isRunning():
+            prep.requestInterruption()
+            if not prep.wait(1000):
+                prep.terminate()
+                prep.wait(500)
+        ext = getattr(self, "_extract_thread", None)
+        if ext and ext.isRunning():
+            ext.requestInterruption()
+            if not ext.wait(1000):
+                ext.terminate()
+                ext.wait(500)
         super().closeEvent(event)
 
 

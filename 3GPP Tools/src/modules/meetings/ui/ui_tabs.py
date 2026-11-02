@@ -1120,9 +1120,15 @@ class MeetingsTab(QWidget):
             "end_date": row_data.get("end_date", ""),
             "title": row_data.get("title", ""),
         }
+        if not hasattr(self, "_active_cr_dialogs"):
+            self._active_cr_dialogs = []
         dlg = CrPcrDialog(
             spec_num="",
             meeting_info=mtg_info,
             parent=self,
         )
+        self._active_cr_dialogs.append(dlg)
+        dlg.destroyed.connect(lambda: self._active_cr_dialogs.remove(dlg) if dlg in self._active_cr_dialogs else None)
         dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()

@@ -111,7 +111,14 @@ class SessionPlanWindow(QWidget):
         tracked_tokens: Optional[Set[str]] = None,
         parent=None,
     ):
-        super().__init__(parent)
+        super().__init__(None)  # Pass None so Win32 does not set parent as GW_OWNER
+        self._parent_ref = parent
+        self.setWindowFlags(Qt.Window)
+        if parent:
+            try:
+                parent.destroyed.connect(self.close)
+            except Exception:
+                pass
         self.meeting_dir = Path(meeting_dir)
         self.mtg_info = mtg_info or {}
         self.meeting_number = str(mtg_info.get("meeting_number", "177"))
@@ -335,8 +342,8 @@ class SessionPlanWindow(QWidget):
         self.export_btn.setStyleSheet("padding: 5px 10px; font-weight: 500; border-radius: 6px; background: #F1F5F9; border: 1px solid #CBD5E1;")
         self.export_btn.setToolTip("Export to responsive offline Mobile HTML (no PDF table separator issues!), strict UTC .ics Calendar, or Outlook Email summary.")
         export_menu = QMenu(self)
-        export_menu.addAction("📱 Export Mobile HTML (Offline)...", self._export_mobile_html).setToolTip("Generate a responsive, single-file HTML view optimized for iPhone/Android Safari/Chrome.")
-        export_menu.addAction("🌐 Open Mobile View in Default Browser", self._open_mobile_html_in_browser).setToolTip("Export and instantly open the mobile-optimized session plan in your browser.")
+        export_menu.addAction("🌐 Export Interactive HTML (Overview && Mobile)...", self._export_mobile_html).setToolTip("Generate an interactive, responsive standalone HTML file featuring the 5-Day Overview Grid and Mobile Day Cards with delegate toggling.")
+        export_menu.addAction("🌐 Open Interactive HTML in Default Browser", self._open_mobile_html_in_browser).setToolTip("Export and instantly open the interactive session plan (Overview Grid & Mobile) in your browser.")
         export_menu.addSeparator()
         export_menu.addAction("📅 Export Full Meeting .ics Calendar...", self._export_ics).setToolTip("Export calendar events with strict UTC timestamps for Outlook, Apple, or Google Calendar.")
         export_menu.addAction("📅 Export Delegate .ics (Personal / Colleague)...", self._export_delegate_ics).setToolTip("Export personal calendar events scoped to a specific delegate with assigned topics.")
@@ -673,8 +680,8 @@ class SessionPlanWindow(QWidget):
         self.team_ai_search.textChanged.connect(self._filter_topic_ownership_table)
         tt_filter_box.addWidget(self.team_ai_search)
 
-        self.btn_auto_assign_wis = QPushButton("🎯 Auto-Assign Followed WIs")
-        self.btn_auto_assign_wis.setToolTip("Assign topics matching your followed Work Items watchlist to yourself.")
+        self.btn_auto_assign_wis = QPushButton("🎯 Auto-Assign Followed WIs...")
+        self.btn_auto_assign_wis.setToolTip("Assign topics matching your followed Work Items watchlist to a delegate.")
         self.btn_auto_assign_wis.clicked.connect(self._auto_assign_followed_wis_to_self)
         tt_filter_box.addWidget(self.btn_auto_assign_wis)
         tt_lay.addLayout(tt_filter_box)
@@ -1372,17 +1379,16 @@ class SessionPlanWindow(QWidget):
         cur_selection = self.delegate_agenda_combo.currentData()
         self.delegate_agenda_combo.clear()
 
-        self_member = next((m for m in self.delegation_plan.members.values() if m.is_self), None) if self.delegation_plan else None
-        if self_member:
-            self.delegate_agenda_combo.addItem(f"👤 Myself ({self_member.name})", "SELF")
-        else:
-            self.delegate_agenda_combo.addItem("👤 My Tracked Topics (Personal)", "SELF")
+        # Add Whole Delegation (Master Schedule) first
+        self.delegate_agenda_combo.addItem("👥 Whole Delegation (Master Schedule)", "ALL")
 
+        # Add individual delegates
         if self.delegation_plan:
             for name, m in self.delegation_plan.members.items():
                 self.delegate_agenda_combo.addItem(f"● {name}", name)
 
-        self.delegate_agenda_combo.addItem("👥 Whole Delegation (Master Schedule)", "ALL")
+        # Add personal / unassigned starred topics option
+        self.delegate_agenda_combo.addItem("⭐ Starred Topics (Personal Watchlist)", "TRACKED")
 
         # Restore selection
         idx = self.delegate_agenda_combo.findData(cur_selection)
@@ -1392,7 +1398,7 @@ class SessionPlanWindow(QWidget):
             self.delegate_agenda_combo.setCurrentIndex(0)
         self.delegate_agenda_combo.blockSignals(False)
 
-        selected_scope = self.delegate_agenda_combo.currentData() or "SELF"
+        selected_scope = self.delegate_agenda_combo.currentData() or "ALL"
 
         # 2. Filter target slots based on scope
         target_slots: List[SessionSlot] = []
@@ -1401,15 +1407,9 @@ class SessionPlanWindow(QWidget):
             if selected_scope == "ALL":
                 if del_names or is_all or self._is_slot_tracked(s):
                     target_slots.append(s)
-            elif selected_scope == "SELF":
-                if self_member:
-                    if is_all or any(dn.lower() == self_member.name.lower() for dn in del_names):
-                        target_slots.append(s)
-                    elif not del_names and self._is_slot_tracked(s):
-                        target_slots.append(s)
-                else:
-                    if self._is_slot_tracked(s):
-                        target_slots.append(s)
+            elif selected_scope in ("TRACKED", "SELF"):
+                if self._is_slot_tracked(s):
+                    target_slots.append(s)
             else:
                 if is_all or any(dn.lower() == selected_scope.lower() for dn in del_names):
                     target_slots.append(s)
@@ -1626,15 +1626,6 @@ class SessionPlanWindow(QWidget):
         # Drop focus entries for delegates that were removed/renamed
         self.grid_focus_delegates = {n for n in self.grid_focus_delegates if n in roster}
 
-        self_member = self._self_member()
-        if self_member:
-            btn_me = QPushButton(f"👤 Only Me ({self_member.name})")
-            btn_me.setToolTip("Focus on your own sessions only (shortcut for ticking just yourself).")
-            btn_me.setCursor(Qt.PointingHandCursor)
-            btn_me.clicked.connect(lambda: self._on_delegate_highlight_clicked("SELF"))
-            self.delegate_chips_layout.addWidget(btn_me)
-            self.btn_chip_me = btn_me
-
         initials = self._delegate_initials_map()
         for name, m in roster.items():
             chk = QCheckBox(f"{initials.get(name, m.initials)} · {name}")
@@ -1745,7 +1736,7 @@ class SessionPlanWindow(QWidget):
                 w.deleteLater()
 
         for name, m in self.delegation_plan.members.items():
-            chip = QPushButton(f"● {name}" + (" (Me)" if m.is_self else ""))
+            chip = QPushButton(f"● {name}")
             chip.setStyleSheet(
                 f"padding: 3px 10px; font-size: 11px; font-weight: 600; border-radius: 12px; "
                 f"border: 1px solid {m.border_tint}; background: {m.bg_tint}; color: {m.color};"
@@ -1970,8 +1961,6 @@ class SessionPlanWindow(QWidget):
     def _show_member_context_menu(self, pos: QPoint, name: str, member: DelegationMember, btn: QPushButton):
         menu = QMenu(self)
         menu.addAction("✏️ Edit Member...", lambda: self._on_edit_delegation_member(member))
-        if not member.is_self:
-            menu.addAction("👤 Set as Myself", lambda: self._on_set_self_delegate(name))
         menu.addSeparator()
         menu.addAction("🗑️ Remove Member", lambda: self._on_delete_delegation_member(name))
         menu.exec_(btn.mapToGlobal(pos))
@@ -2081,10 +2070,25 @@ class SessionPlanWindow(QWidget):
             self.team_topics_table.setRowHidden(r, bool(q and q not in txt))
 
     def _auto_assign_followed_wis_to_self(self):
-        self_member = next((m for m in self.delegation_plan.members.values() if m.is_self), None) if self.delegation_plan else None
-        if not self_member:
-            QMessageBox.warning(self, "No Self Identity", "Please set one of the delegation members as 'Myself' first.")
+        if not self.delegation_plan or not self.delegation_plan.members:
+            QMessageBox.warning(self, "No Roster", "Please add delegation members before assigning topics.")
             return
+
+        names = list(self.delegation_plan.members.keys())
+        if len(names) == 1:
+            target_name = names[0]
+        else:
+            from PyQt5.QtWidgets import QInputDialog
+            target_name, ok = QInputDialog.getItem(
+                self,
+                "Auto-Assign Followed WIs",
+                "Select delegate to assign followed Work Item topics to:",
+                names,
+                0,
+                False,
+            )
+            if not ok or not target_name:
+                return
 
         count = 0
         if self.agenda_map:
@@ -2097,12 +2101,12 @@ class SessionPlanWindow(QWidget):
                     or any(t in desc.lower() for t in self.tracked_tokens if t)
                 )
                 if matches:
-                    self.db.set_topic_owner(self.meeting_number, ai_num, self_member.name)
+                    self.db.set_topic_owner(self.meeting_number, ai_num, target_name)
                     count += 1
 
         self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
         self._render_current_views()
-        QMessageBox.information(self, "Auto-Assignment Complete", f"Assigned {count} topic(s) to {self_member.name}.")
+        QMessageBox.information(self, "Auto-Assignment Complete", f"Assigned {count} topic(s) to {target_name}.")
 
     def _on_export_delegation_email(self):
         if not self.active_snapshot or not self.delegation_plan:
@@ -2579,11 +2583,17 @@ class SessionPlanWindow(QWidget):
             output_path=out_path,
             meeting_tz_offset_min=self.tz_offset_min,
             tz_name=self.tz_name,
+            meeting_dates_str=self.start_date_str,
             annotations=self.annotations,
             tracked_tokens=self.tracked_tokens,
             delegation_plan=self.delegation_plan,
+            agenda_map=self.agenda_map,
         )
-        QMessageBox.information(self, "Mobile HTML Exported", f"Saved responsive mobile view to:\n{out_path}\n\nYou can copy this file to your phone or open it directly in Safari/Chrome offline.")
+        QMessageBox.information(
+            self,
+            "Interactive HTML Exported",
+            f"Saved interactive Session Plan (5-Day Overview Grid + Mobile Day Cards) to:\n{out_path}\n\nFeatures interactive delegate toggling and spatial overview for easy sharing with colleagues.",
+        )
         return out_path
 
     def _open_mobile_html_in_browser(self):

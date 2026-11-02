@@ -33,8 +33,15 @@ class TDocTriageDialog(QDialog):
         revisions_url: str = "",
         save_callback=None,
         parent=None,
+        auto_start: bool = True,
     ):
-        super().__init__(parent)
+        super().__init__(None)  # Pass None so Win32 does not set parent as GW_OWNER
+        self._parent_ref = parent
+        if parent:
+            try:
+                parent.destroyed.connect(self.close)
+            except Exception:
+                pass
         self.tdoc_data = tdoc_data
         self.tdoc_id = str(tdoc_data.get("TDoc", "")).strip().upper()
         self.meeting_dir = Path(meeting_dir)
@@ -65,7 +72,8 @@ class TDocTriageDialog(QDialog):
 
         self._setup_ui()
         self._refresh_models()
-        self._start_triage()
+        if auto_start:
+            self._start_triage()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -467,5 +475,7 @@ class TDocTriageDialog(QDialog):
     def closeEvent(self, event):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
-            self.worker.wait(300)
+            if not self.worker.wait(500):
+                self.worker.terminate()
+                self.worker.wait(200)
         event.accept()
