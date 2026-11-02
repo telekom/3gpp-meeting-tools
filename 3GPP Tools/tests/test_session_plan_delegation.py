@@ -930,6 +930,151 @@ class TestSessionPlanWindowDelegationIntegration(unittest.TestCase):
         finally:
             win.close()
 
+    def test_interactive_html_export_overview_and_cards(self):
+        """Verifies exported HTML contains both 5-day Overview Grid and Mobile Day Cards with delegate toggling."""
+        snap = SessionPlanSnapshot(
+            meeting_number="177",
+            tdoc_id="S2-2610195",
+            snapshot_label="Snap 1",
+            slots=[
+                SessionSlot(
+                    day_index=0,
+                    day_name="Monday",
+                    quarter="Q1",
+                    sub_slot=0,
+                    stream_number=1,
+                    raw_text="AI 20.6.0 General Architecture Wrap-up",
+                    items=[AgendaSlotItem(ai_number="20.6.0", display_expr="AI 20.6.0", topic_label="General")],
+                ),
+                SessionSlot(
+                    day_index=1,
+                    day_name="Tuesday",
+                    quarter="Q2",
+                    sub_slot=1,
+                    stream_number=2,
+                    raw_text="AI 5.2.1 Core Network Features",
+                    items=[AgendaSlotItem(ai_number="5.2.1", display_expr="AI 5.2.1", topic_label="Core")],
+                ),
+            ],
+        )
+
+        plan = DelegationPlan(
+            meeting_number="177",
+            members={
+                "Anna": DelegationMember(name="Anna", color="#059669", is_self=True),
+                "Thomas": DelegationMember(name="Thomas", color="#7C3AED", is_self=False),
+            },
+            topic_owners={
+                "20.6.0": TopicOwnership("177", "20.6.0", "ALL"),
+                "5.2.1": TopicOwnership("177", "5.2.1", "Anna"),
+            },
+        )
+
+        out_html = self.temp_dir / "test_session_plan.html"
+        SessionPlanExporter.export_mobile_html(
+            snapshot=snap,
+            output_path=out_html,
+            meeting_tz_offset_min=120,
+            tz_name="Venue Time (Madrid)",
+            meeting_dates_str="2026-08-17",
+            delegation_plan=plan,
+        )
+
+        self.assertTrue(out_html.exists())
+        content = out_html.read_text(encoding="utf-8")
+
+        # 1. Dual View Architecture
+        self.assertIn('id="overviewView"', content)
+        self.assertIn('class="overview-table"', content)
+        self.assertIn('id="cardsView"', content)
+        self.assertIn('class="cards-content"', content)
+        self.assertIn("switchView('grid')", content)
+        self.assertIn("switchView('cards')", content)
+
+        # 2. Interactive Delegate Toggling Pills
+        self.assertIn('data-del="ALL"', content)
+        self.assertIn('data-del="Anna"', content)
+        self.assertIn('data-del="Thomas"', content)
+        self.assertIn("selectDelegate('Anna')", content)
+        self.assertIn("selectDelegate('Thomas')", content)
+
+        # 3. Data attributes for client-side filtering
+        self.assertIn('data-delegates="Anna"', content)
+        self.assertIn('data-is-all="1"', content)
+
+        # 4. No "myself" or "(Me)" tags anywhere in the exported HTML
+        self.assertNotIn("(Myself)", content)
+        self.assertNotIn("(Me)", content)
+        self.assertNotIn("myself", content.lower())
+
+        # 5. Client-Side RFC 5545 .ics Calendar Download
+        self.assertIn('id="btnDownloadIcs"', content)
+        self.assertIn("downloadSelectedCalendar()", content)
+        self.assertIn("const CAL_EVENTS =", content)
+
+        # 6. Parallel Stream Clash Detection
+        self.assertIn('id="clashWarningBadge"', content)
+        self.assertIn("detectDelegateClashes", content)
+
+        # 7. Live Venue Status Indicator ("Now / Up Next")
+        self.assertIn('id="liveVenueBanner"', content)
+        self.assertIn("checkLiveVenueStatus", content)
+
+    def test_overview_grid_topic_owner_direct_assignment(self):
+        """Verifies right-click topic owner assignment from the desktop Overview Grid cell context menu."""
+        win = SessionPlanWindow(
+            meeting_dir=self.temp_dir,
+            mtg_info=self.mtg_info,
+            agenda_map={},
+            tracked_tokens=set(),
+        )
+        try:
+            m1 = DelegationMember(name="Anna", color="#059669")
+            m2 = DelegationMember(name="Thomas", color="#7C3AED")
+            win.db.save_delegation_member(win.meeting_number, m1)
+            win.db.save_delegation_member(win.meeting_number, m2)
+            win.delegation_plan = win.db.get_delegation_plan(win.meeting_number)
+
+            # Assign topic 5.2.1 to Anna directly
+            win._set_topic_owner_direct("5.2.1", "Anna")
+            plan = win.db.get_delegation_plan(win.meeting_number)
+            self.assertIn("5.2.1", plan.topic_owners)
+            self.assertEqual(plan.topic_owners["5.2.1"].owner_name, "Anna")
+
+            # Assign topic 5.2.1 to Whole Team (ALL)
+            win._set_topic_owner_direct("5.2.1", "ALL")
+            plan = win.db.get_delegation_plan(win.meeting_number)
+            self.assertTrue(plan.topic_owners["5.2.1"].is_all())
+
+            # Unassign topic 5.2.1
+            win._set_topic_owner_direct("5.2.1", "")
+            plan = win.db.get_delegation_plan(win.meeting_number)
+            self.assertNotIn("5.2.1", plan.topic_owners)
+        finally:
+            win.close()
+
+    def test_delegation_no_myself_tags_in_ui(self):
+        """Verifies UI dialogs and pickers do not append (Me) or (Myself) tags to delegate names."""
+        from modules.meetings.ui.session_plan_dialogs import DelegationMemberDialog, MultiDelegateSelectDialog
+        from modules.meetings.ui.delegate_owner_picker import DelegateOwnerPicker
+
+        m1 = DelegationMember(name="Anna", color="#059669", is_self=True)
+        m2 = DelegationMember(name="Thomas", color="#7C3AED", is_self=False)
+
+        # MultiDelegateSelectDialog
+        multi_dlg = MultiDelegateSelectDialog("AI 20.6.0", [m1, m2], "Anna")
+        self.assertEqual(multi_dlg._checkboxes["Anna"].text(), "Anna")
+        self.assertEqual(multi_dlg._checkboxes["Thomas"].text(), "Thomas")
+        self.assertNotIn("(Me)", multi_dlg._checkboxes["Anna"].text())
+        self.assertNotIn("(Myself)", multi_dlg._checkboxes["Anna"].text())
+
+        # DelegationMemberDialog
+        mem_dlg = DelegationMemberDialog(parent=None, member=m1, existing_names=[])
+        self.assertEqual(mem_dlg.preview_lbl.text().strip(), "● Anna")
+        self.assertNotIn("(Me)", mem_dlg.preview_lbl.text())
+        self.assertNotIn("(Myself)", mem_dlg.preview_lbl.text())
+        self.assertFalse(hasattr(mem_dlg, "self_chk"))
+
 
 if __name__ == "__main__":
     unittest.main()

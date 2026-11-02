@@ -79,7 +79,7 @@ class DelegateOwnerPicker(QToolButton):
         self._checkboxes: Dict[str, QCheckBox] = {}
         for m in self._members:
             ini = self._initials.get(m.name, m.initials)
-            chk = QCheckBox(f"({ini})  {m.name}" + ("  (Me)" if m.is_self else ""))
+            chk = QCheckBox(f"({ini})  {m.name}")
             chk.setStyleSheet(f"QCheckBox {{ color: {m.color}; font-weight: 600; padding: 4px 10px; }}")
             chk.toggled.connect(self._on_individual_toggled)
             self._checkboxes[m.name] = chk
