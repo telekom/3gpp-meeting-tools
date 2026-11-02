@@ -44,7 +44,7 @@ from modules.word_tools.core.styles_3gpp import (
     uninstall_3gpp_dotx_template,
 )
 from modules.word_tools.core.word_config import WordConfig
-from modules.word_tools.core.word_excerpt_naming import NAMING_SCHEMES
+from modules.word_tools.core.word_excerpt_naming import NAMING_SCHEMES, CR_NAMING_SCHEMES
 
 
 class SensitivityLabelEditDialog(QDialog):
@@ -176,6 +176,12 @@ class WordSettingsDialog(QDialog):
         for scheme_id, scheme_label in NAMING_SCHEMES:
             self.combo_excerpt_naming.addItem(scheme_label, scheme_id)
         def_form.addRow("Default Excerpt Naming:", self.combo_excerpt_naming)
+
+        self.combo_cr_naming = QComboBox()
+        self.combo_cr_naming.setStyleSheet(SEARCH_INPUT_STYLE)
+        for scheme_id, scheme_label in CR_NAMING_SCHEMES:
+            self.combo_cr_naming.addItem(scheme_label, scheme_id)
+        def_form.addRow("Default CR / pCR Naming:", self.combo_cr_naming)
         main_layout.addWidget(grp_defaults)
 
         # 3. Enterprise Sensitivity Labels
@@ -320,6 +326,11 @@ class WordSettingsDialog(QDialog):
         idx = self.combo_excerpt_naming.findData(scheme)
         if idx >= 0:
             self.combo_excerpt_naming.setCurrentIndex(idx)
+
+        cr_scheme = cfg.get("cr_naming_scheme", "cr_standard")
+        cr_idx = self.combo_cr_naming.findData(cr_scheme)
+        if cr_idx >= 0:
+            self.combo_cr_naming.setCurrentIndex(cr_idx)
 
         self._labels_cache = [dict(l) for l in cfg.get("sensitivity_labels", WordConfig.DEFAULT_SENSITIVITY_LABELS)]
         active_id = cfg.get("active_sensitivity_label_id") or cfg.get("sensitivity_level_label_id", "")
@@ -590,5 +601,6 @@ class WordSettingsDialog(QDialog):
         cfg["default_source_company"] = self.edit_company.text().strip()
         cfg["libreoffice_path"] = self.edit_lo_path.text().strip()
         cfg["excerpt_naming_scheme"] = self.combo_excerpt_naming.currentData() or "source_clauses_timestamp"
+        cfg["cr_naming_scheme"] = self.combo_cr_naming.currentData() or "cr_standard"
         WordConfig.save(cfg)
         self.accept()

@@ -41,6 +41,7 @@ class WordConfig:
             "libreoffice_path": "",
             "default_source_company": "",
             "excerpt_naming_scheme": "source_clauses_timestamp",
+            "cr_naming_scheme": "cr_standard",
         }
         try:
             if CONFIG_PATH.exists():
@@ -172,5 +173,15 @@ class WordConfig:
     def set_excerpt_naming_scheme(scheme: str):
         cfg = WordConfig.load()
         cfg["excerpt_naming_scheme"] = scheme
+        WordConfig.save(cfg)
+
+    @staticmethod
+    def get_cr_naming_scheme() -> str:
+        return WordConfig.load().get("cr_naming_scheme", "cr_standard")
+
+    @staticmethod
+    def set_cr_naming_scheme(scheme: str):
+        cfg = WordConfig.load()
+        cfg["cr_naming_scheme"] = scheme
         WordConfig.save(cfg)
 
