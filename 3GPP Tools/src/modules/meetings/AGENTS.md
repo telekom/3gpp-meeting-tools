@@ -51,12 +51,12 @@ src/modules/meetings/
 
 ## 3. Critical Architectural Rules
 
-### 3.1. STRICT PROTECTION: `tdoc2md.py`
-> [!CAUTION]
-> **DO NOT MODIFY `src/modules/meetings/core/tdoc2md.py`.**
+### 3.1. Standalone Core: `tdoc2md.py` & Upstream Backporting
+> [!NOTE]
 > `tdoc2md.py` is a drop-in standalone conversion engine maintained in an external upstream repository (`3gpp-tdoc-markdown-exporter`).
-> - It relies strictly on the Python standard library.
-> - Any application adaptations, LibreOffice/Word COM bridges, custom callbacks, or GUI integration MUST be implemented in `tdoc_markdown_converter.py` or calling modules, **NEVER** in `tdoc2md.py`.
+> - It relies strictly on the Python standard library (no third-party dependencies).
+> - Any application adaptations, LibreOffice/Word COM bridges, custom callbacks, or GUI integration MUST be implemented in `tdoc_markdown_converter.py` or calling modules.
+> - **Incremental All-New pCR Support (v2.2.0):** Features native detection of "ALL TEXT is NEW" change blocks that contain inline Word revisions relative to an earlier contribution (e.g. `* * * First Change ALL TEXT is NEW * * * *` with `<w:ins>`/`<w:del>` deltas wrt a postponed predecessor). Automatically suppresses `[ADDED BLOCK]:` on unmarked paragraphs (which represent the baseline starting point, not new blocks), parses unparenthesized boundary qualifiers, and annotates the dual-layer change scope with predecessor TDoc provenance. Maintained strictly backward-compatible for direct upstream backporting.
 
 ### 3.2. Background Threading
 - All FTP downloads, file extractions, Word COM automations, and LLM triage must run in `QThread` workers (e.g. `LLMExporterThread`, `TDocTriageWorker`, `MeetingsNetworkSync`).
@@ -68,6 +68,7 @@ src/modules/meetings/
 - Extracts track changes (`[INSERTED: ...]`, `[DELETED: ...]`), tables, figures, Visio diagrams, and metadata headers.
 - **Document Type Revision Mode Resolution (`resolve_revision_mode_for_type`):**
   - **CR & pCR:** Normative specification change proposals retain specification revision markers (`revisions="markup"` with `[INSERTED]`/`[DELETED]` tags and markup legend).
+  - **Incremental All-New pCRs:** Documents where a proposed clause is new to the target specification (`ALL TEXT is NEW`) but contains revisions relative to an earlier postponed/revised draft (e.g. `(revision of S2-2611386)`) suppress `[ADDED BLOCK]:` prefixes on unmarked paragraphs. The unmarked text represents the starting-point baseline, while `<w:ins>` / `<w:del>` render cleanly as the delta wrt the predecessor TDoc.
   - **LS IN & LS OUT (Liaisons):** Inter-group correspondence statements do not indicate specification changes and are exported as plain documents in `revisions="accept"` mode (all insertions rendered as normal text, deletions dropped, and markup legend omitted).
   - **Stale Detection Upgrade:** `is_conversion_stale` incorporates `expected_mode` matching, automatically re-converting older cached `markup` dossiers of LS documents into clean `accept` mode.
 - **3GPP Server URL & Provenance Preservation (`tdoc_url_resolver.py`):**

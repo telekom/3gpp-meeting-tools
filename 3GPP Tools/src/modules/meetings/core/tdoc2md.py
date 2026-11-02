@@ -58,7 +58,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, Iterator, List, Optional, Tuple, Union
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 log = logging.getLogger("tdoc2md")
 
 # Path handling is part of the standalone converter; no companion imports are required.
@@ -188,11 +188,19 @@ def change_boundary_qualifier(text: str) -> Optional[str]:
 
     Keep the complete marker for rendering: qualifiers can identify a separate
     contribution baseline, not just whether text is new to the target spec.
+    Supports parenthesized qualifiers (e.g. '* * * First Change (ALL TEXT is NEW) * * *')
+    as well as unparenthesized or hyphenated variants ('* * * First Change ALL TEXT is NEW * * *').
     """
     candidate = re.sub(r"^[\s*]+|[\s*]+$", "", text)
     match = re.fullmatch(r"(.*?)\s*\((.*)\)", candidate)
-    boundary, qualifier = (match.group(1), match.group(2)) if match else (candidate, "")
-    return qualifier if BOUNDARY_RE.fullmatch(boundary) else None
+    if match and BOUNDARY_RE.fullmatch(match.group(1).strip()):
+        return match.group(2).strip()
+    m_new = ALL_NEW_RE.search(candidate)
+    if m_new:
+        prefix = candidate[:m_new.start()].strip(" \t-:*")
+        if BOUNDARY_RE.fullmatch(prefix):
+            return candidate[m_new.start():].strip()
+    return "" if BOUNDARY_RE.fullmatch(candidate) else None
 
 COVER_FIELDS = {
     "source": "source", "source to wg": "source", "title": "title", "agenda item": "agenda item",
@@ -533,7 +541,8 @@ class DocxConverter:
                  prefix: Optional[str] = None, revision_mode: str = "markup", image_dpi: int = 150,
                  convert_images: bool = True, keep_metafiles: bool = False,
                  cancellation_check: Optional[Callable[[], bool]] = None,
-                 metafile_converter: Optional[Callable[[List[Tuple[Path, Path]], int], None]] = None):
+                 metafile_converter: Optional[Callable[[List[Tuple[Path, Path]], int], None]] = None,
+                 meta: Optional[Dict[str, str]] = None):
         self.path = Path(to_extended_path(docx_path))
         self.tdoc_id = tdoc_id
         self.media_dir = Path(to_extended_path(media_dir))
@@ -545,6 +554,7 @@ class DocxConverter:
         self.keep_metafiles = keep_metafiles
         self.cancellation_check = cancellation_check
         self.metafile_converter = metafile_converter
+        self.meta: Dict[str, str] = meta or {}
         # state
         self.W = ""
         self.z: Optional[zipfile.ZipFile] = None
@@ -557,6 +567,7 @@ class DocxConverter:
         self.metafile_tokens: Dict[Path, str] = {}
         self.in_new_block = False
         self.explicit_new_block = False
+        self.in_incremental_new_block = False
         self.cover_done = False
         self.cover_seen_table = False
         self.result = DocResult(markdown="")
@@ -637,15 +648,30 @@ class DocxConverter:
         return self.result
 
     # ---------------- blocks ----------------
+    def _block_has_revisions(self, container: List[Any], start_idx: int) -> bool:
+        """Return True if any element in the change block contains revision marks."""
+        W = self.W
+        for j in range(start_idx + 1, len(container)):
+            el = container[j]
+            if el.tag == W + "p":
+                txt = "".join(el.itertext()).strip()
+                if txt:
+                    plain = re.sub(r"\s+", " ", txt).strip()
+                    if change_boundary_qualifier(plain) is not None or (len(plain) <= 120 and LEGACY_BOUNDARY_RE.search(plain)):
+                        break
+            if el.find(".//" + W + "ins") is not None or el.find(".//" + W + "del") is not None:
+                return True
+        return False
+
     def _render_blocks(self, container, top: bool, in_cell: bool) -> List[str]:
         blocks: List[str] = []
         W = self.W
-        for el in container:
+        for idx, el in enumerate(container):
             if self.cancellation_check and self.cancellation_check():
                 break
             tag, l = el.tag, ln(el.tag)
             if tag == W + "p":
-                b = self._render_para_block(el, top, in_cell)
+                b = self._render_para_block(el, top, in_cell, container=container, idx=idx)
                 if b:
                     blocks.append(b)
             elif tag == W + "tbl":
@@ -690,7 +716,7 @@ class DocxConverter:
             num = style_num
         return name or (style_id or ""), heading, num
 
-    def _render_para_block(self, p, top: bool, in_cell: bool) -> Optional[str]:
+    def _render_para_block(self, p, top: bool, in_cell: bool, container: Optional[List[Any]] = None, idx: int = 0) -> Optional[str]:
         style_name, heading, num = self._para_props(p)
         segs: List[Tuple[str, str, str]] = []
         for c in p:
@@ -710,8 +736,12 @@ class DocxConverter:
         if in_cell:
             heading = None
         if top and not self.cover_done:
+            m = REVISION_OF_RE.search(plain)
+            if m and "revision of" not in self.result.cover:
+                self.result.cover["revision of"] = m.group(1).upper()
             if heading:
                 self.cover_done = True
+                self._parse_cover()
             elif len(self.top_texts) < 40:
                 self.top_texts.append(plain)
 
@@ -722,21 +752,65 @@ class DocxConverter:
             if qualifier is not None or (short and LEGACY_BOUNDARY_RE.search(plain)):
                 self.in_new_block = bool(qualifier and ALL_NEW_RE.search(qualifier))
                 self.explicit_new_block = self.in_new_block
+                if self.in_new_block and container is not None:
+                    self.in_incremental_new_block = self._block_has_revisions(container, idx)
+                else:
+                    self.in_incremental_new_block = False
+
                 self.marker_count += 1
                 marker = "> **[%s]**" % plain
                 if self.in_new_block:
-                    marker += "\n\n> **[Change scope: new text for the target specification; inline revisions retain their separate edit layer]**"
+                    if self.in_incremental_new_block:
+                        prev_ref = (
+                            self.result.cover.get("revision of")
+                            or self.meta.get("is revision of")
+                            or self.meta.get("revision of")
+                        )
+                        if prev_ref:
+                            marker += (
+                                "\n\n> **[Change scope: new text for the target specification; "
+                                "inline revisions show changes wrt %s. Unmarked text represents the starting point baseline.]**"
+                                % prev_ref
+                            )
+                        else:
+                            marker += (
+                                "\n\n> **[Change scope: new text for the target specification; "
+                                "inline revisions show changes wrt predecessor contribution. Unmarked text represents the starting point baseline.]**"
+                            )
+                    else:
+                        marker += (
+                            "\n\n> **[Change scope: new text for the target specification; "
+                            "inline revisions retain their separate edit layer]**"
+                        )
                 return marker
             words = plain.split()
             first = words[0] if words else ""
             if heading and self.in_new_block and not self.explicit_new_block and NUMERIC_CLAUSE_RE.match(first):
                 self.in_new_block = False
+                self.in_incremental_new_block = False
             if short and ALL_NEW_RE.search(plain):
                 self.in_new_block = True
                 self.explicit_new_block = True
+                if container is not None:
+                    self.in_incremental_new_block = self._block_has_revisions(container, idx)
+                else:
+                    self.in_incremental_new_block = False
+                if self.in_incremental_new_block:
+                    prev_ref = (
+                        self.result.cover.get("revision of")
+                        or self.meta.get("is revision of")
+                        or self.meta.get("revision of")
+                    )
+                    ref_str = (" wrt %s" % prev_ref) if prev_ref else " wrt predecessor contribution"
+                    return (
+                        "> **[Change scope: new text for the target specification; "
+                        "inline revisions show changes%s. Unmarked text represents the starting point baseline.]** %s"
+                        % (ref_str, text)
+                    )
                 return "> **[Change scope: new text for the target specification; inline revisions retain their separate edit layer]** %s" % text
             if heading and PLACEHOLDER_CLAUSE_RE.match(first):
                 self.in_new_block = True
+                self.in_incremental_new_block = False
                 note = "> **[Note to LLM: entering new placeholder clause '%s']**\n\n" % first
 
         if heading:
@@ -746,7 +820,7 @@ class DocxConverter:
                 htxt = "%s %s" % (label, htxt)
             return note + "%s %s" % ("#" * level, htxt)
 
-        if (top and self.in_new_block and not para.has_rev and self.revision_mode == "markup"):
+        if (top and self.in_new_block and not self.in_incremental_new_block and not para.has_rev and self.revision_mode == "markup"):
             text = "[ADDED BLOCK]: " + text
 
         if label:
@@ -1541,7 +1615,7 @@ def convert_docx_file(docx_path: Path, out_dir: Path, tdoc_id: Optional[str] = N
     meta = meta or {}
     conv = DocxConverter(docx_path, tdoc_id, media_dir if media_dir is not None else out_dir / "media", media_rel, prefix=name, revision_mode=revisions,
                          image_dpi=image_dpi, convert_images=convert_images, keep_metafiles=keep_metafiles,
-                         cancellation_check=cancellation_check, metafile_converter=metafile_converter)
+                         cancellation_check=cancellation_check, metafile_converter=metafile_converter, meta=meta)
     res = conv.convert()
     header_text = build_header(tdoc_id, meta, res, original_name or docx_path.name, revisions) if include_header else ""
     text = header_text + res.markdown

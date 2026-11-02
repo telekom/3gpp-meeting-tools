@@ -712,7 +712,7 @@ class SessionPlanWindow(QWidget):
         tc_lay.addWidget(self.team_clashes_table)
 
         tc_lay.addWidget(QLabel("💡 <i>Click 'Appoint Available Delegate' to inspect who is free in that time slot and appoint coverage on a session-by-session basis.</i>"))
-        self.team_tabs.addTab(tab_clashes, "⚡ Clash & Dispatch Board")
+        self.team_tabs.addTab(tab_clashes, "⚡ Clash && Dispatch Board")
 
         page_layout.addWidget(self.team_tabs, 1)
         self.view_stack.addWidget(page)
@@ -1895,7 +1895,7 @@ class SessionPlanWindow(QWidget):
         collisions = self._detect_delegation_collisions()
         clash_count = len(collisions)
         self.btn_team.setText(f"👥 Team Allocations ({clash_count} ⚠️)" if clash_count else "👥 Team Allocations (Clean)")
-        self.team_tabs.setTabText(1, f"⚡ Clash & Dispatch Board ({clash_count})")
+        self.team_tabs.setTabText(1, f"⚡ Clash && Dispatch Board ({clash_count})")
 
         if clash_count == 0:
             self.clash_kpi_lbl.setText("✅ No collisions detected! All parallel streams have distinct delegates or single coverage.")
