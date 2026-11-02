@@ -203,6 +203,24 @@ class DocxSplitter:
             word.Quit(SaveChanges=0)
             word = None
 
+            try:
+                import gc
+                gc.collect()
+            except Exception:
+                pass
+            try:
+                pythoncom.PumpWaitingMessages()
+            except Exception:
+                pass
+
+            # Wait briefly for Word to release file locks before style patching
+            for _ in range(25):
+                try:
+                    with open(to_extended_path(file_path), "a+b"):
+                        break
+                except (PermissionError, OSError):
+                    time.sleep(0.1)
+
             # Re-ensure package styles after Word COM save to guarantee no loss of qFormat or re-addition of linkStyles
             ensure_3gpp_package_styles(file_path)
         except Exception as exc:
@@ -218,6 +236,13 @@ class DocxSplitter:
                     word.Quit(SaveChanges=0)
                 except Exception:
                     pass
+            doc = None
+            word = None
+            try:
+                import gc
+                gc.collect()
+            except Exception:
+                pass
             if com_initialized:
                 try:
                     pythoncom.CoUninitialize()

@@ -778,8 +778,19 @@ def ensure_3gpp_package_styles(docx_path: Path) -> None:
     ext_tmp = to_extended_path(tmp_path)
 
     try:
-        with open(ext_path, "rb") as sf:
-            source_bytes = sf.read()
+        # Retry loop to read the source file in case another process (Word teardown, OneDrive, AV) holds a transient lock
+        max_read_attempts = 15
+        read_delay = 0.2
+        source_bytes = None
+        for attempt in range(max_read_attempts):
+            try:
+                with open(ext_path, "rb") as sf:
+                    source_bytes = sf.read()
+                break
+            except (PermissionError, OSError):
+                if attempt == max_read_attempts - 1:
+                    raise
+                time.sleep(read_delay)
 
         out_buf = io.BytesIO()
         with zipfile.ZipFile(io.BytesIO(source_bytes), "r") as zin, zipfile.ZipFile(
@@ -823,15 +834,38 @@ def ensure_3gpp_package_styles(docx_path: Path) -> None:
         with open(ext_tmp, "wb") as tf:
             tf.write(out_buf.getvalue())
 
-        # Brief retry loop guards against transient Windows file locking (antivirus/indexers)
-        for attempt in range(5):
+        # Robust retry loop guards against transient Windows file locking (Word teardown, OneDrive, antivirus/indexers)
+        max_replace_attempts = 25
+        replace_delay = 0.25
+        last_replace_exc = None
+        for attempt in range(max_replace_attempts):
             try:
                 os.replace(ext_tmp, ext_path)
+                last_replace_exc = None
                 break
-            except (PermissionError, OSError):
-                if attempt == 4:
-                    raise
-                time.sleep(0.08)
+            except (PermissionError, OSError) as exc:
+                last_replace_exc = exc
+                if attempt % 4 == 0 and attempt > 0:
+                    logger.debug(
+                        "Target file %s is locked; waiting for release (%d/%d)...",
+                        docx_path.name, attempt + 1, max_replace_attempts,
+                    )
+                # On final attempts, try direct file stream copy fallback
+                if attempt >= max_replace_attempts - 3:
+                    try:
+                        shutil.copyfile(ext_tmp, ext_path)
+                        try:
+                            os.remove(ext_tmp)
+                        except OSError:
+                            pass
+                        last_replace_exc = None
+                        break
+                    except Exception:
+                        pass
+                time.sleep(replace_delay)
+
+        if last_replace_exc is not None:
+            raise last_replace_exc
 
         logger.info("Ensured authentic 3GPP styles and table formatting in %s", docx_path.name)
     finally:
