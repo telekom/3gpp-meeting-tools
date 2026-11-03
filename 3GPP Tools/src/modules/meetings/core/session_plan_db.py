@@ -106,6 +106,7 @@ class SessionPlanDatabase:
                     end_time_local TEXT NOT NULL,
                     stream_number INTEGER NOT NULL,
                     chair_override TEXT,
+                    room_override TEXT,
                     raw_text TEXT NOT NULL,
                     is_drafting INTEGER DEFAULT 0,
                     is_tentative INTEGER DEFAULT 0,
@@ -202,6 +203,12 @@ class SessionPlanDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_roster_mtg ON delegation_roster(meeting_number);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_town_mtg ON topic_owners(meeting_number);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_sapp_mtg ON session_appointments(meeting_number);")
+
+            # Schema migration: room_override column
+            try:
+                cursor.execute("ALTER TABLE session_slots ADD COLUMN room_override TEXT;")
+            except Exception:
+                pass
 
     # --- Meeting Metadata & Timezone ---
 
@@ -316,8 +323,8 @@ class SessionPlanDatabase:
                     """
                     INSERT INTO session_slots (snapshot_id, day_index, day_name, day_date, quarter, sub_slot,
                                                start_time_local, end_time_local, stream_number, chair_override,
-                                               raw_text, is_drafting, is_tentative, is_single_stream, is_plenary)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                               room_override, raw_text, is_drafting, is_tentative, is_single_stream, is_plenary)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         snap_id,
@@ -330,6 +337,7 @@ class SessionPlanDatabase:
                         slot.end_time_local,
                         slot.stream_number,
                         slot.chair_override,
+                        slot.room_override,
                         slot.raw_text,
                         1 if slot.is_drafting else 0,
                         1 if slot.is_tentative else 0,
@@ -471,6 +479,7 @@ class SessionPlanDatabase:
                     end_time_local=sr["end_time_local"],
                     stream_number=sr["stream_number"],
                     chair_override=sr["chair_override"] or "",
+                    room_override=sr["room_override"] if "room_override" in sr.keys() and sr["room_override"] else "",
                     raw_text=sr["raw_text"] or "",
                     is_drafting=bool(sr["is_drafting"]),
                     is_tentative=bool(sr["is_tentative"]),

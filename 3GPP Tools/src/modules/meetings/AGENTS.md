@@ -300,3 +300,41 @@ src/modules/meetings/
   - `TDocsParser.parse_tdocs_excel` **never persists an empty result** and **ignores/removes an empty `.json` cache**, so a re-downloaded list is always re-parsed.
   - Empty exports log a `WARNING` (header found, no TDoc rows); exceptions are logged with full traceback via `logger.exception`; successful parses log the TDoc count at `INFO`.
   - `MeetingsTab._open_tdocs_window` logs missing files / empty data and offers a 1-click **re-download** from the 3GPP portal (`_download_and_open_tdocs`) instead of a dead-end error.
+
+### 3.13. SA2 Session Plan Parsing Engine, Conventions & Robustness (`session_plan_parser.py`, `session_plan_models.py`, `session_plan_db.py`, `session_plan_window.py`)
+- **Overview:** 3GPP SA2 session plans ("Draft time allocation") are published as Microsoft Word documents (`.docx`) or circulated as Markdown/HTML tables. Chairs write these tables with significant stylistic flexibility, irregular formatting, and shorthand notations. The parsing engine converts these unstructured documents into high-fidelity structured models (`SessionPlanSnapshot`, `SessionSlot`, `AgendaSlotItem`) and persists them in SQLite (`session_plans.db`).
+- **Core Real-World Parsing Quirks & Architectural Solutions:**
+  1. **Physical Room Overrides (`In main room`, `In Breakout 1`, `In Breakout 2`):**
+     - *Quirk:* Working Group chairs periodically reassign specific session slots to different physical rooms (e.g., shifting Stream 1 into Breakout 1, or Stream 2 into the Main Room) by writing text directly inside the cell (e.g. `In Breakout 2\nKI#8 (Net Sharing) (20.6.8)`).
+     - *Fix:* Regex `ROOM_OVERRIDE_RE` isolates and normalizes the physical room, stores it in `slot.room_override` (persisted in SQLite via dynamic migration `ALTER TABLE session_slots ADD COLUMN room_override TEXT`), and cleans the string from topic tokens. All UI surfaces (Overview Grid tooltips, Drafting Radar, Delegate Agenda, Clash Board) and export formats (HTML, Outlook briefing emails, iCalendar) dynamically resolve `s.room_override or stream_room_name`.
+  2. **Disambiguating "Breakout" Rooms from Coffee Breaks:**
+     - *Quirk:* Room header rows (e.g., `| Main Room | Palomino | Breakout 1 | ...`) contain the word "Breakout". A naive `"break" in cell.lower()` test matched "Breakout 1", turning room header rows into fake coffee breaks across Monday–Wednesday and shifting all session timings.
+     - *Fix:* `_detect_break_period` enforces strict word boundary matching `re.search(r"\bbreak\b", ...)` and evaluates active quarter context, ensuring room header rows are never misidentified as breaks.
+  3. **OpenXML Vertically Merged Cells (`<w:vMerge>`) Across Parallel Streams:**
+     - *Quirk:* Plenary sessions (e.g., Monday morning Q1/Q2, Friday afternoon Q4/Q5) or single-stream sessions span across all 3 stream rows using OpenXML vertical cell merges. In `python-docx`, iterating across row cells on vertically merged tables repeats the master cell's XML pointer (`_tc`) and text across Streams 1, 2, and 3.
+     - *Fix:* Table parsing tracks underlying XML cell references (`seen_tcs = set()`). Vertically merged cell continuations across parallel streams are deduplicated, completely eliminating phantom duplicate sessions in Streams 2 and 3 and preventing false parallel-stream double-booking warnings for delegates.
+  4. **Markdown / HTML Table `colspan` Row Expansion:**
+     - *Quirk:* When session plan tables are pasted from email reflectors or Markdown notes, full-quarter sessions (spanning TU1 and TU2) frequently use `<td colspan=2/>`, resulting in fewer than 10 cells in a row (e.g., 8 or 9 cells). Naive slicing (`cells[:5]`) caused day-shifting (e.g., Tuesday TU2 shifting into Wednesday, dropping Thursday and Friday entirely).
+     - *Fix:* `_process_day_cells` expands `<td colspan=2/>` and 5-cell day rows into 10 normalized half-quarter slots, maintaining exact Monday–Friday alignment.
+  5. **Multi-Topic Slots & Numeric Range Expansion:**
+     - *Quirk:* Cells frequently bundle multiple topics on separate lines (e.g., `In Breakout 2\nKI#10 (FWA) (20.6.10)\nKI#12 – KI#16 (20.6.12 - 16)`).
+     - *Fix:* Each line is tokenized into its own specific `AgendaSlotItem`. `_expand_numeric_range` supports shorthand ranges (`20.6.12 - 16`), full prefix ranges (`20.6.12 - 20.6.16`), and implicit KI ranges (`KI#12 – KI#16`).
+  6. **Dynamic Key Issue (`ki_map`) Cache for Implicit AI Resolution:**
+     - *Quirk:* In SA2, study items (e.g. AI 20.6.x) define Key Issues (KI#1..KI#30). Early in the week, chairs write explicit references like `KI#8 (Net Sharing) (20.6.8)`. Later in the week, chairs omit the AI number, writing only `KI#8 (Net Sharing)` or `KI#21 (Data Framework)`.
+     - *Fix:* The parser dynamically populates a meeting-wide `ki_map` cache during table traversal. Subsequent implicit KI# references automatically resolve to their full 20.6.x AI numbers.
+  7. **Parenthesis Balancing & Topic Label Hygiene:**
+     - *Quirk:* Stripping extracted AI numbers (e.g. removing `(20.6.8)` from `KI#8 (Net Sharing) (20.6.8)`) must not strip genuine topic brackets (e.g. `(Net Sharing)` or `(AI for Network)`), nor leave dangling closing brackets from multi-AI lists like `(5.x, 6.x )`.
+     - *Fix:* `_balance_parentheses()` audits bracket parity, stripping unmatched outer delimiters while preserving valid technical qualifiers.
+  8. **Timetable Administrative Note Filtering:**
+     - *Quirk:* Chairs insert logistical scheduling notes into session slots (e.g., `Drafting 18:30-20:30`, `Session ends at 17:30`, `Revisions (tbd)`).
+     - *Fix:* Regex `ADMIN_NOTE_RE` identifies logistical timetable annotations and suppresses them from technical Agenda Item lists.
+  9. **Single-Digit Plenary Agenda Items:**
+     - *Quirk:* Plenary cells frequently list `Opening (1), Agenda (2), Reports (3), Work plan (4), Outgoing LSs (5.1)`.
+     - *Fix:* `single_ai_matches` extracts each numbered plenary item as an independent agenda item entity with its corresponding title.
+- **UI Table Rendering Resolution Precedence (`_resolve_ai_description`):**
+  - In `SessionPlanWindow`, topic titles in both Agenda Mode (`_render_agenda_mode`) and Team Topics (`_render_team_topics`) are resolved through `_resolve_ai_description(ai_num, scheduled_ais)`:
+    1. Look up `ai_num` in `agenda_map` (from `agenda.csv` if available).
+    2. Search scheduled slots for an exact `AgendaSlotItem` where `it.ai_number == ai_num` to retrieve its cleanly extracted `topic_label`.
+    3. Fall back to the slot's cleaned non-administrative lines, omitting room override headers.
+  - This guarantees that delegates viewing the Team Allocations matrix or Agenda Mode see the accurate topic description for each sub-topic, rather than the raw text of the entire multi-topic cell or a room string.
+

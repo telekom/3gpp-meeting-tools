@@ -41,6 +41,7 @@ class SessionSlot:
     end_time_local: str = "10:30"
     stream_number: int = 1         # 1=Main Room, 2=Breakout 1, 3=Breakout 2, 0=All Streams (Lunch/Plenary)
     chair_override: str = ""       # Optional moderator/chair override
+    room_override: str = ""        # Optional room override, e.g. 'Breakout 1', 'Main Room'
     raw_text: str = ""             # Exact text in the cell
     is_drafting: bool = False
     is_tentative: bool = False     # Marked with (?)

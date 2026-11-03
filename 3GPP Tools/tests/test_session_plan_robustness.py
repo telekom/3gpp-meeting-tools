@@ -1,0 +1,126 @@
+# -*- coding: utf-8 -*-
+"""Unit tests for SA2 session plan parsing robustness and edge cases."""
+
+import unittest
+import tempfile
+import os
+
+from modules.meetings.core.session_plan_parser import SessionPlanParser
+from modules.meetings.core.session_plan_models import SessionPlanSnapshot, SessionSlot
+from modules.meetings.core.session_plan_db import SessionPlanDatabase
+
+
+class TestSessionPlanRobustness(unittest.TestCase):
+    """Verifies parsing robustness against flexible SA2 session plan conventions."""
+
+    def test_extract_room_override(self):
+        """Tests physical room overrides detection and text cleanup."""
+        text = "In Breakout 2\nKI#8 (Net Sharing) (20.6.8)"
+        room, tokens = SessionPlanParser._extract_room_override_and_tokens(text)
+        self.assertEqual(room, "Breakout 2")
+        self.assertEqual(tokens, ["KI#8 (Net Sharing) (20.6.8)"])
+
+        text2 = "In main room \nKI#19 (Network for AI) (20.6.19)"
+        room2, tokens2 = SessionPlanParser._extract_room_override_and_tokens(text2)
+        self.assertEqual(room2, "Main Room")
+        self.assertEqual(tokens2, ["KI#19 (Network for AI) (20.6.19)"])
+
+        text3 = "In breakout 1\nFS_enIMS_ARC (20.10.1)"
+        room3, tokens3 = SessionPlanParser._extract_room_override_and_tokens(text3)
+        self.assertEqual(room3, "Breakout 1")
+        self.assertEqual(tokens3, ["FS_enIMS_ARC (20.10.1)"])
+
+        text_none = "KI#5 (QoS) (20.6.5)"
+        room_none, tokens_none = SessionPlanParser._extract_room_override_and_tokens(text_none)
+        self.assertEqual(room_none, "")
+        self.assertEqual(tokens_none, [text_none])
+
+    def test_breakout_not_detected_as_break_period(self):
+        """Ensures 'Breakout 1/2' in room headers or cells is not mistaken for a coffee break."""
+        p1 = SessionPlanParser._detect_break_period("Breakout 1", "Main Room", "Palomino", "Q1")
+        self.assertIsNone(p1)
+
+        p2 = SessionPlanParser._detect_break_period("Coffee Break", "", "", "Q1")
+        self.assertEqual(p2, "Coffee 1")
+
+        p3 = SessionPlanParser._detect_break_period("Lunch Break 12:30 - 14:00", "", "", "Q2")
+        self.assertEqual(p3, "Lunch")
+
+    def test_extract_multi_line_agenda_items(self):
+        """Tests that multiple distinct agenda lines in one slot map to their respective topics."""
+        raw_text = (
+            "In Breakout 2\n"
+            "KI#10 (FWA) (20.6.10)\n"
+            "KI#12 – KI#16"
+        )
+        room_override, items = SessionPlanParser._extract_agenda_items(raw_text)
+        self.assertEqual(room_override, "Breakout 2")
+        item_map = {it.ai_number: it.topic_label for it in items}
+
+        self.assertIn("20.6.10", item_map)
+        self.assertEqual(item_map["20.6.10"], "KI#10 (FWA)")
+
+        for ai in ["20.6.12", "20.6.13", "20.6.14", "20.6.15", "20.6.16"]:
+            self.assertIn(ai, item_map)
+            self.assertEqual(item_map[ai], "KI#12 – KI#16")
+
+    def test_single_digit_agenda_items(self):
+        """Tests parenthesized single-digit AIs like Opening (1), Agenda (2), Reports (3)."""
+        raw_text = "Opening (1), Agenda (2), Reports (3), Work plan (4), Outgoing LSs (5.1)"
+        _, items = SessionPlanParser._extract_agenda_items(raw_text)
+        item_map = {it.ai_number: it.topic_label for it in items}
+
+        self.assertEqual(item_map.get("1"), "Opening")
+        self.assertEqual(item_map.get("2"), "Agenda")
+        self.assertEqual(item_map.get("3"), "Reports")
+        self.assertEqual(item_map.get("4"), "Work plan")
+        self.assertEqual(item_map.get("5.1"), "Outgoing LSs")
+
+    def test_implicit_ki_number_mapping(self):
+        """Tests resolving implicit KI#N (e.g. KI#21 without repeating (20.6.21)) using shared ki_map."""
+        ki_map = {"21": "20.6.21"}
+        raw_text = "KI#21 (Data Framework)"
+        _, items = SessionPlanParser._extract_agenda_items(raw_text, ki_map=ki_map)
+        self.assertTrue(len(items) >= 1)
+        self.assertEqual(items[0].ai_number, "20.6.21")
+        self.assertEqual(items[0].topic_label, "KI#21 (Data Framework)")
+
+    def test_balance_parentheses(self):
+        """Tests that parentheses in topic labels are not erroneously stripped or left dangling."""
+        self.assertEqual(SessionPlanParser._balance_parentheses("(Net Sharing)"), "(Net Sharing)")
+        self.assertEqual(SessionPlanParser._balance_parentheses("Net Sharing)"), "Net Sharing")
+        self.assertEqual(SessionPlanParser._balance_parentheses("(Net Sharing"), "Net Sharing")
+
+    def test_db_room_override_persistence(self):
+        """Tests that room_override is saved and restored from SQLite database."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tf:
+            temp_db = tf.name
+
+        try:
+            db = SessionPlanDatabase(temp_db)
+            slot = SessionSlot(
+                day_index=0,
+                day_name="Monday",
+                day_date="2026-11-09",
+                quarter="Q1",
+                stream_number=1,
+                room_override="Breakout 1",
+                raw_text="In breakout 1\nFS_enIMS_ARC (20.10.1)",
+            )
+            snap = SessionPlanSnapshot(
+                meeting_number="178",
+                slots=[slot],
+            )
+            db.save_snapshot(snap)
+
+            loaded = db.get_active_snapshot("178")
+            self.assertIsNotNone(loaded)
+            self.assertEqual(len(loaded.slots), 1)
+            self.assertEqual(loaded.slots[0].room_override, "Breakout 1")
+        finally:
+            if os.path.exists(temp_db):
+                os.remove(temp_db)
+
+
+if __name__ == "__main__":
+    unittest.main()

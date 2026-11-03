@@ -144,7 +144,7 @@ class SessionPlanExporter:
             time_dual = SessionPlanTimezone.format_dual_time_range(s_t, e_t, meeting_tz_offset_min)
 
             s_info = snapshot.streams.get(slot.stream_number)
-            r_name = s_info.room_name if s_info else f"Stream {slot.stream_number}"
+            r_name = getattr(slot, "room_override", "") or (s_info.room_name if s_info else f"Stream {slot.stream_number}")
             cap = f" ({s_info.capacity} seats)" if s_info and s_info.capacity else ""
             convener = s_info.convener if s_info else ("SA2 Chair / MCC" if slot.stream_number == 1 else "")
             tohru = s_info.tohru_room if s_info else ""
@@ -233,7 +233,7 @@ class SessionPlanExporter:
                 continue
             eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(s, delegation_plan)
             s_info = snapshot.streams.get(s.stream_number)
-            r_name = s_info.room_name if s_info else f"Stream {s.stream_number}"
+            r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
             convener = s_info.convener if s_info else ""
             ann = annotations.get(s.slot_key)
             note_str = ann.comment if ann else ""
@@ -473,7 +473,7 @@ class SessionPlanExporter:
                     tt_html = build_tooltip_html(s, d_idx, q, s.sub_slot)
 
                     s_info = streams.get(s.stream_number)
-                    r_name = s_info.room_name if s_info else f"Stream {s.stream_number}"
+                    r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
                     convener = s_info.convener if s_info else ""
 
                     sub_tag = ""
@@ -1443,7 +1443,7 @@ class SessionPlanExporter:
             uid = f"sa2-{snapshot.meeting_number}{safe_target}-{s.slot_key}-{dt_start}@3gpp.tools"
 
             s_info = streams.get(s.stream_number)
-            r_name = s_info.room_name if s_info else f"Stream {s.stream_number}"
+            r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
             convener = s_info.convener if s_info else ""
             tohru = s_info.tohru_room if s_info else ""
 
@@ -1534,7 +1534,7 @@ class SessionPlanExporter:
         for s in drafting_slots:
             time_str = SessionPlanTimezone.format_dual_time_range(s.start_time_local, s.end_time_local, meeting_tz_offset_min)
             s_info = snapshot.streams.get(s.stream_number)
-            r_name = s_info.room_name if s_info else f"Stream {s.stream_number}"
+            r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
             drafting_rows += f"<tr><td style='padding:4px 8px; border:1px solid #E2E8F0;'><b>{s.day_name}</b> {s.quarter}</td><td style='padding:4px 8px; border:1px solid #E2E8F0;'>{time_str}</td><td style='padding:4px 8px; border:1px solid #E2E8F0;'>{html.escape(r_name)}</td><td style='padding:4px 8px; border:1px solid #E2E8F0;'>{html.escape(s.raw_text)}</td></tr>"
 
         drafting_html = f"""
@@ -1557,7 +1557,7 @@ class SessionPlanExporter:
         for s in tracked_slots:
             time_str = SessionPlanTimezone.format_dual_time_range(s.start_time_local, s.end_time_local, meeting_tz_offset_min)
             s_info = snapshot.streams.get(s.stream_number)
-            r_name = s_info.room_name if s_info else f"Stream {s.stream_number}"
+            r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
             tracked_rows += f"<tr><td style='padding:4px 8px; border:1px solid #E2E8F0;'><b>{s.day_name}</b> {s.quarter}</td><td style='padding:4px 8px; border:1px solid #E2E8F0;'>{time_str}</td><td style='padding:4px 8px; border:1px solid #E2E8F0;'>{html.escape(r_name)}</td><td style='padding:4px 8px; border:1px solid #E2E8F0;'>{html.escape(s.raw_text)}</td></tr>"
 
         tracked_html = f"""
@@ -1798,7 +1798,7 @@ class SessionPlanExporter:
                     s.start_time_local, s.end_time_local, meeting_tz_offset_min
                 )
                 s_info = snapshot.streams.get(s.stream_number)
-                r_name = s_info.room_name if s_info else f"Stream {s.stream_number}"
+                r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
                 is_cov = (
                     s.slot_key in appointments
                     and name in appointments[s.slot_key].get_appointed_delegates(list(members.keys()))
