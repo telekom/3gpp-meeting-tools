@@ -173,40 +173,40 @@ class CheckableComboBox(QComboBox):
             if root_item:
                 was_all_checked = (root_item.checkState() == Qt.Checked)
 
-        self.model().blockSignals(True)
+        self._updating = True
+        try:
+            # Safely remove rows to keep viewport intact
+            if self.model().rowCount() > 0:
+                self.model().removeRows(0, self.model().rowCount())
 
-        # Safely remove rows to keep viewport intact
-        if self.model().rowCount() > 0:
-            self.model().removeRows(0, self.model().rowCount())
+            item_all = QStandardItem("(Select All)")
+            item_all.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            item_all.setData("ALL", Qt.UserRole)
+            self.model().appendRow(item_all)
 
-        item_all = QStandardItem("(Select All)")
-        item_all.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
-        item_all.setData("ALL", Qt.UserRole)
-        self.model().appendRow(item_all)
+            all_checked_now = True
+            for text in items:
+                raw_value = str(text)
+                display_text = display_labels.get(raw_value, raw_value if raw_value else "(Empty)")
+                item = QStandardItem(display_text)
+                item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
 
-        all_checked_now = True
-        for text in items:
-            raw_value = str(text)
-            display_text = display_labels.get(raw_value, raw_value if raw_value else "(Empty)")
-            item = QStandardItem(display_text)
-            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+                if was_all_checked or raw_value in previously_checked:
+                    item.setCheckState(Qt.Checked)
+                else:
+                    item.setCheckState(Qt.Unchecked)
+                    all_checked_now = False
 
-            if was_all_checked or raw_value in previously_checked:
-                item.setCheckState(Qt.Checked)
-            else:
-                item.setCheckState(Qt.Unchecked)
-                all_checked_now = False
+                item.setData(raw_value, Qt.UserRole)
+                if raw_value in item_tooltips:
+                    item.setToolTip(item_tooltips[raw_value])
+                self.model().appendRow(item)
 
-            item.setData(raw_value, Qt.UserRole)
-            if raw_value in item_tooltips:
-                item.setToolTip(item_tooltips[raw_value])
-            self.model().appendRow(item)
-
-        root_item = self.model().item(0)
-        if root_item:
-            root_item.setCheckState(Qt.Checked if all_checked_now else Qt.Unchecked)
-
-        self.model().blockSignals(False)
+            root_item = self.model().item(0)
+            if root_item:
+                root_item.setCheckState(Qt.Checked if all_checked_now else Qt.Unchecked)
+        finally:
+            self._updating = False
         self.setCurrentIndex(0)
         self._refresh_text_and_tooltip()
         self.update()  # Trigger paintEvent to update the button text
