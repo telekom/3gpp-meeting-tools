@@ -305,6 +305,14 @@ class TestSessionPlanRobustness(unittest.TestCase):
                 self.assertFalse(win.team_topics_table.isRowHidden(1))
                 self.assertFalse(win.team_topics_table.isRowHidden(2))
                 self.assertIn("📅 Scheduled Only (2/3)", win.btn_toggle_scheduled_only.text())
+
+                # 6. Verify QSettings persistence
+                from PyQt5.QtCore import QSettings
+                settings = QSettings("3GPP_Tools", "SessionPlanWindow")
+                win.btn_toggle_scheduled_only.setChecked(True)
+                self.assertTrue(settings.value("team_scheduled_only", False, type=bool))
+                win.btn_toggle_scheduled_only.setChecked(False)
+                self.assertFalse(settings.value("team_scheduled_only", False, type=bool))
             finally:
                 win.close()
 

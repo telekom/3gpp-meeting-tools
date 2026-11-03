@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QPoint, QSettings, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QCursor, QFont, QIcon, QKeySequence
 from PyQt5.QtWidgets import (
     QAction,
@@ -225,6 +225,7 @@ class SessionPlanWindow(QWidget):
                 ext = p.suffix.lower()
                 if ext in [".docx", ".doc", ".docm", ".zip", ".htm", ".html", ".csv", ".txt"]:
                     return True
+            return False
 
         # 2. Virtual Outlook attachments (FileGroupDescriptorW / FileContents)
         formats = mime_data.formats()
@@ -809,15 +810,18 @@ class SessionPlanWindow(QWidget):
         self.team_ai_search.textChanged.connect(self._filter_topic_ownership_table)
         tt_filter_box.addWidget(self.team_ai_search)
 
+        settings = QSettings("3GPP_Tools", "SessionPlanWindow")
+        saved_scheduled = settings.value("team_scheduled_only", False, type=bool)
+
         self.btn_toggle_scheduled_only = QPushButton("📅 Scheduled Only")
         self.btn_toggle_scheduled_only.setCheckable(True)
-        self.btn_toggle_scheduled_only.setChecked(False)
+        self.btn_toggle_scheduled_only.setChecked(saved_scheduled)
         self.btn_toggle_scheduled_only.setCursor(Qt.PointingHandCursor)
         self.btn_toggle_scheduled_only.setToolTip(
             "Toggle visibility of unscheduled Agenda Items (hide rows with no allocated sessions in the session plan)."
         )
         self.btn_toggle_scheduled_only.toggled.connect(self._on_scheduled_only_toggled)
-        self._style_scheduled_toggle(False)
+        self._style_scheduled_toggle(saved_scheduled)
         tt_filter_box.addWidget(self.btn_toggle_scheduled_only)
         self.chk_scheduled_only = self.btn_toggle_scheduled_only
 
@@ -2336,6 +2340,8 @@ class SessionPlanWindow(QWidget):
             )
 
     def _on_scheduled_only_toggled(self, checked: bool):
+        settings = QSettings("3GPP_Tools", "SessionPlanWindow")
+        settings.setValue("team_scheduled_only", checked)
         if hasattr(self, "btn_toggle_scheduled_only"):
             total_ais = self.team_topics_table.rowCount()
             num_sched = sum(
