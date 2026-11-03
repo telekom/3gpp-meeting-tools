@@ -316,6 +316,188 @@ class TestSessionPlanRobustness(unittest.TestCase):
             finally:
                 win.close()
 
+    def test_docx_track_changes_and_dynamic_quarter_times(self):
+        """
+        Tests that <w:ins> insertions are accepted, <w:del> deletions are ignored,
+        vMerge into Break rows is deduplicated, and dynamic quarter time ranges (e.g. 1230 - 1400)
+        compute accurate half-quarter midpoints (12:30-13:15 and 13:15-14:00).
+        """
+        import docx
+        from docx.oxml import parse_xml
+        from docx.oxml.ns import nsdecls
+
+        with tempfile.TemporaryDirectory() as td:
+            docx_path = Path(td) / "S2-261nnnn_r1.docx"
+            doc = docx.Document()
+            doc.add_paragraph("SA2 #178 meeting session plan")
+            t = doc.add_table(rows=5, cols=13)
+
+            # Row 0: Header
+            t.rows[0].cells[3].text = "Monday"
+            t.rows[0].cells[5].text = "Tuesday"
+
+            # Row 1: Q0 Stream 1 with vertical merge across Row 2 (Break) on Monday
+            t.rows[1].cells[0].text = "Q0"
+            t.rows[1].cells[1].text = "0800 - 0850"
+            t.rows[1].cells[2].text = "Stream 1"
+            t.rows[1].cells[3].text = "Opening of meeting at 0900"
+            t.rows[1].cells[3].merge(t.rows[1].cells[4])
+
+            # Row 2: Break row where Monday cells are vertically merged with Row 1
+            t.rows[2].cells[2].text = "Break"
+            t.rows[1].cells[3].merge(t.rows[2].cells[4])
+
+            # Row 3: Q2 Stream 1 with Track Changes on time (1100-1230 -> 1230-1400)
+            t.rows[3].cells[0].text = "Q2"
+            tc_time = t.rows[3].cells[1]._tc
+            tc_time.clear_content()
+            tc_time.append(
+                parse_xml(
+                    f"<w:p {nsdecls('w')}>"
+                    f"<w:del><w:r><w:delText>1100 </w:delText></w:r></w:del>"
+                    f"<w:ins><w:r><w:t>1230</w:t></w:r></w:ins>"
+                    f"<w:r><w:t> - </w:t></w:r>"
+                    f"<w:del><w:r><w:delText>1230</w:delText></w:r></w:del>"
+                    f"<w:ins><w:r><w:t>1400</w:t></w:r></w:ins>"
+                    f"</w:p>"
+                )
+            )
+            t.rows[3].cells[2].text = "Stream 1"
+            t.rows[3].cells[3].text = "KI#1.1 (NAS) (20.6.1)"
+
+            # Row 4: Q2 Stream 2 with Track Changes swap between Monday and Tuesday
+            t.rows[4].cells[2].text = "Stream 2"
+            # Mon TU1 (col 3): inserted KI#10 + KI#12-16, deleted Pre-Rel-19
+            tc_mon_tu1 = t.rows[4].cells[3]._tc
+            tc_mon_tu1.clear_content()
+            tc_mon_tu1.append(
+                parse_xml(
+                    f"<w:p {nsdecls('w')}><w:ins><w:r><w:t>KI#10 (FWA) (20.6.10)</w:t></w:r></w:ins></w:p>"
+                )
+            )
+            tc_mon_tu1.append(
+                parse_xml(
+                    f"<w:p {nsdecls('w')}><w:ins><w:r><w:t>KI#12 – KI#16 (20.6.12 - 16)</w:t></w:r></w:ins></w:p>"
+                )
+            )
+            tc_mon_tu1.append(
+                parse_xml(
+                    f"<w:p {nsdecls('w')}><w:del><w:r><w:delText>Pre-Rel-19 maintenance (5.x, 6.x, 7.x)</w:delText></w:r></w:del></w:p>"
+                )
+            )
+
+            # Mon TU2 (col 4): inserted SMS2EC-ARC (20.8.2)
+            tc_mon_tu2 = t.rows[4].cells[4]._tc
+            tc_mon_tu2.clear_content()
+            tc_mon_tu2.append(
+                parse_xml(
+                    f"<w:p {nsdecls('w')}><w:ins><w:r><w:t>SMS2EC-ARC (20.8.2)</w:t></w:r></w:ins></w:p>"
+                )
+            )
+
+            # Tue TU1 (col 5): inserted Pre-Rel-19 maintenance, deleted KI#10
+            tc_tue_tu1 = t.rows[4].cells[5]._tc
+            tc_tue_tu1.clear_content()
+            tc_tue_tu1.append(
+                parse_xml(
+                    f"<w:p {nsdecls('w')}><w:ins><w:r><w:t>Pre-Rel-19 maintenance (5.x, 6.x, 7.x)</w:t></w:r></w:ins></w:p>"
+                )
+            )
+            tc_tue_tu1.append(
+                parse_xml(
+                    f"<w:p {nsdecls('w')}><w:del><w:r><w:delText>KI#10 (FWA) (20.6.10)</w:delText></w:r></w:del></w:p>"
+                )
+            )
+
+            # Tue TU2 (col 6): normal text 5GSAT_Ph4-ARC (20.1.2)
+            t.rows[4].cells[6].text = "5GSAT_Ph4-ARC (20.1.2)"
+
+            doc.save(str(docx_path))
+
+            snap = SessionPlanParser.parse_docx(docx_path, meeting_number="178")
+
+            # Verify Break 1 did not inherit 'Opening of meeting at 0900' from Q0 vertical merge
+            break_slots = [s for s in snap.slots if "break" in s.quarter.lower()]
+            self.assertEqual(len(break_slots), 0)
+
+            # Verify Q2 Stream 2 slots on Monday and Tuesday
+            q2_s2 = {(s.day_name, s.sub_slot): s for s in snap.slots if s.quarter == "Q2" and s.stream_number == 2}
+            self.assertIn(("Monday", 1), q2_s2)
+            self.assertIn(("Monday", 2), q2_s2)
+            self.assertIn(("Tuesday", 1), q2_s2)
+            self.assertIn(("Tuesday", 2), q2_s2)
+
+            mon_tu1 = q2_s2[("Monday", 1)]
+            self.assertIn("KI#10 (FWA)", mon_tu1.raw_text)
+            self.assertNotIn("Pre-Rel-19", mon_tu1.raw_text)
+            self.assertEqual((mon_tu1.start_time_local, mon_tu1.end_time_local), ("12:30", "13:15"))
+
+            mon_tu2 = q2_s2[("Monday", 2)]
+            self.assertEqual(mon_tu2.raw_text, "SMS2EC-ARC (20.8.2)")
+            self.assertEqual((mon_tu2.start_time_local, mon_tu2.end_time_local), ("13:15", "14:00"))
+
+            tue_tu1 = q2_s2[("Tuesday", 1)]
+            self.assertIn("Pre-Rel-19 maintenance", tue_tu1.raw_text)
+            self.assertNotIn("KI#10", tue_tu1.raw_text)
+            self.assertEqual((tue_tu1.start_time_local, tue_tu1.end_time_local), ("12:30", "13:15"))
+
+            tue_tu2 = q2_s2[("Tuesday", 2)]
+            self.assertEqual(tue_tu2.raw_text, "5GSAT_Ph4-ARC (20.1.2)")
+            self.assertEqual((tue_tu2.start_time_local, tue_tu2.end_time_local), ("13:15", "14:00"))
+
+    def test_overview_grid_clears_stale_cell_widgets_on_snapshot_switch(self):
+        """
+        Verifies that switching from a snapshot with a populated slot to a snapshot where
+        that slot is empty properly clears the old cellWidget from QTableWidget.
+        """
+        from modules.meetings.core.session_plan_models import SessionPlanSnapshot, SessionSlot
+
+        with tempfile.TemporaryDirectory() as td:
+            win = SessionPlanWindow(
+                meeting_dir=Path(td),
+                mtg_info={"meeting_number": "178", "location": "Calgary"},
+            )
+            try:
+                snap1 = SessionPlanSnapshot(
+                    meeting_number="178",
+                    tdoc_id="S2-2610001",
+                    snapshot_label="v1",
+                    slots=[
+                        SessionSlot(
+                            day_index=0,
+                            day_name="Monday",
+                            quarter="Q2",
+                            sub_slot=1,
+                            start_time_local="12:30",
+                            end_time_local="13:15",
+                            stream_number=2,
+                            raw_text="Pre-Rel-19 maintenance (5.x, 6.x, 7.x)",
+                        )
+                    ],
+                )
+                win.active_snapshot = snap1
+                win._render_overview_grid()
+
+                q2_s2_row = next(
+                    idx for idx, r in enumerate(win.grid_rows)
+                    if r.period == "Q2" and r.stream_number == 2
+                )
+                self.assertIsNotNone(win.grid_table.cellWidget(q2_s2_row, 0))
+
+                # Switch to snap2 where Monday Q2 Stream 2 is empty
+                snap2 = SessionPlanSnapshot(
+                    meeting_number="178",
+                    tdoc_id="S2-2610002",
+                    snapshot_label="v2",
+                    slots=[],
+                )
+                win.active_snapshot = snap2
+                win._render_overview_grid()
+
+                self.assertIsNone(win.grid_table.cellWidget(q2_s2_row, 0))
+            finally:
+                win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

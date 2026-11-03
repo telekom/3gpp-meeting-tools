@@ -1017,12 +1017,30 @@ class SessionPlanWindow(QWidget):
                 return True
         return False
 
+    def _get_period_effective_times(self, period: str) -> Tuple[str, str, str, str, str, str]:
+        """Returns (full_s, full_e, tu1_s, tu1_e, tu2_s, tu2_e) from active snapshot slots or fallback PERIOD_TIMES."""
+        default_t = PERIOD_TIMES.get(period, ("09:00", "10:30", "09:00", "09:45", "09:45", "10:30"))
+        if not self.active_snapshot or not self.active_snapshot.slots:
+            return default_t
+        p_slots = [s for s in self.active_snapshot.slots if s.quarter == period]
+        if not p_slots:
+            return default_t
+        full_slots = [s for s in p_slots if s.sub_slot == 0 and s.start_time_local and s.end_time_local]
+        if full_slots:
+            s_str, e_str = full_slots[0].start_time_local, full_slots[0].end_time_local
+            return SessionPlanParser._resolve_quarter_times(period, (s_str, e_str))
+        tu1_starts = [s.start_time_local for s in p_slots if s.sub_slot == 1 and s.start_time_local]
+        tu2_ends = [s.end_time_local for s in p_slots if s.sub_slot == 2 and s.end_time_local]
+        s_str = min(tu1_starts) if tu1_starts else default_t[0]
+        e_str = max(tu2_ends) if tu2_ends else default_t[1]
+        return SessionPlanParser._resolve_quarter_times(period, (s_str, e_str))
+
     def _build_grid_rows(self) -> List[GridRowDescriptor]:
         """Constructs the 23-row spatial grid descriptors covering quarters and breaks."""
         rows = []
         streams = self.active_snapshot.streams if self.active_snapshot else {}
         for p in PERIOD_ORDER:
-            times = PERIOD_TIMES[p]
+            times = self._get_period_effective_times(p)
             if any(b in p.lower() for b in ["break", "coffee", "lunch"]):
                 clean_name = (
                     p.replace(" 1", "")
@@ -1079,15 +1097,18 @@ class SessionPlanWindow(QWidget):
         except Exception:
             pass
 
-        times = PERIOD_TIMES.get(period, ("09:00", "10:30"))
+        times = self._get_period_effective_times(period)
         if tu == 1:
-            s_t, e_t = times[2], times[3]
+            s_t = slot.start_time_local or times[2]
+            e_t = slot.end_time_local or times[3]
             half_lbl = "1st Half (TU 1)"
         elif tu == 2:
-            s_t, e_t = times[4], times[5]
+            s_t = slot.start_time_local or times[4]
+            e_t = slot.end_time_local or times[5]
             half_lbl = "2nd Half (TU 2)"
         else:
-            s_t, e_t = times[0], times[1]
+            s_t = slot.start_time_local or times[0]
+            e_t = slot.end_time_local or times[1]
             half_lbl = "Full Quarter"
 
         time_dual = SessionPlanTimezone.format_dual_time_range(s_t, e_t, self.tz_offset_min)
@@ -1390,6 +1411,7 @@ class SessionPlanWindow(QWidget):
 
     def _render_overview_grid_impl(self):
         self.grid_table.clearSpans()
+        self.grid_table.setRowCount(0)
         self.grid_rows = self._build_grid_rows()
         self.grid_table.setRowCount(len(self.grid_rows))
 
