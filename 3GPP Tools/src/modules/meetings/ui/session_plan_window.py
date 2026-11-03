@@ -124,10 +124,26 @@ class SessionPlanWindow(QWidget):
         self.meeting_number = str(mtg_info.get("meeting_number", "177"))
         self.location = str(mtg_info.get("location", ""))
         self.start_date_str = str(mtg_info.get("start_date", "2026-10-12"))
-        self.agenda_map = agenda_map or AgendaManager.load_local_agenda(self.meeting_dir / "Agenda")
 
-        # Initialize SQLite database under <meeting_dir>/Agenda/session_plans.db
-        self.db = SessionPlanDatabase(self.meeting_dir / "Agenda" / "session_plans.db")
+        # Load local agenda.csv with multiple candidate fallbacks
+        self.agenda_map = agenda_map
+        if not self.agenda_map:
+            candidates = [
+                self.meeting_dir / "Agenda",
+                self.meeting_dir,
+                self.meeting_dir.parent / "Agenda",
+            ]
+            for cand in candidates:
+                if (cand / "agenda.csv").is_file() or (cand / "Agenda.csv").is_file():
+                    self.agenda_map = AgendaManager.load_local_agenda(cand)
+                    if self.agenda_map:
+                        break
+        if not self.agenda_map:
+            self.agenda_map = AgendaManager.load_local_agenda(self.meeting_dir / "Agenda")
+
+        # Initialize SQLite database under <agenda_dir>/session_plans.db
+        agenda_dir = self.meeting_dir if self.meeting_dir.name.lower() == "agenda" else self.meeting_dir / "Agenda"
+        self.db = SessionPlanDatabase(agenda_dir / "session_plans.db")
 
         # Load tracked tokens (merge Work Items watchlist with session_plans.db persistent tracked topics)
         self.external_tracked_tokens = {t.lower() for t in (tracked_tokens or set())}
@@ -882,7 +898,7 @@ class SessionPlanWindow(QWidget):
             time_display = f"{time_dual} (Venue Time)"
 
         s_info = self.active_snapshot.streams.get(stream_num) if self.active_snapshot else None
-        r_name = s_info.room_name if s_info else f"Stream {stream_num}"
+        r_name = getattr(slot, "room_override", "") or (s_info.room_name if s_info else f"Stream {stream_num}")
         cap = f" ({s_info.capacity} seats)" if s_info and s_info.capacity else ""
         convener = s_info.convener if s_info else ("SA2 Chair / MCC" if stream_num == 1 else "")
         tohru = s_info.tohru_room if s_info else ""
@@ -1282,6 +1298,36 @@ class SessionPlanWindow(QWidget):
 
         self._update_row_visibility()
 
+    def _resolve_ai_description(self, ai_num: str, scheduled_ais: Dict[str, List[SessionSlot]]) -> Tuple[str, Optional[str]]:
+        """Resolves human-readable description and optional acronym for an agenda item number."""
+        if self.agenda_map and ai_num in self.agenda_map:
+            ai_item = self.agenda_map[ai_num]
+            return ai_item.description, getattr(ai_item, "acronym", None)
+
+        # Look for the specific AgendaSlotItem matching this ai_number
+        matched_slots = scheduled_ais.get(ai_num, [])
+        for s in matched_slots:
+            for it in s.items:
+                if it.ai_number == ai_num:
+                    label = it.topic_label or it.display_expr
+                    if label:
+                        return label, None
+
+        if matched_slots:
+            first_s = matched_slots[0]
+            if first_s.items:
+                for it in first_s.items:
+                    lbl = it.topic_label or it.display_expr
+                    if lbl:
+                        return lbl, None
+            for l in first_s.raw_text.splitlines():
+                l_s = l.strip()
+                if l_s and not re.search(r"^\s*(?:in\s+)?(main room|breakout\s*\d)\b", l_s, re.I):
+                    return l_s, None
+            return first_s.raw_text.splitlines()[0].strip(), None
+
+        return f"Agenda Item {ai_num}", None
+
     def _render_agenda_mode(self):
         """Cross-references Agenda document items against allocated slots with 1-click ⭐ Track."""
         scheduled_ais: Dict[str, List[SessionSlot]] = {}
@@ -1302,14 +1348,7 @@ class SessionPlanWindow(QWidget):
         self.agenda_table.setRowCount(len(all_ais))
 
         for row, ai_num in enumerate(all_ais):
-            if ai_num in self.agenda_map:
-                ai_item = self.agenda_map[ai_num]
-                desc = ai_item.description
-                acronym = getattr(ai_item, "acronym", None)
-            else:
-                matched_s = scheduled_ais.get(ai_num, [])
-                desc = matched_s[0].raw_text if matched_s else f"Agenda Item {ai_num}"
-                acronym = None
+            desc, acronym = self._resolve_ai_description(ai_num, scheduled_ais)
 
             is_tracked = (ai_num.lower() in self.tracked_tokens) or (acronym and acronym.lower() in self.tracked_tokens)
 
@@ -1355,7 +1394,7 @@ class SessionPlanWindow(QWidget):
         streams = self.active_snapshot.streams
         for row, s in enumerate(drafting_slots):
             s_info = streams.get(s.stream_number)
-            r_name = s_info.room_name if s_info else f"Stream {s.stream_number}"
+            r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
             convener = s_info.convener if s_info else ""
 
             time_str = SessionPlanTimezone.format_dual_time_range(
@@ -1432,7 +1471,7 @@ class SessionPlanWindow(QWidget):
         streams = self.active_snapshot.streams
         for row, s in enumerate(target_slots):
             s_info = streams.get(s.stream_number)
-            r_name = s_info.room_name if s_info else f"Stream {s.stream_number}"
+            r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
 
             time_str = SessionPlanTimezone.format_dual_time_range(
                 s.start_time_local, s.end_time_local, self.tz_offset_min
@@ -1766,12 +1805,7 @@ class SessionPlanWindow(QWidget):
         initials_map = self._delegate_initials_map()
 
         for row, ai_num in enumerate(all_ais):
-            if ai_num in self.agenda_map:
-                ai_item = self.agenda_map[ai_num]
-                desc = ai_item.description
-            else:
-                matched_s = scheduled_ais.get(ai_num, [])
-                desc = matched_s[0].raw_text if matched_s else f"Agenda Item {ai_num}"
+            desc, _ = self._resolve_ai_description(ai_num, scheduled_ais)
 
             slots_for_ai = scheduled_ais.get(ai_num, [])
             slots_summary = ", ".join(f"{s.day_name[:3]} {s.quarter} (Str {s.stream_number})" for s in slots_for_ai[:3])
@@ -1921,13 +1955,13 @@ class SessionPlanWindow(QWidget):
                 item_del.setFont(f)
 
                 s_info_a = self.active_snapshot.streams.get(s_a.stream_number) if self.active_snapshot else None
-                r_a = s_info_a.room_name if s_info_a else f"Stream {s_a.stream_number}"
+                r_a = getattr(s_a, "room_override", "") or (s_info_a.room_name if s_info_a else f"Stream {s_a.stream_number}")
                 item_stra = QTableWidgetItem(f"Str {s_a.stream_number} ({r_a}): {s_a.raw_text}")
 
                 other_desc = []
                 for other_s in slots[1:]:
                     s_inf = self.active_snapshot.streams.get(other_s.stream_number) if self.active_snapshot else None
-                    r_oth = s_inf.room_name if s_inf else f"Stream {other_s.stream_number}"
+                    r_oth = getattr(other_s, "room_override", "") or (s_inf.room_name if s_inf else f"Stream {other_s.stream_number}")
                     other_desc.append(f"Str {other_s.stream_number} ({r_oth}): {other_s.raw_text}")
                 item_strb = QTableWidgetItem("\n".join(other_desc) if other_desc else f"Str {slots[1].stream_number}: {slots[1].raw_text}")
 
@@ -1938,7 +1972,7 @@ class SessionPlanWindow(QWidget):
                 menu = QMenu(btn_appoint)
                 for s_opt in slots:
                     s_inf = self.active_snapshot.streams.get(s_opt.stream_number) if self.active_snapshot else None
-                    rm = s_inf.room_name if s_inf else f"Stream {s_opt.stream_number}"
+                    rm = getattr(s_opt, "room_override", "") or (s_inf.room_name if s_inf else f"Stream {s_opt.stream_number}")
                     act = menu.addAction(f"Cover Str {s_opt.stream_number} ({rm}): {s_opt.raw_text[:30]}...")
                     act.triggered.connect(lambda _, slot=s_opt, orig=del_name: self._on_dispatch_slot(slot, orig))
                 btn_appoint.setMenu(menu)
