@@ -1,3 +1,4 @@
+import html
 import json
 import logging
 from pathlib import Path
@@ -645,6 +646,44 @@ class NASTab(QWidget):
 
         matrix_card_layout.addWidget(matrix_header_frame)
 
+        # Message Context Info Banner (Direction pill + concise prose summary)
+        self.msg_context_banner = QFrame()
+        self.msg_context_banner.setObjectName("msgContextBanner")
+        self.msg_context_banner.setStyleSheet("""
+            QFrame#msgContextBanner {
+                background-color: #F8FAFC;
+                border-bottom: 1px solid #E2E8F0;
+            }
+        """)
+        msg_ctx_layout = QHBoxLayout(self.msg_context_banner)
+        msg_ctx_layout.setContentsMargins(10, 5, 10, 5)
+        msg_ctx_layout.setSpacing(8)
+
+        self.msg_direction_badge = QLabel()
+        self.msg_direction_badge.setStyleSheet("""
+            QLabel {
+                background-color: #E0F2FE;
+                color: #0369A1;
+                font-size: 11px;
+                font-weight: bold;
+                border: 1px solid #BAE6FD;
+                border-radius: 4px;
+                padding: 2px 8px;
+            }
+        """)
+        self.msg_direction_badge.setVisible(False)
+        msg_ctx_layout.addWidget(self.msg_direction_badge, 0, Qt.AlignTop)
+
+        self.msg_description_lbl = QLabel()
+        self.msg_description_lbl.setWordWrap(True)
+        self.msg_description_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.msg_description_lbl.setStyleSheet("color: #334155; font-size: 11px; line-height: 1.35;")
+        self.msg_description_lbl.setVisible(False)
+        msg_ctx_layout.addWidget(self.msg_description_lbl, 1)
+
+        self.msg_context_banner.setVisible(False)
+        matrix_card_layout.addWidget(self.msg_context_banner)
+
         # Matrix Stack: Page 0 = Empty State View, Page 1 = Table View
         self.matrix_stack = QStackedWidget()
 
@@ -958,6 +997,40 @@ class NASTab(QWidget):
             self.matrix_table.setModel(None)
             self.matrix_stack.setCurrentIndex(0)
             self.copy_matrix_btn.setEnabled(False)
+            self._hide_message_context_banner()
+
+    def _hide_message_context_banner(self):
+        if hasattr(self, "msg_context_banner"):
+            self.msg_context_banner.setVisible(False)
+        if hasattr(self, "msg_direction_badge"):
+            self.msg_direction_badge.setVisible(False)
+            self.msg_direction_badge.setText("")
+        if hasattr(self, "msg_description_lbl"):
+            self.msg_description_lbl.setVisible(False)
+            self.msg_description_lbl.setText("")
+
+    def _update_message_context_banner(self, description: str, direction: str):
+        desc_clean = (description or "").strip()
+        dir_clean = (direction or "").strip()
+        if not desc_clean and not dir_clean:
+            self._hide_message_context_banner()
+            return
+
+        if dir_clean:
+            self.msg_direction_badge.setText(f"⇄ Direction: {dir_clean}")
+            self.msg_direction_badge.setVisible(True)
+        else:
+            self.msg_direction_badge.setText("")
+            self.msg_direction_badge.setVisible(False)
+
+        if desc_clean:
+            self.msg_description_lbl.setText(desc_clean)
+            self.msg_description_lbl.setVisible(True)
+        else:
+            self.msg_description_lbl.setText("")
+            self.msg_description_lbl.setVisible(False)
+
+        self.msg_context_banner.setVisible(True)
 
     def _reload_single_version(self, spec_number: str, version: str):
         reload_single_version(self, spec_number, version)
@@ -985,6 +1058,7 @@ class NASTab(QWidget):
             self.matrix_table.setModel(None)
             self.matrix_stack.setCurrentIndex(0)
             self.copy_matrix_btn.setEnabled(False)
+            self._hide_message_context_banner()
             default_prompt = (
                 "Select an Information Element to View Evolution & Definition"
                 if self._browse_mode == "ies"
@@ -1079,6 +1153,8 @@ class NASTab(QWidget):
             for m in items:
                 msg_name = m["message_name"]
                 clause = m.get("clause", "")
+                msg_desc = (m.get("description") or "").strip()
+                msg_dir = (m.get("direction") or "").strip()
                 spec_num = str(m.get("spec_number", "")).replace("TS", "").strip()
                 meta = get_spec_metadata(spec_num) if spec_num else {}
 
@@ -1093,6 +1169,10 @@ class NASTab(QWidget):
                 tooltip_lines = [f"Message: {msg_name}"]
                 if clause:
                     tooltip_lines.append(f"Clause: {clause}")
+                if msg_dir:
+                    tooltip_lines.append(f"Direction: {msg_dir}")
+                if msg_desc:
+                    tooltip_lines.append(f"Description: {msg_desc}")
                 if spec_num:
                     tooltip_lines.append(f"Specification: TS {spec_num} ({meta.get('title', '')})")
                     tooltip_lines.append(f"Working Group: {meta.get('wg', '')} • Domain: {meta.get('tech', '')}")
@@ -1100,7 +1180,8 @@ class NASTab(QWidget):
 
                 self.msg_list.addItem(item)
 
-                search_target = f"{msg_name} {clause} {spec_num} {meta.get('acronym', '')} {meta.get('title', '')}".lower()
+                extra_search = f" {msg_desc} {msg_dir}" if self.deep_search_btn.isChecked() else f" {msg_dir}"
+                search_target = f"{msg_name} {clause} {spec_num} {meta.get('acronym', '')} {meta.get('title', '')}{extra_search}".lower()
                 if msg_tokens and not all(tok in search_target for tok in msg_tokens):
                     item.setHidden(True)
                 else:
@@ -1136,6 +1217,7 @@ class NASTab(QWidget):
             self.matrix_table.setModel(None)
             self.matrix_stack.setCurrentIndex(0)
             self.copy_matrix_btn.setEnabled(False)
+            self._hide_message_context_banner()
             self.matrix_title.setText(default_prompt)
             self._current_message_clause = None
             self._current_message_spec = None
@@ -1144,6 +1226,7 @@ class NASTab(QWidget):
             self.matrix_table.setModel(None)
             self.matrix_stack.setCurrentIndex(0)
             self.copy_matrix_btn.setEnabled(False)
+            self._hide_message_context_banner()
             self.matrix_title.setText(default_prompt)
             self.inspector.clear_display()
             self._current_message_clause = None
@@ -1152,6 +1235,7 @@ class NASTab(QWidget):
 
     def _on_message_clicked(self, item: QListWidgetItem):
         if self._browse_mode == "ies":
+            self._hide_message_context_banner()
             ie_data = item.data(Qt.UserRole + 1) or {}
             ie_name = ie_data.get("ie_name", "")
             clause = ie_data.get("clause", "") or item.data(Qt.UserRole + 3) or ""
@@ -1275,6 +1359,60 @@ class NASTab(QWidget):
         self._current_matrix_df = df
         self._rebuild_matrix_model()
         self._update_open_spec_button()
+
+        # Update Message Context Banner (Direction + Description)
+        ctx = self.db.get_message_context_info(
+            message_name=msg_name,
+            clause=clause,
+            version_ids=self.selected_version_ids,
+        )
+        msg_desc = ctx.get("description", "") or str(m_data.get("description", "") or "").strip()
+        msg_dir = ctx.get("direction", "") or str(m_data.get("direction", "") or "").strip()
+        eff_clause = ctx.get("clause", "") or clause
+        self._update_message_context_banner(description=msg_desc, direction=msg_dir)
+
+        # Immediately populate the Field & Structure Inspector with the message definition
+        msg_defs = self.db.get_ie_definitions_by_clause(
+            clause=eff_clause,
+            alt_name=msg_name,
+            spec_number=self._current_message_spec,
+            version_ids=self.selected_version_ids,
+        )
+        if not msg_defs and (msg_desc or msg_dir):
+            spec_num = self._current_message_spec or str(m_data.get("spec_number", "") or "")
+            synth_html = (
+                f'<h2 style="color: #0284C7; margin-top: 4px; margin-bottom: 6px; '
+                f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
+                f'{html.escape(msg_name)}{f" (Clause {html.escape(eff_clause)})" if eff_clause else ""}</h2>'
+            )
+            if msg_dir:
+                synth_html += (
+                    f'<p style="margin: 4px 0; line-height: 1.4; color: #0369A1; font-weight: bold; font-size: 11px;">'
+                    f'Direction: {html.escape(msg_dir)}</p>'
+                )
+            if msg_desc:
+                synth_html += (
+                    f'<p style="margin: 4px 0; line-height: 1.4; color: #334155; font-size: 11px;">'
+                    f'{html.escape(msg_desc)}</p>'
+                )
+            msg_defs = [{
+                "clause": eff_clause,
+                "ie_name": msg_name,
+                "raw_description": synth_html,
+                "structure_table": "[]",
+                "spec_number": spec_num,
+                "version": "",
+                "release": "",
+            }]
+        if msg_defs:
+            self.inspector.display_definitions(
+                clause=eff_clause,
+                ie_name=msg_name,
+                spec_number=self._current_message_spec,
+                defs=msg_defs,
+                containing_msgs=[],
+                fallback_type_ref=f"{msg_name} {eff_clause}".strip(),
+            )
 
     def _rebuild_matrix_model(self, ignore_ie_filter: bool = False):
         if not hasattr(self, "_current_matrix_df") or self._current_matrix_df.empty:

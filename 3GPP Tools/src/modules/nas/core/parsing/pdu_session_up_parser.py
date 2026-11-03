@@ -38,6 +38,21 @@ CONDITIONAL_FIELD_TRIGGERS = {
     "padding": "O",
 }
 
+PDU_UP_FRAME_DEFAULT_CONTEXT = {
+    "5.5.2.1": (
+        "This frame format is defined to allow the NG-RAN to receive some downlink user plane control information over the NG-U, Xn-U, or N9 interface.",
+        "UPF → NG-RAN node",
+    ),
+    "5.5.2.2": (
+        "This frame format is defined to allow the UPF to receive some uplink user plane control information over the NG-U, Xn-U, or N9 interface.",
+        "NG-RAN node → UPF",
+    ),
+    "6.5.2.1": (
+        "This frame format is defined to allow the NG-RAN to receive some downlink PDU Set Information over the NG-U, Xn-U, F1-U, or N9 interface.",
+        "UPF → NG-RAN node",
+    ),
+}
+
 
 class PDUSessionUPDocxParser:
     """Dedicated parser for 3GPP TS 38.415 (PDU Session & PDU Set User Plane Protocols)."""
@@ -131,6 +146,7 @@ class PDUSessionUPDocxParser:
         self._seed_extensibility_definitions(ie_definitions_dict)
 
         frame_tables: List[Tuple[str, str, Any]] = []
+        frame_prose_map: Dict[str, List[str]] = {}
 
         for file_idx, docx_path in enumerate(valid_paths):
             if progress_callback:
@@ -221,6 +237,7 @@ class PDUSessionUPDocxParser:
                         pending_frame_clause = cl_num
                         pending_frame_name = cl_title
                         pending_p_count = 0
+                        frame_prose_map[cl_num] = []
                         self.logger.info("Detected frame heading candidate: [%s] '%s'", cl_num, cl_title)
                         continue
 
@@ -250,6 +267,8 @@ class PDUSessionUPDocxParser:
                     # Paragraph distance tracking between frame heading and table
                     if pending_frame_clause:
                         pending_p_count += 1
+                        if not p_text.startswith(("Figure", "Table", "NOTE")) and len(frame_prose_map.get(pending_frame_clause, [])) < 3:
+                            frame_prose_map.setdefault(pending_frame_clause, []).append(p_text.strip())
                         if pending_p_count > 15:
                             self.logger.warning(
                                 "Discarded pending frame candidate [%s] '%s' after %d paragraphs without finding a table.",
@@ -316,6 +335,17 @@ class PDUSessionUPDocxParser:
 
             if ies:
                 self.logger.info("Extracted %d field(s) for message '%s'", len(ies), clean_msg_name)
+                default_desc, default_dir = PDU_UP_FRAME_DEFAULT_CONTEXT.get(
+                    clause_num,
+                    (
+                        f"User Plane frame format for {clean_msg_name} (Clause {clause_num}).",
+                        "NG-RAN node ↔ UPF",
+                    ),
+                )
+                prose_lines = frame_prose_map.get(clause_num, [])
+                msg_desc = " ".join(prose_lines).strip() if prose_lines else default_desc
+                msg_dir = default_dir
+
                 # Register frame diagram under a dedicated clause tag so it never collides with field lookups
                 tbl_figure_html = _convert_table_to_html(tbl_elem, is_figure_diagram=True)
                 ie_definitions_dict[self._normalize_key(clean_msg_name)] = {
@@ -326,6 +356,10 @@ class PDUSessionUPDocxParser:
                         f'<h2 style="color: #0284C7; margin-top: 4px; margin-bottom: 6px; '
                         f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
                         f'{html.escape(clean_msg_name)} (Clause {html.escape(clause_num)})</h2>'
+                        f'<p style="margin: 4px 0; line-height: 1.4; color: #0369A1; font-weight: bold; font-size: 11px;">'
+                        f'Direction: {html.escape(msg_dir)}</p>'
+                        f'<p style="margin: 4px 0; line-height: 1.4; color: #334155; font-size: 11px;">'
+                        f'{html.escape(msg_desc)}</p>'
                         f'<div style="font-size: 11px; font-weight: bold; color: #475569; margin-top: 8px; margin-bottom: 4px;">'
                         f'Frame Format & Bit Grid Layout:</div>{tbl_figure_html}'
                     ),
@@ -338,6 +372,8 @@ class PDUSessionUPDocxParser:
                     "name": clean_msg_name,
                     "message_name": clean_msg_name,
                     "table_caption": f"{clean_msg_name} Frame Format (Clause {clause_num})",
+                    "description": msg_desc,
+                    "direction": msg_dir,
                     "ies": ies,
                     "fields": ies,
                 })

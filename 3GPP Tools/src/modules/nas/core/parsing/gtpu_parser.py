@@ -39,6 +39,37 @@ GTPU_MESSAGE_INTERFACES = {
     "gpdu": "N3, N9, N19, S1-U, S5/S8, F1-U, X2-U, Xn-U, W1-U, Gn, Gp, S4, S2a, S2b, S12, M1, Sn",
 }
 
+GTPU_MESSAGE_DEFAULT_CONTEXT = {
+    "echorequest": (
+        "An Echo Request shall be sent on a path to another GTP-U peer to find out if it is alive (path management).",
+        "GTP-U Peer → GTP-U Peer",
+    ),
+    "echoresponse": (
+        "The message shall be sent as a response to a received Echo Request.",
+        "GTP-U Peer → GTP-U Peer",
+    ),
+    "supportedextensionheadersnotification": (
+        "This message indicates a list of supported Extension Header types that the GTP entity on the identified IP address can support.",
+        "GTP-U Peer → GTP-U Peer",
+    ),
+    "errorindication": (
+        "When a GTP-U node receives a G-PDU for which no EPS Bearer, PDP context, RAB, or PDU Session exists, the GTP-U node shall send an Error Indication to the originating node.",
+        "GTP-U Peer → GTP-U Peer",
+    ),
+    "endmarker": (
+        "The End Marker message(s) shall be sent after the last G-PDU that needs to be sent on a GTP-U tunnel to indicate the end of the payload stream.",
+        "Source GTP-U Peer → Target GTP-U Peer",
+    ),
+    "tunnelstatus": (
+        "The Tunnel Status message is sent between GTP-U peers to transfer tunnel status information.",
+        "GTP-U Peer ↔ GTP-U Peer",
+    ),
+    "gpdu": (
+        "User data packet (T-PDU) plus GTP-U header and optional Extension Headers transported across GTP-U user plane tunnels.",
+        "GTP-U Peer ↔ GTP-U Peer",
+    ),
+}
+
 
 class GTPUDocxParser:
     """Dedicated parser for 3GPP TS 29.281 (GTPv1-U) specifications."""
@@ -74,6 +105,7 @@ class GTPUDocxParser:
         ie_definitions_dict: Dict[str, Dict[str, Any]] = {}
         type_registry: Dict[str, Dict[str, str]] = {}
         ext_header_registry: Dict[str, Dict[str, str]] = {}
+        clause_7_prose_map: Dict[str, List[str]] = {}
 
         for file_idx, docx_path in enumerate(valid_paths):
             if progress_callback:
@@ -92,6 +124,7 @@ class GTPUDocxParser:
             current_ie_clause = ""
             current_ie_name = ""
             current_ie_html: List[str] = []
+            current_c7_clause = ""
 
             def _finalize_current_ie():
                 nonlocal current_ie_clause, current_ie_name, current_ie_html
@@ -128,6 +161,7 @@ class GTPUDocxParser:
 
                         if is_target_section:
                             _finalize_current_ie()
+                            current_c7_clause = ""
                             current_ie_clause = cl_num
                             current_ie_name = cl_title
                             current_ie_html = [
@@ -135,8 +169,14 @@ class GTPUDocxParser:
                                 f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
                                 f'{html.escape(cl_title)} (Clause {cl_num})</h2>'
                             ]
+                        elif cl_num.startswith(("7.2", "7.3")) and cl_title:
+                            _finalize_current_ie()
+                            current_c7_clause = cl_num
+                            clause_7_prose_map.setdefault(current_c7_clause, [])
+                            continue
                         elif not (cl_num.startswith("8.") or cl_num.startswith("5.2.2")):
                             _finalize_current_ie()
+                            current_c7_clause = ""
 
                     match_cap = RE_GTPU_TABLE_CAPTION.match(p_text)
                     if match_cap:
@@ -145,6 +185,11 @@ class GTPUDocxParser:
                         last_caption_info = (clause_ref, cap_name, p_text)
                     elif not p_text.startswith("Table "):
                         last_caption_info = None
+
+                    if current_c7_clause and not p_text.startswith(("Table ", "Figure ", "NOTE")):
+                        prose_list = clause_7_prose_map.setdefault(current_c7_clause, [])
+                        if len(prose_list) < 4:
+                            prose_list.append(p_text.strip())
 
                     if current_ie_clause:
                         if p_text.startswith(("Figure 5.", "Figure 8.")):
@@ -204,6 +249,34 @@ class GTPUDocxParser:
 
             clean_name = self._sanitize_message_name(cap_name)
             base_clause = self._clean_clause_number(clause_ref)
+            norm_msg_k = self._normalize_key(clean_name)
+
+            default_desc, default_dir = GTPU_MESSAGE_DEFAULT_CONTEXT.get(
+                norm_msg_k,
+                (f"GTPv1-U {clean_name} message (Clause {base_clause}).", "GTP-U Peer → GTP-U Peer"),
+            )
+            prose_lines = clause_7_prose_map.get(base_clause, [])
+            msg_desc = " ".join(prose_lines).strip() if prose_lines else default_desc
+            msg_dir = default_dir
+
+            if norm_msg_k not in ie_definitions_dict:
+                tbl_html = _convert_table_to_html(tbl_elem, is_figure_diagram=False)
+                ie_definitions_dict[norm_msg_k] = {
+                    "clause": base_clause,
+                    "name": clean_name,
+                    "ie_name": clean_name,
+                    "raw_description": (
+                        f'<h2 style="color: #0284C7; margin-top: 4px; margin-bottom: 6px; '
+                        f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
+                        f'{html.escape(clean_name)} (Clause {html.escape(base_clause)})</h2>'
+                        f'<p style="margin: 4px 0; line-height: 1.4; color: #0369A1; font-weight: bold; font-size: 11px;">'
+                        f'Direction: {html.escape(msg_dir)}</p>'
+                        f'<p style="margin: 4px 0; line-height: 1.4; color: #334155; font-size: 11px;">'
+                        f'{html.escape(msg_desc)}</p>'
+                        f'{tbl_html}'
+                    ),
+                    "structure_table": json.dumps([]),
+                }
 
             messages.append({
                 "clause": base_clause,
@@ -211,12 +284,30 @@ class GTPUDocxParser:
                 "name": clean_name,
                 "message_name": clean_name,
                 "table_caption": full_cap,
+                "description": msg_desc,
+                "direction": msg_dir,
                 "ies": parsed_ies,
                 "fields": parsed_ies,
             })
 
         # 3. Synthesize G-PDU Message (carrying T-PDU and Extension Headers)
         gpdu_msg = self._build_gpdu_message(ext_header_registry)
+        if "gpdu" not in ie_definitions_dict:
+            ie_definitions_dict["gpdu"] = {
+                "clause": "5.1",
+                "name": "G-PDU",
+                "ie_name": "G-PDU",
+                "raw_description": (
+                    '<h2 style="color: #0284C7; margin-top: 4px; margin-bottom: 6px; '
+                    'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
+                    'G-PDU (Clause 5.1)</h2>'
+                    f'<p style="margin: 4px 0; line-height: 1.4; color: #0369A1; font-weight: bold; font-size: 11px;">'
+                    f'Direction: {html.escape(gpdu_msg.get("direction", "GTP-U Peer ↔ GTP-U Peer"))}</p>'
+                    f'<p style="margin: 4px 0; line-height: 1.4; color: #334155; font-size: 11px;">'
+                    f'{html.escape(gpdu_msg.get("description", ""))}</p>'
+                ),
+                "structure_table": json.dumps([]),
+            }
         messages.append(gpdu_msg)
 
         ie_definitions = list(ie_definitions_dict.values())
@@ -409,12 +500,15 @@ class GTPUDocxParser:
                 "applicability": appl,
             })
 
+        gpdu_desc, gpdu_dir = GTPU_MESSAGE_DEFAULT_CONTEXT["gpdu"]
         return {
             "clause": "5.1",
             "clause_ref": "5.1",
             "name": "G-PDU",
             "message_name": "G-PDU",
             "table_caption": "G-PDU and Extension Headers (Clause 5)",
+            "description": gpdu_desc,
+            "direction": gpdu_dir,
             "ies": ies,
             "fields": ies,
         }

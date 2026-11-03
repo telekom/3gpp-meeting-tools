@@ -32,6 +32,29 @@ class BaseAsn1DocxParser:
         """Strips non-alphanumeric characters and converts to lowercase for resilient matching."""
         return re.sub(r'[^a-zA-Z0-9]', '', name).lower()
 
+    @staticmethod
+    def _extract_prose_summary_and_direction(html_str: str) -> Tuple[str, str]:
+        """Extracts plain-text prose summary and direction string from a section's HTML before any table."""
+        if not html_str:
+            return "", ""
+        before_table = html_str.split("<table", 1)[0]
+        p_texts = re.findall(r"<(?:p|div)[^>]*>(.*?)</(?:p|div)>", before_table, flags=re.DOTALL | re.IGNORECASE)
+        summary_parts: List[str] = []
+        direction = ""
+        for raw_p in p_texts:
+            clean_p = html.unescape(re.sub(r"<[^>]+>", "", raw_p)).strip()
+            clean_p = re.sub(r"\s+", " ", clean_p)
+            if not clean_p:
+                continue
+            low_p = clean_p.lower()
+            if low_p.startswith(("direction:", "direction :")):
+                direction = re.sub(r"(?i)^direction\s*:\s*", "", clean_p).strip()
+            elif not low_p.startswith(("note", "table ", "figure ", "signalling radio bearer:", "rlc-sap:", "logical channel:")):
+                summary_parts.append(clean_p)
+            elif low_p.startswith(("signalling radio bearer:", "rlc-sap:", "logical channel:")):
+                summary_parts.append(clean_p)
+        return " ".join(summary_parts).strip(), direction
+
     def _scan_xml_documents(
             self, progress_callback: Optional[Callable[[str, int], None]] = None
     ) -> Tuple[str, Dict[str, str], Dict[str, Dict[str, str]], Dict[str, str]]:

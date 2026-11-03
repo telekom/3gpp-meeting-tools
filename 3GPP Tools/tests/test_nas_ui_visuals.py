@@ -152,6 +152,137 @@ class TestNASUiVisuals(unittest.TestCase):
         self.assertEqual(inspector.stack.currentIndex(), 0)  # Reverts to empty state
         self.assertFalse(inspector.copy_btn.isEnabled())
 
+    def test_asn1_prose_summary_and_direction_extraction(self):
+        """Verifies extraction of message description and Direction from Clause 9.2 / 6.2 HTML."""
+        from modules.nas.core.parsing.asn1_base_parser import BaseAsn1DocxParser
+
+        sample_html = (
+            '<p style="margin: 3px 0;">This message is sent by the AMF to transfer updated information '
+            'for an NG-C interface instance.</p>'
+            '<p style="margin: 3px 0; color: #0369A1; font-weight: bold;">Direction: AMF → NG-RAN node</p>'
+            '<table><tr><th>IE/Group Name</th><th>Presence</th></tr></table>'
+        )
+        desc, direction = BaseAsn1DocxParser._extract_prose_summary_and_direction(sample_html)
+        self.assertEqual(
+            desc,
+            "This message is sent by the AMF to transfer updated information for an NG-C interface instance.",
+        )
+        self.assertEqual(direction, "AMF → NG-RAN node")
+
+    def test_nas_db_message_context_and_ui_banner(self):
+        """Verifies DB storage/fallback of message description & direction and NASTab banner/inspector population."""
+        import tempfile
+        from PyQt5.QtWidgets import QListWidgetItem
+        from modules.nas.core.nas_db import NASDatabase
+        from modules.nas.ui.nas_tabs import NASTab
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test_nas.db"
+            db = NASDatabase(db_path=db_path)
+
+            # 1. Insert a parsed NGAP message with explicit description & direction
+            messages = [
+                {
+                    "clause": "9.2.6.7",
+                    "message_name": "AMFConfigurationUpdate",
+                    "table_caption": "AMFConfigurationUpdate ASN.1 PDU Definition (Clause 9.2.6.7)",
+                    "description": "This message is sent by the AMF to transfer updated information for an NG-C interface instance.",
+                    "direction": "AMF → NG-RAN node",
+                    "ies": [
+                        {
+                            "iei": "0",
+                            "information_element": "MessageType",
+                            "field_path": "MessageType",
+                            "depth": 0,
+                            "type_reference": "MessageType (9.3.1.1)",
+                            "presence": "M",
+                            "format": "IE",
+                            "length": "reject",
+                        }
+                    ],
+                },
+                {
+                    # 2. Legacy-style message without explicit description column, testing fallback from ie_definitions
+                    "clause": "9.2.6.8",
+                    "message_name": "AMFConfigurationUpdateAcknowledge",
+                    "table_caption": "AMFConfigurationUpdateAcknowledge ASN.1 PDU Definition (Clause 9.2.6.8)",
+                    "ies": [
+                        {
+                            "iei": "0",
+                            "information_element": "MessageType",
+                            "field_path": "MessageType",
+                            "depth": 0,
+                            "type_reference": "MessageType (9.3.1.1)",
+                            "presence": "M",
+                            "format": "IE",
+                            "length": "ignore",
+                        }
+                    ],
+                },
+            ]
+            ie_defs = [
+                {
+                    "clause": "9.2.6.7",
+                    "ie_name": "AMFConfigurationUpdate",
+                    "raw_description": (
+                        "<h2>AMFConfigurationUpdate (Clause 9.2.6.7)</h2>"
+                        "<p>This message is sent by the AMF to transfer updated information for an NG-C interface instance.</p>"
+                        "<p>Direction: AMF → NG-RAN node</p>"
+                    ),
+                    "structure_table": "[]",
+                },
+                {
+                    "clause": "9.2.6.8",
+                    "ie_name": "AMFConfigurationUpdateAcknowledge",
+                    "raw_description": (
+                        "<h2>AMFConfigurationUpdateAcknowledge (Clause 9.2.6.8)</h2>"
+                        "<div>Specification Details &amp; Tabular Definition:</div>"
+                        "<p>This message is sent by the NG-RAN node to acknowledge the AMF CONFIGURATION UPDATE.</p>"
+                        "<p>Direction: NG-RAN node → AMF</p>"
+                        "<table><tr><td>MessageType</td></tr></table>"
+                    ),
+                    "structure_table": "[]",
+                },
+            ]
+
+            ver_id = db.insert_parsed_spec("38.413", "19.3.0", messages, ie_defs)
+
+            # Verify get_message_context_info for explicit columns
+            ctx1 = db.get_message_context_info("AMFConfigurationUpdate", version_ids=[ver_id])
+            self.assertIn("transfer updated information", ctx1["description"])
+            self.assertEqual(ctx1["direction"], "AMF → NG-RAN node")
+
+            # Verify get_message_context_info fallback from ie_definitions
+            ctx2 = db.get_message_context_info("AMFConfigurationUpdateAcknowledge", version_ids=[ver_id])
+            self.assertIn("acknowledge the AMF CONFIGURATION UPDATE", ctx2["description"])
+            self.assertEqual(ctx2["direction"], "NG-RAN node → AMF")
+
+            # Verify deep search matches message-level description
+            matched = db.get_messages_by_ie_search(
+                "NG-C interface instance",
+                version_ids=[ver_id],
+                search_descriptions=True,
+            )
+            self.assertEqual(len(matched), 1)
+            self.assertEqual(matched[0]["message_name"], "AMFConfigurationUpdate")
+
+            # Verify NASTab UI updates banner & inspector when message is clicked
+            tab = NASTab(nas_db_path=db_path)
+            tab.selected_version_ids = [ver_id]
+
+            item = QListWidgetItem("AMFConfigurationUpdate")
+            item.setData(Qt.UserRole, "AMFConfigurationUpdate")
+            item.setData(Qt.UserRole + 1, matched[0])
+            item.setData(Qt.UserRole + 2, "38.413")
+            item.setData(Qt.UserRole + 3, "9.2.6.7")
+
+            tab._on_message_clicked(item)
+            self.assertFalse(tab.msg_context_banner.isHidden())
+            self.assertIn("AMF → NG-RAN node", tab.msg_direction_badge.text())
+            self.assertIn("NG-C interface instance", tab.msg_description_lbl.text())
+            self.assertEqual(tab.inspector.stack.currentIndex(), 1)
+            self.assertIn("AMFConfigurationUpdate", tab.inspector.title_lbl.text())
+
 
 if __name__ == "__main__":
     unittest.main()

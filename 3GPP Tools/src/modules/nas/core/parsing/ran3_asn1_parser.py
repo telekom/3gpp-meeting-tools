@@ -149,10 +149,13 @@ class RAN3Asn1Parser(BaseAsn1DocxParser):
                             "field_description": "The Message Type IE uniquely identifies the message being sent. It is mandatory for all messages.",
                         })
 
+                    msg_desc, msg_dir = self._extract_prose_summary_and_direction(desc_table_html)
                     messages.append({
                         "clause": assigned_clause,
                         "message_name": clean_name,
                         "table_caption": f"{clean_name} (Clause {assigned_clause})",
+                        "description": msg_desc,
+                        "direction": msg_dir,
                         "ies": unrolled,
                         "_desc_table_html": desc_table_html,
                     })
