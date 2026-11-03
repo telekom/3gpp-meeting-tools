@@ -33,6 +33,17 @@ from PyQt5.QtWidgets import QCheckBox, QMenu, QToolButton, QWidgetAction
 from modules.meetings.core.session_plan.session_plan_models import DelegationMember, compute_unique_initials
 
 _ALL_TOKENS = ("ALL", "ALL TEAM", "ALL DELEGATES", "👥 ALL TEAM", "👥 ALL")
+_NOT_FOLLOWED_TOKENS = (
+    "NOT_FOLLOWED",
+    "NOT FOLLOWED",
+    "NOT_FOLLOW",
+    "NOT FOLLOW",
+    "⛔ NOT FOLLOWED",
+    "⛔ NOT_FOLLOWED",
+    "⚪ NOT FOLLOWED",
+    "EXCLUDE",
+    "IGNORED",
+)
 
 
 class DelegateOwnerPicker(QToolButton):
@@ -52,6 +63,7 @@ class DelegateOwnerPicker(QToolButton):
         self._initials = initials or compute_unique_initials(m.name for m in self._members)
         self._owner_string = (owner_string or "").strip()
         self._extra_owners: List[str] = []
+        self._is_not_followed = False
         self._block_sync = False
 
         self.setPopupMode(QToolButton.InstantPopup)
@@ -86,6 +98,8 @@ class DelegateOwnerPicker(QToolButton):
             self._add_widget_action(chk)
 
         self._menu.addSeparator()
+        act_not_followed = self._menu.addAction("⛔  Mark as Not Followed")
+        act_not_followed.triggered.connect(self._on_not_followed)
         act_clear = self._menu.addAction("✕  Clear (Unassigned)")
         act_clear.triggered.connect(self._on_clear)
 
@@ -124,8 +138,10 @@ class DelegateOwnerPicker(QToolButton):
 
     def _load_owner_string(self, owner_string: str) -> None:
         self._block_sync = True
-        is_all = owner_string.upper() in _ALL_TOKENS
-        names = [] if is_all else [p.strip() for p in owner_string.split(",") if p.strip()]
+        raw_clean = (owner_string or "").strip()
+        self._is_not_followed = raw_clean.upper() in _NOT_FOLLOWED_TOKENS
+        is_all = (not self._is_not_followed) and (raw_clean.upper() in _ALL_TOKENS)
+        names = [] if (is_all or self._is_not_followed) else [p.strip() for p in raw_clean.split(",") if p.strip()]
         roster = set(self._checkboxes)
         self._extra_owners = [n for n in names if n not in roster]
         for n, chk in self._checkboxes.items():
@@ -137,6 +153,7 @@ class DelegateOwnerPicker(QToolButton):
         if self._block_sync:
             return
         self._block_sync = True
+        self._is_not_followed = False
         for chk in self._checkboxes.values():
             chk.setChecked(checked)
         self._block_sync = False
@@ -146,8 +163,19 @@ class DelegateOwnerPicker(QToolButton):
         if self._block_sync:
             return
         self._block_sync = True
+        self._is_not_followed = False
         all_checked = len(self._checkboxes) > 1 and all(c.isChecked() for c in self._checkboxes.values())
         self.chk_all.setChecked(all_checked and not self._extra_owners)
+        self._block_sync = False
+        self._refresh_button(preview=True)
+
+    def _on_not_followed(self) -> None:
+        self._block_sync = True
+        self.chk_all.setChecked(False)
+        for chk in self._checkboxes.values():
+            chk.setChecked(False)
+        self._extra_owners = []
+        self._is_not_followed = True
         self._block_sync = False
         self._refresh_button(preview=True)
 
@@ -157,10 +185,13 @@ class DelegateOwnerPicker(QToolButton):
         for chk in self._checkboxes.values():
             chk.setChecked(False)
         self._extra_owners = []
+        self._is_not_followed = False
         self._block_sync = False
         self._refresh_button(preview=True)
 
     def _compute_owner_string(self) -> str:
+        if self._is_not_followed:
+            return "NOT_FOLLOWED"
         if self.chk_all.isChecked():
             return "ALL"
         selected = self.selected_delegates()
@@ -184,7 +215,10 @@ class DelegateOwnerPicker(QToolButton):
     def _refresh_button(self, preview: bool = False) -> None:
         owner = self._compute_owner_string() if preview else self._owner_string
         members_by_name = {m.name: m for m in self._members}
-        if not owner:
+        is_nf = self._is_not_followed or (owner and owner.upper() in _NOT_FOLLOWED_TOKENS)
+        if is_nf:
+            text, fg, bg, bdr, weight = "⛔ Not Followed", "#64748B", "#F1F5F9", "#CBD5E1", 600
+        elif not owner:
             text, fg, bg, bdr, weight = "— Unassigned —", "#64748B", "#FFFFFF", "#CBD5E1", 500
         elif owner.upper() in _ALL_TOKENS:
             text, fg, bg, bdr, weight = "👥 All Team", "#4338CA", "#EEF2FF", "#C7D2FE", 700
@@ -197,9 +231,10 @@ class DelegateOwnerPicker(QToolButton):
             weight = 700
             text = "● " + ", ".join(names) if len(names) <= 2 else f"● {names[0]} +{len(names) - 1}"
         self.setText(f"{text} ▾")
+        disp_status = "Not Followed" if is_nf else (owner or "Unassigned")
         self.setToolTip(
             "Click to (multi-)select the topic owner(s).\n"
-            f"Current: {owner or 'Unassigned'}\n"
+            f"Current: {disp_status}\n"
             "Changes are applied when the menu closes."
         )
         self.setStyleSheet(

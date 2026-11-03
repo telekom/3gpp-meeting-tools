@@ -50,6 +50,7 @@ from modules.meetings.core.session_plan.session_plan_models import (
     SessionSlot,
     UserSessionAnnotation,
     compute_unique_initials,
+    is_slot_not_followed,
     resolve_slot_effective_delegates,
 )
 from modules.meetings.core.session_plan.session_plan_timezone import SessionPlanTimezone
@@ -1218,6 +1219,8 @@ class SessionPlanWindow(QWidget):
                 bdr_t = m.border_tint if m else DelegationMember.compute_tint(col, 0.35)
                 badges_html.append(f"<span style='background:{bg_t}; border:1px solid {bdr_t}; color:{col}; padding:1px 6px; border-radius:3px; font-weight:700;'>● {html.escape(dn)}</span>")
             tt += f"<div style='margin-top:6px; padding:4px 8px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:4px; font-size:11.5px;'>👤 <b>Delegation:</b> {' '.join(badges_html)}{role_lbl}</div>"
+        elif not del_names and is_slot_not_followed(slot, self.delegation_plan):
+            tt += "<div style='margin-top:6px; padding:4px 8px; background:#F1F5F9; border:1px solid #CBD5E1; color:#64748B; border-radius:4px; font-size:11.5px;'>⛔ <b>Delegation:</b> <i>Not Followed (Out of Scope)</i></div>"
 
         ann = self.annotations.get(slot.slot_key)
         if ann and (ann.comment or ann.assigned_colleague):
@@ -1354,6 +1357,7 @@ class SessionPlanWindow(QWidget):
         lbl.setAlignment(Qt.AlignTop | Qt.AlignLeft)
 
         is_tracked = self._is_slot_tracked(slot)
+        is_not_followed_slot = is_slot_not_followed(slot, self.delegation_plan)
 
         # Dimming check if a (multi-select) delegate focus is active on the Overview Grid
         is_dimmed = False
@@ -1382,6 +1386,8 @@ class SessionPlanWindow(QWidget):
                 lbl.setStyleSheet(f"background: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-left: 4px solid {primary_m.color}; border-radius: 4px; padding: 4px; font-weight: 500;")
         elif slot.is_drafting:
             lbl.setStyleSheet("background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; border-radius: 4px; padding: 4px; font-weight: 500;")
+        elif is_not_followed_slot:
+            lbl.setStyleSheet("background: #F8FAFC; color: #64748B; border: 1px dashed #CBD5E1; border-radius: 4px; padding: 4px;")
         elif is_tracked:
             lbl.setStyleSheet("background: #F5F3FF; color: #5B21B6; border: 1px solid #DDD6FE; border-radius: 4px; padding: 4px; font-weight: 500;")
         else:
@@ -2144,6 +2150,10 @@ class SessionPlanWindow(QWidget):
                 status_txt = f"🔴 Collision in parallel stream{override_suffix}"
                 status_col = "#991B1B"
                 status_bg = "#FEF2F2"
+            elif to and to.is_not_followed():
+                status_txt = f"⚪ Not Followed{override_suffix}"
+                status_col = "#64748B"
+                status_bg = "#F1F5F9"
             elif owner_name:
                 cov_lbl = "All Team" if to and to.is_all() else (f"{len(owners_list)} delegates" if len(owners_list) > 1 else owner_name)
                 status_txt = (
@@ -2232,6 +2242,10 @@ class SessionPlanWindow(QWidget):
                 status_txt = f"🔴 Collision in parallel stream{override_suffix}"
                 status_col = "#991B1B"
                 status_bg = "#FEF2F2"
+            elif to and to.is_not_followed():
+                status_txt = f"⚪ Not Followed{override_suffix}"
+                status_col = "#64748B"
+                status_bg = "#F1F5F9"
             elif owner_name:
                 cov_lbl = "All Team" if to and to.is_all() else (f"{len(owners_list)} delegates" if len(owners_list) > 1 else owner_name)
                 status_txt = (
@@ -2983,7 +2997,7 @@ class SessionPlanWindow(QWidget):
                             continue
                         current_to = self.delegation_plan.topic_owners.get(it.ai_number)
                         curr_owner_str = current_to.owner_name if current_to else ""
-                        curr_disp = f" ({curr_owner_str})" if curr_owner_str else " (Unassigned)"
+                        curr_disp = " (Not Followed)" if (current_to and current_to.is_not_followed()) else (f" ({curr_owner_str})" if curr_owner_str else " (Unassigned)")
                         ai_menu = menu.addMenu(f"👤 Assign Topic Owner (AI {it.ai_number}){curr_disp}...")
 
                         act_all = ai_menu.addAction("👥 All Team")
@@ -2999,6 +3013,10 @@ class SessionPlanWindow(QWidget):
                         ai_menu.addSeparator()
                         act_multi = ai_menu.addAction("⚡ Custom Multi-Delegate...")
                         act_multi.triggered.connect(lambda _, ai=it.ai_number, cur=curr_owner_str: self._open_multi_delegate_dialog(ai, cur))
+
+                        ai_menu.addSeparator()
+                        act_not_followed = ai_menu.addAction("⛔ Mark as Not Followed")
+                        act_not_followed.triggered.connect(lambda _, ai=it.ai_number: self._set_topic_owner_direct(ai, "NOT_FOLLOWED"))
 
                         if curr_owner_str:
                             act_clear = ai_menu.addAction("✕ Clear (Unassign)")

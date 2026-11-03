@@ -21,6 +21,7 @@ from modules.meetings.core.session_plan.session_plan_models import (
     UserSessionAnnotation,
     resolve_slot_effective_delegates,
     compute_unique_initials,
+    is_slot_not_followed,
 )
 from modules.meetings.core.session_plan.session_plan_parser import (
     DAY_NAMES,
@@ -253,7 +254,10 @@ class SessionPlanExporter:
                     return []
             unassigned = []
             for it in slot_obj.items:
-                if it.ai_number and it.ai_number not in topic_owners_map:
+                if it.ai_number:
+                    to = topic_owners_map.get(it.ai_number)
+                    if to and (to.is_not_followed() or to.owner_name.strip()):
+                        continue
                     if it.ai_number not in unassigned:
                         unassigned.append(it.ai_number)
             return unassigned
@@ -261,6 +265,8 @@ class SessionPlanExporter:
         def _is_slot_unassigned(slot_obj: SessionSlot, eff_dels_list: List[str], is_all_flag: bool) -> bool:
             """True if the slot has no assigned delegates at all, or contains an explicitly unassigned AI without slot override."""
             if not slot_obj.raw_text.strip() or slot_obj.raw_text.strip() == "-":
+                return False
+            if is_slot_not_followed(slot_obj, delegation_plan):
                 return False
             if not eff_dels_list and not is_all_flag:
                 return True
@@ -302,6 +308,7 @@ class SessionPlanExporter:
                 "delegates": eff_dels,
                 "unassigned": is_unassigned_slot,
                 "unassigned_ais": unassigned_ais,
+                "not_followed": is_slot_not_followed(s, delegation_plan),
                 "ai_numbers": ai_nums,
                 "note": note_str,
                 "slot_key": s.slot_key,
@@ -353,7 +360,8 @@ class SessionPlanExporter:
 
         unassigned_ais_catalog = []
         for ai_num in sorted(all_known_ais.keys(), key=_ai_sort_key):
-            if ai_num in topic_owners_map and topic_owners_map[ai_num].owner_name.strip():
+            to = topic_owners_map.get(ai_num)
+            if to and (to.is_not_followed() or to.owner_name.strip()):
                 continue
             info = all_known_ais[ai_num]
             sched_list = scheduled_ai_slots.get(ai_num, [])
@@ -389,6 +397,7 @@ class SessionPlanExporter:
         def render_overview_cell(slot: SessionSlot, colspan: int, d_idx: int, p: str, s_num: int, tu: int) -> str:
             eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(slot, delegation_plan)
             is_unassigned = _is_slot_unassigned(slot, eff_dels, is_all)
+            is_not_followed = is_slot_not_followed(slot, delegation_plan)
             unassigned_ais = _get_slot_unassigned_ais(slot, eff_dels, is_all)
             dels_joined = ",".join(eff_dels)
 
@@ -411,6 +420,8 @@ class SessionPlanExporter:
                 cell_classes.append("is-drafting")
             if is_unassigned:
                 cell_classes.append("is-unassigned")
+            elif is_not_followed:
+                cell_classes.append("is-not-followed")
 
             hdr_badges = []
             if slot.is_drafting:
@@ -432,9 +443,21 @@ class SessionPlanExporter:
                 ai_lbl = f"AI {it.ai_number}" if it.ai_number else it.topic_label
                 cnt = f'<span class="chip-count">[{it.tdoc_count_str}]</span>' if it.tdoc_count_str else ""
                 is_ai_unassigned = it.ai_number in unassigned_ais
-                chip_cls = "ai-chip unassigned-chip" if is_ai_unassigned else "ai-chip"
-                q_mark = "❓ " if is_ai_unassigned else ""
-                chips.append(f'<span class="{chip_cls}">{q_mark}{html.escape(ai_lbl)}{cnt}</span>')
+                is_ai_not_followed = bool(
+                    it.ai_number
+                    and it.ai_number in topic_owners_map
+                    and topic_owners_map[it.ai_number].is_not_followed()
+                )
+                if is_ai_unassigned:
+                    chip_cls = "ai-chip unassigned-chip"
+                    prefix = "❓ "
+                elif is_ai_not_followed:
+                    chip_cls = "ai-chip not-followed-chip"
+                    prefix = "⛔ "
+                else:
+                    chip_cls = "ai-chip"
+                    prefix = ""
+                chips.append(f'<span class="{chip_cls}">{prefix}{html.escape(ai_lbl)}{cnt}</span>')
 
             del_badges = []
             if is_all:
@@ -449,6 +472,8 @@ class SessionPlanExporter:
                     bdr_style = "dashed" if is_cov else "solid"
                     cov_note = " (Ad-hoc cover)" if is_cov else " (Owner)"
                     del_badges.append(f'<span class="del-pill-badge" style="background:{bg}; color:{col}; border:1px {bdr_style} {bdr};" title="{html.escape(dn)}{cov_note}">● {ini}</span>')
+            elif is_not_followed:
+                del_badges.append('<span class="del-pill-badge is-not-followed-pill" title="Explicitly not followed (Out of scope)">⛔ Not Followed</span>')
             else:
                 del_badges.append('<span class="del-pill-badge is-unassigned-pill" title="No delegate assigned">❓ Unassigned</span>')
 
@@ -456,7 +481,7 @@ class SessionPlanExporter:
             if ann and ann.comment:
                 note_badge = f'<div class="cell-note-pill" title="{html.escape(ann.comment)}">📝 {html.escape(ann.comment[:35])}{"…" if len(ann.comment) > 35 else ""}</div>'
 
-            return f"""<td class="{' '.join(cell_classes)}" colspan="{colspan}" data-stream="{s_num}" data-period="{p}" data-tu="{tu}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-unassigned="{1 if is_unassigned else 0}" data-drafting="{1 if slot.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
+            return f"""<td class="{' '.join(cell_classes)}" colspan="{colspan}" data-stream="{s_num}" data-period="{p}" data-tu="{tu}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-unassigned="{1 if is_unassigned else 0}" data-not-followed="{1 if is_not_followed else 0}" data-drafting="{1 if slot.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
   <div class="cell-top-row">{' '.join(hdr_badges)}</div>
   <div class="cell-title">{raw_esc}</div>
   {f'<div class="cell-chips-row">{"".join(chips)}</div>' if chips else ''}
@@ -589,6 +614,7 @@ class SessionPlanExporter:
                 for s in slots_in_q:
                     eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(s, delegation_plan)
                     is_unassigned = _is_slot_unassigned(s, eff_dels, is_all)
+                    is_not_followed = is_slot_not_followed(s, delegation_plan)
                     unassigned_ais = _get_slot_unassigned_ais(s, eff_dels, is_all)
                     dels_joined = ",".join(eff_dels)
 
@@ -620,9 +646,21 @@ class SessionPlanExporter:
                         cnt = f'<span class="count-chip">[{it.tdoc_count_str}]</span>' if it.tdoc_count_str else ""
                         ai_lbl = f"AI {it.ai_number}" if it.ai_number else it.topic_label
                         is_ai_unassigned = it.ai_number in unassigned_ais
-                        chip_cls = "ai-chip unassigned-chip" if is_ai_unassigned else "ai-chip"
-                        q_mark = "❓ " if is_ai_unassigned else ""
-                        chips.append(f'<span class="{chip_cls}">{q_mark}{html.escape(ai_lbl)}{cnt}</span>')
+                        is_ai_not_followed = bool(
+                            it.ai_number
+                            and it.ai_number in topic_owners_map
+                            and topic_owners_map[it.ai_number].is_not_followed()
+                        )
+                        if is_ai_unassigned:
+                            chip_cls = "ai-chip unassigned-chip"
+                            prefix = "❓ "
+                        elif is_ai_not_followed:
+                            chip_cls = "ai-chip not-followed-chip"
+                            prefix = "⛔ "
+                        else:
+                            chip_cls = "ai-chip"
+                            prefix = ""
+                        chips.append(f'<span class="{chip_cls}">{prefix}{html.escape(ai_lbl)}{cnt}</span>')
 
                     del_badge = ""
                     if is_all:
@@ -638,6 +676,8 @@ class SessionPlanExporter:
                             bdr = m.border_tint if m else "#BFDBFE"
                             b_list.append(f'<span class="del-pill-badge" style="background:{bg}; color:{col}; border:1px solid {bdr};">● {html.escape(ed)}{cov_lbl}</span>')
                         del_badge = "".join(b_list)
+                    elif is_not_followed:
+                        del_badge = '<span class="del-pill-badge is-not-followed-pill">⛔ Not Followed</span>'
                     else:
                         del_badge = '<span class="del-pill-badge is-unassigned-pill">❓ Unassigned</span>'
 
@@ -648,10 +688,12 @@ class SessionPlanExporter:
                     row_classes = ["cards-slot-row"]
                     if s.is_drafting:
                         row_classes.append("drafting")
-                    if is_unassigned:
+                    elif is_unassigned:
                         row_classes.append("unassigned")
+                    elif is_not_followed:
+                        row_classes.append("not-followed")
 
-                    cards_html.append(f"""    <div class="{' '.join(row_classes)}" data-stream="{s.stream_number}" data-period="{q}" data-tu="{s.sub_slot}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-unassigned="{1 if is_unassigned else 0}" data-drafting="{1 if s.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
+                    cards_html.append(f"""    <div class="{' '.join(row_classes)}" data-stream="{s.stream_number}" data-period="{q}" data-tu="{s.sub_slot}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-unassigned="{1 if is_unassigned else 0}" data-not-followed="{1 if is_not_followed else 0}" data-drafting="{1 if s.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
       <div class="slot-header-line">
         <span class="stream-badge str-{s.stream_number}">Stream {s.stream_number}</span>
         <span class="room-pill">📍 {html.escape(r_name)}{" · " + html.escape(convener) if convener else ""}</span>
@@ -939,6 +981,11 @@ class SessionPlanExporter:
   .grid-cell.is-unassigned {
     background: #FFFBEB;
   }
+  .grid-cell.is-not-followed {
+    background: #F8FAFC !important;
+    border-color: #E2E8F0 !important;
+    opacity: 0.75;
+  }
 
   /* Delegate Dimming / Highlighting */
   .grid-cell.dimmed {
@@ -967,6 +1014,9 @@ class SessionPlanExporter:
   .ai-chip.unassigned-chip {
     background: #FEF3C7; color: #B45309; border: 1px dashed #F59E0B;
   }
+  .ai-chip.not-followed-chip {
+    background: #F1F5F9; color: #64748B; border: 1px solid #CBD5E1;
+  }
   .chip-count { font-size: 9px; font-weight: 700; color: #475569; margin-left: 2px; }
   .cell-del-row { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 2px; }
   .del-pill-badge {
@@ -977,6 +1027,9 @@ class SessionPlanExporter:
   }
   .del-pill-badge.is-unassigned-pill {
     background: #FEF3C7; color: #B45309; border: 1px dashed #F59E0B;
+  }
+  .del-pill-badge.is-not-followed-pill {
+    background: #F1F5F9; color: #64748B; border: 1px solid #CBD5E1;
   }
   .cell-note-pill {
     margin-top: 3px; font-size: 9.5px; font-weight: 500; color: #92400E; background: #FEF3C7;
@@ -1010,6 +1063,7 @@ class SessionPlanExporter:
   .cards-slot-row:last-child { border-bottom: none; }
   .cards-slot-row.drafting { background: var(--drafting-bg); border-left: 4px solid var(--drafting); }
   .cards-slot-row.unassigned { background: var(--unassigned-bg); border-left: 4px solid var(--unassigned); }
+  .cards-slot-row.not-followed { background: #F8FAFC; border-left: 4px solid #94A3B8; opacity: 0.75; }
   .slot-header-line { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
   .stream-badge {
     font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;
@@ -2064,12 +2118,16 @@ class SessionPlanExporter:
     }
 
     let uncoveredHtml = '';
-    const uncoveredStreams = activeEvs.filter(e => !e.is_all && (!e.delegates || e.delegates.length === 0));
+    const uncoveredStreams = activeEvs.filter(e => !e.is_all && !e.not_followed && (!e.delegates || e.delegates.length === 0));
     if (uncoveredStreams.length > 0) {
       const uStr = uncoveredStreams.map(e => '<strong>Stream ' + e.stream_num + ' (' + escHtml(e.room) + '):</strong> ' + escHtml(e.title.substring(0, 45))).join(' &bull; ');
       uncoveredHtml = '<div class="now-streams-summary" style="color:#B45309;">❓ <strong>Unassigned Active Stream(s):</strong> ' + uStr + '</div>';
     } else if (activeEvs.length > 0) {
-      const cStr = activeEvs.map(e => '<strong>Str ' + e.stream_num + ' (' + escHtml(e.room) + '):</strong> ' + (e.is_all ? 'All Team' : (e.delegates || []).join(', '))).join(' &nbsp;|&nbsp; ');
+      const cStr = activeEvs.map(e => {
+        let cov = e.is_all ? 'All Team' : (e.delegates || []).join(', ');
+        if (!cov && e.not_followed) cov = '<em>(Not Followed)</em>';
+        return '<strong>Str ' + e.stream_num + ' (' + escHtml(e.room) + '):</strong> ' + cov;
+      }).join(' &nbsp;|&nbsp; ');
       uncoveredHtml = '<div class="now-streams-summary">🏢 <strong>Active Rooms Summary:</strong> ' + cStr + '</div>';
     }
 
@@ -2649,7 +2707,10 @@ class SessionPlanExporter:
             to = topic_owners[ai_num]
             ai_info = agenda_map.get(ai_num)
             desc = ai_info.description if ai_info else f"Agenda Item {ai_num}"
-            if to.is_all():
+            if to.is_not_followed():
+                badge_html = "<span style='display:inline-block; padding:2px 8px; border-radius:4px; background-color:#F1F5F9; border:1px solid #CBD5E1; color:#64748B; font-weight:600;'>⛔ Not Followed</span>"
+                plain_owner = "Not Followed"
+            elif to.is_all():
                 badge_html = "<span style='display:inline-block; padding:2px 8px; border-radius:4px; background-color:#EEF2FF; border:1px solid #C7D2FE; color:#4338CA; font-weight:600;'>👥 All Team</span>"
                 plain_owner = "All Team"
             else:
