@@ -11,8 +11,8 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.paths import to_extended_path
 from core.network.session import NetworkSession
-from modules.meetings.core.tdoc_file_handler import TDocFileHandler
-from modules.meetings.core.tdocs_parser import TDocsParser
+from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
+from modules.meetings.core.tdocs.tdocs_parser import TDocsParser
 
 from modules.word_tools.core.libreoffice_converter import (
     convert_doc_to_docx_libreoffice,

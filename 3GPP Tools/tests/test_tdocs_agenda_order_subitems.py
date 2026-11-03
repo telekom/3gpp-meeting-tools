@@ -4,7 +4,7 @@ import os
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
 
-from src.modules.meetings.core.tdocs_parser import TDocsParser
+from src.modules.meetings.core.tdocs.tdocs_parser import TDocsParser
 from src.modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel
 
 app = QApplication.instance() or QApplication([])

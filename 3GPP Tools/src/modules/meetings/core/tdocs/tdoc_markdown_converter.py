@@ -20,7 +20,7 @@ from modules.word_tools.core.word_converter import convert_doc_to_docx
 from modules.word_tools.core.libreoffice_converter import (
     convert_document_libreoffice, is_libreoffice_available,
 )
-from modules.meetings.core.tdoc_url_resolver import resolve_tdoc_download_url
+from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
 from modules.meetings.core.exporters import tdoc2md as _core
 from modules.meetings.core.exporters.tdoc2md import (
     DEFAULT_CORPUS_PROMPT, MARKUP_LEGEND, DOC_EXTENSIONS,

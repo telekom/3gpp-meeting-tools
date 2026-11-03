@@ -12,8 +12,8 @@ from PyQt5.QtWidgets import (
 
 from core.ai.ollama_client import OllamaClient, load_ollama_config
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
-from modules.meetings.core.tdoc_triage_worker import TDocTriageWorker
-from modules.meetings.core.tdoc_url_resolver import resolve_tdoc_download_url
+from modules.meetings.core.tdocs.tdoc_triage_worker import TDocTriageWorker
+from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
 from modules.meetings.ui.tdocs_dialogs import MY_STATUS_OPTIONS
 
 logger = logging.getLogger(__name__)

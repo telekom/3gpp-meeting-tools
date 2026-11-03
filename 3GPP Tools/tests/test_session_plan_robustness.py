@@ -20,7 +20,7 @@ if not app:
 from modules.meetings.core.session_plan.session_plan_parser import SessionPlanParser
 from modules.meetings.core.session_plan.session_plan_models import SessionPlanSnapshot, SessionSlot
 from modules.meetings.core.session_plan.session_plan_db import SessionPlanDatabase
-from modules.meetings.ui.session_plan_window import SessionPlanWindow
+from modules.meetings.ui.session_plan.session_plan_window import SessionPlanWindow
 from modules.meetings.ui.tdocs_drop_overlay import DropOverlayWidget
 
 

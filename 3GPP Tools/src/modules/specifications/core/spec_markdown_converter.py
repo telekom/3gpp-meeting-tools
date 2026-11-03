@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 from core.utils.paths import to_extended_path
-from modules.meetings.core.tdoc_markdown_converter import (
+from modules.meetings.core.tdocs.tdoc_markdown_converter import (
     convert_document_to_markdown,
     convert_docx_file,
     convert_metafiles,

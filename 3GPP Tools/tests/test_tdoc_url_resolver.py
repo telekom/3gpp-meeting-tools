@@ -5,12 +5,12 @@ import unittest
 from pathlib import Path
 
 from core.utils.paths import to_extended_path
-from modules.meetings.core.tdoc_url_resolver import (
+from modules.meetings.core.tdocs.tdoc_url_resolver import (
     normalize_3gpp_url,
     is_tdoc_revision,
     resolve_tdoc_download_url,
 )
-from modules.meetings.core.tdoc_markdown_converter import (
+from modules.meetings.core.tdocs.tdoc_markdown_converter import (
     write_index,
     ExportedDoc,
     CONVERTER_VERSION,

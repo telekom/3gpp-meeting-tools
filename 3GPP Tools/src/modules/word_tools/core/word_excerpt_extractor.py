@@ -598,7 +598,7 @@ class WordExcerptThread(QThread):
 
             if self.export_markdown:
                 self.progress.emit(88, "Converting excerpt to Markdown and extracting figures...")
-                from modules.meetings.core.tdoc_markdown_converter import convert_document_to_markdown
+                from modules.meetings.core.tdocs.tdoc_markdown_converter import convert_document_to_markdown
                 docx_file = Path(out).resolve()
                 out_dir = docx_file.parent
                 stem = docx_file.stem

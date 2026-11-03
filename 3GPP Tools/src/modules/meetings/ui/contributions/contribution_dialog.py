@@ -18,7 +18,7 @@ from core.ui.ui_components import (
 from core.utils.company_sanitizer import CompanySanitizer
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.settings import MeetingsSettings
-from modules.meetings.core.tdocs_threads import TDocActionThread
+from modules.meetings.core.tdocs.tdocs_threads import TDocActionThread
 from modules.meetings.core.url_router import URLRouter
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_dialogs import ReadOnlyViewerDialog
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 # Imported from dedicated submodules
-from modules.meetings.ui.contribution_widgets import (
+from modules.meetings.ui.contributions.contribution_widgets import (
     KPICard,
     WITokenInputWidget,
     AITokenInputWidget,
@@ -40,8 +40,8 @@ from modules.meetings.core.contribution_worker import ContributionSearchWorker
 
 
 # Re-exported for backward compatibility
-from modules.meetings.ui.contribution_models import ContributionResultsTableModel
-from modules.meetings.ui.contribution_export_controller import (
+from modules.meetings.ui.contributions.contribution_models import ContributionResultsTableModel
+from modules.meetings.ui.dialogs.contribution_export_controller import (
     export_to_excel,
     on_export_finished,
     generate_statistics,

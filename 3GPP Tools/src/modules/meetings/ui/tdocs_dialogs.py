@@ -1,13 +1,10 @@
 import json
 import logging
-import webbrowser
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton, QLabel,
-    QComboBox, QApplication, QSlider, QSpinBox, QCheckBox, QListWidget,
-    QListWidgetItem, QRadioButton, QAbstractItemView, QGroupBox, QMessageBox,
-    QFrame, QFormLayout, QWidget, QScrollArea
+    QComboBox, QApplication, QSlider, QSpinBox, QCheckBox
 )
 
 from core.utils.paths import get_project_root
@@ -16,7 +13,7 @@ from core.utils.paths import get_project_root
 
 # Re-exported classes and constants from modularized dialogs
 from modules.meetings.ui.tdoc_info_dialog import TDocInfoDialog
-from modules.meetings.ui.excel_export_dialog import (
+from modules.meetings.ui.dialogs.excel_export_dialog import (
     ALL_AVAILABLE_COLUMNS,
     DEFAULT_SELECTED_COLUMNS,
     ExcelExportDialog,

@@ -54,7 +54,7 @@ from modules.meetings.core.session_plan.session_plan_models import (
 )
 from modules.meetings.core.session_plan.session_plan_timezone import SessionPlanTimezone
 from modules.meetings.ui.delegate_owner_picker import DelegateOwnerPicker
-from modules.meetings.ui.session_plan_dialogs import (
+from modules.meetings.ui.session_plan.session_plan_dialogs import (
     DelegationImportDialog,
     DelegationMemberDialog,
     MultiDelegateSelectDialog,
@@ -3040,7 +3040,7 @@ class SessionPlanWindow(QWidget):
 
     def _open_multi_delegate_dialog(self, ai_number: str, current_owner: str):
         """Opens MultiDelegateSelectDialog for compound multi-delegate ownership from grid."""
-        from modules.meetings.ui.session_plan_dialogs import MultiDelegateSelectDialog
+        from modules.meetings.ui.session_plan.session_plan_dialogs import MultiDelegateSelectDialog
         ai_desc = ""
         if self.agenda_map and ai_number in self.agenda_map:
             ai_desc = getattr(self.agenda_map[ai_number], "description", "")
@@ -3121,7 +3121,7 @@ class SessionPlanWindow(QWidget):
                 snap = SessionPlanParser.parse_text_or_markdown(payload, meeting_number=self.meeting_number)
             else:
                 # URL or TDoc#
-                from modules.meetings.core.tdoc_file_handler import TDocFileHandler
+                from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
                 from modules.meetings.core.url_router import URLRouter
                 from core.network.network_state import NetworkState
 

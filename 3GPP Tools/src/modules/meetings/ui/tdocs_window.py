@@ -27,11 +27,11 @@ from modules.meetings.core.compare_manager import ComparisonManager
 from modules.meetings.core.exporters.markdown_exporter import MarkdownExporterThread
 from modules.meetings.core.settings import MeetingsSettings
 from modules.meetings.core.stats.exporter_thread import StatisticsExporterThread
-from modules.meetings.core.tdocs_db import TDocsDatabase
-from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
-from modules.meetings.core.tdocs_parser import TDocsParser
+from modules.meetings.core.tdocs.tdocs_db import TDocsDatabase
+from modules.meetings.core.tdocs.tdocs_downloader import TDocsDownloaderThread
+from modules.meetings.core.tdocs.tdocs_parser import TDocsParser
 from modules.meetings.core.meeting_wi_enricher import MeetingWIEnricherThread
-from modules.meetings.core.tdocs_threads import (
+from modules.meetings.core.tdocs.tdocs_threads import (
     TDocsRevisionsFetcherThread,
     TDocActionThread,
     TdocsByAgendaThread,
@@ -46,7 +46,7 @@ from modules.meetings.ui.tdocs_dialogs import (
 )
 from modules.meetings.ui.tdocs_menus import build_action_menu, build_related_menu
 from modules.meetings.ui.tdocs_menu import handle_table_context_menu
-from modules.meetings.ui.tdocs_export_controller import (
+from modules.meetings.ui.dialogs.tdocs_export_controller import (
     get_package_export_rows,
     export_tdocs_package,
     open_excel_export_dialog,
@@ -1620,7 +1620,7 @@ class TDocsWindow(QWidget):
     def _open_session_plan_window(self):
         """Launches the dedicated Meeting Session Plan viewer."""
         if not hasattr(self, "_session_plan_window") or self._session_plan_window is None:
-            from modules.meetings.ui.session_plan_window import SessionPlanWindow
+            from modules.meetings.ui.session_plan.session_plan_window import SessionPlanWindow
             followed = getattr(self.proxy, "followed_wi_tokens", set()) if hasattr(self, "proxy") else set()
             starred = getattr(self.proxy, "starred_wi_tokens", set()) if hasattr(self, "proxy") else set()
             tracked_tokens = set(followed) | set(starred)
@@ -1638,7 +1638,7 @@ class TDocsWindow(QWidget):
         """Fetches the target TDoc, stages it to Agenda/SessionPlans, and launches SessionPlanWindow."""
         from modules.meetings.core.session_plan.session_plan_parser import SessionPlanParser
         from modules.meetings.core.session_plan.session_plan_db import SessionPlanDatabase
-        from modules.meetings.core.tdoc_file_handler import TDocFileHandler
+        from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
         from modules.meetings.core.url_router import URLRouter
         from core.network.network_state import NetworkState
 
@@ -1789,7 +1789,7 @@ class TDocsWindow(QWidget):
         open_post_meeting_export_dialog(self)
 
     def _export_dossier(self, target_rows=None):
-        from modules.meetings.ui.tdocs_export_controller import open_dossier_export_dialog
+        from modules.meetings.ui.dialogs.tdocs_export_controller import open_dossier_export_dialog
         open_dossier_export_dialog(self, target_rows)
 
     def _on_md_single_finished(self, success: bool, msg: str):

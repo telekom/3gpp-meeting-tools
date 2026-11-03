@@ -12,7 +12,7 @@ from openpyxl.styles.fills import Stop
 from openpyxl.utils import get_column_letter
 
 from core.network.session import NetworkSession
-from modules.meetings.core.tdocs_parser import TDocsParser
+from modules.meetings.core.tdocs.tdocs_parser import TDocsParser
 
 
 class TDocsMergerThread(QThread):

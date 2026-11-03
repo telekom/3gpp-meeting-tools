@@ -7,12 +7,12 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from core.utils.paths import to_extended_path
-from modules.meetings.core.tdoc_file_handler import TDocFileHandler
+from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.exporters.llm_exporter import (
     TDocMarkdownExporterThread,
     LLMExporterThread,
 )
-from modules.meetings.core.tdoc_markdown_converter import (
+from modules.meetings.core.tdocs.tdoc_markdown_converter import (
     convert_document_to_markdown,
     is_conversion_stale,
     is_plain_document_type,

@@ -13,9 +13,9 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.paths import to_extended_path, get_project_root
 from modules.meetings.core.agenda_manager import AgendaItem
-from modules.meetings.core.tdoc_file_handler import TDocFileHandler
-from modules.meetings.core.tdoc_url_resolver import resolve_tdoc_download_url
-from modules.meetings.core.tdoc_markdown_converter import (
+from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
+from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
+from modules.meetings.core.tdocs.tdoc_markdown_converter import (
     convert_document_to_markdown,
     sanitize_filename,
     is_conversion_stale,

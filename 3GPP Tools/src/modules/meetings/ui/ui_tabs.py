@@ -1,42 +1,35 @@
 # --- File: modules/meetings/ui/ui_tabs.py ---
 import logging
-import os
 import re
-import webbrowser
 from pathlib import Path
 
-from PyQt5.QtCore import QEvent, Qt, pyqtSignal, QDate, QPoint, QTimer
-from PyQt5.QtGui import QPen, QColor, QBrush
+from PyQt5.QtCore import Qt, pyqtSignal, QDate, QPoint, QTimer
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLineEdit, QComboBox, QTableView, QHeaderView,
     QMenu, QLabel, QCheckBox, QDateEdit,
-    QMessageBox, QFrame, QFileDialog, QDialog, QStyledItemDelegate, QStyle
+    QMessageBox, QFrame, QFileDialog, QDialog
 )
 
 from core.network.session import NetworkConfigDialog
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
-    BUTTON_STYLE_TOOLBAR_DANGER,
     BUTTON_STYLE_TOOLBAR_WARNING,
     SEGMENT_BTN_STYLE,
     SPEC_FILTER_COMBO_STYLE,
     SPEC_FILTER_INPUT_STYLE,
 )
 from modules.meetings.core.agenda_manager import AgendaDownloaderThread
-from modules.meetings.core.compare_manager import ComparisonManager
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.settings import MeetingsSettings
-from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
-from modules.meetings.core.tdocs_parser import TDocsParser
-from modules.meetings.ui.dialogs import MeetingInfoDialog, AddMeetingDialog, MeetingsConfigDialog
+from modules.meetings.core.tdocs.tdocs_downloader import TDocsDownloaderThread
+from modules.meetings.core.tdocs.tdocs_parser import TDocsParser
+from modules.meetings.ui.meeting_details_dialogs import MeetingInfoDialog, AddMeetingDialog, MeetingsConfigDialog
 from modules.meetings.ui.models import MeetingsTableModel
 from modules.meetings.ui.search_controller import GlobalSearchController
 from modules.meetings.ui.tdocs_components import CheckableComboBox, ComparisonCartWidget
-from modules.meetings.ui.tdocs_window import TDocsWindow, _open_terminal
-from modules.word_tools.core.word_comparator import WordComparatorThread
-from modules.meetings.core.tdocs_merger import TDocsMergerThread
-from modules.meetings.ui.contribution_dialog import ContributionReportDialog
+from modules.meetings.ui.tdocs_window import TDocsWindow
+from modules.meetings.core.tdocs.tdocs_merger import TDocsMergerThread
 
 # Delegates
 from modules.meetings.ui.meetings_delegates import TDocsButtonDelegate, DynamicHoverMenuDelegate, WGTagDelegate

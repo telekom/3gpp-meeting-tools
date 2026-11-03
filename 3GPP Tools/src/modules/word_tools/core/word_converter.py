@@ -822,7 +822,7 @@ class WordConverterThread(QThread):
     ) -> None:
         """Export document to Markdown with figure extraction and revision tracking."""
         from core.utils.paths import get_project_root, strip_extended_path
-        from modules.meetings.core.tdoc_markdown_converter import convert_document_to_markdown
+        from modules.meetings.core.tdocs.tdoc_markdown_converter import convert_document_to_markdown
 
         orig = original_source or source
         if self.output_dir:

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import docx
 
-from modules.meetings.core.tdocs_parser import TDocsParser
+from modules.meetings.core.tdocs.tdocs_parser import TDocsParser
 
 
 class TestChairNotesWordParser(unittest.TestCase):
