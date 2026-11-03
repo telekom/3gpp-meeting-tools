@@ -8,6 +8,7 @@ from modules.nas.core.parsing.protocol_parser_constants import (
 from modules.specifications.utils.utils import file_version_to_version
 from modules.nas.core.parsing.rrc_asn1_parser import RRCAsn1Parser
 from modules.nas.core.parsing.ran3_asn1_parser import RAN3Asn1Parser
+from modules.nas.core.parsing.xnap_asn1_parser import XnAPAsn1Parser
 from modules.nas.core.parsing.nas_parser import NASDocxParser
 from modules.nas.core.parsing.pfcp_parser import PFCPDocxParser
 from modules.nas.core.parsing.gtpu_parser import GTPUDocxParser
@@ -59,7 +60,11 @@ class ProtocolDocxDispatcher:
             return parser.parse(progress_callback=progress_callback)
 
         # 2. Route RAN3 Object Set specifications (38.413, 38.423, 38.473, 38.463, 36.413)
-        if any(s in spec_num for s in ["38.413", "38.423", "38.473", "38.463", "36.413", "38.412"]):
+        if "38.423" in spec_num:
+            parser = XnAPAsn1Parser(self.docx_paths, spec_number=spec_num)
+            return parser.parse(progress_callback=progress_callback)
+
+        if any(s in spec_num for s in ["38.413", "38.473", "38.463", "36.413", "38.412"]):
             parser = RAN3Asn1Parser(self.docx_paths, spec_number=spec_num)
             return parser.parse(progress_callback=progress_callback)
 

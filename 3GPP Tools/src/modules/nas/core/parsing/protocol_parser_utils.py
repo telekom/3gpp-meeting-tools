@@ -73,6 +73,23 @@ def _extract_p_text(p_elem: ET.Element, preserve_line_breaks: bool = False) -> s
             text_pieces.append("\n" if preserve_line_breaks else " ")
         elif tag == TAG_HYPHEN:
             text_pieces.append("-")
+        elif tag_local == "sym":
+            char_code = node.get(f"{W_NS}char") or node.get("char") or ""
+            code_upper = char_code.upper()
+            if code_upper in ("F0AE", "00AE", "2192"):
+                text_pieces.append(" → ")
+            elif code_upper in ("F0AC", "00AC", "2190"):
+                text_pieces.append(" ← ")
+            elif code_upper in ("F0AB", "00AB", "2194"):
+                text_pieces.append(" ↔ ")
+            elif code_upper in ("F0DE", "00DE", "21D2"):
+                text_pieces.append(" ⇒ ")
+            elif code_upper in ("F0DC", "00DC", "21D0"):
+                text_pieces.append(" ⇐ ")
+            elif code_upper in ("F0DB", "00DB", "21D4"):
+                text_pieces.append(" ⇔ ")
+            else:
+                text_pieces.append(" ")
 
     raw = "".join(text_pieces)
     raw = raw.replace("\u00a0", " ").replace("\xa0", " ")
