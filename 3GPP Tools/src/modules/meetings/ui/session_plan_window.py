@@ -177,8 +177,8 @@ class SessionPlanWindow(QWidget):
         self._setup_ui()
         self.drop_overlay = DropOverlayWidget(
             self,
-            title="Drop Session Plan file(s) to import",
-            supported_exts=[".docx", ".doc", ".zip", ".htm", ".csv"],
+            title="Drop Session Plan file or email attachment to import",
+            supported_exts=[".docx", ".doc", ".zip", ".htm", ".txt", ".csv"],
         )
 
         self._load_data()
@@ -213,21 +213,135 @@ class SessionPlanWindow(QWidget):
 
     # --- Drag & Drop Direct Ingestion ---
 
+    def _is_valid_drop_data(self, mime_data) -> bool:
+        """Determines if the drag payload contains a session plan file, Outlook attachment, or table text."""
+        if not mime_data:
+            return False
+
+        # 1. Local URLs (Files dragged from Explorer, Desktop, or temp folder)
+        if mime_data.hasUrls():
+            for url in mime_data.urls():
+                p = Path(url.toLocalFile())
+                ext = p.suffix.lower()
+                if ext in [".docx", ".doc", ".docm", ".zip", ".htm", ".html", ".csv", ".txt"]:
+                    return True
+
+        # 2. Virtual Outlook attachments (FileGroupDescriptorW / FileContents)
+        formats = mime_data.formats()
+        for f in formats:
+            if "FileGroupDescriptor" in f:
+                return True
+
+        # 3. Text or HTML table dragged from email body
+        if mime_data.hasText():
+            txt = mime_data.text()
+            if any(k in txt.lower() for k in ("stream 1", "stream 2", "main room", "breakout 1", "breakout 2", "q1", "q2", "monday")):
+                return True
+
+        return False
+
+    def _extract_outlook_attachments(self, mime_data) -> List[Path]:
+        """Extracts virtual file attachments dragged directly from Microsoft Outlook."""
+        import struct
+        formats = mime_data.formats()
+        fgd_format = None
+        is_unicode = True
+        for f in formats:
+            if "FileGroupDescriptorW" in f:
+                fgd_format = f
+                is_unicode = True
+                break
+            elif "FileGroupDescriptor" in f:
+                fgd_format = f
+                is_unicode = False
+                break
+
+        if not fgd_format:
+            return []
+
+        fc_format = None
+        for f in formats:
+            if "FileContents" in f:
+                fc_format = f
+                break
+
+        if not fc_format:
+            return []
+
+        descriptor_bytes = bytes(mime_data.data(fgd_format))
+        if len(descriptor_bytes) < 4:
+            return []
+
+        num_files = struct.unpack("<I", descriptor_bytes[:4])[0]
+        extracted = []
+        contents_bytes = bytes(mime_data.data(fc_format))
+        rec_size = 592 if is_unicode else 332
+        name_offset = 72
+
+        temp_dir = self.meeting_dir / "Agenda" / "SessionPlans" / "Dropped"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        for i in range(min(num_files, 5)):
+            rec_start = 4 + i * rec_size
+            if rec_start + rec_size > len(descriptor_bytes):
+                break
+
+            raw_name = descriptor_bytes[rec_start + name_offset : rec_start + rec_size]
+            if is_unicode:
+                filename = raw_name.decode("utf-16le", errors="ignore").split("\0")[0].strip()
+            else:
+                filename = raw_name.decode("mbcs", errors="ignore").split("\0")[0].strip()
+
+            ext = Path(filename).suffix.lower()
+            if ext in [".docx", ".doc", ".docm", ".zip", ".htm", ".html", ".csv", ".txt"]:
+                target_path = temp_dir / filename
+                target_path.write_bytes(contents_bytes)
+                extracted.append(target_path)
+                break  # Typically 1 attachment dropped at a time
+
+        return extracted
+
+    def _extract_drop_payloads(self, mime_data) -> List[Tuple[str, str]]:
+        """
+        Extracts imported items as a list of (mode, payload) tuples:
+        - ('file', file_path_str) for local files or extracted Outlook attachments
+        - ('paste', text_payload) for dragged table text
+        """
+        results = []
+
+        # 1. Local files
+        if mime_data.hasUrls():
+            for url in mime_data.urls():
+                p = Path(url.toLocalFile())
+                if p.suffix.lower() in [".docx", ".doc", ".docm", ".zip", ".htm", ".html", ".csv", ".txt"] and p.is_file():
+                    results.append(("file", str(p)))
+
+        # 2. Outlook virtual attachments
+        if not results:
+            outlook_files = self._extract_outlook_attachments(mime_data)
+            for of in outlook_files:
+                results.append(("file", str(of)))
+
+        # 3. Dragged email text or HTML table
+        if not results and mime_data.hasText():
+            txt = mime_data.text().strip()
+            if any(k in txt.lower() for k in ("stream 1", "stream 2", "main room", "breakout 1", "breakout 2", "q1", "q2", "monday")):
+                results.append(("paste", txt))
+
+        return results
+
     def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            for url in event.mimeData().urls():
-                ext = Path(url.toLocalFile()).suffix.lower()
-                if ext in [".docx", ".doc", ".zip", ".htm", ".html", ".csv", ".txt"]:
-                    if hasattr(self, "drop_overlay"):
-                        self.drop_overlay.setGeometry(self.rect())
-                        self.drop_overlay.show()
-                        self.drop_overlay.raise_()
-                    event.acceptProposedAction()
-                    return
+        if self._is_valid_drop_data(event.mimeData()):
+            if hasattr(self, "drop_overlay") and self.drop_overlay:
+                self.drop_overlay.setGeometry(self.rect())
+                self.drop_overlay.show()
+                self.drop_overlay.raise_()
+            event.acceptProposedAction()
+            return
         event.ignore()
 
     def dragMoveEvent(self, event):
-        if event.mimeData().hasUrls():
+        if self._is_valid_drop_data(event.mimeData()):
             event.acceptProposedAction()
         else:
             event.ignore()
@@ -241,16 +355,11 @@ class SessionPlanWindow(QWidget):
         if hasattr(self, "drop_overlay"):
             self.drop_overlay.hide()
 
-        valid_files = []
-        for url in event.mimeData().urls():
-            p = Path(url.toLocalFile())
-            if p.suffix.lower() in [".docx", ".doc", ".zip", ".htm", ".html", ".csv", ".txt"]:
-                valid_files.append(p)
-
-        if valid_files:
+        payloads = self._extract_drop_payloads(event.mimeData())
+        if payloads:
             event.acceptProposedAction()
-            for vf in valid_files:
-                self._handle_manual_import("file", str(vf))
+            for mode, payload in payloads:
+                self._handle_manual_import(mode, payload)
         else:
             event.ignore()
 
@@ -2578,8 +2687,20 @@ class SessionPlanWindow(QWidget):
                     QMessageBox.information(self, "Agenda Updated", f"Successfully loaded {len(self.agenda_map)} Agenda Items from agenda.csv!")
                     return
 
+                # If dropped or selected file is a zip archive, unpack it first
+                if ext == ".zip":
+                    import zipfile
+                    extract_dir = self.meeting_dir / "Agenda" / "SessionPlans" / "Extracted" / p.stem
+                    extract_dir.mkdir(parents=True, exist_ok=True)
+                    with zipfile.ZipFile(p, "r") as zf:
+                        zf.extractall(extract_dir)
+                    doc_candidates = list(extract_dir.glob("*.docx")) or list(extract_dir.glob("*.doc*")) or list(extract_dir.glob("*.htm*"))
+                    if doc_candidates:
+                        p = doc_candidates[0]
+                        ext = p.suffix.lower()
+
                 staged = SessionPlanParser.stage_session_plan_file(p, self.meeting_dir)
-                if ext == ".docx":
+                if ext in (".docx", ".docm"):
                     snap = SessionPlanParser.parse_docx(staged, meeting_number=self.meeting_number)
                 else:
                     snap = SessionPlanParser.parse_text_or_markdown(

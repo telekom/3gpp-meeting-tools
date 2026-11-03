@@ -337,4 +337,11 @@ src/modules/meetings/
     2. Search scheduled slots for an exact `AgendaSlotItem` where `it.ai_number == ai_num` to retrieve its cleanly extracted `topic_label`.
     3. Fall back to the slot's cleaned non-administrative lines, omitting room override headers.
   - This guarantees that delegates viewing the Team Allocations matrix or Agenda Mode see the accurate topic description for each sub-topic, rather than the raw text of the entire multi-topic cell or a room string.
+- **Multi-Source Drag & Drop Ingestion (Emails, Explorer, Archives & Text):**
+  - Enables delegates to drag and drop session plan files directly onto `SessionPlanWindow` from any source, triggering identical processing to the local file browse import:
+    1. *Direct Microsoft Outlook Drag & Drop:* Win32 Outlook does not provide local file paths on drag; it publishes virtual OLE streams (`FileGroupDescriptorW` / `FileContents`). `_extract_outlook_attachments` parses the binary descriptor header, decodes the Unicode filename (e.g. `S2-261nnnn_SA2-178-Session Plan.docx`), stages the raw bytes into `<meeting_dir>/Agenda/SessionPlans/Dropped/`, and triggers `_handle_manual_import("file", ...)`.
+    2. *Local Files & Explorer:* Dragging `.docx`, `.doc`, `.docm`, `.zip`, `.htm`, `.html`, `.csv`, `.txt` files directly validates local file paths via `_is_valid_drop_data` and stages them with collision-free naming.
+    3. *Automatic `.zip` Archive Decompression:* If a delegate drops a zipped 3GPP document archive (`.zip`), `_handle_manual_import` automatically unpacks the archive into `<meeting_dir>/Agenda/SessionPlans/Extracted/<stem>/` and targets the inner `.docx` or `.doc` file.
+    4. *Email Body / Webmail Table Text:* Dragging selected Markdown or HTML table text from an email reflector message or TOHRU chat is detected by checking session plan keywords (`Stream 1`, `Main Room`, `Breakout 1`, `Q1`, `Monday`) and routed to `_handle_manual_import("paste", text)`.
+    5. *Non-Blocking Visual Overlay (`DropOverlayWidget`):* Forwarding handlers (`dragEnterEvent`, `dragMoveEvent`, `dragLeaveEvent`, `dropEvent`) in `DropOverlayWidget` propagate events back to `SessionPlanWindow`, ensuring child widgets and transparent overlays never swallow or reject drops.
 

@@ -43,6 +43,7 @@ class DropOverlayWidget(QWidget):
     ):
         super().__init__(parent)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAcceptDrops(True)
         self.hide()
 
         layout = QVBoxLayout(self)
@@ -107,4 +108,32 @@ class DropOverlayWidget(QWidget):
         """Paint soft semi-transparent scrim across parent window."""
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor(15, 23, 42, 85))  # Slate-900 at ~33% opacity
+
+    def dragEnterEvent(self, event):
+        parent = self.parent()
+        if parent and hasattr(parent, "dragEnterEvent"):
+            parent.dragEnterEvent(event)
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        parent = self.parent()
+        if parent and hasattr(parent, "dragMoveEvent"):
+            parent.dragMoveEvent(event)
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        parent = self.parent()
+        if parent and hasattr(parent, "dragLeaveEvent"):
+            parent.dragLeaveEvent(event)
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        parent = self.parent()
+        if parent and hasattr(parent, "dropEvent"):
+            parent.dropEvent(event)
+        else:
+            event.ignore()
 

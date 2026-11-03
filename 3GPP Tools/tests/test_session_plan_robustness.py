@@ -4,10 +4,24 @@
 import unittest
 import tempfile
 import os
+import struct
+from pathlib import Path
+from unittest.mock import MagicMock
+
+from PyQt5.QtWidgets import QApplication, QWidget
+from PyQt5.QtCore import QMimeData, QUrl, QByteArray, QPoint, Qt
+from PyQt5.QtGui import QDragEnterEvent, QDropEvent
+
+# Ensure QApplication exists for Qt tests
+app = QApplication.instance()
+if not app:
+    app = QApplication([])
 
 from modules.meetings.core.session_plan_parser import SessionPlanParser
 from modules.meetings.core.session_plan_models import SessionPlanSnapshot, SessionSlot
 from modules.meetings.core.session_plan_db import SessionPlanDatabase
+from modules.meetings.ui.session_plan_window import SessionPlanWindow
+from modules.meetings.ui.tdocs_drop_overlay import DropOverlayWidget
 
 
 class TestSessionPlanRobustness(unittest.TestCase):
@@ -120,6 +134,95 @@ class TestSessionPlanRobustness(unittest.TestCase):
         finally:
             if os.path.exists(temp_db):
                 os.remove(temp_db)
+
+    def test_drag_drop_validation_local_files_and_text(self):
+        """Tests that local files, Outlook attachment formats, and table texts are validated."""
+        with tempfile.TemporaryDirectory() as td:
+            win = SessionPlanWindow(
+                meeting_dir=Path(td),
+                mtg_info={"meeting_number": "178", "location": "Calgary"},
+            )
+            try:
+                # 1. Valid local file
+                mime_file = QMimeData()
+                mime_file.setUrls([QUrl.fromLocalFile(os.path.join(td, "plan.docx"))])
+                self.assertTrue(win._is_valid_drop_data(mime_file))
+
+                # 2. Invalid local file (.exe)
+                mime_bad = QMimeData()
+                mime_bad.setUrls([QUrl.fromLocalFile(os.path.join(td, "malware.exe"))])
+                self.assertFalse(win._is_valid_drop_data(mime_bad))
+
+                # 3. Virtual Outlook attachment (FileGroupDescriptorW)
+                mime_outlook = QMimeData()
+                mime_outlook.setData("application/x-qt-windows-mime;value=\"FileGroupDescriptorW\"", QByteArray(b"\x01\x00\x00\x00"))
+                self.assertTrue(win._is_valid_drop_data(mime_outlook))
+
+                # 4. Dragged email text table
+                mime_text = QMimeData()
+                mime_text.setText("| Stream 1 | Main Room | Monday Q1 | Opening |")
+                self.assertTrue(win._is_valid_drop_data(mime_text))
+
+                # 5. Irrelevant text
+                mime_random = QMimeData()
+                mime_random.setText("Hello world, this is a plain message.")
+                self.assertFalse(win._is_valid_drop_data(mime_random))
+            finally:
+                win.close()
+
+    def test_extract_outlook_virtual_attachment(self):
+        """Tests parsing FileGroupDescriptorW and FileContents to extract a dropped attachment."""
+        with tempfile.TemporaryDirectory() as td:
+            win = SessionPlanWindow(
+                meeting_dir=Path(td),
+                mtg_info={"meeting_number": "178", "location": "Calgary"},
+            )
+            try:
+                mime = QMimeData()
+                # Synthesize FILEGROUPDESCRIPTORW with 1 file: "S2-2610195_Plan.docx"
+                # Header: 4 bytes (num_files = 1)
+                header = struct.pack("<I", 1)
+                # FILEDESCRIPTORW record: 72 bytes pre-name, 520 bytes name
+                filename = "S2-2610195_Plan.docx\0"
+                encoded_name = filename.encode("utf-16le")
+                encoded_name += b"\x00" * (520 - len(encoded_name))
+                record = b"\x00" * 72 + encoded_name
+                descriptor_bytes = header + record
+
+                content = b"PK\x03\x04MockDocxZipContent"
+                mime.setData("application/x-qt-windows-mime;value=\"FileGroupDescriptorW\"", QByteArray(descriptor_bytes))
+                mime.setData("application/x-qt-windows-mime;value=\"FileContents\"", QByteArray(content))
+
+                extracted = win._extract_outlook_attachments(mime)
+                self.assertEqual(len(extracted), 1)
+                self.assertEqual(extracted[0].name, "S2-2610195_Plan.docx")
+                self.assertEqual(extracted[0].read_bytes(), content)
+
+                payloads = win._extract_drop_payloads(mime)
+                self.assertEqual(len(payloads), 1)
+                self.assertEqual(payloads[0][0], "file")
+                self.assertTrue(payloads[0][1].endswith("S2-2610195_Plan.docx"))
+            finally:
+                win.close()
+
+    def test_drop_overlay_event_forwarding(self):
+        """Tests that DropOverlayWidget forwards drag and drop events directly to its parent."""
+        parent_widget = QWidget()
+        parent_widget.dragEnterEvent = MagicMock()
+        parent_widget.dragMoveEvent = MagicMock()
+        parent_widget.dropEvent = MagicMock()
+
+        overlay = DropOverlayWidget(parent_widget)
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile("test.docx")])
+
+        enter_ev = QDragEnterEvent(QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+        overlay.dragEnterEvent(enter_ev)
+        parent_widget.dragEnterEvent.assert_called_once_with(enter_ev)
+
+        drop_ev = QDropEvent(QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+        overlay.dropEvent(drop_ev)
+        parent_widget.dropEvent.assert_called_once_with(drop_ev)
 
 
 if __name__ == "__main__":
