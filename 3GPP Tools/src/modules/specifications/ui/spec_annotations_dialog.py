@@ -5,7 +5,7 @@ Provides EditSpecAnnotationsDialog for individual specification annotations
 and BatchTagDialog for batch-tagging multiple specifications.
 """
 import logging
-from typing import List, Optional, Set
+from typing import List, Set
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -18,11 +18,12 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
-    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
+from core.ui.flow_layout import FlowLayout
 from core.ui.ui_components import (
     BADGE_STYLE_INFO,
     BUTTON_STYLE_TOOLBAR_SECONDARY,
@@ -51,49 +52,59 @@ QPushButton:pressed {
 """
 
 TAG_CHIP_STYLE = """
-QWidget#tagChip {
+QFrame#tagChip {
     background-color: #EBF3FC;
-    border: 1px solid #BDD7EE;
+    border: 1px solid #93C5FD;
     border-radius: 12px;
 }
+QFrame#tagChip:hover {
+    background-color: #DBEAFE;
+    border-color: #60A5FA;
+}
 QLabel#tagText {
-    color: #1E5C99;
+    color: #1E40AF;
     font-size: 11px;
     font-weight: 600;
+    background: transparent;
+    border: none;
 }
 QPushButton#tagRemoveBtn {
     background: transparent;
     border: none;
-    color: #8FAADC;
+    color: #64748B;
     font-size: 11px;
     font-weight: bold;
     padding: 0 4px;
     margin: 0;
 }
 QPushButton#tagRemoveBtn:hover {
-    color: #C00000;
+    color: #DC2626;
 }
 """
 
 SUGGESTION_CHIP_STYLE = """
 QPushButton {
-    background-color: #F1F5F9;
-    color: #475569;
+    background-color: #F8FAFC;
+    color: #334155;
     border: 1px solid #CBD5E1;
-    border-radius: 10px;
-    padding: 2px 8px;
+    border-radius: 11px;
+    padding: 3px 10px;
     font-size: 11px;
+    font-weight: 500;
 }
 QPushButton:hover {
-    background-color: #E2E8F0;
-    color: #1E293B;
-    border-color: #94A3B8;
+    background-color: #EBF3FC;
+    color: #1E5C99;
+    border-color: #93C5FD;
+}
+QPushButton:pressed {
+    background-color: #DBEAFE;
 }
 """
 
 
-class TagChip(QWidget):
-    """Visual pill displaying a tag with a clickable removal button."""
+class TagChip(QFrame):
+    """Visual pill displaying an assigned tag with a clickable removal button."""
     remove_requested = pyqtSignal(str)
 
     def __init__(self, tag_text: str, parent=None):
@@ -101,9 +112,10 @@ class TagChip(QWidget):
         self.tag_text = tag_text
         self.setObjectName("tagChip")
         self.setStyleSheet(TAG_CHIP_STYLE)
+        self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 2, 6, 2)
+        layout.setContentsMargins(9, 3, 6, 3)
         layout.setSpacing(4)
 
         label = QLabel(f"🏷️ {tag_text}")
@@ -132,9 +144,9 @@ class EditSpecAnnotationsDialog(QDialog):
         self.current_tags: Set[str] = set()
 
         self.setWindowTitle(f"Edit Tags & Notes: TS {self.spec_number}")
-        self.resize(540, 500)
-        self.setMinimumWidth(480)
-        self.setMinimumHeight(420)
+        self.resize(600, 540)
+        self.setMinimumWidth(540)
+        self.setMinimumHeight(440)
         self.setStyleSheet(f"""
             QDialog {{ background-color: #F8F9FA; }}
             {CARD_FRAME_STYLE}
@@ -177,18 +189,26 @@ class EditSpecAnnotationsDialog(QDialog):
         tags_layout.setContentsMargins(12, 12, 12, 12)
         tags_layout.setSpacing(8)
 
+        tags_header_row = QHBoxLayout()
         tags_header = QLabel("<b>Tags</b> (e.g., <i>data framework, analytics, charging</i>)")
         tags_header.setStyleSheet("color: #2D3748; font-size: 12px;")
-        tags_layout.addWidget(tags_header)
+        tags_header_row.addWidget(tags_header)
+        tags_header_row.addStretch()
+
+        self.tag_count_lbl = QLabel("")
+        self.tag_count_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: 600;")
+        tags_header_row.addWidget(self.tag_count_lbl)
+        tags_layout.addLayout(tags_header_row)
 
         # Tag Input Row
         input_row = QHBoxLayout()
         input_row.setSpacing(6)
 
         self.tag_input = QLineEdit()
-        self.tag_input.setPlaceholderText("Type a tag and press Enter or click Add...")
+        self.tag_input.setPlaceholderText("Type one or more comma-separated tags and press Enter...")
         self.tag_input.setStyleSheet(SEARCH_INPUT_STYLE)
         self.tag_input.returnPressed.connect(self._add_current_tag)
+        self.tag_input.textChanged.connect(lambda _: self._render_suggestions())
 
         # Autocomplete using unique tags in DB
         existing_tags = self.db.get_all_unique_tags() if self.db else []
@@ -205,28 +225,27 @@ class EditSpecAnnotationsDialog(QDialog):
         input_row.addWidget(add_tag_btn)
         tags_layout.addLayout(input_row)
 
-        # Active Tag Pills Container
-        self.pills_container = QWidget()
-        self.pills_layout = QHBoxLayout(self.pills_container)
-        self.pills_layout.setContentsMargins(0, 4, 0, 4)
-        self.pills_layout.setSpacing(6)
-        self.pills_layout.setAlignment(Qt.AlignLeft)
+        # Active Tag Pills Container (auto-wrapping FlowLayout)
+        self.pills_container = QFrame()
+        self.pills_container.setObjectName("assignedTagsBox")
+        self.pills_layout = FlowLayout(self.pills_container, margin=8, h_spacing=6, v_spacing=6)
+        tags_layout.addWidget(self.pills_container)
 
-        pills_scroll = QScrollArea()
-        pills_scroll.setWidgetResizable(True)
-        pills_scroll.setWidget(self.pills_container)
-        pills_scroll.setFixedHeight(46)
-        pills_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        tags_layout.addWidget(pills_scroll)
-
-        # Suggested Existing Tags Row
-        self.suggestions_layout = QHBoxLayout()
-        self.suggestions_layout.setContentsMargins(0, 0, 0, 0)
-        self.suggestions_layout.setSpacing(4)
-        self.suggestions_layout.setAlignment(Qt.AlignLeft)
-
+        # Suggested Existing Tags Section (Header + auto-wrapping FlowLayout)
         self.suggestions_widget = QWidget()
-        self.suggestions_widget.setLayout(self.suggestions_layout)
+        sugg_vbox = QVBoxLayout(self.suggestions_widget)
+        sugg_vbox.setContentsMargins(0, 2, 0, 0)
+        sugg_vbox.setSpacing(5)
+
+        self.suggestions_header_lbl = QLabel("💡 <b>Suggested Tags</b> <span style='color: #94A3B8;'>(click to add)</span>:")
+        self.suggestions_header_lbl.setStyleSheet("color: #475569; font-size: 11px;")
+        sugg_vbox.addWidget(self.suggestions_header_lbl)
+
+        self.suggestions_chips_container = QWidget()
+        self.suggestions_layout = FlowLayout(
+            self.suggestions_chips_container, margin=0, h_spacing=6, v_spacing=6
+        )
+        sugg_vbox.addWidget(self.suggestions_chips_container)
         tags_layout.addWidget(self.suggestions_widget)
 
         main_layout.addWidget(tags_card)
@@ -318,10 +337,13 @@ class EditSpecAnnotationsDialog(QDialog):
                 self.current_tags.add(clean)
                 added = True
 
+        self.tag_input.blockSignals(True)
         self.tag_input.clear()
+        self.tag_input.blockSignals(False)
+
         if added:
             self._render_tag_pills()
-            self._render_suggestions()
+        self._render_suggestions()
 
     def _remove_tag(self, tag: str):
         if tag in self.current_tags:
@@ -330,54 +352,67 @@ class EditSpecAnnotationsDialog(QDialog):
             self._render_suggestions()
 
     def _render_tag_pills(self):
-        # Clear existing pill widgets
-        while self.pills_layout.count():
-            item = self.pills_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
+        self.pills_layout.clear()
+
+        count = len(self.current_tags)
+        self.tag_count_lbl.setText(f"{count} tag{'s' if count != 1 else ''} assigned" if count else "")
 
         if not self.current_tags:
-            no_tags = QLabel("<i>No tags assigned yet.</i>")
-            no_tags.setStyleSheet("color: #A0AEC0; font-size: 11px;")
+            self.pills_container.setStyleSheet("""
+                QFrame#assignedTagsBox {
+                    background-color: #F8FAFC;
+                    border: 1px dashed #CBD5E1;
+                    border-radius: 6px;
+                }
+            """)
+            no_tags = QLabel("<i>🏷️ No tags assigned yet — type above or click a suggestion below.</i>")
+            no_tags.setStyleSheet("color: #94A3B8; font-size: 11px; border: none; background: transparent;")
             self.pills_layout.addWidget(no_tags)
         else:
+            self.pills_container.setStyleSheet("""
+                QFrame#assignedTagsBox {
+                    background-color: #F8FAFC;
+                    border: 1px solid #E2E8F0;
+                    border-radius: 6px;
+                }
+            """)
             for t in sorted(list(self.current_tags), key=lambda x: x.lower()):
                 chip = TagChip(t, self.pills_container)
                 chip.remove_requested.connect(self._remove_tag)
                 self.pills_layout.addWidget(chip)
 
-        self.pills_layout.addStretch()
+        self.pills_container.updateGeometry()
 
     def _render_suggestions(self):
-        # Clear existing suggestions
-        while self.suggestions_layout.count():
-            item = self.suggestions_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
+        self.suggestions_layout.clear()
 
         if not self.db:
+            self.suggestions_widget.setVisible(False)
             return
 
         all_unique = self.db.get_all_unique_tags()
-        available = [t for t in all_unique if t not in self.current_tags][:8]
+        available = [t for t in all_unique if t not in self.current_tags]
 
-        if available:
-            lbl = QLabel("Suggested:")
-            lbl.setStyleSheet("color: #718096; font-size: 11px;")
-            self.suggestions_layout.addWidget(lbl)
+        filter_text = self.tag_input.text().strip().lower() if hasattr(self, "tag_input") else ""
+        if filter_text:
+            matching = [t for t in available if filter_text in t.lower()]
+            others = [t for t in available if filter_text not in t.lower()]
+            available = matching + others
 
-            for t in available:
+        shown = available[:16]
+
+        if shown:
+            for t in shown:
                 s_btn = QPushButton(f"+ {t}")
                 s_btn.setStyleSheet(SUGGESTION_CHIP_STYLE)
+                s_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
                 s_btn.setCursor(Qt.PointingHandCursor)
-                s_btn.setToolTip(f"Add '{t}'")
+                s_btn.setToolTip(f"Click to assign tag '{t}'")
                 s_btn.clicked.connect(lambda _, tag=t: self._add_suggested_tag(tag))
                 self.suggestions_layout.addWidget(s_btn)
 
-            self.suggestions_layout.addStretch()
             self.suggestions_widget.setVisible(True)
+            self.suggestions_chips_container.updateGeometry()
         else:
             self.suggestions_widget.setVisible(False)
 
@@ -412,7 +447,8 @@ class BatchTagDialog(QDialog):
         self.db = db
 
         self.setWindowTitle(f"Tag Selected Specifications ({len(spec_numbers)})")
-        self.resize(460, 260)
+        self.resize(500, 290)
+        self.setMinimumWidth(460)
         self.setStyleSheet(f"""
             QDialog {{ background-color: #F8F9FA; }}
             {CARD_FRAME_STYLE}
@@ -437,7 +473,10 @@ class BatchTagDialog(QDialog):
         if count > 5:
             specs_preview += f" ... (+{count - 5} more)"
 
-        info_lbl = QLabel(f"Apply a tag to <b>{count} specifications</b>:<br><span style='color: #4A5568;'>{specs_preview}</span>")
+        info_lbl = QLabel(
+            f"Apply a tag to <b>{count} specifications</b>:<br>"
+            f"<span style='color: #4A5568;'>{specs_preview}</span>"
+        )
         info_lbl.setWordWrap(True)
         info_lbl.setStyleSheet("font-size: 12px;")
         card_layout.addWidget(info_lbl)
@@ -458,17 +497,21 @@ class BatchTagDialog(QDialog):
         card_layout.addWidget(self.tag_input)
 
         if existing_tags:
-            sugg_layout = QHBoxLayout()
-            sugg_layout.setSpacing(4)
-            sugg_layout.addWidget(QLabel("<span style='color: #718096; font-size: 11px;'>Recent:</span>"))
-            for t in existing_tags[:5]:
-                b = QPushButton(t)
+            sugg_lbl = QLabel("💡 <b>Existing Tags</b> <span style='color: #94A3B8;'>(click to select)</span>:")
+            sugg_lbl.setStyleSheet("color: #475569; font-size: 11px; margin-top: 2px;")
+            card_layout.addWidget(sugg_lbl)
+
+            sugg_container = QWidget()
+            sugg_flow = FlowLayout(sugg_container, margin=0, h_spacing=6, v_spacing=6)
+            for t in existing_tags[:10]:
+                b = QPushButton(f"+ {t}")
                 b.setStyleSheet(SUGGESTION_CHIP_STYLE)
+                b.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
                 b.setCursor(Qt.PointingHandCursor)
+                b.setToolTip(f"Select '{t}'")
                 b.clicked.connect(lambda _, tag=t: self.tag_input.setText(tag))
-                sugg_layout.addWidget(b)
-            sugg_layout.addStretch()
-            card_layout.addLayout(sugg_layout)
+                sugg_flow.addWidget(b)
+            card_layout.addWidget(sugg_container)
 
         layout.addWidget(card)
 

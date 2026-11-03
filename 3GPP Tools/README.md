@@ -321,7 +321,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **3GPP Work Items (WIs) & Specification Linkage:**
   * **Relational Mapping (`spec_wi_map`):** Bi-directionally maps 3GPP Specifications to Work Items during Pass 2 DynaReport scraping without requiring rigid locks on un-synced WIs.
   * **Specification Inspector Chips:** Details dialogs display interactive primary (⭐) and secondary Work Item chips with direct 3GPP portal navigation.
-  * **Work Items Table & Local Specs Inspector:** The Work Items tab features dedicated **WG** and **Linked Specs** columns, local specification inspectors (`LinkedSpecsDialog`), and one-click citation copy actions.
+  * **Work Items Table, Local Specs Inspector & Quick Copy:** The Work Items tab features dedicated **WG** and **Linked Specs** columns, local specification inspectors (`LinkedSpecsDialog`), a `Ctrl+C` shortcut, and a rich **📋 Quick Copy** submenu (for single and multi-row selections) providing dual plain-text + HTML clipboard links for Microsoft Word/Outlook (WI Acronym with link, WI Portal URL, Latest WID with 3GU link, full citations, and Markdown lists).
 
 * **Intelligent TDocs Manager:**
   * **Smart Global TDoc Search:** Instantly locate and download any document across the entire database. Just type a TDoc number (e.g., `S2-2605740r11`) and the UI will dynamically reveal minimalist quick-actions to download the specific file or open its parent meeting context—all without leaving the main dashboard.

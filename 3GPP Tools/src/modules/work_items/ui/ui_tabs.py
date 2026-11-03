@@ -5,11 +5,12 @@ from pathlib import Path
 import logging
 
 from PyQt5.QtCore import Qt, QModelIndex, QTimer, QEvent, QRect, pyqtSignal
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableView, QHeaderView,
     QPushButton, QProgressBar, QMessageBox, QLineEdit, QMenu,
     QApplication, QComboBox, QDialog, QFrame,
-    QScrollArea, QFormLayout
+    QScrollArea, QFormLayout, QShortcut
 )
 
 from core.ui.ui_components import (
@@ -28,7 +29,14 @@ from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.work_items.core.wi_database import WorkItemsDatabase
 from modules.work_items.core.wi_scraper import WorkItemsScraperThread, TargetedWIScraperThread
 from modules.work_items.core.wi_settings import WorkItemsSettings
-from modules.work_items.ui.work_items_dialogs import WorkItemInfoDialog, LinkedSpecsDialog, AddWorkItemDialog
+from modules.work_items.ui.work_items_dialogs import (
+    WorkItemInfoDialog,
+    LinkedSpecsDialog,
+    AddWorkItemDialog,
+    populate_wi_copy_menu,
+    populate_wi_batch_copy_menu,
+    copy_wis_default,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -407,6 +415,8 @@ class WorkItemsTab(QWidget):
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
         self.table.doubleClicked.connect(self._on_row_double_clicked)
+        self.copy_shortcut = QShortcut(QKeySequence.Copy, self.table)
+        self.copy_shortcut.activated.connect(self._copy_table_selection)
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
@@ -888,6 +898,14 @@ class WorkItemsTab(QWidget):
         else:
             QMessageBox.warning(self, "Sync Failed", msg)
 
+    def _copy_table_selection(self):
+        """Copies default rich-HTML and plain-text representation for selected Work Items on Ctrl+C."""
+        selected_indexes = self.table.selectionModel().selectedRows()
+        if not selected_indexes:
+            return
+        rows_data = [self.table_model.get_row_data(idx.row()) for idx in selected_indexes]
+        copy_wis_default(rows_data, self)
+
     def _show_context_menu(self, position):
         selected_indexes = self.table.selectionModel().selectedRows()
         if not selected_indexes:
@@ -935,7 +953,9 @@ class WorkItemsTab(QWidget):
             specs_action = menu.addAction("📂 Specifications Resulting from this WI (Web)")
             crs_action = menu.addAction("📄 CRs Related to this WI (Web)")
             menu.addSeparator()
-            citation_action = menu.addAction("📋 Copy WI Citation")
+            copy_sub = menu.addMenu("📋 Quick Copy")
+            populate_wi_copy_menu(copy_sub, row_data, self)
+            citation_action = None
             menu.addSeparator()
             add_wi_action = menu.addAction("➕ Add Work Item...")
             update_action = menu.addAction("🔄 Update WI")
@@ -959,6 +979,11 @@ class WorkItemsTab(QWidget):
             batch_unstar_action = menu.addAction(f"☆ Unstar selected ({len_indexes} WIs)")
             batch_follow_action = menu.addAction(f"🎯 Follow selected ({len_indexes} WIs)")
             batch_unfollow_action = menu.addAction(f"🚫 Unfollow selected ({len_indexes} WIs)")
+            menu.addSeparator()
+
+            selected_rows_data = [self.table_model.get_row_data(e.row()) for e in selected_indexes]
+            copy_sub = menu.addMenu(f"📋 Quick Copy ({len_indexes} WIs)")
+            populate_wi_batch_copy_menu(copy_sub, selected_rows_data, self)
             menu.addSeparator()
 
             add_wi_action = menu.addAction("➕ Add Work Item...")
