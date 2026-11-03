@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import QApplication
 app = QApplication.instance() or QApplication(sys.argv)
 
 from modules.meetings.core.exporters.dossier_exporter import DossierExporterThread
-from modules.meetings.ui.dossier_export_dialog import DossierExportDialog
+from modules.meetings.ui.dialogs.dossier_export_dialog import DossierExportDialog
 
 
 def test_dossier_export_dialog_config():

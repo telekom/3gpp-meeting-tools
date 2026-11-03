@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import QFileDialog, QMessageBox
 
 from modules.meetings.core.exporters.excel_exporter import ExcelExporterThread
 from modules.meetings.core.stats.contribution_stats import ContributionStatsExporterThread
-from modules.meetings.ui.contribution_models import ContributionResultsTableModel
+from modules.meetings.ui.contributions.contribution_models import ContributionResultsTableModel
 from modules.meetings.ui.tdocs_dialogs import StatisticsSettingsDialog
 
 logger = logging.getLogger(__name__)

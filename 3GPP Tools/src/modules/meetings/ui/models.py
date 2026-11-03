@@ -1,6 +1,6 @@
 # --- File: modules/meetings/ui/models.py ---
 from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QDate
-from modules.meetings.ui.dialogs import _format_meeting_info
+from modules.meetings.ui.meeting_details_dialogs import _format_meeting_info
 from core.ui.ui_components import WG_DESCRIPTIONS
 
 

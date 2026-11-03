@@ -7,7 +7,7 @@ from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.paths import to_extended_path
-from modules.meetings.core.tdoc_url_resolver import resolve_tdoc_download_url
+from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
 
 logger = logging.getLogger(__name__)
 

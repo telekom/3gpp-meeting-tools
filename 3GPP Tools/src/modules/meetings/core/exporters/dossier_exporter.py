@@ -33,9 +33,9 @@ from PyQt5.QtGui import QTextDocument
 from PyQt5.QtPrintSupport import QPrinter
 
 from core.utils.paths import to_extended_path
-from modules.meetings.core.tdoc_file_handler import TDocFileHandler
-from modules.meetings.core.tdoc_url_resolver import resolve_tdoc_download_url
-from modules.meetings.core.tdoc_markdown_converter import (
+from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
+from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
+from modules.meetings.core.tdocs.tdoc_markdown_converter import (
     convert_document_to_markdown,
     sanitize_filename,
     is_conversion_stale,

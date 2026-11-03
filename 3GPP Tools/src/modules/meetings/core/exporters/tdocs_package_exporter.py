@@ -9,7 +9,7 @@ import requests
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.paths import to_extended_path
-from modules.meetings.core.tdoc_file_handler import TDocFileHandler
+from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.url_router import URLRouter
 
 logger = logging.getLogger(__name__)

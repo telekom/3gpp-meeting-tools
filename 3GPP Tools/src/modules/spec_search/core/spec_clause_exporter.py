@@ -25,7 +25,7 @@ from modules.word_tools.core.word_excerpt_extractor import (
     WordHeadingScanner,
     WordExcerptEngine,
 )
-from modules.meetings.core.tdoc_markdown_converter import convert_document_to_markdown
+from modules.meetings.core.tdocs.tdoc_markdown_converter import convert_document_to_markdown
 
 logger = logging.getLogger(__name__)
 

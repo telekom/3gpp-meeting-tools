@@ -22,7 +22,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from core.network.session import NetworkSession
 from core.utils.paths import get_cache_root, get_project_root
 from modules.meetings.core.meetings_db import MeetingsDatabase
-from modules.meetings.core.tdocs_parser import TDocsParser
+from modules.meetings.core.tdocs.tdocs_parser import TDocsParser
 
 logger = logging.getLogger(__name__)
 

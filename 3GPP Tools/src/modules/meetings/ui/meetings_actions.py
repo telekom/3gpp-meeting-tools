@@ -13,8 +13,8 @@ from pathlib import Path
 from PyQt5.QtCore import QDate
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
 
-from modules.meetings.core.tdocs_merger import TDocsMergerThread
-from modules.meetings.ui.contribution_dialog import ContributionReportDialog
+from modules.meetings.core.tdocs.tdocs_merger import TDocsMergerThread
+from modules.meetings.ui.contributions.contribution_dialog import ContributionReportDialog
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ def open_last_meeting(tab):
 
 def start_tdocs_caching(tab, docs_url: str, local_path: Path):
     """Initiates asynchronous caching of TDoc files for an entire meeting."""
-    from modules.meetings.core.tdocs_cacher import TDocsCacherThread
+    from modules.meetings.core.tdocs.tdocs_cacher import TDocsCacherThread
 
     tab.update_btn.setText("⏳ Caching TDocs...")
     tab.update_btn.setEnabled(False)

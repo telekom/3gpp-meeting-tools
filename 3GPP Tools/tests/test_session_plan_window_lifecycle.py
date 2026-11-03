@@ -13,7 +13,7 @@ app = QApplication.instance()
 if not app:
     app = QApplication([])
 
-from modules.meetings.ui.session_plan_window import SessionPlanWindow
+from modules.meetings.ui.session_plan.session_plan_window import SessionPlanWindow
 from modules.meetings.ui.ui_tabs import MeetingsTab
 
 

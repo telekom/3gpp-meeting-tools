@@ -14,7 +14,7 @@ from core.network.network_state import NetworkState
 from core.utils.folder_opener import open_folder as _open_folder
 from modules.meetings.core.agenda_manager import AgendaDownloaderThread, AgendaManager
 from modules.meetings.core.chair_notes_downloader import ChairNotesDownloaderThread
-from modules.meetings.core.tdocs_threads import WordAgendaImporterThread
+from modules.meetings.core.tdocs.tdocs_threads import WordAgendaImporterThread
 from modules.meetings.core.url_router import URLRouter
 
 

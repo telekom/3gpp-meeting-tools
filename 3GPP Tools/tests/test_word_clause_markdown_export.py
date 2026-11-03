@@ -51,7 +51,7 @@ class TestWordClauseMarkdownExport(unittest.TestCase):
         self.assertEqual(thread.revisions, "markup")
 
     @patch("modules.word_tools.core.word_excerpt_extractor.WordExcerptEngine")
-    @patch("modules.meetings.core.tdoc_markdown_converter.convert_document_to_markdown")
+    @patch("modules.meetings.core.tdocs.tdoc_markdown_converter.convert_document_to_markdown")
     def test_word_excerpt_thread_run_with_markdown(self, mock_convert_md, mock_engine_cls):
         """Verify WordExcerptThread invokes convert_document_to_markdown when export_markdown=True."""
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import QApplication, QMessageBox, QProgressDialog, QToolTip
 from core.network.session import NetworkSession
 from core.utils.paths import get_app_data_root, get_cache_root, get_project_root, to_extended_path
 from modules.meetings.core.meetings_db import MeetingsDatabase
-from modules.meetings.core.tdoc_url_resolver import normalize_3gpp_url, resolve_tdoc_download_url
+from modules.meetings.core.tdocs.tdoc_url_resolver import normalize_3gpp_url, resolve_tdoc_download_url
 from modules.word_tools.core.document_opener import open_document
 
 logger = logging.getLogger(__name__)

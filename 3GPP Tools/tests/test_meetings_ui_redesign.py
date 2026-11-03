@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import QApplication
 from modules.meetings.ui.models import MeetingsTableModel, format_meeting_dates
 from modules.meetings.ui.meetings_delegates import WGTagDelegate
 from modules.meetings.ui.ui_tabs import MeetingsTab
-from modules.meetings.ui.dialogs import MeetingsConfigDialog
+from modules.meetings.ui.meeting_details_dialogs import MeetingsConfigDialog
 
 
 class TestMeetingsUiRedesign(unittest.TestCase):

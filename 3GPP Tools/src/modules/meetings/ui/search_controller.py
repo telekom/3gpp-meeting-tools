@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from PyQt5.QtCore import QPoint
 from PyQt5.QtWidgets import QApplication, QMessageBox, QPushButton
-from modules.meetings.core.tdocs_threads import TDocActionThread
+from modules.meetings.core.tdocs.tdocs_threads import TDocActionThread
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +240,7 @@ class GlobalSearchController:
 
                 # If no JSON cache yet, attempt light parse
                 try:
-                    from modules.meetings.core.tdocs_parser import TDocsParser
+                    from modules.meetings.core.tdocs.tdocs_parser import TDocsParser
                     parsed = TDocsParser.parse_tdocs_excel(str(filepath))
                     if parsed:
                         for row in parsed:

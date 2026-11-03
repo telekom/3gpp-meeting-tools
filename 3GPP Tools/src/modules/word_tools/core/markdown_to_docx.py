@@ -108,7 +108,7 @@ def render_svg_to_png(svg_path: Path, output_png_path: Path, max_dimension: int 
 def render_metafile_to_png(metafile_path: Path, output_png_path: Path) -> bool:
     """Converts a Windows Metafile (.emf / .wmf) to PNG using the application metafile converter."""
     try:
-        from modules.meetings.core.tdoc_markdown_converter import convert_metafiles
+        from modules.meetings.core.tdocs.tdoc_markdown_converter import convert_metafiles
 
         output_png_path.parent.mkdir(parents=True, exist_ok=True)
         convert_metafiles([(metafile_path, output_png_path)], dpi=150)

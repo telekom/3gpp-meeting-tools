@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import QApplication
 
 from modules.meetings.core.exporters.post_meeting_exporter import PostMeetingExporterThread
 from modules.meetings.core.settings import MeetingsSettings
-from modules.meetings.ui.post_meeting_export_dialog import PostMeetingExportDialog
+from modules.meetings.ui.dialogs.post_meeting_export_dialog import PostMeetingExportDialog
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel
 
 
@@ -285,7 +285,7 @@ class TestUnassignedLsInExport(unittest.TestCase):
     def test_post_meeting_exporter_plain_document_handling(self):
         """Verify that PostMeetingExporter renders LS IN documents in accept mode without change marks."""
         import tempfile, shutil
-        from modules.meetings.core.tdoc_markdown_converter import resolve_revision_mode_for_type
+        from modules.meetings.core.tdocs.tdoc_markdown_converter import resolve_revision_mode_for_type
 
         tmp_dir = Path(tempfile.mkdtemp(prefix="test_pm_plain_"))
         try:

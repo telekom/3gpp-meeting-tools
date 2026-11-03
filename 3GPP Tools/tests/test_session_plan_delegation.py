@@ -33,10 +33,10 @@ from modules.meetings.core.session_plan.session_plan_models import (
     resolve_slot_effective_delegates,
 )
 from modules.meetings.ui.delegate_owner_picker import DelegateOwnerPicker
-from modules.meetings.ui.session_plan_dialogs import (
+from modules.meetings.ui.session_plan.session_plan_dialogs import (
     MultiDelegateSelectDialog,
 )
-from modules.meetings.ui.session_plan_window import SessionPlanWindow
+from modules.meetings.ui.session_plan.session_plan_window import SessionPlanWindow
 
 # Ensure QApplication singleton for GUI tests
 _app = QApplication.instance() or QApplication([])
@@ -1103,7 +1103,7 @@ detectDelegateClashes('ALL');
 
     def test_delegation_no_myself_tags_in_ui(self):
         """Verifies UI dialogs and pickers do not append (Me) or (Myself) tags to delegate names."""
-        from modules.meetings.ui.session_plan_dialogs import DelegationMemberDialog, MultiDelegateSelectDialog
+        from modules.meetings.ui.session_plan.session_plan_dialogs import DelegationMemberDialog, MultiDelegateSelectDialog
 
         m1 = DelegationMember(name="Anna", color="#059669", is_self=True)
         m2 = DelegationMember(name="Thomas", color="#7C3AED", is_self=False)

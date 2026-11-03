@@ -881,7 +881,7 @@ class SpecClauseDeepVerifyThread(QThread):
                 local_path = SpecTDocOpener.resolve_local_tdoc_file(tdoc_id)
                 if not local_path or not local_path.exists():
                     from modules.meetings.core.meetings_db import MeetingsDatabase
-                    from modules.meetings.core.tdoc_url_resolver import normalize_3gpp_url, resolve_tdoc_download_url
+                    from modules.meetings.core.tdocs.tdoc_url_resolver import normalize_3gpp_url, resolve_tdoc_download_url
                     from core.network.session import NetworkSession
                     from core.utils.paths import get_cache_root
 

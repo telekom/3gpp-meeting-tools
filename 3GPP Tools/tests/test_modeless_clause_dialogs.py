@@ -6,7 +6,6 @@ triage dialog, call flow generator, and session plan) do NOT become owned Win32 
 windows (GW_OWNER) and never stay forced on top of the main application window or external applications.
 """
 
-import os
 import sys
 import tempfile
 import unittest
@@ -20,7 +19,7 @@ from core.ui.database_maintenance_dialog import DatabaseMaintenanceDialog
 from core.ui.process_manager_dialog import ProcessManagerDialog
 from modules.emails.ui.email_summary_dialog import EmailSummaryDialog
 from modules.emails.ui.tdoc_emails_dialog import StandaloneEmailReaderWindow, TDocEmailsDialog
-from modules.meetings.ui.session_plan_window import SessionPlanWindow
+from modules.meetings.ui.session_plan.session_plan_window import SessionPlanWindow
 from modules.meetings.ui.tdoc_triage_dialog import TDocTriageDialog
 from modules.puml2visio.ui.callflow_dialog import CallFlowDialog
 from modules.specifications.ui.spec_clause_dialog import SpecClauseExcerptDialog

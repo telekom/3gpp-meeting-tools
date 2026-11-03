@@ -12,7 +12,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 
 from modules.meetings.core.exporters.post_meeting_exporter import PostMeetingExporterThread
-from modules.meetings.ui.post_meeting_export_dialog import PostMeetingExportDialog
+from modules.meetings.ui.dialogs.post_meeting_export_dialog import PostMeetingExportDialog
 
 
 class TestPostMeetingCustomExport(unittest.TestCase):

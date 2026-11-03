@@ -10,7 +10,7 @@ from PyQt5.QtCore import QPoint, QMimeData
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import QApplication, QMenu, QToolTip, QWidget
 
-from modules.meetings.core.tdoc_url_resolver import is_tdoc_revision, resolve_tdoc_download_url
+from modules.meetings.core.tdocs.tdoc_url_resolver import is_tdoc_revision, resolve_tdoc_download_url
 
 logger = logging.getLogger(__name__)
 
