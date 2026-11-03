@@ -1,37 +1,27 @@
 # --- File: src/modules/meetings/ui/contribution_dialog.py ---
-import os
 import re
 import logging
 import webbrowser
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QDate, QAbstractTableModel, QModelIndex, QPoint, QStringListModel, QTimer
-from PyQt5.QtGui import QColor, QBrush, QFont
+from PyQt5.QtCore import Qt, pyqtSignal, QDate, QModelIndex, QPoint
 from PyQt5.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QLabel, QLineEdit, QPushButton, QCheckBox, QRadioButton,
-    QButtonGroup, QDateEdit, QListWidget, QListWidgetItem,
-    QTableView, QHeaderView, QTextEdit, QProgressBar,
-    QMessageBox, QFileDialog, QFrame, QCompleter, QMenu, QApplication
+    QLabel, QPushButton, QCheckBox, QDateEdit, QTableView, QHeaderView, QTextEdit, QProgressBar,
+    QMessageBox, QMenu, QApplication
 )
 
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
-    BUTTON_STYLE_TOOLBAR_DANGER,
-    SEARCH_INPUT_STYLE
+    BUTTON_STYLE_TOOLBAR_DANGER
 )
 from core.utils.company_sanitizer import CompanySanitizer
-from modules.meetings.core.excel_exporter import ExcelExporterThread
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.settings import MeetingsSettings
-from modules.meetings.core.stats.contribution_stats import ContributionStatsExporterThread
-from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
-from modules.meetings.core.tdocs_parser import TDocsParser
 from modules.meetings.core.tdocs_threads import TDocActionThread
 from modules.meetings.core.url_router import URLRouter
 from modules.meetings.ui.tdocs_components import CheckableComboBox
-from modules.meetings.ui.tdocs_dialogs import ReadOnlyViewerDialog, StatisticsSettingsDialog
+from modules.meetings.ui.tdocs_dialogs import ReadOnlyViewerDialog
 from modules.work_items.core.wi_database import WorkItemsDatabase
 
 logger = logging.getLogger(__name__)
@@ -41,7 +31,6 @@ logger = logging.getLogger(__name__)
 # Imported from dedicated submodules
 from modules.meetings.ui.contribution_widgets import (
     KPICard,
-    FilterTokenChip,
     WITokenInputWidget,
     AITokenInputWidget,
     CompanySelectorWidget

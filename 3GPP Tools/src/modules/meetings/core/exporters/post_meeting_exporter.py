@@ -223,7 +223,7 @@ class PostMeetingExporterThread(QThread):
         if not unique_docs:
             return
 
-        from modules.meetings.core.dossier_exporter import DossierExporterThread
+        from modules.meetings.core.exporters.dossier_exporter import DossierExporterThread
         dossier_worker = DossierExporterThread(
             meeting_dir=self.meeting_dir,
             tdocs_list=list(unique_docs.values()),

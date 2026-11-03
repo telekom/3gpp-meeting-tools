@@ -97,14 +97,13 @@ SA2 SESSION PLAN CONVENTIONS & PARSING QUIRKS REFERENCE GUIDE
 """
 import hashlib
 import logging
-import os
 import re
 import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from modules.meetings.core.session_plan_models import (
+from modules.meetings.core.session_plan.session_plan_models import (
     AgendaSlotItem,
     MeetingStreamInfo,
     SessionPlanSnapshot,

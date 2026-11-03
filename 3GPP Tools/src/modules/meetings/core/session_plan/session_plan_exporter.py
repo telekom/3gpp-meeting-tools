@@ -13,25 +13,22 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from modules.meetings.core.session_plan_diff import SessionPlanDiffResult
-from modules.meetings.core.session_plan_models import (
-    DelegationMember,
+from modules.meetings.core.session_plan.session_plan_diff import SessionPlanDiffResult
+from modules.meetings.core.session_plan.session_plan_models import (
     DelegationPlan,
-    SessionAppointment,
     SessionPlanSnapshot,
     SessionSlot,
-    TopicOwnership,
     UserSessionAnnotation,
     resolve_slot_effective_delegates,
     compute_unique_initials,
 )
-from modules.meetings.core.session_plan_parser import (
+from modules.meetings.core.session_plan.session_plan_parser import (
     DAY_NAMES,
     PERIOD_ORDER,
     PERIOD_TIMES,
     SessionPlanParser,
 )
-from modules.meetings.core.session_plan_timezone import SessionPlanTimezone
+from modules.meetings.core.session_plan.session_plan_timezone import SessionPlanTimezone
 
 logger = logging.getLogger(__name__)
 
@@ -246,17 +243,51 @@ class SessionPlanExporter:
 
         # Build clean JSON events dataset for client-side .ics export & live status
         cal_events_data = []
+        topic_owners_map = delegation_plan.topic_owners if delegation_plan else {}
+
+        def _get_slot_unassigned_ais(slot_obj: SessionSlot, eff_dels_list: List[str], is_all_flag: bool) -> List[str]:
+            """Returns list of AI numbers in this slot that lack a default owner when the slot has no appointment override."""
+            if delegation_plan and slot_obj.slot_key in delegation_plan.appointments:
+                app = delegation_plan.appointments[slot_obj.slot_key]
+                if app.assigned_delegate.strip():
+                    return []
+            unassigned = []
+            for it in slot_obj.items:
+                if it.ai_number and it.ai_number not in topic_owners_map:
+                    if it.ai_number not in unassigned:
+                        unassigned.append(it.ai_number)
+            return unassigned
+
+        def _is_slot_unassigned(slot_obj: SessionSlot, eff_dels_list: List[str], is_all_flag: bool) -> bool:
+            """True if the slot has no assigned delegates at all, or contains an explicitly unassigned AI without slot override."""
+            if not slot_obj.raw_text.strip() or slot_obj.raw_text.strip() == "-":
+                return False
+            if not eff_dels_list and not is_all_flag:
+                return True
+            if _get_slot_unassigned_ais(slot_obj, eff_dels_list, is_all_flag):
+                return True
+            return False
+
+        unassigned_slots_data = []
+        scheduled_ai_slots: Dict[str, List[dict]] = {}
+
         for s in snapshot.slots:
             if not s.raw_text.strip() or s.raw_text.strip() == "-":
                 continue
             eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(s, delegation_plan)
+            unassigned_ais = _get_slot_unassigned_ais(s, eff_dels, is_all)
+            is_unassigned_slot = _is_slot_unassigned(s, eff_dels, is_all)
+
             s_info = snapshot.streams.get(s.stream_number)
             r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
             convener = s_info.convener if s_info else ""
             ann = annotations.get(s.slot_key)
             note_str = ann.comment if ann else ""
-            cal_events_data.append({
+            ai_nums = [it.ai_number for it in s.items if it.ai_number]
+
+            ev_dict = {
                 "day_idx": s.day_index,
+                "day_name": s.day_name or (DAY_NAMES[s.day_index] if s.day_index < len(DAY_NAMES) else f"Day {s.day_index+1}"),
                 "quarter": s.quarter,
                 "sub_slot": s.sub_slot,
                 "start_local": s.start_time_local,
@@ -269,18 +300,96 @@ class SessionPlanExporter:
                 "is_all": is_all,
                 "is_cov": is_cov,
                 "delegates": eff_dels,
+                "unassigned": is_unassigned_slot,
+                "unassigned_ais": unassigned_ais,
+                "ai_numbers": ai_nums,
                 "note": note_str,
                 "slot_key": s.slot_key,
+            }
+            cal_events_data.append(ev_dict)
+
+            for it in s.items:
+                if it.ai_number:
+                    scheduled_ai_slots.setdefault(it.ai_number, []).append({
+                        "day_idx": s.day_index,
+                        "day_name": ev_dict["day_name"],
+                        "quarter": s.quarter,
+                        "sub_slot": s.sub_slot,
+                        "stream_num": s.stream_number,
+                        "room": r_name,
+                        "start_local": s.start_time_local,
+                        "end_local": s.end_time_local,
+                        "tdoc_count": it.tdoc_count_str,
+                        "raw_text": s.raw_text,
+                    })
+
+            if is_unassigned_slot:
+                unassigned_slots_data.append(ev_dict)
+
+        # Build Unassigned Agenda Items catalog (both scheduled and unscheduled AIs)
+        all_known_ais: Dict[str, dict] = {}
+        for ai_num, ai_obj in agenda_map.items():
+            desc = getattr(ai_obj, "description", "") or str(ai_obj)
+            all_known_ais[ai_num] = {
+                "ai_number": ai_num,
+                "title": desc,
+                "tdoc_count": "",
+            }
+        for s in snapshot.slots:
+            for it in s.items:
+                if it.ai_number:
+                    existing = all_known_ais.get(it.ai_number)
+                    if not existing:
+                        all_known_ais[it.ai_number] = {
+                            "ai_number": it.ai_number,
+                            "title": it.topic_label or s.raw_text,
+                            "tdoc_count": it.tdoc_count_str or "",
+                        }
+                    elif it.tdoc_count_str and not existing.get("tdoc_count"):
+                        existing["tdoc_count"] = it.tdoc_count_str
+
+        def _ai_sort_key(ai_str: str):
+            return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", ai_str)]
+
+        unassigned_ais_catalog = []
+        for ai_num in sorted(all_known_ais.keys(), key=_ai_sort_key):
+            if ai_num in topic_owners_map and topic_owners_map[ai_num].owner_name.strip():
+                continue
+            info = all_known_ais[ai_num]
+            sched_list = scheduled_ai_slots.get(ai_num, [])
+            unassigned_ais_catalog.append({
+                "ai_number": ai_num,
+                "title": info["title"],
+                "tdoc_count": info["tdoc_count"],
+                "scheduled_count": len(sched_list),
+                "slots": sched_list,
             })
+
+        roster_members_data = [
+            {
+                "name": m.name,
+                "initials": initials_map.get(m.name, m.name[:2].upper()),
+                "color": m.color,
+                "bg_tint": m.bg_tint,
+                "border_tint": m.border_tint,
+                "role": getattr(m, "role", "") or "",
+            }
+            for m in members.values()
+        ]
+
         cal_events_json = json.dumps(cal_events_data, ensure_ascii=False)
+        roster_members_json = json.dumps(roster_members_data, ensure_ascii=False)
+        unassigned_ais_json = json.dumps(unassigned_ais_catalog, ensure_ascii=False)
+        unassigned_slots_json = json.dumps(unassigned_slots_data, ensure_ascii=False)
         base_date_js = base_date.strftime("%Y-%m-%d") if base_date else ""
 
         # ------------------------------------------------------------------
         # Helper: Render Overview Grid Slot Cell
         # ------------------------------------------------------------------
         def render_overview_cell(slot: SessionSlot, colspan: int, d_idx: int, p: str, s_num: int, tu: int) -> str:
-            is_tracked = cls._is_slot_tracked(slot, tracked_tokens)
             eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(slot, delegation_plan)
+            is_unassigned = _is_slot_unassigned(slot, eff_dels, is_all)
+            unassigned_ais = _get_slot_unassigned_ais(slot, eff_dels, is_all)
             dels_joined = ",".join(eff_dels)
 
             search_tokens = [slot.raw_text.lower()]
@@ -300,8 +409,8 @@ class SessionPlanExporter:
             cell_classes = ["grid-cell", "slot-cell", f"stream-{s_num}"]
             if slot.is_drafting:
                 cell_classes.append("is-drafting")
-            if is_tracked:
-                cell_classes.append("is-tracked")
+            if is_unassigned:
+                cell_classes.append("is-unassigned")
 
             hdr_badges = []
             if slot.is_drafting:
@@ -322,7 +431,10 @@ class SessionPlanExporter:
             for it in slot.items:
                 ai_lbl = f"AI {it.ai_number}" if it.ai_number else it.topic_label
                 cnt = f'<span class="chip-count">[{it.tdoc_count_str}]</span>' if it.tdoc_count_str else ""
-                chips.append(f'<span class="ai-chip">{html.escape(ai_lbl)}{cnt}</span>')
+                is_ai_unassigned = it.ai_number in unassigned_ais
+                chip_cls = "ai-chip unassigned-chip" if is_ai_unassigned else "ai-chip"
+                q_mark = "❓ " if is_ai_unassigned else ""
+                chips.append(f'<span class="{chip_cls}">{q_mark}{html.escape(ai_lbl)}{cnt}</span>')
 
             del_badges = []
             if is_all:
@@ -337,12 +449,14 @@ class SessionPlanExporter:
                     bdr_style = "dashed" if is_cov else "solid"
                     cov_note = " (Ad-hoc cover)" if is_cov else " (Owner)"
                     del_badges.append(f'<span class="del-pill-badge" style="background:{bg}; color:{col}; border:1px {bdr_style} {bdr};" title="{html.escape(dn)}{cov_note}">● {ini}</span>')
+            else:
+                del_badges.append('<span class="del-pill-badge is-unassigned-pill" title="No delegate assigned">❓ Unassigned</span>')
 
             note_badge = ""
             if ann and ann.comment:
                 note_badge = f'<div class="cell-note-pill" title="{html.escape(ann.comment)}">📝 {html.escape(ann.comment[:35])}{"…" if len(ann.comment) > 35 else ""}</div>'
 
-            return f"""<td class="{' '.join(cell_classes)}" colspan="{colspan}" data-stream="{s_num}" data-period="{p}" data-tu="{tu}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-tracked="{1 if is_tracked else 0}" data-drafting="{1 if slot.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
+            return f"""<td class="{' '.join(cell_classes)}" colspan="{colspan}" data-stream="{s_num}" data-period="{p}" data-tu="{tu}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-unassigned="{1 if is_unassigned else 0}" data-drafting="{1 if slot.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
   <div class="cell-top-row">{' '.join(hdr_badges)}</div>
   <div class="cell-title">{raw_esc}</div>
   {f'<div class="cell-chips-row">{"".join(chips)}</div>' if chips else ''}
@@ -473,8 +587,9 @@ class SessionPlanExporter:
 """)
 
                 for s in slots_in_q:
-                    is_tracked = cls._is_slot_tracked(s, tracked_tokens)
                     eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(s, delegation_plan)
+                    is_unassigned = _is_slot_unassigned(s, eff_dels, is_all)
+                    unassigned_ais = _get_slot_unassigned_ais(s, eff_dels, is_all)
                     dels_joined = ",".join(eff_dels)
 
                     search_tokens = [s.raw_text.lower()]
@@ -504,7 +619,10 @@ class SessionPlanExporter:
                     for it in s.items:
                         cnt = f'<span class="count-chip">[{it.tdoc_count_str}]</span>' if it.tdoc_count_str else ""
                         ai_lbl = f"AI {it.ai_number}" if it.ai_number else it.topic_label
-                        chips.append(f'<span class="ai-chip">{html.escape(ai_lbl)}{cnt}</span>')
+                        is_ai_unassigned = it.ai_number in unassigned_ais
+                        chip_cls = "ai-chip unassigned-chip" if is_ai_unassigned else "ai-chip"
+                        q_mark = "❓ " if is_ai_unassigned else ""
+                        chips.append(f'<span class="{chip_cls}">{q_mark}{html.escape(ai_lbl)}{cnt}</span>')
 
                     del_badge = ""
                     if is_all:
@@ -520,6 +638,8 @@ class SessionPlanExporter:
                             bdr = m.border_tint if m else "#BFDBFE"
                             b_list.append(f'<span class="del-pill-badge" style="background:{bg}; color:{col}; border:1px solid {bdr};">● {html.escape(ed)}{cov_lbl}</span>')
                         del_badge = "".join(b_list)
+                    else:
+                        del_badge = '<span class="del-pill-badge is-unassigned-pill">❓ Unassigned</span>'
 
                     note_html = ""
                     if ann and ann.comment:
@@ -528,10 +648,10 @@ class SessionPlanExporter:
                     row_classes = ["cards-slot-row"]
                     if s.is_drafting:
                         row_classes.append("drafting")
-                    if is_tracked:
-                        row_classes.append("tracked")
+                    if is_unassigned:
+                        row_classes.append("unassigned")
 
-                    cards_html.append(f"""    <div class="{' '.join(row_classes)}" data-stream="{s.stream_number}" data-period="{q}" data-tu="{s.sub_slot}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-tracked="{1 if is_tracked else 0}" data-drafting="{1 if s.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
+                    cards_html.append(f"""    <div class="{' '.join(row_classes)}" data-stream="{s.stream_number}" data-period="{q}" data-tu="{s.sub_slot}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-unassigned="{1 if is_unassigned else 0}" data-drafting="{1 if s.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
       <div class="slot-header-line">
         <span class="stream-badge str-{s.stream_number}">Stream {s.stream_number}</span>
         <span class="room-pill">📍 {html.escape(r_name)}{" · " + html.escape(convener) if convener else ""}</span>
@@ -565,6 +685,9 @@ class SessionPlanExporter:
         # ------------------------------------------------------------------
         # Document Synthesis
         # ------------------------------------------------------------------
+        unassigned_slot_count = len(unassigned_slots_data)
+        unassigned_ai_count = len(unassigned_ais_catalog)
+
         css_style = """
   :root {
     --bg: #F8FAFC;
@@ -578,10 +701,11 @@ class SessionPlanExporter:
     --stream3: #D97706;
     --drafting: #DC2626;
     --drafting-bg: #FEF2F2;
-    --tracked: #7C3AED;
-    --tracked-bg: #F5F3FF;
+    --unassigned: #D97706;
+    --unassigned-bg: #FFFBEB;
     --border: #E2E8F0;
     --grid-border: #CBD5E1;
+    --day-hdr-h: 29px;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
@@ -608,16 +732,29 @@ class SessionPlanExporter:
     transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 4px;
   }
   .btn-cal-download:hover { background: #047857; }
+  .btn-highlight-now {
+    padding: 5px 12px; font-size: 12px; font-weight: 700; border-radius: 6px;
+    background: #ECFDF5; color: #047857; border: 1px solid #6EE7B7; cursor: pointer;
+    transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 5px;
+  }
+  .btn-highlight-now:hover { background: #D1FAE5; }
+  .btn-highlight-now.active {
+    background: #059669; color: #FFFFFF; border-color: #047857;
+    box-shadow: 0 2px 6px rgba(5, 150, 105, 0.25);
+  }
   .badge-clash {
     font-size: 11px; font-weight: 700; background: #FEF2F2; color: #B91C1C;
-    border: 1px solid #FECACA; padding: 3px 8px; border-radius: 999px;
-    display: inline-flex; align-items: center; gap: 4px;
+    border: 1px solid #FECACA; padding: 3px 9px; border-radius: 999px;
+    display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
+    transition: all 0.15s ease;
   }
+  .badge-clash:hover { background: #FEE2E2; border-color: #FCA5A5; }
   .live-banner {
-    display: flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 600;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px; font-weight: 600;
     padding: 5px 12px; border-radius: 6px; background: #ECFDF5; color: #065F46;
-    border: 1px solid #A7F3D0; margin-top: 4px; margin-bottom: 4px;
+    border: 1px solid #A7F3D0; margin-top: 4px; margin-bottom: 4px; cursor: pointer;
   }
+  .live-banner:hover { background: #D1FAE5; }
   .pulse-dot {
     width: 8px; height: 8px; border-radius: 50%; background: #10B981;
     display: inline-block; animation: pulseLive 1.8s infinite;
@@ -633,24 +770,68 @@ class SessionPlanExporter:
   .cards-slot-row.has-clash {
     border-left: 4px solid #EF4444 !important; background: #FFF1F2 !important;
   }
-  .grid-cell.is-live-now {
-    outline: 2px solid #10B981 !important; outline-offset: -2px; background: #F0FDF4 !important;
+  .grid-cell.is-live-now, .grid-cell.is-now-focused {
+    outline: 2.5px solid #10B981 !important; outline-offset: -2px; background: #ECFDF5 !important;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.20) !important;
   }
-  .cards-slot-row.is-live-now {
-    border-left: 4px solid #10B981 !important; background: #F0FDF4 !important;
+  .cards-slot-row.is-live-now, .cards-slot-row.is-now-focused {
+    border-left: 4px solid #10B981 !important; background: #ECFDF5 !important;
   }
   .view-switcher {
-    display: inline-flex; background: #F1F5F9; padding: 2px; border-radius: 8px; border: 1px solid var(--border);
+    display: inline-flex; background: #F1F5F9; padding: 2px; border-radius: 8px; border: 1px solid var(--border); flex-wrap: wrap;
   }
   .view-btn {
-    padding: 5px 12px; font-size: 12px; font-weight: 600; border: none; background: transparent;
-    color: var(--subtext); border-radius: 6px; cursor: pointer; transition: all 0.15s ease;
+    padding: 5px 10px; font-size: 12px; font-weight: 600; border: none; background: transparent;
+    color: var(--subtext); border-radius: 6px; cursor: pointer; transition: all 0.15s ease; white-space: nowrap;
   }
   .view-btn.active {
     background: #FFFFFF; color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1);
   }
+  .view-btn.has-alert { color: #B91C1C; }
+  .view-btn.has-alert.active { background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA; }
   .tz-banner { font-size: 11px; color: var(--subtext); margin-bottom: 6px; }
-  
+
+  /* Now Dispatch Panel ("Highlight Now" - Where are we now & where should each delegate go?) */
+  .now-dispatch-panel {
+    background: #F0FDF4; border: 1px solid #86EFAC; border-radius: 8px;
+    padding: 10px 12px; margin: 6px 0; box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+  }
+  .now-panel-header {
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
+    border-bottom: 1px solid #BBF7D0; padding-bottom: 8px; margin-bottom: 8px;
+  }
+  .now-panel-title { font-size: 13px; font-weight: 700; color: #065F46; display: flex; align-items: center; gap: 6px; }
+  .now-slot-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .now-select {
+    padding: 3px 8px; font-size: 11.5px; font-weight: 600; border-radius: 5px;
+    border: 1px solid #86EFAC; background: #FFFFFF; color: #064E3B; cursor: pointer;
+  }
+  .now-step-btn {
+    padding: 3px 8px; font-size: 11px; font-weight: 700; border-radius: 5px;
+    border: 1px solid #86EFAC; background: #FFFFFF; color: #065F46; cursor: pointer;
+  }
+  .now-step-btn:hover { background: #DCFCE7; }
+  .now-dispatch-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px;
+  }
+  .now-del-card {
+    background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px; padding: 7px 10px;
+    display: flex; flex-direction: column; gap: 3px; cursor: pointer; transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+  .now-del-card:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,0.07); }
+  .now-del-card.status-busy { border-left: 4px solid #2563EB; }
+  .now-del-card.status-clash { border-left: 4px solid #DC2626; background: #FFF1F2; }
+  .now-del-card.status-free { border-left: 4px solid #10B981; background: #F8FAFC; }
+  .now-del-top { display: flex; justify-content: space-between; align-items: center; gap: 4px; }
+  .now-del-name { font-weight: 700; font-size: 12px; }
+  .now-del-status-tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; }
+  .now-del-dest { font-size: 11px; color: #1E293B; font-weight: 600; }
+  .now-del-topic { font-size: 10.5px; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now-streams-summary {
+    margin-top: 8px; padding-top: 6px; border-top: 1px dashed #BBF7D0;
+    display: flex; gap: 8px; flex-wrap: wrap; font-size: 11px; color: #065F46;
+  }
+
   /* Delegate Selector Strip */
   .del-strip {
     display: flex; gap: 5px; align-items: center; overflow-x: auto; padding: 4px 0 6px 0;
@@ -674,7 +855,7 @@ class SessionPlanExporter:
   }
   .strip-sep { width: 1px; height: 18px; background: var(--border); margin: 0 3px; }
   .btn-toggle { background: #FFFFFF; }
-  .btn-toggle.active { background: #7C3AED; color: #FFFFFF; border-color: #7C3AED; }
+  #btnUnassigned.active { background: #D97706; color: #FFFFFF; border-color: #B45309; }
   #btnDrafting.active { background: #DC2626; color: #FFFFFF; border-color: #DC2626; }
 
   /* Filter Controls Row */
@@ -690,14 +871,15 @@ class SessionPlanExporter:
   .toggle-label { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; color: var(--subtext); font-weight: 500; }
   .toggle-label input { cursor: pointer; }
 
-  /* Overview Grid View Styles */
+  /* Overview Grid View Styles (2D Scroll Container with Locked Day Header Row & Period Column) */
   .overview-grid-container {
-    padding: 10px 14px 60px 14px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    margin: 10px 14px 24px 14px; overflow: auto; max-height: calc(100vh - 175px);
+    -webkit-overflow-scrolling: touch; border: 1px solid var(--grid-border); border-radius: 8px;
+    background: #FFFFFF; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
   }
   .overview-table {
     border-collapse: separate; border-spacing: 0; width: 100%; min-width: 1100px;
-    background: #FFFFFF; border: 1px solid var(--grid-border); border-radius: 8px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    background: #FFFFFF;
   }
   .overview-table th, .overview-table td {
     border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
@@ -708,11 +890,12 @@ class SessionPlanExporter:
 
   .hdr-days-row th {
     background: #F1F5F9; color: #1E293B; font-weight: 700; text-align: center;
-    position: sticky; top: 0; z-index: 10; border-bottom: 1px solid var(--grid-border);
+    position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--grid-border);
+    box-shadow: 0 1px 0 var(--grid-border);
   }
   .corner-hdr {
     background: #E2E8F0 !important; text-align: left !important; font-size: 11px;
-    position: sticky; left: 0; z-index: 20 !important; width: 160px; min-width: 160px;
+    position: sticky; top: 0; left: 0; z-index: 30 !important; width: 160px; min-width: 160px;
   }
   .hdr-sub { font-size: 9.5px; font-weight: 500; color: #64748B; }
   .hdr-date { font-size: 10.5px; font-weight: 600; color: #475569; }
@@ -722,11 +905,12 @@ class SessionPlanExporter:
   }
   .hdr-tu-row th {
     background: #F8FAFC; color: #64748B; font-size: 10px; font-weight: 600; text-align: center;
-    border-bottom: 1px solid var(--grid-border);
+    position: sticky; top: var(--day-hdr-h, 29px); z-index: 19;
+    border-bottom: 1px solid var(--grid-border); box-shadow: 0 1px 2px rgba(0,0,0,0.03);
   }
   .row-hdr {
     background: #F8FAFC; color: #1E293B; font-weight: 600; text-align: left;
-    position: sticky; left: 0; z-index: 5; width: 160px; min-width: 160px; font-size: 11px;
+    position: sticky; left: 0; z-index: 10; width: 160px; min-width: 160px; font-size: 11px;
   }
   .hdr-room { font-size: 10px; font-weight: 500; color: #64748B; }
   .hdr-times { font-size: 9.5px; font-weight: 500; color: #64748B; }
@@ -752,8 +936,8 @@ class SessionPlanExporter:
   .grid-cell.is-drafting {
     background: var(--drafting-bg); border-left: 3px solid var(--drafting) !important;
   }
-  .grid-cell.is-tracked {
-    background: var(--tracked-bg); border-left: 3px solid var(--tracked) !important;
+  .grid-cell.is-unassigned {
+    background: #FFFBEB;
   }
 
   /* Delegate Dimming / Highlighting */
@@ -780,6 +964,9 @@ class SessionPlanExporter:
   .ai-chip {
     font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: #E0E7FF; color: #3730A3;
   }
+  .ai-chip.unassigned-chip {
+    background: #FEF3C7; color: #B45309; border: 1px dashed #F59E0B;
+  }
   .chip-count { font-size: 9px; font-weight: 700; color: #475569; margin-left: 2px; }
   .cell-del-row { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 2px; }
   .del-pill-badge {
@@ -787,6 +974,9 @@ class SessionPlanExporter:
   }
   .del-pill-badge.is-all {
     background: #EEF2FF; color: #4338CA; border: 1px solid #C7D2FE;
+  }
+  .del-pill-badge.is-unassigned-pill {
+    background: #FEF3C7; color: #B45309; border: 1px dashed #F59E0B;
   }
   .cell-note-pill {
     margin-top: 3px; font-size: 9.5px; font-weight: 500; color: #92400E; background: #FEF3C7;
@@ -819,7 +1009,7 @@ class SessionPlanExporter:
   }
   .cards-slot-row:last-child { border-bottom: none; }
   .cards-slot-row.drafting { background: var(--drafting-bg); border-left: 4px solid var(--drafting); }
-  .cards-slot-row.tracked { background: var(--tracked-bg); border-left: 4px solid var(--tracked); }
+  .cards-slot-row.unassigned { background: var(--unassigned-bg); border-left: 4px solid var(--unassigned); }
   .slot-header-line { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
   .stream-badge {
     font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;
@@ -839,6 +1029,49 @@ class SessionPlanExporter:
   }
   .hidden { display: none !important; }
 
+  /* Conflicts View & Unassigned AIs View Styles */
+  .aux-view-container {
+    padding: 14px 16px 60px 16px; max-width: 1360px; margin: 0 auto;
+  }
+  .aux-header-card {
+    background: #FFFFFF; border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 16px; margin-bottom: 12px; display: flex; justify-content: space-between;
+    align-items: center; flex-wrap: wrap; gap: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+  .aux-title { font-size: 15px; font-weight: 700; color: #0F172A; margin: 0; }
+  .aux-subtitle { font-size: 12px; color: #64748B; margin-top: 2px; }
+  .aux-table {
+    width: 100%; border-collapse: separate; border-spacing: 0; background: #FFFFFF;
+    border: 1px solid var(--grid-border); border-radius: 8px; overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .aux-table th {
+    background: #F1F5F9; color: #1E293B; font-weight: 700; text-align: left;
+    padding: 9px 12px; font-size: 11.5px; border-bottom: 1px solid var(--grid-border);
+  }
+  .aux-table td {
+    padding: 9px 12px; font-size: 12px; border-bottom: 1px solid var(--border); vertical-align: top;
+  }
+  .aux-table tr:last-child td { border-bottom: none; }
+  .aux-table tr:hover td { background: #F8FAFC; }
+  .clash-stream-box {
+    background: #FFF1F2; border: 1px solid #FECDD3; border-radius: 6px; padding: 6px 8px; margin-bottom: 4px;
+  }
+  .free-colleague-pill {
+    display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px;
+    font-size: 11px; font-weight: 700; margin: 2px 3px 2px 0;
+  }
+  .btn-jump-grid {
+    padding: 4px 9px; font-size: 11px; font-weight: 600; border-radius: 5px;
+    background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-jump-grid:hover { background: #DBEAFE; }
+  .empty-state-box {
+    background: #FFFFFF; border: 1px dashed #CBD5E1; border-radius: 10px;
+    padding: 32px 20px; text-align: center; color: #475569; font-size: 13px;
+  }
+
   /* Floating Rich Tooltip Popover */
   .floating-tooltip {
     position: fixed; z-index: 9999; pointer-events: none; max-width: 420px;
@@ -857,11 +1090,12 @@ class SessionPlanExporter:
 
   /* Print Stylesheet */
   @media print {
-    header, .del-strip, .filter-controls-row, .view-switcher, .day-tabs { display: none !important; }
-    #cardsView { display: none !important; }
+    header, .del-strip, .filter-controls-row, .view-switcher, .day-tabs, .now-dispatch-panel { display: none !important; }
+    #cardsView, #conflictsView, #unassignedView { display: none !important; }
     #overviewView { display: block !important; padding: 0 !important; }
+    .overview-grid-container { max-height: none !important; overflow: visible !important; border: none !important; margin: 0 !important; }
     .overview-table { width: 100% !important; min-width: 0 !important; font-size: 8.5px !important; box-shadow: none !important; }
-    .overview-table th, .overview-table td { padding: 3px 4px !important; }
+    .overview-table th, .overview-table td { padding: 3px 4px !important; position: static !important; }
     .slot-cell { opacity: 1 !important; filter: none !important; box-shadow: none !important; }
     @page { size: landscape; margin: 8mm; }
   }
@@ -870,17 +1104,70 @@ class SessionPlanExporter:
         js_script = """
   let currentView = 'grid';
   let selectedDelegate = 'ALL';
-  let onlyTracked = false;
+  let onlyUnassigned = false;
   let onlyDrafting = false;
+  let unassignedScheduledOnly = true;
+  let nowPanelOpen = false;
+  let nowTargetSlot = null; // { day_idx, quarter, tu, label, is_live }
+
+  const PERIOD_LIST = ['Q1', 'Coffee 1', 'Q2', 'Lunch', 'Q3', 'Coffee 2', 'Q4'];
+  const DAY_NAMES_LIST = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+  function escHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function updateStickyHeaderOffsets() {
+    const dayRow = document.querySelector('.hdr-days-row th:not(.corner-hdr)');
+    if (dayRow && dayRow.offsetHeight && document.documentElement && document.documentElement.style && document.documentElement.style.setProperty) {
+      document.documentElement.style.setProperty('--day-hdr-h', dayRow.offsetHeight + 'px');
+    }
+    const gridCont = document.querySelector('.overview-grid-container');
+    const hdr = document.querySelector('header');
+    if (gridCont && gridCont.style && hdr && hdr.offsetHeight && window.innerHeight) {
+      const avail = Math.max(320, window.innerHeight - hdr.offsetHeight - 24);
+      gridCont.style.maxHeight = avail + 'px';
+    }
+  }
 
   function switchView(viewName) {
     currentView = viewName;
-    document.getElementById('btnViewGrid').classList.toggle('active', viewName === 'grid');
-    document.getElementById('btnViewCards').classList.toggle('active', viewName === 'cards');
-    document.getElementById('overviewView').style.display = (viewName === 'grid') ? 'block' : 'none';
-    document.getElementById('cardsView').style.display = (viewName === 'cards') ? 'block' : 'none';
-    document.getElementById('gridControls').style.display = (viewName === 'grid') ? 'flex' : 'none';
-    applyFilters();
+    const views = ['grid', 'cards', 'conflicts', 'unassigned'];
+    const btnIds = {
+      grid: 'btnViewGrid',
+      cards: 'btnViewCards',
+      conflicts: 'btnViewConflicts',
+      unassigned: 'btnViewUnassigned'
+    };
+    const divIds = {
+      grid: 'overviewView',
+      cards: 'cardsView',
+      conflicts: 'conflictsView',
+      unassigned: 'unassignedView'
+    };
+
+    for (const v of views) {
+      const btn = document.getElementById(btnIds[v]);
+      if (btn) btn.classList.toggle('active', v === viewName);
+      const div = document.getElementById(divIds[v]);
+      if (div) div.style.display = (v === viewName) ? 'block' : 'none';
+    }
+
+    const gc = document.getElementById('gridControls');
+    if (gc) gc.style.display = (viewName === 'grid') ? 'flex' : 'none';
+
+    if (viewName === 'conflicts') {
+      renderConflictsView();
+    } else if (viewName === 'unassigned') {
+      renderUnassignedView();
+    } else {
+      applyFilters();
+      if (viewName === 'grid') updateStickyHeaderOffsets();
+    }
   }
 
   function selectDelegate(delName) {
@@ -894,40 +1181,45 @@ class SessionPlanExporter:
     }
     applyFilters();
     detectDelegateClashes(delName);
+    if (currentView === 'conflicts') renderConflictsView();
+    if (nowPanelOpen) renderNowDispatchPanel();
   }
 
-  function toggleTracked() {
-    onlyTracked = !onlyTracked;
-    document.getElementById('btnTracked').classList.toggle('active', onlyTracked);
+  function toggleUnassigned() {
+    onlyUnassigned = !onlyUnassigned;
+    const btn = document.getElementById('btnUnassigned');
+    if (btn) btn.classList.toggle('active', onlyUnassigned);
     applyFilters();
   }
 
   function toggleDrafting() {
     onlyDrafting = !onlyDrafting;
-    document.getElementById('btnDrafting').classList.toggle('active', onlyDrafting);
+    const btn = document.getElementById('btnDrafting');
+    if (btn) btn.classList.toggle('active', onlyDrafting);
     applyFilters();
   }
 
   function toggleStream(num) {
     const chk = document.getElementById('chkStr' + num);
     const rows = document.querySelectorAll('.stream-row-' + num);
-    rows.forEach(r => r.style.display = chk.checked ? '' : 'none');
+    rows.forEach(r => r.style.display = (chk && chk.checked) ? '' : 'none');
   }
 
   function toggleBreaks() {
     const chk = document.getElementById('chkBreaks');
     const rows = document.querySelectorAll('.break-row');
-    rows.forEach(r => r.style.display = chk.checked ? '' : 'none');
+    rows.forEach(r => r.style.display = (chk && chk.checked) ? '' : 'none');
   }
 
   function toggleEmptyBreaks() {
     const chk = document.getElementById('chkEmptyBreaks');
     const rows = document.querySelectorAll('.break-row.empty-break');
     rows.forEach(r => {
-      if (chk.checked) {
+      if (chk && chk.checked) {
         r.style.display = 'none';
       } else {
-        const showAll = document.getElementById('chkBreaks').checked;
+        const brkChk = document.getElementById('chkBreaks');
+        const showAll = brkChk ? brkChk.checked : true;
         r.style.display = showAll ? '' : 'none';
       }
     });
@@ -942,26 +1234,56 @@ class SessionPlanExporter:
     if (target) target.style.display = 'block';
   }
 
+  function jumpToSlotInGrid(dayIdx, period, streamNum) {
+    const dayName = DAY_NAMES_LIST[dayIdx] || 'Monday';
+    if (window.innerWidth && window.innerWidth <= 768) {
+      switchView('cards');
+      switchDay(dayName);
+      const sel = '.cards-slot-row[data-day="' + dayIdx + '"][data-period="' + period + '"]' + (streamNum ? '[data-stream="' + streamNum + '"]' : '');
+      const el = document.querySelector(sel);
+      if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+      switchView('grid');
+      const sel = '.grid-cell[data-day="' + dayIdx + '"][data-period="' + period + '"]' + (streamNum ? '[data-stream="' + streamNum + '"]' : '');
+      const el = document.querySelector(sel);
+      if (el) {
+        if (el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        el.classList.add('is-now-focused');
+        setTimeout(() => el.classList.remove('is-now-focused'), 2600);
+      }
+    }
+  }
+
   function applyFilters() {
-    const query = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+    const sInput = document.getElementById('searchInput');
+    const query = ((sInput && sInput.value) || '').toLowerCase().trim();
+
+    if (currentView === 'conflicts') {
+      renderConflictsView();
+      return;
+    }
+    if (currentView === 'unassigned') {
+      renderUnassignedView();
+      return;
+    }
 
     // 1. Filter Overview Grid Cells
     const gridCells = document.querySelectorAll('.grid-cell.slot-cell');
     gridCells.forEach(cell => {
       const sTxt = cell.getAttribute('data-search') || '';
-      const isTrk = cell.getAttribute('data-tracked') === '1';
+      const isUnas = cell.getAttribute('data-unassigned') === '1';
       const isDrf = cell.getAttribute('data-drafting') === '1';
       const dels = (cell.getAttribute('data-delegates') || '').split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
       const isAll = cell.getAttribute('data-is-all') === '1';
 
       const matchesSearch = !query || sTxt.includes(query);
-      const matchesTracked = !onlyTracked || isTrk;
+      const matchesUnassigned = !onlyUnassigned || isUnas;
       const matchesDrafting = !onlyDrafting || isDrf;
-      const matchesDelegate = (selectedDelegate === 'ALL') || isAll || dels.includes(selectedDelegate.toLowerCase());
+      const matchesDelegate = onlyUnassigned ? true : ((selectedDelegate === 'ALL') || isAll || dels.includes(selectedDelegate.toLowerCase()));
 
-      const isMatch = matchesSearch && matchesTracked && matchesDrafting && matchesDelegate;
+      const isMatch = matchesSearch && matchesUnassigned && matchesDrafting && matchesDelegate;
 
-      if (selectedDelegate === 'ALL' && !query && !onlyTracked && !onlyDrafting) {
+      if (selectedDelegate === 'ALL' && !query && !onlyUnassigned && !onlyDrafting) {
         cell.classList.remove('dimmed', 'highlighted');
       } else if (isMatch) {
         cell.classList.remove('dimmed');
@@ -976,17 +1298,17 @@ class SessionPlanExporter:
     const cardRows = document.querySelectorAll('.cards-slot-row');
     cardRows.forEach(row => {
       const sTxt = row.getAttribute('data-search') || '';
-      const isTrk = row.getAttribute('data-tracked') === '1';
+      const isUnas = row.getAttribute('data-unassigned') === '1';
       const isDrf = row.getAttribute('data-drafting') === '1';
       const dels = (row.getAttribute('data-delegates') || '').split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
       const isAll = row.getAttribute('data-is-all') === '1';
 
       const matchesSearch = !query || sTxt.includes(query);
-      const matchesTracked = !onlyTracked || isTrk;
+      const matchesUnassigned = !onlyUnassigned || isUnas;
       const matchesDrafting = !onlyDrafting || isDrf;
-      const matchesDelegate = (selectedDelegate === 'ALL') || isAll || dels.includes(selectedDelegate.toLowerCase());
+      const matchesDelegate = onlyUnassigned ? true : ((selectedDelegate === 'ALL') || isAll || dels.includes(selectedDelegate.toLowerCase()));
 
-      if (matchesSearch && matchesTracked && matchesDrafting && matchesDelegate) {
+      if (matchesSearch && matchesUnassigned && matchesDrafting && matchesDelegate) {
         row.classList.remove('hidden');
       } else {
         row.classList.add('hidden');
@@ -1133,21 +1455,108 @@ class SessionPlanExporter:
     URL.revokeObjectURL(url);
   }
 
-  // Conflict & Parallel Stream Clash Detection
+  // ------------------------------------------------------------------
+  // Conflict & Parallel Stream Clash Detection + Conflicts View Tab
+  // ------------------------------------------------------------------
+  function getAllRosterNames() {
+    if (typeof ROSTER_MEMBERS !== 'undefined' && Array.isArray(ROSTER_MEMBERS) && ROSTER_MEMBERS.length > 0) {
+      return ROSTER_MEMBERS.map(m => m.name);
+    }
+    const allMembers = [];
+    document.querySelectorAll('.del-filter-btn[data-del]').forEach(b => {
+      const d = b.getAttribute('data-del');
+      if (d && d !== 'ALL') allMembers.push(d);
+    });
+    return allMembers;
+  }
+
+  function getRosterMemberMeta(name) {
+    if (typeof ROSTER_MEMBERS !== 'undefined' && Array.isArray(ROSTER_MEMBERS)) {
+      const found = ROSTER_MEMBERS.find(m => m.name.toLowerCase() === String(name || '').toLowerCase());
+      if (found) return found;
+    }
+    return { name: name, initials: String(name || '').substring(0, 2).toUpperCase(), color: '#2563EB', bg_tint: '#EFF6FF', border_tint: '#BFDBFE' };
+  }
+
+  function getFreeMembersForSlot(dayIdx, quarter, subSlot) {
+    const tus = (subSlot === 1) ? [1] : (subSlot === 2) ? [2] : [1, 2];
+    const busyLower = new Set();
+    for (const ev of CAL_EVENTS) {
+      if (ev.day_idx !== dayIdx || ev.quarter !== quarter) continue;
+      const evTus = (ev.sub_slot === 1) ? [1] : (ev.sub_slot === 2) ? [2] : [1, 2];
+      const overlaps = tus.some(t => evTus.includes(t));
+      if (!overlaps) continue;
+      if (ev.is_all) {
+        return []; // Whole team is busy
+      }
+      (ev.delegates || []).forEach(d => busyLower.add(d.toLowerCase()));
+    }
+    return getAllRosterNames().filter(n => !busyLower.has(n.toLowerCase()));
+  }
+
+  function buildConflictGroups(filterMember) {
+    const membersToCheck = (filterMember && filterMember !== 'ALL') ? [filterMember] : getAllRosterNames();
+    const groups = [];
+    for (const member of membersToCheck) {
+      const mLower = member.toLowerCase();
+      const slotGroups = {};
+      for (const ev of CAL_EVENTS) {
+        const effDels = (ev.delegates || []).map(d => d.toLowerCase());
+        if (!effDels.includes(mLower) && !ev.is_all) continue;
+        const k = ev.day_idx + '|' + ev.quarter;
+        if (!slotGroups[k]) slotGroups[k] = [];
+        slotGroups[k].push(ev);
+      }
+      for (const k in slotGroups) {
+        const evList = slotGroups[k];
+        if (evList.length < 2) continue;
+        // Check TU overlap across distinct streams
+        for (const tu of [1, 2]) {
+          const activeInTu = evList.filter(e => e.sub_slot === 0 || e.sub_slot === tu);
+          const distinctStreams = new Set(activeInTu.map(e => e.stream_num));
+          if (distinctStreams.size > 1) {
+            const sortedEvs = activeInTu.slice().sort((a, b) => a.stream_num - b.stream_num);
+            const sig = member + '|' + k + '|' + sortedEvs.map(e => e.stream_num + ':' + e.slot_key).join(',');
+            const existing = groups.find(g => g.sig === sig);
+            if (existing) {
+              if (!existing.tus.includes(tu)) existing.tus.push(tu);
+            } else {
+              groups.push({
+                sig: sig,
+                member: member,
+                day_idx: sortedEvs[0].day_idx,
+                day_name: sortedEvs[0].day_name || DAY_NAMES_LIST[sortedEvs[0].day_idx] || ('Day ' + (sortedEvs[0].day_idx + 1)),
+                quarter: sortedEvs[0].quarter,
+                tus: [tu],
+                events: sortedEvs
+              });
+            }
+          }
+        }
+      }
+    }
+    groups.sort((a, b) => (a.day_idx - b.day_idx) || (PERIOD_LIST.indexOf(a.quarter) - PERIOD_LIST.indexOf(b.quarter)) || a.member.localeCompare(b.member));
+    return groups;
+  }
+
   function detectDelegateClashes(delName) {
     const clashBadge = document.getElementById('clashWarningBadge');
-    if (!clashBadge) return;
+    const clashTabBtn = document.getElementById('btnViewConflicts');
 
     document.querySelectorAll('.has-clash').forEach(el => el.classList.remove('has-clash'));
+
+    const allGroups = buildConflictGroups('ALL');
+    if (clashTabBtn) {
+      clashTabBtn.textContent = '⚠️ Conflicts (' + allGroups.length + ')';
+      clashTabBtn.classList.toggle('has-alert', allGroups.length > 0);
+    }
+
+    if (!clashBadge) return;
 
     if (delName === 'ALL') {
       const memberClashes = {};
       let totalClashes = 0;
-      const allMembers = [];
-      document.querySelectorAll('.del-filter-btn[data-del]').forEach(b => {
-        const d = b.getAttribute('data-del');
-        if (d && d !== 'ALL') allMembers.push(d);
-      });
+      const allMembers = getAllRosterNames();
 
       for (const member of allMembers) {
         const c = getClashesForMember(member);
@@ -1160,7 +1569,7 @@ class SessionPlanExporter:
 
       if (totalClashes > 0) {
         const summary = Object.entries(memberClashes).map(([m, n]) => m + ' (' + n + ')').join(', ');
-        clashBadge.innerHTML = '⚠️ ' + totalClashes + ' Delegate Clash' + (totalClashes > 1 ? 'es' : '') + ': ' + summary;
+        clashBadge.innerHTML = '⚠️ ' + allGroups.length + ' Conflict' + (allGroups.length > 1 ? 's' : '') + ': ' + summary;
         clashBadge.style.display = 'inline-flex';
       } else {
         clashBadge.style.display = 'none';
@@ -1169,8 +1578,9 @@ class SessionPlanExporter:
     }
 
     const clashes = getClashesForMember(delName);
+    const delGroups = buildConflictGroups(delName);
     if (clashes.length > 0) {
-      clashBadge.innerHTML = '⚠️ ' + clashes.length + ' Parallel Clash' + (clashes.length > 1 ? 'es' : '') + ' for ' + delName;
+      clashBadge.innerHTML = '⚠️ ' + delGroups.length + ' Parallel Clash' + (delGroups.length > 1 ? 'es' : '') + ' for ' + delName;
       clashBadge.style.display = 'inline-flex';
       clashes.forEach(ev => markClashCells(ev));
     } else {
@@ -1231,6 +1641,456 @@ class SessionPlanExporter:
     }
   }
 
+  function renderConflictsView() {
+    const container = document.getElementById('conflictsViewContent');
+    if (!container) return;
+    const sInput = document.getElementById('searchInput');
+    const query = ((sInput && sInput.value) || '').toLowerCase().trim();
+
+    let groups = buildConflictGroups(selectedDelegate);
+    if (query) {
+      groups = groups.filter(g => {
+        const hay = (g.member + ' ' + g.day_name + ' ' + g.quarter + ' ' + g.events.map(e => e.title + ' ' + e.room).join(' ')).toLowerCase();
+        return hay.includes(query);
+      });
+    }
+
+    if (groups.length === 0) {
+      const scopeLbl = (selectedDelegate === 'ALL') ? 'across the delegation' : ('for ' + escHtml(selectedDelegate));
+      container.innerHTML = '<div class="empty-state-box">✅ <strong>Zero parallel stream conflicts detected ' + scopeLbl + '!</strong><br><span style="font-size:12px;color:#64748B;">All assigned sessions occur in non-overlapping time units.</span></div>';
+      return;
+    }
+
+    let htmlRows = '';
+    for (const g of groups) {
+      const mMeta = getRosterMemberMeta(g.member);
+      const tuLabel = (g.tus.length === 2) ? 'Full Quarter (TU 1 & 2)' : ('TU ' + g.tus[0] + ' Only');
+      const subSlotFilter = (g.tus.length === 1) ? g.tus[0] : 0;
+      const freeNames = getFreeMembersForSlot(g.day_idx, g.quarter, subSlotFilter);
+
+      let streamsHtml = '';
+      for (const ev of g.events) {
+        const roleTag = ev.is_all ? '👥 All Team' : (ev.is_cov ? '⚡ Session Override' : '📌 Default AI Owner');
+        const tuBadge = (ev.sub_slot === 1) ? ' [TU 1]' : (ev.sub_slot === 2) ? ' [TU 2]' : '';
+        streamsHtml += '<div class="clash-stream-box">' +
+          '<div style="display:flex;justify-content:space-between;gap:6px;font-weight:700;font-size:11.5px;color:#991B1B;">' +
+          '<span>Stream ' + ev.stream_num + tuBadge + ' · 📍 ' + escHtml(ev.room) + '</span>' +
+          '<span style="font-size:10px;color:#B45309;background:#FEF3C7;padding:1px 5px;border-radius:4px;">' + roleTag + '</span>' +
+          '</div>' +
+          '<div style="font-size:11.5px;color:#0F172A;margin-top:2px;font-weight:600;">' + escHtml(ev.title) + '</div>' +
+          '</div>';
+      }
+
+      let freeHtml = '';
+      if (freeNames.length > 0) {
+        freeHtml = freeNames.map(fn => {
+          const fm = getRosterMemberMeta(fn);
+          return '<span class="free-colleague-pill" style="background:' + fm.bg_tint + ';color:' + fm.color + ';border:1px solid ' + fm.border_tint + ';">🟢 ' + escHtml(fn) + '</span>';
+        }).join(' ');
+      } else {
+        freeHtml = '<span style="color:#DC2626;font-size:11px;font-weight:600;">⚠️ All roster colleagues busy</span>';
+      }
+
+      htmlRows += '<tr>' +
+        '<td style="white-space:nowrap;">' +
+          '<span style="background:' + mMeta.bg_tint + ';color:' + mMeta.color + ';border:1px solid ' + mMeta.border_tint + ';padding:3px 9px;border-radius:999px;font-weight:700;font-size:11.5px;">● ' + escHtml(g.member) + '</span>' +
+        '</td>' +
+        '<td style="white-space:nowrap;">' +
+          '<strong>' + escHtml(g.day_name) + ' · ' + escHtml(g.quarter) + '</strong><br>' +
+          '<span style="font-size:11px;color:#64748B;">' + tuLabel + '</span>' +
+        '</td>' +
+        '<td>' + streamsHtml + '</td>' +
+        '<td>' + freeHtml + '</td>' +
+        '<td style="text-align:right;white-space:nowrap;">' +
+          '<button class="btn-jump-grid" onclick="jumpToSlotInGrid(' + g.day_idx + ', \\'' + escHtml(g.quarter) + '\\', ' + g.events[0].stream_num + ')">🔍 Show in Grid</button>' +
+        '</td>' +
+      '</tr>';
+    }
+
+    container.innerHTML = '<table class="aux-table">' +
+      '<thead><tr>' +
+        '<th>Clashing Delegate</th>' +
+        '<th>Day / Period / TU</th>' +
+        '<th>Conflicting Parallel Streams</th>' +
+        '<th>🟢 Available / Free Colleagues (Can Cover)</th>' +
+        '<th style="text-align:right;">Action</th>' +
+      '</tr></thead>' +
+      '<tbody>' + htmlRows + '</tbody></table>';
+  }
+
+  // ------------------------------------------------------------------
+  // Unassigned AIs View Tab
+  // ------------------------------------------------------------------
+  function toggleUnassignedScope(scheduledOnly) {
+    unassignedScheduledOnly = scheduledOnly;
+    renderUnassignedView();
+  }
+
+  function renderUnassignedView() {
+    const container = document.getElementById('unassignedViewContent');
+    if (!container) return;
+    const sInput = document.getElementById('searchInput');
+    const query = ((sInput && sInput.value) || '').toLowerCase().trim();
+
+    const aiList = (typeof UNASSIGNED_AIS !== 'undefined' && Array.isArray(UNASSIGNED_AIS)) ? UNASSIGNED_AIS : [];
+    const slotList = (typeof UNASSIGNED_SLOTS !== 'undefined' && Array.isArray(UNASSIGNED_SLOTS)) ? UNASSIGNED_SLOTS : [];
+
+    // Filter unassigned scheduled slots
+    let filteredSlots = slotList.filter(s => {
+      if (!query) return true;
+      const hay = (s.day_name + ' ' + s.quarter + ' ' + s.title + ' ' + s.room + ' ' + (s.ai_numbers || []).join(' ')).toLowerCase();
+      return hay.includes(query);
+    });
+
+    // Filter unassigned AI catalog
+    let filteredAis = aiList.filter(a => {
+      if (unassignedScheduledOnly && a.scheduled_count === 0) return false;
+      if (!query) return true;
+      const hay = ('ai ' + a.ai_number + ' ' + a.title).toLowerCase();
+      return hay.includes(query);
+    });
+
+    let html = '';
+
+    // Section 1: Unassigned Scheduled Session Slots
+    html += '<div style="margin-bottom:18px;">' +
+      '<h3 style="font-size:13.5px;font-weight:700;color:#1E293B;margin:0 0 8px 0;">📅 Unassigned Scheduled Session Slots (' + filteredSlots.length + ')</h3>';
+
+    if (filteredSlots.length === 0) {
+      html += '<div class="empty-state-box" style="padding:18px;">✅ All scheduled session slots have at least one assigned delegate!</div>';
+    } else {
+      let sRows = '';
+      for (const s of filteredSlots) {
+        const tuLbl = (s.sub_slot === 1) ? 'TU 1' : (s.sub_slot === 2) ? 'TU 2' : 'Full';
+        const unAis = (s.unassigned_ais && s.unassigned_ais.length > 0)
+          ? s.unassigned_ais.map(a => '<span class="ai-chip unassigned-chip">❓ AI ' + escHtml(a) + '</span>').join(' ')
+          : '<span class="del-pill-badge is-unassigned-pill">❓ Entire Slot Unassigned</span>';
+        const freeNames = getFreeMembersForSlot(s.day_idx, s.quarter, s.sub_slot || 0);
+        const freeStr = freeNames.length > 0
+          ? freeNames.map(fn => {
+              const fm = getRosterMemberMeta(fn);
+              return '<span class="free-colleague-pill" style="background:' + fm.bg_tint + ';color:' + fm.color + ';border:1px solid ' + fm.border_tint + ';">🟢 ' + escHtml(fn) + '</span>';
+            }).join(' ')
+          : '<span style="color:#94A3B8;font-size:11px;">—</span>';
+
+        sRows += '<tr>' +
+          '<td style="white-space:nowrap;"><strong>' + escHtml(s.day_name) + ' · ' + escHtml(s.quarter) + '</strong> (' + tuLbl + ')<br><span style="font-size:11px;color:#64748B;">' + escHtml(s.start_local) + '–' + escHtml(s.end_local) + '</span></td>' +
+          '<td style="white-space:nowrap;"><span class="stream-badge str-' + s.stream_num + '">Stream ' + s.stream_num + '</span><br><span style="font-size:11px;color:#64748B;">📍 ' + escHtml(s.room) + '</span></td>' +
+          '<td><div style="font-weight:600;color:#0F172A;">' + escHtml(s.title) + '</div><div style="margin-top:4px;">' + unAis + '</div></td>' +
+          '<td>' + freeStr + '</td>' +
+          '<td style="text-align:right;white-space:nowrap;"><button class="btn-jump-grid" onclick="jumpToSlotInGrid(' + s.day_idx + ', \\'' + escHtml(s.quarter) + '\\', ' + s.stream_num + ')">🔍 Show in Grid</button></td>' +
+        '</tr>';
+      }
+      html += '<table class="aux-table"><thead><tr><th>Day / Period</th><th>Stream & Room</th><th>Session Topic & Unassigned AIs</th><th>🟢 Available Colleagues</th><th style="text-align:right;">Action</th></tr></thead><tbody>' + sRows + '</tbody></table>';
+    }
+    html += '</div>';
+
+    // Section 2: Unassigned Agenda Items (AI Catalog)
+    html += '<div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">' +
+        '<h3 style="font-size:13.5px;font-weight:700;color:#1E293B;margin:0;">📑 Unassigned Agenda Items (' + filteredAis.length + ')</h3>' +
+        '<label class="toggle-label" style="font-size:12px;"><input type="checkbox" ' + (unassignedScheduledOnly ? 'checked' : '') + ' onchange="toggleUnassignedScope(this.checked)"> Show only AIs scheduled in this session plan</label>' +
+      '</div>';
+
+    if (filteredAis.length === 0) {
+      html += '<div class="empty-state-box" style="padding:18px;">✅ Zero unassigned Agenda Items matching current filter!</div>';
+    } else {
+      let aRows = '';
+      for (const a of filteredAis) {
+        let schedBadges = '<span style="color:#94A3B8;font-size:11px;">Not scheduled in grid</span>';
+        let jumpBtn = '';
+        if (a.slots && a.slots.length > 0) {
+          schedBadges = a.slots.map(sl =>
+            '<span class="ai-chip" style="cursor:pointer;margin-right:4px;" onclick="jumpToSlotInGrid(' + sl.day_idx + ', \\'' + escHtml(sl.quarter) + '\\', ' + sl.stream_num + ')">📅 ' + escHtml(sl.day_name.substring(0, 3)) + ' ' + escHtml(sl.quarter) + ' (Str ' + sl.stream_num + ')</span>'
+          ).join(' ');
+          const first = a.slots[0];
+          jumpBtn = '<button class="btn-jump-grid" onclick="jumpToSlotInGrid(' + first.day_idx + ', \\'' + escHtml(first.quarter) + '\\', ' + first.stream_num + ')">🔍 Jump to Slot</button>';
+        }
+        const tdocBadge = a.tdoc_count ? '<span class="ai-chip">[' + escHtml(a.tdoc_count) + ' TDocs]</span>' : '—';
+        aRows += '<tr>' +
+          '<td style="white-space:nowrap;font-weight:700;color:#B45309;">❓ AI ' + escHtml(a.ai_number) + '</td>' +
+          '<td style="font-weight:600;color:#0F172A;">' + escHtml(a.title) + '</td>' +
+          '<td>' + tdocBadge + '</td>' +
+          '<td>' + schedBadges + '</td>' +
+          '<td style="text-align:right;white-space:nowrap;">' + jumpBtn + '</td>' +
+        '</tr>';
+      }
+      html += '<table class="aux-table"><thead><tr><th>AI Number</th><th>Topic / Work Item Description</th><th>TDocs</th><th>Scheduled Sessions</th><th style="text-align:right;">Action</th></tr></thead><tbody>' + aRows + '</tbody></table>';
+    }
+    html += '</div>';
+
+    container.innerHTML = html;
+  }
+
+  // ------------------------------------------------------------------
+  // "Highlight Now" & Live Venue Dispatch Board ("Where should each delegate go?")
+  // ------------------------------------------------------------------
+  function getDistinctScheduledSlots() {
+    const map = {};
+    for (const ev of CAL_EVENTS) {
+      const tus = (ev.sub_slot === 1) ? [1] : (ev.sub_slot === 2) ? [2] : [1, 2];
+      for (const tu of tus) {
+        const k = ev.day_idx + '|' + ev.quarter + '|' + tu;
+        if (!map[k]) {
+          map[k] = {
+            key: k,
+            day_idx: ev.day_idx,
+            day_name: ev.day_name || DAY_NAMES_LIST[ev.day_idx] || ('Day ' + (ev.day_idx + 1)),
+            quarter: ev.quarter,
+            tu: tu,
+            start_local: ev.start_local,
+            end_local: ev.end_local
+          };
+        }
+      }
+    }
+    const list = Object.values(map);
+    list.sort((a, b) => (a.day_idx - b.day_idx) || (PERIOD_LIST.indexOf(a.quarter) - PERIOD_LIST.indexOf(b.quarter)) || (a.tu - b.tu));
+    return list;
+  }
+
+  function detectLiveOrNextSlot() {
+    const allSlots = getDistinctScheduledSlots();
+    if (allSlots.length === 0) return null;
+
+    if (!MEETING_BASE_DATE) {
+      return Object.assign({}, allSlots[0], { is_live: false, status_note: 'Previewing first scheduled session' });
+    }
+
+    const now = new Date();
+    const venueMs = now.getTime() + (MEETING_TZ_OFFSET_MIN * 60000);
+    const vDate = new Date(venueMs);
+    const pad = n => String(n).padStart(2, '0');
+    const curTime = pad(vDate.getUTCHours()) + ':' + pad(vDate.getUTCMinutes());
+
+    const parts = MEETING_BASE_DATE.split('-');
+    const baseMs = Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    const vDayMs = Date.UTC(vDate.getUTCFullYear(), vDate.getUTCMonth(), vDate.getUTCDate());
+    const dayDiff = Math.floor((vDayMs - baseMs) / 86400000);
+
+    if (dayDiff >= 0 && dayDiff <= 4) {
+      const todayEvents = CAL_EVENTS.filter(e => e.day_idx === dayDiff);
+      const liveEvs = todayEvents.filter(e => e.start_local <= curTime && curTime < e.end_local);
+      if (liveEvs.length > 0) {
+        const sample = liveEvs.find(e => e.sub_slot === 1 || e.sub_slot === 2) || liveEvs[0];
+        const tu = sample.sub_slot || 1;
+        return {
+          key: dayDiff + '|' + sample.quarter + '|' + tu,
+          day_idx: dayDiff,
+          day_name: DAY_NAMES_LIST[dayDiff] || 'Today',
+          quarter: sample.quarter,
+          tu: tu,
+          is_live: true,
+          status_note: '🟢 LIVE NOW (Venue ' + curTime + ')'
+        };
+      }
+      const nextEvs = todayEvents.filter(e => e.start_local > curTime).sort((a, b) => a.start_local.localeCompare(b.start_local));
+      if (nextEvs.length > 0) {
+        const n = nextEvs[0];
+        const tu = n.sub_slot || 1;
+        return {
+          key: dayDiff + '|' + n.quarter + '|' + tu,
+          day_idx: dayDiff,
+          day_name: DAY_NAMES_LIST[dayDiff] || 'Today',
+          quarter: n.quarter,
+          tu: tu,
+          is_live: false,
+          status_note: '⏳ Up Next Today at ' + n.start_local + ' (Venue ' + curTime + ')'
+        };
+      }
+    }
+    return Object.assign({}, allSlots[0], {
+      is_live: false,
+      status_note: (dayDiff < 0) ? '📅 Before meeting start — previewing Day 1 Q1' : '🏁 Outside live hours — interactive slot dispatch preview'
+    });
+  }
+
+  function highlightNow(forceOpen) {
+    const panel = document.getElementById('nowDispatchPanel');
+    const btn = document.getElementById('btnHighlightNow');
+    if (!panel) return;
+
+    if (typeof forceOpen === 'boolean') {
+      nowPanelOpen = forceOpen;
+    } else {
+      nowPanelOpen = !nowPanelOpen;
+    }
+
+    panel.style.display = nowPanelOpen ? 'block' : 'none';
+    if (btn) btn.classList.toggle('active', nowPanelOpen);
+
+    if (!nowPanelOpen) {
+      document.querySelectorAll('.is-now-focused').forEach(el => el.classList.remove('is-now-focused'));
+      updateStickyHeaderOffsets();
+      return;
+    }
+
+    if (!nowTargetSlot) {
+      nowTargetSlot = detectLiveOrNextSlot();
+    }
+    renderNowDispatchPanel();
+    focusSlotCellsInDOM(nowTargetSlot, true);
+    updateStickyHeaderOffsets();
+  }
+
+  function selectNowSlotByKey(slotKey) {
+    const allSlots = getDistinctScheduledSlots();
+    const found = allSlots.find(s => s.key === slotKey);
+    if (found) {
+      nowTargetSlot = Object.assign({}, found, { is_live: false, status_note: '🔎 Manual Slot Inspection' });
+      renderNowDispatchPanel();
+      focusSlotCellsInDOM(nowTargetSlot, true);
+    }
+  }
+
+  function stepNowSlot(delta) {
+    const allSlots = getDistinctScheduledSlots();
+    if (allSlots.length === 0) return;
+    if (!nowTargetSlot) nowTargetSlot = detectLiveOrNextSlot();
+    let idx = allSlots.findIndex(s => s.key === (nowTargetSlot && nowTargetSlot.key));
+    if (idx < 0) idx = 0;
+    idx = (idx + delta + allSlots.length) % allSlots.length;
+    nowTargetSlot = Object.assign({}, allSlots[idx], { is_live: false, status_note: '🔎 Manual Slot Inspection' });
+    renderNowDispatchPanel();
+    focusSlotCellsInDOM(nowTargetSlot, true);
+  }
+
+  function resetNowToLiveClock() {
+    nowTargetSlot = detectLiveOrNextSlot();
+    renderNowDispatchPanel();
+    focusSlotCellsInDOM(nowTargetSlot, true);
+  }
+
+  function focusSlotCellsInDOM(slotObj, shouldScroll) {
+    document.querySelectorAll('.is-now-focused').forEach(el => el.classList.remove('is-now-focused'));
+    if (!slotObj) return;
+    const sDay = String(slotObj.day_idx);
+    const sPeriod = String(slotObj.quarter);
+    const gridCells = document.querySelectorAll('.grid-cell[data-day="' + sDay + '"][data-period="' + sPeriod + '"]');
+    gridCells.forEach(el => {
+      const cTu = el.getAttribute('data-tu');
+      if (!cTu || cTu === '0' || cTu === String(slotObj.tu)) {
+        el.classList.add('is-now-focused');
+      }
+    });
+    const cardRows = document.querySelectorAll('.cards-slot-row[data-day="' + sDay + '"][data-period="' + sPeriod + '"]');
+    cardRows.forEach(el => {
+      const cTu = el.getAttribute('data-tu');
+      if (!cTu || cTu === '0' || cTu === String(slotObj.tu)) {
+        el.classList.add('is-now-focused');
+      }
+    });
+
+    if (shouldScroll) {
+      if (currentView === 'cards') {
+        const dayName = DAY_NAMES_LIST[slotObj.day_idx] || 'Monday';
+        switchDay(dayName);
+        if (cardRows.length > 0 && cardRows[0].scrollIntoView) {
+          cardRows[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      } else if (currentView === 'grid') {
+        if (gridCells.length > 0 && gridCells[0].scrollIntoView) {
+          gridCells[0].scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        }
+      }
+    }
+  }
+
+  function renderNowDispatchPanel() {
+    const panel = document.getElementById('nowDispatchPanel');
+    if (!panel) return;
+    const allSlots = getDistinctScheduledSlots();
+    if (!nowTargetSlot && allSlots.length > 0) {
+      nowTargetSlot = detectLiveOrNextSlot();
+    }
+    if (!nowTargetSlot) {
+      panel.innerHTML = '<div style="font-weight:600;">No scheduled sessions in this snapshot.</div>';
+      return;
+    }
+
+    const activeEvs = CAL_EVENTS.filter(e =>
+      e.day_idx === nowTargetSlot.day_idx &&
+      e.quarter === nowTargetSlot.quarter &&
+      (e.sub_slot === 0 || e.sub_slot === nowTargetSlot.tu)
+    ).sort((a, b) => a.stream_num - b.stream_num);
+
+    let optionsHtml = '';
+    for (const s of allSlots) {
+      const sel = (s.key === nowTargetSlot.key) ? ' selected' : '';
+      optionsHtml += '<option value="' + escHtml(s.key) + '"' + sel + '>' +
+        escHtml(s.day_name) + ' · ' + escHtml(s.quarter) + ' (TU ' + s.tu + ') — ' + escHtml(s.start_local) + '–' + escHtml(s.end_local) +
+        '</option>';
+    }
+
+    const allMembers = getAllRosterNames();
+    let cardsHtml = '';
+
+    for (const member of allMembers) {
+      const mMeta = getRosterMemberMeta(member);
+      const mLower = member.toLowerCase();
+      const myEvs = activeEvs.filter(e => e.is_all || (e.delegates || []).some(d => d.toLowerCase() === mLower));
+
+      if (myEvs.length === 0) {
+        cardsHtml += '<div class="now-del-card status-free" onclick="selectDelegate(\\'' + escHtml(member) + '\\')">' +
+          '<div class="now-del-top">' +
+            '<span class="now-del-name" style="color:' + mMeta.color + ';">● ' + escHtml(member) + '</span>' +
+            '<span class="now-del-status-tag" style="background:#DCFCE7;color:#15803D;">🟢 Free / Available</span>' +
+          '</div>' +
+          '<div class="now-del-dest" style="color:#64748B;">No assigned stream in this time unit</div>' +
+        '</div>';
+      } else if (myEvs.length === 1) {
+        const ev = myEvs[0];
+        const roleBadge = ev.is_all ? '👥 All Team' : (ev.is_cov ? '⚡ Override' : '📌 Owner');
+        cardsHtml += '<div class="now-del-card status-busy" onclick="jumpToSlotInGrid(' + ev.day_idx + ', \\'' + escHtml(ev.quarter) + '\\', ' + ev.stream_num + ')">' +
+          '<div class="now-del-top">' +
+            '<span class="now-del-name" style="color:' + mMeta.color + ';">● ' + escHtml(member) + '</span>' +
+            '<span class="now-del-status-tag" style="background:#DBEAFE;color:#1D4ED8;">➡️ Str ' + ev.stream_num + ' (' + roleBadge + ')</span>' +
+          '</div>' +
+          '<div class="now-del-dest">📍 ' + escHtml(ev.room) + '</div>' +
+          '<div class="now-del-topic" title="' + escHtml(ev.title) + '">' + escHtml(ev.title) + '</div>' +
+        '</div>';
+      } else {
+        const rooms = myEvs.map(e => 'Str ' + e.stream_num + ' (' + e.room + ')').join(' ⚡ ');
+        const titles = myEvs.map(e => 'Str ' + e.stream_num + ': ' + e.title).join(' | ');
+        cardsHtml += '<div class="now-del-card status-clash" onclick="switchView(\\'conflicts\\')">' +
+          '<div class="now-del-top">' +
+            '<span class="now-del-name" style="color:' + mMeta.color + ';">● ' + escHtml(member) + '</span>' +
+            '<span class="now-del-status-tag" style="background:#FEE2E2;color:#B91C1C;">⚠️ CLASH (' + myEvs.length + ' Streams)</span>' +
+          '</div>' +
+          '<div class="now-del-dest" style="color:#B91C1C;">📍 ' + escHtml(rooms) + '</div>' +
+          '<div class="now-del-topic" title="' + escHtml(titles) + '">' + escHtml(titles) + '</div>' +
+        '</div>';
+      }
+    }
+
+    let uncoveredHtml = '';
+    const uncoveredStreams = activeEvs.filter(e => !e.is_all && (!e.delegates || e.delegates.length === 0));
+    if (uncoveredStreams.length > 0) {
+      const uStr = uncoveredStreams.map(e => '<strong>Stream ' + e.stream_num + ' (' + escHtml(e.room) + '):</strong> ' + escHtml(e.title.substring(0, 45))).join(' &bull; ');
+      uncoveredHtml = '<div class="now-streams-summary" style="color:#B45309;">❓ <strong>Unassigned Active Stream(s):</strong> ' + uStr + '</div>';
+    } else if (activeEvs.length > 0) {
+      const cStr = activeEvs.map(e => '<strong>Str ' + e.stream_num + ' (' + escHtml(e.room) + '):</strong> ' + (e.is_all ? 'All Team' : (e.delegates || []).join(', '))).join(' &nbsp;|&nbsp; ');
+      uncoveredHtml = '<div class="now-streams-summary">🏢 <strong>Active Rooms Summary:</strong> ' + cStr + '</div>';
+    }
+
+    panel.innerHTML =
+      '<div class="now-panel-header">' +
+        '<div class="now-panel-title">' +
+          '<span>📍 Where Each Delegate Should Go</span>' +
+          '<span style="font-size:11px;font-weight:600;background:#DCFCE7;color:#065F46;padding:2px 8px;border-radius:999px;">' + escHtml(nowTargetSlot.status_note || '') + '</span>' +
+        '</div>' +
+        '<div class="now-slot-controls">' +
+          '<button class="now-step-btn" onclick="stepNowSlot(-1)" title="Previous Time Unit">◀ Prev</button>' +
+          '<select class="now-select" onchange="selectNowSlotByKey(this.value)">' + optionsHtml + '</select>' +
+          '<button class="now-step-btn" onclick="stepNowSlot(1)" title="Next Time Unit">Next ▶</button>' +
+          '<button class="now-step-btn" onclick="resetNowToLiveClock()" title="Sync to Live Venue Clock">🕒 Live Now</button>' +
+          '<button class="now-step-btn" onclick="highlightNow(false)" title="Close Panel">✕</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="now-dispatch-grid">' + cardsHtml + '</div>' +
+      uncoveredHtml;
+  }
+
   // Live Venue Status Monitor ("Now / Up Next")
   function checkLiveVenueStatus() {
     const banner = document.getElementById('liveVenueBanner');
@@ -1252,12 +2112,12 @@ class SessionPlanExporter:
 
     if (dayDiff < 0) {
       const daysUntil = -dayDiff;
-      banner.innerHTML = '📅 Meeting starts in ' + daysUntil + ' day' + (daysUntil > 1 ? 's' : '') + ' (' + MEETING_BASE_DATE + ')';
+      banner.innerHTML = '<span>📅 Meeting starts in ' + daysUntil + ' day' + (daysUntil > 1 ? 's' : '') + ' (' + MEETING_BASE_DATE + ')</span> <span style="font-size:11px;text-decoration:underline;">📍 Preview Dispatch Guide</span>';
       banner.style.display = 'flex';
       return;
     }
     if (dayDiff > 4) {
-      banner.innerHTML = '🏁 Meeting concluded on Friday (' + MEETING_BASE_DATE + ')';
+      banner.innerHTML = '<span>🏁 Meeting concluded on Friday (' + MEETING_BASE_DATE + ')</span> <span style="font-size:11px;text-decoration:underline;">📍 Open Dispatch Guide</span>';
       banner.style.display = 'flex';
       return;
     }
@@ -1281,14 +2141,14 @@ class SessionPlanExporter:
         const n = upcoming[0];
         nextMsg = ' &bull; Next: ' + n.start_local + ' (' + (n.title || '').substring(0, 30) + ')';
       }
-      banner.innerHTML = '<span class="pulse-dot"></span> <span><strong>LIVE NOW</strong> (Venue ' + curTime + '): ' + liveTitles + nextMsg + '</span>';
+      banner.innerHTML = '<span><span class="pulse-dot"></span> <strong>LIVE NOW</strong> (Venue ' + curTime + '): ' + liveTitles + nextMsg + '</span> <span style="font-size:11px;text-decoration:underline;">📍 Where should each delegate go?</span>';
       banner.style.display = 'flex';
     } else if (upcoming.length > 0) {
       const n = upcoming[0];
-      banner.innerHTML = '⏳ <strong>Venue Time ' + curTime + '</strong> &bull; Next session at ' + n.start_local + ': ' + (n.title || '').substring(0, 45);
+      banner.innerHTML = '<span>⏳ <strong>Venue Time ' + curTime + '</strong> &bull; Next session at ' + n.start_local + ': ' + (n.title || '').substring(0, 45) + '</span> <span style="font-size:11px;text-decoration:underline;">📍 Where to go next?</span>';
       banner.style.display = 'flex';
     } else {
-      banner.innerHTML = "🌙 <strong>Venue Time " + curTime + "</strong> &bull; Today's sessions concluded. Resumes tomorrow at 09:00.";
+      banner.innerHTML = '<span>🌙 <strong>Venue Time ' + curTime + '</strong> &bull; Sessions concluded for today. Resumes tomorrow at 09:00.</span> <span style="font-size:11px;text-decoration:underline;">📍 Open Dispatch Guide</span>';
       banner.style.display = 'flex';
     }
   }
@@ -1297,9 +2157,13 @@ class SessionPlanExporter:
   if (window.innerWidth <= 768) {
     switchView('cards');
   }
+  if (window.addEventListener) {
+    window.addEventListener('resize', updateStickyHeaderOffsets);
+  }
   toggleEmptyBreaks();
   detectDelegateClashes('ALL');
   checkLiveVenueStatus();
+  updateStickyHeaderOffsets();
   setInterval(checkLiveVenueStatus, 30000);
 """
 
@@ -1326,11 +2190,14 @@ class SessionPlanExporter:
       {snap_label_html}
     </div>
     <div class="header-actions">
-      <span id="clashWarningBadge" class="badge-clash" style="display:none;"></span>
+      <span id="clashWarningBadge" class="badge-clash" style="display:none;" onclick="switchView('conflicts')" title="Click to open the Parallel Stream Conflicts & Coverage Board"></span>
+      <button id="btnHighlightNow" class="btn-highlight-now" onclick="highlightNow()" title="Highlight where we are now and show where each delegate should go">📍 Highlight Now</button>
       <button id="btnDownloadIcs" class="btn-cal-download" onclick="downloadSelectedCalendar()" title="Download RFC 5545 calendar for selected delegate or whole team">📅 Download Team .ics</button>
       <div class="view-switcher">
         <button id="btnViewGrid" class="view-btn active" onclick="switchView('grid')">🗓️ Overview Grid</button>
         <button id="btnViewCards" class="view-btn" onclick="switchView('cards')">📱 Day Cards</button>
+        <button id="btnViewConflicts" class="view-btn" onclick="switchView('conflicts')">⚠️ Conflicts (0)</button>
+        <button id="btnViewUnassigned" class="view-btn" onclick="switchView('unassigned')">❓ Unassigned AIs ({unassigned_ai_count})</button>
       </div>
     </div>
   </div>
@@ -1339,14 +2206,16 @@ class SessionPlanExporter:
     📍 {tz_name}{tz_extra}
   </div>
 
-  <div id="liveVenueBanner" class="live-banner" style="display:none;"></div>
+  <div id="liveVenueBanner" class="live-banner" style="display:none;" onclick="highlightNow()"></div>
+
+  <div id="nowDispatchPanel" class="now-dispatch-panel" style="display:none;"></div>
 
   <div class="del-strip">
     <span class="strip-label">Delegates:</span>
     <button class="del-filter-btn active" data-del="ALL" onclick="selectDelegate('ALL')">👥 All Team</button>
     {del_filter_html}
     <span class="strip-sep"></span>
-    <button id="btnTracked" class="del-filter-btn btn-toggle" onclick="toggleTracked()">⭐ Starred Topics</button>
+    <button id="btnUnassigned" class="del-filter-btn btn-toggle" onclick="toggleUnassigned()" title="Highlight scheduled sessions that have no assigned delegate or contain unassigned Agenda Items">❓ Unassigned ({unassigned_slot_count})</button>
     <button id="btnDrafting" class="del-filter-btn btn-toggle" onclick="toggleDrafting()">🛠️ Drafting Only</button>
   </div>
 
@@ -1372,11 +2241,40 @@ class SessionPlanExporter:
   {''.join(cards_html)}
 </div>
 
+<!-- Main View 3: Parallel Stream Conflicts & Coverage Board -->
+<div id="conflictsView" style="display:none;">
+  <div class="aux-view-container">
+    <div class="aux-header-card">
+      <div>
+        <h2 class="aux-title">⚠️ Parallel Stream Conflicts & Coverage Board</h2>
+        <div class="aux-subtitle">Detects double-booked delegates across parallel rooms (with half-quarter TU 1 / TU 2 precision) and identifies free colleagues who can cover.</div>
+      </div>
+    </div>
+    <div id="conflictsViewContent"></div>
+  </div>
+</div>
+
+<!-- Main View 4: Unassigned Agenda Items & Uncovered Sessions -->
+<div id="unassignedView" style="display:none;">
+  <div class="aux-view-container">
+    <div class="aux-header-card">
+      <div>
+        <h2 class="aux-title">❓ Unassigned Agenda Items & Uncovered Sessions</h2>
+        <div class="aux-subtitle">Sessions and Agenda Items that do not yet have a default AI owner or session-level delegate coverage.</div>
+      </div>
+    </div>
+    <div id="unassignedViewContent"></div>
+  </div>
+</div>
+
 <!-- Floating Rich Tooltip Element -->
 <div id="floatingTooltip" class="floating-tooltip"></div>
 
 <script>
   const CAL_EVENTS = {cal_events_json};
+  const ROSTER_MEMBERS = {roster_members_json};
+  const UNASSIGNED_AIS = {unassigned_ais_json};
+  const UNASSIGNED_SLOTS = {unassigned_slots_json};
   const MEETING_BASE_DATE = {json.dumps(base_date_js)};
   const MEETING_TZ_OFFSET_MIN = {meeting_tz_offset_min};
   const MEETING_NUMBER = {json.dumps(str(snapshot.meeting_number or ""))};

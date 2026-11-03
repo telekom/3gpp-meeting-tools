@@ -30,7 +30,7 @@ from typing import Dict, List, Optional
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QCheckBox, QMenu, QToolButton, QWidgetAction
 
-from modules.meetings.core.session_plan_models import DelegationMember, compute_unique_initials
+from modules.meetings.core.session_plan.session_plan_models import DelegationMember, compute_unique_initials
 
 _ALL_TOKENS = ("ALL", "ALL TEAM", "ALL DELEGATES", "👥 ALL TEAM", "👥 ALL")
 

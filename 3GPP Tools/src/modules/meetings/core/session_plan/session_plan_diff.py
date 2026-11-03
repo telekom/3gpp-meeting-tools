@@ -5,9 +5,9 @@ Compares two snapshots (e.g. S2-2609251 vs S2-2610195, or intra-day updates)
 and detects Added, Removed, Rescheduled/Moved, and TDoc Volume changes.
 """
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
-from modules.meetings.core.session_plan_models import (
+from modules.meetings.core.session_plan.session_plan_models import (
     AgendaSlotItem,
     SessionPlanSnapshot,
     SessionSlot,

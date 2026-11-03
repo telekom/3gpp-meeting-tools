@@ -13,10 +13,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from PyQt5.QtCore import QPoint, QSettings, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QColor, QCursor, QFont, QIcon, QKeySequence
+from PyQt5.QtCore import QPoint, QSettings, Qt, QTimer
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
-    QAction,
     QApplication,
     QButtonGroup,
     QCheckBox,
@@ -31,9 +30,6 @@ from PyQt5.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QScrollArea,
-    QSizePolicy,
-    QSplitter,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -44,25 +40,19 @@ from PyQt5.QtWidgets import (
 
 from core.utils.folder_opener import open_folder
 from modules.meetings.core.agenda_manager import AgendaManager
-from modules.meetings.core.session_plan_db import SessionPlanDatabase
-from modules.meetings.core.session_plan_diff import SessionPlanDiffEngine
-from modules.meetings.core.session_plan_exporter import SessionPlanExporter
-from modules.meetings.core.session_plan_models import (
-    DELEGATE_PALETTE,
-    AgendaSlotItem,
+from modules.meetings.core.session_plan.session_plan_db import SessionPlanDatabase
+from modules.meetings.core.session_plan.session_plan_diff import SessionPlanDiffEngine
+from modules.meetings.core.session_plan.session_plan_exporter import SessionPlanExporter
+from modules.meetings.core.session_plan.session_plan_models import (
     DelegationMember,
     DelegationPlan,
-    MeetingStreamInfo,
-    SessionAppointment,
     SessionPlanSnapshot,
     SessionSlot,
-    TopicOwnership,
     UserSessionAnnotation,
     compute_unique_initials,
     resolve_slot_effective_delegates,
 )
-from modules.meetings.core.session_plan_parser import SessionPlanParser
-from modules.meetings.core.session_plan_timezone import SessionPlanTimezone
+from modules.meetings.core.session_plan.session_plan_timezone import SessionPlanTimezone
 from modules.meetings.ui.delegate_owner_picker import DelegateOwnerPicker
 from modules.meetings.ui.session_plan_dialogs import (
     DelegationImportDialog,
@@ -80,7 +70,7 @@ from modules.meetings.ui.tdocs_drop_overlay import DropOverlayWidget
 logger = logging.getLogger(__name__)
 
 from dataclasses import dataclass
-from modules.meetings.core.session_plan_parser import (
+from modules.meetings.core.session_plan.session_plan_parser import (
     PERIOD_ORDER,
     PERIOD_TIMES,
     SessionPlanParser,
@@ -519,6 +509,20 @@ class SessionPlanWindow(QWidget):
         self.btn_grid.setChecked(True)
         self.mode_group.buttonClicked[int].connect(self._on_view_mode_changed)
 
+        # Quick-Jump Conflicts Button
+        self.btn_conflicts_quick = QPushButton("⚠️ Conflicts (0)")
+        self.btn_conflicts_quick.setCursor(Qt.PointingHandCursor)
+        self.btn_conflicts_quick.setStyleSheet("""
+            QPushButton {
+                padding: 5px 10px; font-size: 12px; font-weight: 600; border: 1px solid #FECACA;
+                background: #FEF2F2; color: #B91C1C; border-radius: 6px;
+            }
+            QPushButton:hover { background: #FEE2E2; }
+        """)
+        self.btn_conflicts_quick.setToolTip("Jump directly to the Parallel Stream Conflicts & Coverage Dispatch Board.")
+        self.btn_conflicts_quick.clicked.connect(self._jump_to_conflicts_board)
+        sub_layout.addWidget(self.btn_conflicts_quick)
+
         # Quick Track Topics manager
         self.btn_manage_topics = QPushButton("⭐ Track Topics...")
         self.btn_manage_topics.setStyleSheet("""
@@ -834,6 +838,23 @@ class SessionPlanWindow(QWidget):
         self.btn_auto_assign_wis.setToolTip("Assign topics matching your followed Work Items watchlist to a delegate.")
         self.btn_auto_assign_wis.clicked.connect(self._auto_assign_followed_wis_to_self)
         tt_filter_box.addWidget(self.btn_auto_assign_wis)
+
+        self.btn_reset_session_overrides = QPushButton("↺ Reset Session Overrides")
+        self.btn_reset_session_overrides.setCursor(Qt.PointingHandCursor)
+        self.btn_reset_session_overrides.setStyleSheet(
+            "QPushButton { padding: 5px 11px; font-size: 11.5px; font-weight: 600; border-radius: 6px; border: 1px solid #FDE68A; background: #FFFBEB; color: #92400E; }"
+            "QPushButton:hover { background: #FEF3C7; border-color: #F59E0B; }"
+        )
+        self.btn_reset_session_overrides.setToolTip(
+            "Clear all session-level coverage overrides for this meeting while keeping persistent Default AI Assignments intact."
+        )
+        self.btn_reset_session_overrides.clicked.connect(self._on_reset_all_session_overrides)
+        tt_filter_box.addWidget(self.btn_reset_session_overrides)
+
+        tt_filter_box.addStretch()
+        lbl_persist_hint = QLabel("📌 <i>Default AI Assignments persist across meetings · Session overrides apply to individual slots</i>")
+        lbl_persist_hint.setStyleSheet("font-size: 11px; color: #64748B;")
+        tt_filter_box.addWidget(lbl_persist_hint)
         tt_lay.addLayout(tt_filter_box)
 
         self.team_topics_table = QTableWidget()
@@ -852,6 +873,14 @@ class SessionPlanWindow(QWidget):
         self.team_topics_table.setColumnWidth(2, 220)   # 📅 Scheduled Slots
         self.team_topics_table.setColumnWidth(3, 195)   # 👤 Topic Owner
         self.team_topics_table.setColumnWidth(4, 185)   # 🛡️ Coverage Status
+        if self.team_topics_table.horizontalHeaderItem(3):
+            self.team_topics_table.horizontalHeaderItem(3).setToolTip(
+                "Default AI Assignment — persists across meetings automatically and can be updated between meetings."
+            )
+        if self.team_topics_table.horizontalHeaderItem(4):
+            self.team_topics_table.horizontalHeaderItem(4).setToolTip(
+                "Coverage status across scheduled sessions, including any session-level collision overrides."
+            )
 
         self.team_topics_table.verticalHeader().setDefaultSectionSize(36)
         self.team_topics_table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -891,9 +920,9 @@ class SessionPlanWindow(QWidget):
         tc_lay.addWidget(self.clash_kpi_lbl)
 
         self.team_clashes_table = QTableWidget()
-        self.team_clashes_table.setColumnCount(6)
+        self.team_clashes_table.setColumnCount(7)
         self.team_clashes_table.setHorizontalHeaderLabels([
-            "📅 Slot", "🕒 Time", "👤 Colliding Delegate", "Stream A (Assigned)", "Parallel Stream B", "🛡️ Action / Coverage"
+            "📅 Slot & TU", "🕒 Time", "👤 Colliding Delegate", "Stream A (Assigned)", "Parallel Stream B", "🟢 Free Colleagues", "🛡️ Action / Coverage"
         ])
         h_clashes = self.team_clashes_table.horizontalHeader()
         h_clashes.setSectionResizeMode(0, QHeaderView.Interactive)
@@ -902,15 +931,18 @@ class SessionPlanWindow(QWidget):
         h_clashes.setSectionResizeMode(3, QHeaderView.Stretch)
         h_clashes.setSectionResizeMode(4, QHeaderView.Stretch)
         h_clashes.setSectionResizeMode(5, QHeaderView.Interactive)
+        h_clashes.setSectionResizeMode(6, QHeaderView.Interactive)
 
-        self.team_clashes_table.setColumnWidth(0, 110)
-        self.team_clashes_table.setColumnWidth(1, 150)
-        self.team_clashes_table.setColumnWidth(2, 150)
-        self.team_clashes_table.setColumnWidth(5, 185)
+        self.team_clashes_table.setColumnWidth(0, 125)
+        self.team_clashes_table.setColumnWidth(1, 145)
+        self.team_clashes_table.setColumnWidth(2, 140)
+        self.team_clashes_table.setColumnWidth(5, 165)
+        self.team_clashes_table.setColumnWidth(6, 185)
 
-        self.team_clashes_table.verticalHeader().setDefaultSectionSize(36)
+        self.team_clashes_table.verticalHeader().setDefaultSectionSize(42)
         self.team_clashes_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.team_clashes_table.setAlternatingRowColors(True)
+        self.team_clashes_table.cellDoubleClicked.connect(self._on_clash_cell_double_clicked)
         self.team_clashes_table.setStyleSheet("""
             QHeaderView::section {
                 background-color: #F8FAFC;
@@ -934,7 +966,7 @@ class SessionPlanWindow(QWidget):
         """)
         tc_lay.addWidget(self.team_clashes_table)
 
-        tc_lay.addWidget(QLabel("💡 <i>Click 'Appoint Available Delegate' to inspect who is free in that time slot and appoint coverage on a session-by-session basis.</i>"))
+        tc_lay.addWidget(QLabel("💡 <i>Double-click any row to jump to that slot in the Overview Grid. Click '⚡ Appoint Coverage ▾' to 1-click assign a free colleague or open the dispatch dialog.</i>"))
         self.team_tabs.addTab(tab_clashes, "⚡ Clash && Dispatch Board")
 
         page_layout.addWidget(self.team_tabs, 1)
@@ -1675,15 +1707,35 @@ class SessionPlanWindow(QWidget):
                 if is_all or any(dn.lower() == selected_scope.lower() for dn in del_names):
                     target_slots.append(s)
 
-        # 3. Conflict detection: same day and quarter, multiple streams
-        time_slot_map: Dict[Tuple[int, str], List[SessionSlot]] = {}
-        for s in target_slots:
-            time_slot_map.setdefault((s.day_index, s.quarter), []).append(s)
+        # 3. Conflict detection: accurate per-delegate & half-quarter (TU1/TU2) time overlap across distinct streams
+        slot_conflicts_map: Dict[str, List[Tuple[SessionSlot, List[str]]]] = {}
+        for i, s1 in enumerate(target_slots):
+            if s1.stream_number <= 0:
+                continue
+            dels1, _, is_all1 = self._get_slot_effective_delegates(s1)
+            set1 = set(self.delegation_plan.members.keys()) if (is_all1 and self.delegation_plan) else set(dels1)
 
-        conflicts = {k: slots for k, slots in time_slot_map.items() if len(slots) > 1}
+            for j, s2 in enumerate(target_slots):
+                if i == j or s2.stream_number <= 0 or s1.stream_number == s2.stream_number:
+                    continue
+                if not self._slots_time_overlap(s1, s2):
+                    continue
 
-        if conflicts:
-            self.btn_tracked.setText(f"🎯 Delegate Agenda ({len(target_slots)}) ⚠️ {len(conflicts)} Clash(es)")
+                if selected_scope in ("TRACKED", "SELF"):
+                    shared_dels = ["Tracked"]
+                elif selected_scope != "ALL":
+                    shared_dels = [selected_scope]
+                else:
+                    dels2, _, is_all2 = self._get_slot_effective_delegates(s2)
+                    set2 = set(self.delegation_plan.members.keys()) if (is_all2 and self.delegation_plan) else set(dels2)
+                    shared_dels = sorted(set1 & set2)
+
+                if shared_dels:
+                    slot_conflicts_map.setdefault(s1.slot_key, []).append((s2, shared_dels))
+
+        clash_slot_count = len(slot_conflicts_map)
+        if clash_slot_count:
+            self.btn_tracked.setText(f"🎯 Delegate Agenda ({len(target_slots)}) ⚠️ {clash_slot_count} Clash(es)")
         else:
             self.btn_tracked.setText(f"🎯 Delegate Agenda ({len(target_slots)})")
 
@@ -1702,11 +1754,18 @@ class SessionPlanWindow(QWidget):
             ann = self.annotations.get(s.slot_key)
             note_str = ann.comment if ann else ""
 
-            is_conflict = (s.day_index, s.quarter) in conflicts
+            conflict_entries = slot_conflicts_map.get(s.slot_key, [])
+            is_conflict = bool(conflict_entries)
             note_display = note_str
             if is_conflict:
-                other_streams = [f"Str {o.stream_number}" for o in conflicts[(s.day_index, s.quarter)] if o != s]
-                conflict_tag = f"⚠️ CONFLICT with {', '.join(other_streams)}"
+                other_parts = []
+                for o_slot, sh_dels in conflict_entries:
+                    tu_lbl = f" TU{o_slot.sub_slot}" if o_slot.sub_slot in (1, 2) else ""
+                    if selected_scope == "ALL" and sh_dels and sh_dels != ["Tracked"]:
+                        other_parts.append(f"Str {o_slot.stream_number}{tu_lbl} ({', '.join(sh_dels)})")
+                    else:
+                        other_parts.append(f"Str {o_slot.stream_number}{tu_lbl}")
+                conflict_tag = f"⚠️ CONFLICT with {', '.join(other_parts)}"
                 note_display = f"{conflict_tag} | {note_str}" if note_str else conflict_tag
 
             del_names, is_cov, is_all = self._get_slot_effective_delegates(s)
@@ -2075,15 +2134,29 @@ class SessionPlanWindow(QWidget):
             picker = DelegateOwnerPicker(members_list, owner_name, initials=initials_map)
             picker.ownerChanged.connect(lambda new_owner, a=ai_num: self._on_topic_owner_changed(a, new_owner))
 
+            override_slots = [
+                s for s in slots_for_ai
+                if self.delegation_plan and s.slot_key in self.delegation_plan.appointments
+            ]
+            override_suffix = f" · ⚡ {len(override_slots)} session override(s)" if override_slots else ""
+
             if has_clash:
-                status_txt = "🔴 Collision in parallel stream"
+                status_txt = f"🔴 Collision in parallel stream{override_suffix}"
                 status_col = "#991B1B"
                 status_bg = "#FEF2F2"
             elif owner_name:
                 cov_lbl = "All Team" if to and to.is_all() else (f"{len(owners_list)} delegates" if len(owners_list) > 1 else owner_name)
-                status_txt = f"🟢 Covered ({cov_lbl} · {len(slots_for_ai)} slot(s))" if slots_for_ai else f"⚪ Assigned ({cov_lbl})"
+                status_txt = (
+                    f"🟢 Covered ({cov_lbl} · {len(slots_for_ai)} slot(s){override_suffix})"
+                    if slots_for_ai
+                    else f"⚪ Assigned (Default: {cov_lbl})"
+                )
                 status_col = "#065F46"
                 status_bg = "#ECFDF5"
+            elif override_slots:
+                status_txt = f"⚡ Covered via {len(override_slots)} session override(s) (No default owner)"
+                status_col = "#1D4ED8"
+                status_bg = "#EFF6FF"
             else:
                 status_txt = "🟡 Unassigned"
                 status_col = "#92400E"
@@ -2112,6 +2185,11 @@ class SessionPlanWindow(QWidget):
             lbl = f"✓ 📅 Scheduled Only ({num_sched}/{total_ais})" if is_chk else f"📅 Scheduled Only ({num_sched}/{total_ais})"
             self.btn_toggle_scheduled_only.setText(lbl)
             self._style_scheduled_toggle(is_chk)
+
+        if hasattr(self, "btn_reset_session_overrides"):
+            app_count = len(self.delegation_plan.appointments) if self.delegation_plan else 0
+            self.btn_reset_session_overrides.setText(f"↺ Reset Session Overrides ({app_count})" if app_count else "↺ Reset Session Overrides")
+            self.btn_reset_session_overrides.setEnabled(app_count > 0)
 
         # Apply current filter
         self._filter_topic_ownership_table()
@@ -2144,15 +2222,29 @@ class SessionPlanWindow(QWidget):
                     if has_clash:
                         break
 
+            override_slots = [
+                s for s in slots_for_ai
+                if self.delegation_plan and s.slot_key in self.delegation_plan.appointments
+            ]
+            override_suffix = f" · ⚡ {len(override_slots)} session override(s)" if override_slots else ""
+
             if has_clash:
-                status_txt = "🔴 Collision in parallel stream"
+                status_txt = f"🔴 Collision in parallel stream{override_suffix}"
                 status_col = "#991B1B"
                 status_bg = "#FEF2F2"
             elif owner_name:
                 cov_lbl = "All Team" if to and to.is_all() else (f"{len(owners_list)} delegates" if len(owners_list) > 1 else owner_name)
-                status_txt = f"🟢 Covered ({cov_lbl} · {len(slots_for_ai)} slot(s))" if slots_for_ai else f"⚪ Assigned ({cov_lbl})"
+                status_txt = (
+                    f"🟢 Covered ({cov_lbl} · {len(slots_for_ai)} slot(s){override_suffix})"
+                    if slots_for_ai
+                    else f"⚪ Assigned (Default: {cov_lbl})"
+                )
                 status_col = "#065F46"
                 status_bg = "#ECFDF5"
+            elif override_slots:
+                status_txt = f"⚡ Covered via {len(override_slots)} session override(s) (No default owner)"
+                status_col = "#1D4ED8"
+                status_bg = "#EFF6FF"
             else:
                 status_txt = "🟡 Unassigned"
                 status_col = "#92400E"
@@ -2167,8 +2259,70 @@ class SessionPlanWindow(QWidget):
             item_status.setForeground(QColor(status_col))
             item_status.setBackground(QColor(status_bg))
 
+        if hasattr(self, "btn_reset_session_overrides"):
+            app_count = len(self.delegation_plan.appointments) if self.delegation_plan else 0
+            self.btn_reset_session_overrides.setText(f"↺ Reset Session Overrides ({app_count})" if app_count else "↺ Reset Session Overrides")
+            self.btn_reset_session_overrides.setEnabled(app_count > 0)
+
+    def _jump_to_conflicts_board(self):
+        """Switches to the Team Allocations view and selects the Clash & Dispatch Board tab."""
+        self.btn_team.setChecked(True)
+        self.view_stack.setCurrentIndex(4)
+        if hasattr(self, "team_tabs"):
+            self.team_tabs.setCurrentIndex(1)
+
+    def _on_clash_cell_double_clicked(self, row: int, col: int):
+        """Jumps from a conflict row in the Clash & Dispatch Board directly to that slot in the Overview Grid."""
+        slot_item = self.team_clashes_table.item(row, 0)
+        if not slot_item:
+            return
+        slot_obj = slot_item.data(Qt.UserRole)
+        if not slot_obj:
+            return
+        day_idx = slot_obj.day_index
+        q_name = slot_obj.quarter
+        stream_num = slot_obj.stream_number or 1
+        target_row = None
+        for r_i, r_d in enumerate(self.grid_rows):
+            if r_d.period == q_name and (r_d.stream_number == stream_num or r_d.row_type == "break"):
+                target_row = r_i
+                break
+        if target_row is not None:
+            self.btn_grid.setChecked(True)
+            self.view_stack.setCurrentIndex(0)
+            col_idx = day_idx * 2 + (1 if slot_obj.sub_slot == 2 else 0)
+            self.grid_table.setCurrentCell(target_row, col_idx)
+
+    def _quick_appoint_colleague(self, slot: SessionSlot, original_owner: str, appointed_delegate: str):
+        """1-click direct appointment of an available colleague to resolve a parallel stream collision."""
+        self.db.set_session_appointment(
+            meeting_number=self.meeting_number,
+            slot_key=slot.slot_key,
+            appointed_delegate=appointed_delegate,
+            original_owner=original_owner,
+            reason=f"Covering parallel stream collision for {original_owner}",
+        )
+        self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
+        self._render_current_views()
+
+    def _on_reset_all_session_overrides(self):
+        """Clears all session-level coverage overrides for this meeting while keeping persistent Default AI Assignments."""
+        if not self.delegation_plan or not self.delegation_plan.appointments:
+            return
+        ans = QMessageBox.question(
+            self,
+            "Reset Session Overrides",
+            f"Clear all {len(self.delegation_plan.appointments)} session-level override(s) for SA2 #{self.meeting_number}?\n\nPersistent Default AI Assignments across meetings will remain untouched.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if ans == QMessageBox.Yes:
+            self.db.clear_session_appointments(self.meeting_number)
+            self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
+            self._render_current_views()
+
     def _render_team_clashes(self):
-        """Renders the Clash & Dispatch Board with multi-stream choices and actions."""
+        """Renders the Clash & Dispatch Board with multi-stream choices, free colleague detection, and 1-click actions."""
         if not self.delegation_plan:
             return
 
@@ -2176,6 +2330,18 @@ class SessionPlanWindow(QWidget):
         clash_count = len(collisions)
         self.btn_team.setText(f"👥 Team Allocations ({clash_count} ⚠️)" if clash_count else "👥 Team Allocations (Clean)")
         self.team_tabs.setTabText(1, f"⚡ Clash && Dispatch Board ({clash_count})")
+        if hasattr(self, "btn_conflicts_quick"):
+            self.btn_conflicts_quick.setText(f"⚠️ Conflicts ({clash_count})")
+            if clash_count > 0:
+                self.btn_conflicts_quick.setStyleSheet(
+                    "QPushButton { padding: 5px 10px; font-size: 12px; font-weight: 700; border: 1px solid #FCA5A5; background: #FEF2F2; color: #B91C1C; border-radius: 6px; }"
+                    "QPushButton:hover { background: #FEE2E2; }"
+                )
+            else:
+                self.btn_conflicts_quick.setStyleSheet(
+                    "QPushButton { padding: 5px 10px; font-size: 12px; font-weight: 600; border: 1px solid #A7F3D0; background: #ECFDF5; color: #065F46; border-radius: 6px; }"
+                    "QPushButton:hover { background: #D1FAE5; }"
+                )
 
         if clash_count == 0:
             self.clash_kpi_lbl.setText("✅ No collisions detected! All parallel streams have distinct delegates or single coverage.")
@@ -2185,7 +2351,7 @@ class SessionPlanWindow(QWidget):
             self.team_clashes_table.setRowCount(0)
         else:
             self.clash_kpi_lbl.setText(
-                f"⚠️ {clash_count} Double-Booking Collision(s) Detected! Appoint an available delegate to cover parallel rooms."
+                f"⚠️ {clash_count} Double-Booking Collision(s) Detected! Appoint an available colleague to cover one of the parallel rooms."
             )
             self.clash_kpi_lbl.setStyleSheet(
                 "background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 6px;"
@@ -2198,10 +2364,23 @@ class SessionPlanWindow(QWidget):
                     s_a.start_time_local, s_a.end_time_local, self.tz_offset_min
                 )
 
-                item_slot = QTableWidgetItem(f"{s_a.day_name} {s_a.quarter}")
+                # Determine overlapping TUs
+                has_tu1 = all(s.sub_slot in (0, 1) for s in slots) or any(
+                    s1.sub_slot in (0, 1) and s2.sub_slot in (0, 1) and s1.stream_number != s2.stream_number
+                    for s1 in slots for s2 in slots
+                )
+                has_tu2 = all(s.sub_slot in (0, 2) for s in slots) or any(
+                    s1.sub_slot in (0, 2) and s2.sub_slot in (0, 2) and s1.stream_number != s2.stream_number
+                    for s1 in slots for s2 in slots
+                )
+                tu_tag = " (TU 1&2)" if (has_tu1 and has_tu2) else (" (TU 1)" if has_tu1 else (" (TU 2)" if has_tu2 else ""))
+
+                item_slot = QTableWidgetItem(f"{s_a.day_name} {s_a.quarter}{tu_tag}")
+                item_slot.setData(Qt.UserRole, s_a)
+                item_slot.setToolTip("Double-click to jump to this slot in the Overview Grid.")
                 item_time = QTableWidgetItem(time_str)
 
-                item_del = QTableWidgetItem(del_name)
+                item_del = QTableWidgetItem(f"● {del_name}")
                 m = self.delegation_plan.members.get(del_name)
                 if m:
                     item_del.setForeground(QColor(m.color))
@@ -2209,27 +2388,65 @@ class SessionPlanWindow(QWidget):
                 f.setBold(True)
                 item_del.setFont(f)
 
-                s_info_a = self.active_snapshot.streams.get(s_a.stream_number) if self.active_snapshot else None
-                r_a = getattr(s_a, "room_override", "") or (s_info_a.room_name if s_info_a else f"Stream {s_a.stream_number}")
-                item_stra = QTableWidgetItem(f"Str {s_a.stream_number} ({r_a}): {s_a.raw_text}")
+                def _format_clash_slot_desc(slot_obj: SessionSlot) -> str:
+                    s_inf = self.active_snapshot.streams.get(slot_obj.stream_number) if self.active_snapshot else None
+                    rm = getattr(slot_obj, "room_override", "") or (s_inf.room_name if s_inf else f"Stream {slot_obj.stream_number}")
+                    _, is_cov_flag, is_all_flag = self._get_slot_effective_delegates(slot_obj)
+                    role_lbl = "[All Team]" if is_all_flag else ("[Override]" if is_cov_flag else "[Owner]")
+                    tu_sub = f" [TU {slot_obj.sub_slot}]" if slot_obj.sub_slot in (1, 2) else ""
+                    return f"Str {slot_obj.stream_number}{tu_sub} ({rm}) {role_lbl}: {slot_obj.raw_text}"
 
-                other_desc = []
-                for other_s in slots[1:]:
-                    s_inf = self.active_snapshot.streams.get(other_s.stream_number) if self.active_snapshot else None
-                    r_oth = getattr(other_s, "room_override", "") or (s_inf.room_name if s_inf else f"Stream {other_s.stream_number}")
-                    other_desc.append(f"Str {other_s.stream_number} ({r_oth}): {other_s.raw_text}")
-                item_strb = QTableWidgetItem("\n".join(other_desc) if other_desc else f"Str {slots[1].stream_number}: {slots[1].raw_text}")
+                item_stra = QTableWidgetItem(_format_clash_slot_desc(s_a))
+                item_stra.setToolTip(_format_clash_slot_desc(s_a))
+
+                other_desc = [_format_clash_slot_desc(other_s) for other_s in slots[1:]]
+                strb_txt = "\n".join(other_desc) if other_desc else _format_clash_slot_desc(slots[-1])
+                item_strb = QTableWidgetItem(strb_txt)
+                item_strb.setToolTip(strb_txt)
+
+                # Compute free colleagues for this collision
+                avail_map = self._compute_delegate_availability(s_a)
+                free_colleagues = [
+                    c_name for c_name, c_info in avail_map.items()
+                    if c_info.get("status") == "free" and c_name.lower() != del_name.lower()
+                ]
+                if free_colleagues:
+                    free_txt = "🟢 " + ", ".join(free_colleagues)
+                    free_col = "#065F46"
+                else:
+                    free_txt = "⚠️ All busy"
+                    free_col = "#991B1B"
+                item_free = QTableWidgetItem(free_txt)
+                item_free.setForeground(QColor(free_col))
+                item_free.setToolTip(
+                    f"Available colleagues during {s_a.day_name} {s_a.quarter}: {', '.join(free_colleagues)}"
+                    if free_colleagues
+                    else "All delegation members are currently assigned to parallel streams in this slot."
+                )
 
                 btn_appoint = QPushButton("⚡ Appoint Coverage ▾")
                 btn_appoint.setStyleSheet(
                     "padding: 3px 8px; font-size: 11px; font-weight: 600; border-radius: 6px; background: #059669; color: #FFFFFF;"
                 )
                 menu = QMenu(btn_appoint)
+                if free_colleagues:
+                    for fc in free_colleagues:
+                        for s_opt in slots:
+                            act_q = menu.addAction(f"⚡ Quick-Appoint {fc} (🟢 Free) → Cover Str {s_opt.stream_number}")
+                            act_q.triggered.connect(
+                                lambda _, slot=s_opt, orig=del_name, target=fc: self._quick_appoint_colleague(slot, orig, target)
+                            )
+                    menu.addSeparator()
+
                 for s_opt in slots:
                     s_inf = self.active_snapshot.streams.get(s_opt.stream_number) if self.active_snapshot else None
                     rm = getattr(s_opt, "room_override", "") or (s_inf.room_name if s_inf else f"Stream {s_opt.stream_number}")
-                    act = menu.addAction(f"Cover Str {s_opt.stream_number} ({rm}): {s_opt.raw_text[:30]}...")
+                    act = menu.addAction(f"🔧 Dispatch Dialog: Cover Str {s_opt.stream_number} ({rm}): {s_opt.raw_text[:28]}...")
                     act.triggered.connect(lambda _, slot=s_opt, orig=del_name: self._on_dispatch_slot(slot, orig))
+
+                menu.addSeparator()
+                act_jump = menu.addAction(f"🔍 Show {s_a.day_name} {s_a.quarter} in Overview Grid")
+                act_jump.triggered.connect(lambda _, r=row: self._on_clash_cell_double_clicked(r, 0))
                 btn_appoint.setMenu(menu)
 
                 self.team_clashes_table.setItem(row, 0, item_slot)
@@ -2237,7 +2454,8 @@ class SessionPlanWindow(QWidget):
                 self.team_clashes_table.setItem(row, 2, item_del)
                 self.team_clashes_table.setItem(row, 3, item_stra)
                 self.team_clashes_table.setItem(row, 4, item_strb)
-                self.team_clashes_table.setCellWidget(row, 5, btn_appoint)
+                self.team_clashes_table.setItem(row, 5, item_free)
+                self.team_clashes_table.setCellWidget(row, 6, btn_appoint)
 
     def _render_team_view(self):
         """Refreshes the Team Allocations view: Roster chips, Topic Ownership Matrix, and Clash Board."""

@@ -21,8 +21,8 @@ from modules.word_tools.core.libreoffice_converter import (
     convert_document_libreoffice, is_libreoffice_available,
 )
 from modules.meetings.core.tdoc_url_resolver import resolve_tdoc_download_url
-from modules.meetings.core import tdoc2md as _core
-from modules.meetings.core.tdoc2md import (
+from modules.meetings.core.exporters import tdoc2md as _core
+from modules.meetings.core.exporters.tdoc2md import (
     DEFAULT_CORPUS_PROMPT, MARKUP_LEGEND, DOC_EXTENSIONS,
     DocResult, ExportedDoc, ParaRender, Styles, Numbering,
     sanitize_filename, safe_media_name, guess_tdoc_id, base_tdoc_id,

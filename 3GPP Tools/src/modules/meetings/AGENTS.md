@@ -16,22 +16,33 @@ The Meetings module manages 3GPP meeting synchronization, TDoc exploration, agen
 src/modules/meetings/
 ├── AGENTS.md                          # This guide
 ├── core/
-│   ├── excel_exporter.py              # Formatted Excel (.xlsx) export
-│   ├── llm_exporter.py                # Batch/single document extraction and export to Markdown
-│   ├── markdown_exporter.py           # Meeting summary reports (agreed CRs, LSs, company contributions)
-│   ├── post_meeting_exporter.py       # Post-meeting report generator (per-release & per-WI dossier)
+│   ├── exporters/                     # Multi-format export engines
+│   │   ├── dossier_exporter.py        # Per-TDoc dossier exporter
+│   │   ├── excel_exporter.py          # Formatted Excel (.xlsx) export
+│   │   ├── llm_exporter.py            # Batch/single document extraction and export to Markdown
+│   │   ├── markdown_exporter.py       # Meeting summary reports (agreed CRs, LSs, company contributions)
+│   │   ├── post_meeting_exporter.py   # Post-meeting report generator (per-release & per-WI dossier)
+│   │   ├── tdoc2md.py                 # [PROTECTED] Standalone 3GPP TDoc to Markdown conversion core
+│   │   └── tdocs_package_exporter.py  # Packaged TDoc archive exporter
+│   ├── session_plan/                  # SA2 Session Plan parsing, diffing, DB & mobile HTML export
+│   │   ├── session_plan_db.py         # SQLite persistence & cross-meeting default assignment sync
+│   │   ├── session_plan_diff.py       # Slot-by-slot snapshot diff engine
+│   │   ├── session_plan_exporter.py   # Interactive 4-view offline HTML, .ics & email exporter
+│   │   ├── session_plan_models.py     # Domain models & boundary-aware delegate resolvers
+│   │   ├── session_plan_parser.py     # Fault-tolerant Word (.docx) & Markdown session plan parser
+│   │   └── session_plan_timezone.py   # Venue vs Vienna UTC timezone resolution
 │   ├── meeting_wi_enricher.py         # Asynchronous background Work Item discovery & enrichment
 │   ├── meetings_data_loader.py        # 3gpp_data.db queries and meeting list loaders
 │   ├── meetings_network_sync.py       # FTP sync for meetings and TDoc lists
 │   ├── tdoc_file_handler.py           # Downloading and caching TDoc ZIP/Word documents
 │   ├── tdoc_url_resolver.py           # Official 3GPP server HTTPS download URL resolution
 │   ├── tdoc_markdown_converter.py     # Application adapter & Office wrappers for tdoc2md
-│   ├── tdoc2md.py                     # [PROTECTED] Standalone 3GPP TDoc to Markdown conversion core
 │   ├── tdoc_triage_worker.py          # Local LLM technical triage generation
 │   ├── tdocs_db.py                    # SQLite interface for user_tdocs.db
 │   └── stats/                         # Meeting statistics calculation and HTML report generation
 └── ui/
     ├── contribution_dialog.py         # Multi-meeting company contribution audit dialog
+    ├── delegate_owner_picker.py       # Multi-delegate checkbox dropdown picker for topic ownership
     ├── dialogs.py                     # MeetingInfoDialog, AddMeetingDialog, MeetingsConfigDialog
     ├── meetings_actions.py            # Async download, caching, and export actions for MeetingsTab
     ├── meetings_delegates.py          # DynamicHoverMenuDelegate, TDocsButtonDelegate, WGTagDelegate
@@ -39,6 +50,8 @@ src/modules/meetings/
     ├── models.py                      # MeetingsTableModel (7 consolidated columns, English date ranges)
     ├── post_meeting_export_dialog.py  # Post-meeting report generator dialog
     ├── search_controller.py           # GlobalSearchController for inline Quick TDoc Jump & quick actions
+    ├── session_plan_dialogs.py        # Timezone, Roster, Dispatch, Import & Diff dialogs for Session Plan
+    ├── session_plan_window.py         # Interactive SA2 Session Plan Studio window
     ├── tdocs_components.py            # CheckableComboBox and custom styled UI widgets
     ├── tdocs_dialogs.py               # Statistics parameters, export configuration dialogs
     ├── tdocs_menus.py                 # Right-click context menus & centralized Quick Copy menu (table & quick bar)
@@ -232,24 +245,32 @@ src/modules/meetings/
 - **Persistent User Annotations (`user_session_annotations`):**
   - User notes, priority tags (`⭐ Must Attend`, `👥 Colleague Covering`, `👀 Monitor on TOHRU`, `✅ Done`), and comments are keyed by `(meeting, day, quarter, sub_slot, stream)`, persisting seamlessly across session plan updates.
 - **Multi-Format Export Engine (`SessionPlanExporter`):**
-  - **📱 Dual-View Interactive Offline HTML (`SA2_{mtg}_Session_Plan_Mobile.html`):** Standalone, 100% offline responsive single-file web application (<95 KB, zero external CDN dependencies) built for easy sharing across the delegation:
-    - **Dual Presentation Views:** Segmented switcher allows 1-click toggling between **🗓️ 5-Day Spatial Overview Grid** (10-column layout mirroring desktop with half-quarters, dedicated stream rows, break rows, and stream toggles) and **📱 Mobile Day Cards** (touch-friendly day-by-day quarter view with sticky day tabs). Automatically defaults to Day Cards on mobile screens ($\le 768$px).
-    - **Interactive Delegate Filter Strip:** Egalitarian team buttons (`[👥 All Team]`, `[● Anna]`, `[● Thomas]`, ...) styled with solid pastel tints. Toggling a delegate dims non-assigned cells in the Overview Grid and filters cards in Mobile Day Cards. Filter actions use DOM attribute binding (`this.getAttribute('data-del')`) and sanitized arrays (`.filter(Boolean)`), ensuring robust handling of arbitrary names.
+  - **📱 4-View Interactive Offline HTML (`SA2_{mtg}_Session_Plan_Mobile.html`):** Standalone, 100% offline responsive single-file web application (<110 KB, zero external CDN dependencies) built for easy sharing across the delegation (intentionally omitting purely personal Starred Topics):
+    - **4-View Segmented Switcher:** Allows 1-click toggling between:
+      1. **🗓️ 5-Day Spatial Overview Grid (`#overviewView`):** 10-column layout mirroring desktop with half-quarters, dedicated stream rows, break rows, and stream toggles. Features **2D Sticky Headers** inside a bounded scroll container (`.overview-grid-container { overflow: auto; max-height: calc(100vh - 175px); }`) locking both the `Period / Stream` left column (`left: 0; z-index: 10`), the `Day` header row (`.hdr-days-row th { position: sticky; top: 0; z-index: 20; }`), the `1st / 2nd Half` TU row (`top: var(--day-hdr-h, 29px); z-index: 19`), and the top-left corner cell (`.corner-hdr { position: sticky; top: 0; left: 0; z-index: 30; }`) via `updateStickyHeaderOffsets()`.
+      2. **📱 Mobile Day Cards (`#cardsView`):** Touch-friendly day-by-day quarter view with sticky day tabs. Automatically defaults to Day Cards on mobile screens ($\le 768$px).
+      3. **⚠️ Conflicts Tab (`#conflictsView`, `#btnViewConflicts`):** Dedicated parallel-stream collision view (also reachable by clicking `#clashWarningBadge`). Lists every delegate clash with exact half-quarter (`TU 1` / `TU 2`) timing, side-by-side conflicting streams, role badges (`[Owner]`, `[Override]`, `[All Team]`), a **`🟢 Available / Free Colleagues`** strip showing unbooked teammates who can cover, and a **`🔍 Show in Grid`** action (`jumpToSlotInGrid`). Respects active delegate filtering.
+      4. **❓ Unassigned AIs Tab & Filter (`#unassignedView`, `#btnViewUnassigned`, and `#btnUnassigned` filter chip):** Dedicated gap-analysis view listing all scheduled session slots with no assigned delegate (paired with free colleagues at that slot and `🔍 Show in Grid` links) alongside a complete catalog table of unassigned Agenda Items (`AI #`, `Topic Description`, `Scheduled Slots`). In Grid/Card views, toggling the `❓ Unassigned AIs (N)` filter pill highlights unassigned cells (`unassigned-slot`) and dims assigned ones.
+    - **📍 Highlight Now & Live Team Dispatch Board (`#btnHighlightNow`, `#nowDispatchPanel`, clickable `#liveVenueBanner`):** Answers *"Where are we right now, and where should each delegate go?"*:
+      - Evaluates active sessions from the real-time venue wall-clock (or falls back to the first scheduled slot with a manual **Time Unit Stepper** `◀ Prev`, `<select id="nowSlotPicker">`, `Next ▶`, and `🕒 Live Now` reset button so delegates can step through any half-quarter of the week).
+      - Renders per-delegate dispatch cards (**"👥 Where Each Delegate Should Go"**) showing each colleague's assigned **Stream**, **Physical Room**, **Role**, and **Topic** (or warning if double-booked across parallel rooms, or marking them `🟢 Free / Available for Coverage`), plus an **Uncovered Active Streams** alert banner and animated `.now-focus-pulse` highlighting in the Overview Grid and Day Cards.
+    - **Interactive Delegate Filter Strip:** Egalitarian team buttons (`[👥 All Team]`, `[● Anna]`, `[● Thomas]`, ...) styled with solid pastel tints. Toggling a delegate dims non-assigned cells in the Overview Grid and filters cards in Mobile Day Cards and Conflicts. Filter actions use DOM attribute binding (`this.getAttribute('data-del')`) and sanitized arrays (`.filter(Boolean)`), ensuring robust handling of arbitrary names.
     - **Client-Side RFC 5545 `.ics` Export:** Single-click `[📅 Download Team .ics]` or `[📅 Anna .ics]` dynamically compiles and downloads UTC-anchored `.ics` calendar files directly in the browser via Blob URL, strictly scoped to the active delegate or full team without server round-trips.
-    - **Parallel Stream Clash Warning:** Real-time client-side conflict detector scans active assignments; displays an alert badge (`⚠️ 2 Parallel Clashes`) and highlights conflicting cells with dashed red outlines, matching sub-slot half-quarters (`data-tu`).
-    - **Live Venue Status Indicator:** Computes real-time venue wall-clock time from UTC and meeting timezone offset; displays an animated pulsing green banner (`🟢 LIVE NOW: Str 1 - Plenary | Next: Lunch at 13:00`) and highlights active session cells.
     - **Rich Floating Tooltips:** Hovering over any slot displays venue/laptop times, physical room, convener, TOHRU audio/video channel, resolved Agenda Item descriptions from `agenda.csv`, and personal notes.
-    - **Robust Script & Template Sanitization:** Python HTML synthesis strictly escapes JavaScript regex newlines (`/[\\r\\n]+/g`), calendar line joins (`'\\r\\n'`), string quotes, and serializes variables via `json.dumps()`, eliminating Python string interpolation syntax errors. Day tabs use explicit element passing (`switchDay(day, this)`) with DOM fallbacks. Overview highlighting preserves semantic drafting/tracking tint backgrounds. Verified by automated Node.js syntax and runtime execution tests in CI.
+    - **Robust Script & Template Sanitization:** Python HTML synthesis strictly escapes JavaScript regex newlines (`/[\\r\\n]+/g`), calendar line joins (`'\\r\\n'`), string quotes, and serializes variables via `json.dumps()`, eliminating Python string interpolation syntax errors. Day tabs use explicit element passing (`switchDay(day, this)`) with DOM fallbacks. Verified by automated Node.js syntax and runtime execution tests in CI.
   - **📅 Strict UTC iCalendar (`.ics`):** Exports sessions to Outlook / Apple / Google Calendar with strict UTC `DTSTART`/`DTEND` timestamps, room/floor in Location, and convener/topics/notes in Description.
   - **✉️ Colleague Email Composer:** Formats rich HTML & plain text summaries ready to paste into Outlook summarizing what changed since the previous plan, today's drafting sessions, and tracked topics.
   - Enriches TDoc rows with live `Sub-Item` topic separators, `_agenda_order`, and `_sub_item_order` extracted from `TdocsByAgenda.htm` and Word Chairman's Notes.
-- **Delegation Topic Distribution & Session Clash Dispatching (`SessionPlanWindow`, `SessionPlanDatabase`, `SessionPlanExporter`):**
+- **Delegation Topic Distribution, Cross-Meeting Persistence & Session Clash Dispatching (`SessionPlanWindow`, `SessionPlanDatabase`, `SessionPlanExporter`):**
   - **Egalitarian Roster Model (No "Myself" Tag):** Replaced the restrictive "myself" / `(Me)` tag in delegation roster, dialogs, and pickers with an egalitarian architecture where all team members are treated equally. Every colleague knows who they are; removing the tag ensures exported HTML and schedules are clean, universal, and ready to share across the entire delegation. Auto-assigning followed WIs presents an intuitive delegate selection prompt.
-  - **Two-Tier Assignment Model:** Decouples high-level strategic **Topic Ownership** (e.g. *Martin owns AI 20.6.18 and AI 5.2.1*) from tactical **Session Appointments** (ad-hoc single-slot overrides when clashes occur).
+  - **Two-Tier Assignment Model with Cross-Meeting Persistent Defaults:**
+    - **Tier 1 — Default Topic Ownership (Cross-Meeting Persistent):** High-level strategic AI topic ownership (e.g. *Martin owns AI 20.6.18 and AI 5.2.1*) and team roster (`default_delegation_roster` and `default_topic_owners` SQLite tables in `session_plans.db`, automatically synchronized with `<app_data_root>/delegation_defaults.json`) persist across meetings (`SA2#177` $\rightarrow$ `SA2#178` $\rightarrow$ `SA2#179`). Opening a new meeting automatically seeds its default roster and AI topic owners from the global defaults, while any updates to the roster or topic owners propagate forward as the new default assignment.
+    - **Tier 2 — Session-Level Overrides (Per-Meeting `session_appointments`):** Tactical single-slot coverage overrides (e.g. appointing a free colleague to cover Tuesday Q2 TU1 Stream 2 during a collision) are scoped strictly to the specific meeting and `(day, quarter, sub_slot, stream)`.
+    - **Override Visibility & 1-Click Reset (`clear_session_appointments`):** The Topic Ownership Matrix displays active session override counters (`⚡ N session override(s)`) in the `🛡️ Coverage Status` column and provides a **`↺ Reset Session Overrides`** button in the Team Allocations toolbar to clear all per-meeting ad-hoc appointments back to default topic owners in 1 click.
   - **Shared Boundary-Aware Resolver (`resolve_slot_effective_delegates`, `ai_number_in_text` in `session_plan_models.py`):** Single source of truth used by `SessionPlanWindow` and `SessionPlanExporter`. Raw-text fallback uses regex negative lookbehind/lookahead (`(?<![\d.])` and `(?!\d|\.\d)`) so short AI tokens like `20.6.2` or `20.6.1` never falsely match `20.6.24`, `20.6.22`, or `20.6.17`.
   - **Multi-Delegate & "All Team" Ownership (`DelegateOwnerPicker`):** Inline checkbox-based multi-select dropdown (`QToolButton` + `QWidgetAction` checkboxes) in the Topic Ownership Matrix allowing delegates to tick one or more owners, `👥 All Team`, or `✕ Clear (Unassigned)` in a single popup without modal dialog round-trips, committing once when the popup closes.
   - **Direct Overview Grid Topic Owner Assignment:** Right-clicking any cell in the desktop 5-day Overview Grid (`_on_grid_context_menu`) provides a dedicated `👤 Assign Topic Owner (AI X.Y.Z)...` submenu enabling instant 1-click assignment to `👥 All Team`, any individual delegate, `Custom Multi-Delegate`, or `✕ Clear (Unassigned)` directly from the grid without having to open the Topic Ownership Matrix.
-  - **Per-Delegate Collision Evaluation:** When a general topic (like 20.6.0) or multi-delegate topic is scheduled, collisions are evaluated per individual delegate: only colleagues who are simultaneously double-booked in a parallel stream receive a clash warning, while unconflicted delegates remain marked as available and attending.
+  - **Per-Delegate Collision Evaluation:** When a general topic (like 20.6.0) or multi-delegate topic is scheduled, collisions are evaluated per individual delegate across both the Overview Grid, Clash Board, and `🎯 Delegate Agenda` (including `👥 Whole Delegation (ALL)` view): only colleagues who are simultaneously double-booked in a parallel stream at an overlapping half-quarter receive a clash warning, while unconflicted delegates remain marked as available and attending.
   - **Half-Quarter (TU1 / TU2) Time-Overlap Precision (`_slots_time_overlap`):**
     - Accurately models 45-minute half-quarters (`sub_slot=1` for TU1, `sub_slot=2` for TU2, and `sub_slot=0` for full quarters).
     - Sequential half-quarters (e.g., Stream 1 TU1 $\rightarrow$ Stream 2 TU2) are recognized as non-overlapping in time, completely eliminating false double-booking warnings.
@@ -257,12 +278,13 @@ src/modules/meetings/
   - **Dynamic "Who is Free?" Availability Engine (`_compute_delegate_availability`):**
     - When a delegate is double-booked across parallel rooms (e.g., Stream 1 and Stream 2 at Tuesday Q2 TU1), calculates real-time room occupancy for every team member.
     - Accurately marks colleagues 🟢 *Free* for TU1 if their only assignment in that quarter is in TU2 (or another time).
-    - 1-click **`⚡ Appoint Available Delegate...`** opens `SessionDispatchDialog`, appointing a free colleague for that specific session without altering master topic ownership.
-  - **Multi-Stream Clash Board (`⚡ Clash & Dispatch Board`):**
-    - Handles complex scenarios where $\ge 2$ parallel rooms collide for a delegate (e.g., Streams 1, 2, and 3).
-    - Combines descriptions of all conflicting streams and equips the appointment action with a stream-selection popup menu (`btn_appoint.setMenu(menu)`), allowing 1-click selection of which exact room/stream to cover.
+  - **Enhanced Multi-Stream Clash & Dispatch Board (`⚡ Clash & Dispatch Board`, `btn_conflicts_quick`):**
+    - Top navigation ribbon features a live **`⚠️ Conflicts (N)`** quick-jump pill button (`self.btn_conflicts_quick`) that jumps straight to `👥 Team Allocations` and scrolls to the Clash & Dispatch Board.
+    - 7-column layout (`["📅 Slot", "🕒 Time", "👤 Colliding Delegate", "Stream A (Assigned)", "Parallel Stream B", "🟢 Free Colleagues", "🛡️ Action / Coverage"]`) displaying explicit `(TU 1)` / `(TU 2)` half-quarter badges, assignment source tags (`[Owner]`, `[Override]`, `[All Team]`), and all unbooked colleagues in the **`🟢 Free Colleagues`** column.
+    - **1-Click Quick-Appoint Menu (`_quick_appoint_colleague`):** Clicking **`⚡ Appoint Coverage ▾`** on any conflict row lists instant 1-click actions (`⚡ Quick-Appoint <Free Colleague> → Cover Str X (<Room>)`) for every free colleague and conflicting stream, alongside full dialog dispatch options (`📋 Open Dispatch Dialog for Str X...`).
+    - **Double-Click Jump to Grid (`_on_clash_cell_double_clicked`):** Double-clicking any conflict row switches directly to the 5-day Overview Grid and focuses the exact colliding slot.
   - **Real-Time Topic Ownership Matrix Synchronization:**
-    - Live status cell updating (`_update_team_topic_status_cells`) immediately reflects changes in topic coverage and collision warnings without recreating widgets or losing scroll position.
+    - Live status cell updating (`_update_team_topic_status_cells`) immediately reflects changes in topic coverage, session override counts, and collision warnings without recreating widgets or losing scroll position.
   - **Direct Grid & Agenda Context Menu Dispatching:**
     - Right-clicking any slot in either the Overview Grid (`_on_grid_context_menu`) or the Delegate Agenda (`_on_tracked_context_menu`) provides instant actions:
       - `⚡ Appoint/Change Coverage for this Session...` (pre-filled with current assignment)
@@ -271,9 +293,9 @@ src/modules/meetings/
     - Auto-assigns distinct, accessible palette colors (`DELEGATE_PALETTE`) to each team member. Features 10 harmonious, high-contrast hues (WCAG AA compliant $\ge 4.5:1$ against white): Royal Blue (`#2563EB`), Emerald Forest (`#047857`), Deep Violet (`#7C3AED`), Warm Terracotta (`#C2410C`), Cyan Ocean (`#0E7490`), Ruby Rose (`#BE123C`), Indigo Night (`#4338CA`), Plum Orchid (`#A21CAF`), Warm Bronze (`#B45309`), and Slate Graphite (`#475569`).
     - **Solid Pastel Tint Architecture (`DelegationMember.compute_tint`):** Computes solid `#RRGGBB` pastel tints (`bg_tint` 12% and `border_tint` 35% blended with `#FFFFFF`) for delegate pills, chips, active highlight strips, tooltips, and HTML email summaries. **Strict prohibition of 8-digit hex codes (`#RRGGBBAA`)**: Qt QSS parses 8-character hex strings as `#AARRGGBB` (reversing alpha and RGB channels, turning `#2563EB1F` into dark sludge green `#1a3f07`), while Microsoft Outlook email engines ignore 8-digit hex completely. Blending directly on white produces 100% solid, predictable colors across Qt on Windows, Web, mobile, and Outlook.
     - **Compact Initials Pill Badges (`_make_delegate_badge`, `compute_unique_initials`):** Overview Grid renders space-saving circular/pill initials badges (`JO`, `DI`, `PI`, with automatic 3-letter disambiguation if two colleagues share 2-letter initials) instead of repeating full names in every cell. Solid border indicates topic ownership, dashed border indicates ad-hoc coverage override, and a 2px red border ring (`#DC2626`) + compact `⚠` pill highlights parallel-stream clashes. Full names, roles, and clashing stream details appear in rich hover tooltips.
-    - **Multi-Select Delegate Focus Bar:** Top ribbon focus bar (`[🌈 All Team] [👤 Only Me]` + checkable `JO · Josep`, `DI · Dieter`, ...) supports multi-select checkbox filtering so users can highlight any combination of delegates simultaneously while dimming unrelated sessions.
+    - **Multi-Select Delegate Focus Bar:** Top ribbon focus bar (`[🌈 All Team]` + checkable `JO · Josep`, `DI · Dieter`, ...) supports multi-select checkbox filtering so users can highlight any combination of delegates simultaneously while dimming unrelated sessions.
   - **Delegate Agenda View (`🎯 Delegate Agenda`):**
-    - Segmented switcher (`[👤 Myself ▾ | ● Anna | ● Thomas | 👥 Whole Delegation]`) renders personal timetables with dual venue/laptop times, rooms, roles, and conflict tags.
+    - Segmented switcher (`[👥 Whole Delegation | ● Anna | ● Thomas]`) renders personal and team timetables with dual venue/laptop times, rooms, roles, and half-quarter (`TU 1`/`TU 2`) accurate per-delegate conflict tags.
     - Direct double-click jumps to the cell on the Overview Grid; right-click allows note editing or coverage dispatching.
   - **Personalized Delegate iCalendar (.ics) Calendar Export:**
     - Main toolbar Export menu provides `📅 Export Delegate .ics (Personal / Colleague)...` to export calendar events strictly scoped to an individual delegate's assigned sessions (both owned topics and appointed coverage), strictly UTC-anchored for Outlook/Google Calendar/iPhone.
@@ -282,7 +304,7 @@ src/modules/meetings/
     - **`📧 Export Email Summary...`** (`generate_delegation_email_summary`): Generates pre-formatted executive HTML/plain text for Outlook with color badges, topic ownership tables, ad-hoc coverage notes, and personal daily schedules. Accessible via top Export menu and Team Allocations action bar.
     - **Embedded Interchange Payload:** Automatically embeds `<!-- 3GPP-DELEGATION-PLAN: {...} -->` into the email or exports `.json`.
     - **1-Click Colleague Ingestion (`DelegationImportDialog`):** Colleagues paste the email or load the `.json` file in their 3GPP Tools, select *"Which delegate are you?"*, and instantly personalize their local Overview Grid and personal agenda.
-    - **Persistence:** Roster, topic ownerships, and session appointments persist in `session_plans.db` (`delegation_roster`, `topic_owners`, `session_appointments`), surviving across intra-meeting session plan snapshot revisions (`Snap 1` $\rightarrow$ `Snap 2` $\rightarrow$ `Snap 3`).
+    - **Persistence:** Roster and topic ownerships persist across meetings (`default_delegation_roster`, `default_topic_owners`, and `<app_data_root>/delegation_defaults.json`) as well as per-meeting in `session_plans.db` (`delegation_roster`, `topic_owners`, `session_appointments`), surviving across intra-meeting session plan snapshot revisions (`Snap 1` $\rightarrow$ `Snap 2` $\rightarrow$ `Snap 3`).
 - **Agenda & Sub-Item Ordering Engine (`tdocs_parser.py`, `tdocs_models.py`, `tdoc_delegates.py`, `tdocs_window.py`):**
   - **Live HTML Superseding Precedence:** In Working Groups like SA2 where delegates rely on session agenda order, the live order in `TdocsByAgenda.htm` strictly supersedes the static Excel list order (`"TDoc sort order within agenda item"`), as Excel lists omit late revisions or late arrivals submitted during the meeting.
   - **3-Tier Precedence Hierarchy:**
@@ -364,6 +386,6 @@ src/modules/meetings/
     - Replaces clipped header text (`"Scheduled Slots in Plan"` $\rightarrow$ `"📅 Scheduled Slots"`, `"Lead Topic Owner"` $\rightarrow$ `"👤 Topic Owner"`, `"Coverage Status"` $\rightarrow$ `"🛡️ Coverage Status"`).
     - Configures explicit, content-calibrated column widths with interactive resizing: Col 0 (AI #): 65px; Col 1 (Topic Description): Stretch; Col 2 (📅 Scheduled Slots): 220px; Col 3 (👤 Topic Owner): 195px; Col 4 (🛡️ Coverage Status): 185px.
     - Expands vertical row height to 36px (`verticalHeader().setDefaultSectionSize(36)`) and injects internal cell padding (`QTableWidget::item { padding: 4px 8px; }`) to provide comfortable touch targets and prevent clipping of `DelegateOwnerPicker` dropdown chips and coverage badges.
-    - Applies identical unclipped header styling, column widths, and 36px section sizing to the Clash & Dispatch Board (`["📅 Slot", "🕒 Time", "👤 Colliding Delegate", "Stream A (Assigned)", "Parallel Stream B", "🛡️ Action / Coverage"]`).
+    - Applies identical unclipped header styling, column widths, and 36px section sizing to the 7-column Clash & Dispatch Board (`["📅 Slot", "🕒 Time", "👤 Colliding Delegate", "Stream A (Assigned)", "Parallel Stream B", "🟢 Free Colleagues", "🛡️ Action / Coverage"]`).
 
 

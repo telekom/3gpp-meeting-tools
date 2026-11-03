@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 import xml.etree.ElementTree as ET
 
-from modules.meetings.core import tdoc2md
+from modules.meetings.core.exporters import tdoc2md
 from modules.nas.core.parsing.protocol_parser_utils import _extract_p_text
 
 

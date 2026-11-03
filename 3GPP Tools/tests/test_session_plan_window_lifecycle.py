@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 import tempfile
 import shutil
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from PyQt5.QtWidgets import QApplication, QWidget, QDialog
 from PyQt5.QtGui import QCloseEvent
@@ -135,7 +135,7 @@ class TestSessionPlanWindowLifecycle(unittest.TestCase):
 
     def test_rich_slot_tooltip_formatting(self):
         """Verify _build_rich_slot_tooltip produces modern, well-sectioned HTML."""
-        from modules.meetings.core.session_plan_models import (
+        from modules.meetings.core.session_plan.session_plan_models import (
             SessionSlot,
             AgendaSlotItem,
             MeetingStreamInfo,
