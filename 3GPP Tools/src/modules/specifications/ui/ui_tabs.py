@@ -764,7 +764,7 @@ class SpecificationsTab(QWidget):
         act_active = menu.addAction("⚡ Show Active / Useful Working Groups Only")
         act_active.setCheckable(True)
         act_active.setChecked(not self._show_all_wgs)
-        act_full = menu.addAction("🌐 Show Full List (Include Legacy & Disbanded Groups)")
+        act_full = menu.addAction("🌐 Show Full List (Include Legacy && Disbanded Groups)")
         act_full.setCheckable(True)
         act_full.setChecked(self._show_all_wgs)
 

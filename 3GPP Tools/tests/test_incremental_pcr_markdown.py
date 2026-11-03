@@ -67,7 +67,7 @@ class TestIncrementalPcrMarkdown(unittest.TestCase):
         # 2. Verify marker recognized and correctly qualified
         self.assertIn("> **[* * * First Change ALL TEXT is NEW* * * *]**", res_markup.markdown)
         self.assertIn(
-            "inline revisions show changes wrt S2-2611386. Unmarked text represents the starting point baseline.",
+            "inline markers preserve Word tracked edits. Unmarked text is also within the all-new scope. Document revision of: S2-2611386.",
             res_markup.markdown,
         )
 
