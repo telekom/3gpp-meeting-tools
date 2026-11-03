@@ -799,13 +799,34 @@ class SessionPlanWindow(QWidget):
         tt_lay.setSpacing(6)
 
         tt_filter_box = QHBoxLayout()
+        tt_filter_box.setSpacing(8)
+
         self.team_ai_search = QLineEdit()
         self.team_ai_search.setPlaceholderText("🔍 Filter AI number, topic, or owner...")
         self.team_ai_search.setClearButtonEnabled(True)
+        self.team_ai_search.setMinimumWidth(260)
+        self.team_ai_search.setStyleSheet("padding: 5px 10px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 12px;")
         self.team_ai_search.textChanged.connect(self._filter_topic_ownership_table)
         tt_filter_box.addWidget(self.team_ai_search)
 
+        self.btn_toggle_scheduled_only = QPushButton("📅 Scheduled Only")
+        self.btn_toggle_scheduled_only.setCheckable(True)
+        self.btn_toggle_scheduled_only.setChecked(False)
+        self.btn_toggle_scheduled_only.setCursor(Qt.PointingHandCursor)
+        self.btn_toggle_scheduled_only.setToolTip(
+            "Toggle visibility of unscheduled Agenda Items (hide rows with no allocated sessions in the session plan)."
+        )
+        self.btn_toggle_scheduled_only.toggled.connect(self._on_scheduled_only_toggled)
+        self._style_scheduled_toggle(False)
+        tt_filter_box.addWidget(self.btn_toggle_scheduled_only)
+        self.chk_scheduled_only = self.btn_toggle_scheduled_only
+
         self.btn_auto_assign_wis = QPushButton("🎯 Auto-Assign Followed WIs...")
+        self.btn_auto_assign_wis.setCursor(Qt.PointingHandCursor)
+        self.btn_auto_assign_wis.setStyleSheet(
+            "QPushButton { padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-radius: 6px; border: 1px solid #CBD5E1; background: #F8FAFC; color: #1E293B; }"
+            "QPushButton:hover { background: #EFF6FF; border-color: #3B82F6; color: #1D4ED8; }"
+        )
         self.btn_auto_assign_wis.setToolTip("Assign topics matching your followed Work Items watchlist to a delegate.")
         self.btn_auto_assign_wis.clicked.connect(self._auto_assign_followed_wis_to_self)
         tt_filter_box.addWidget(self.btn_auto_assign_wis)
@@ -814,11 +835,44 @@ class SessionPlanWindow(QWidget):
         self.team_topics_table = QTableWidget()
         self.team_topics_table.setColumnCount(5)
         self.team_topics_table.setHorizontalHeaderLabels([
-            "AI #", "Topic Description", "Scheduled Slots in Plan", "Lead Topic Owner", "Coverage Status"
+            "AI #", "Topic Description", "📅 Scheduled Slots", "👤 Topic Owner", "🛡️ Coverage Status"
         ])
-        self.team_topics_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        h_header = self.team_topics_table.horizontalHeader()
+        h_header.setSectionResizeMode(0, QHeaderView.Interactive)
+        h_header.setSectionResizeMode(1, QHeaderView.Stretch)
+        h_header.setSectionResizeMode(2, QHeaderView.Interactive)
+        h_header.setSectionResizeMode(3, QHeaderView.Interactive)
+        h_header.setSectionResizeMode(4, QHeaderView.Interactive)
+
+        self.team_topics_table.setColumnWidth(0, 65)    # AI #
+        self.team_topics_table.setColumnWidth(2, 220)   # 📅 Scheduled Slots
+        self.team_topics_table.setColumnWidth(3, 195)   # 👤 Topic Owner
+        self.team_topics_table.setColumnWidth(4, 185)   # 🛡️ Coverage Status
+
+        self.team_topics_table.verticalHeader().setDefaultSectionSize(36)
         self.team_topics_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.team_topics_table.setAlternatingRowColors(True)
+        self.team_topics_table.setStyleSheet("""
+            QHeaderView::section {
+                background-color: #F8FAFC;
+                color: #334155;
+                font-weight: 700;
+                font-size: 11.5px;
+                padding: 6px 8px;
+                border: 1px solid #E2E8F0;
+                border-top: none;
+                border-left: none;
+            }
+            QTableWidget {
+                gridline-color: #F1F5F9;
+                selection-background-color: #EFF6FF;
+                selection-color: #0F172A;
+                font-size: 12px;
+            }
+            QTableWidget::item {
+                padding: 4px 8px;
+            }
+        """)
         tt_lay.addWidget(self.team_topics_table)
         self.team_tabs.addTab(tab_topics, "📋 Topic Ownership Matrix")
 
@@ -835,12 +889,45 @@ class SessionPlanWindow(QWidget):
         self.team_clashes_table = QTableWidget()
         self.team_clashes_table.setColumnCount(6)
         self.team_clashes_table.setHorizontalHeaderLabels([
-            "Slot (Day & Quarter)", "Time", "Colliding Delegate", "Stream A", "Stream B", "Action / Appoint Coverage"
+            "📅 Slot", "🕒 Time", "👤 Colliding Delegate", "Stream A (Assigned)", "Parallel Stream B", "🛡️ Action / Coverage"
         ])
-        self.team_clashes_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        self.team_clashes_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        h_clashes = self.team_clashes_table.horizontalHeader()
+        h_clashes.setSectionResizeMode(0, QHeaderView.Interactive)
+        h_clashes.setSectionResizeMode(1, QHeaderView.Interactive)
+        h_clashes.setSectionResizeMode(2, QHeaderView.Interactive)
+        h_clashes.setSectionResizeMode(3, QHeaderView.Stretch)
+        h_clashes.setSectionResizeMode(4, QHeaderView.Stretch)
+        h_clashes.setSectionResizeMode(5, QHeaderView.Interactive)
+
+        self.team_clashes_table.setColumnWidth(0, 110)
+        self.team_clashes_table.setColumnWidth(1, 150)
+        self.team_clashes_table.setColumnWidth(2, 150)
+        self.team_clashes_table.setColumnWidth(5, 185)
+
+        self.team_clashes_table.verticalHeader().setDefaultSectionSize(36)
         self.team_clashes_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.team_clashes_table.setAlternatingRowColors(True)
+        self.team_clashes_table.setStyleSheet("""
+            QHeaderView::section {
+                background-color: #F8FAFC;
+                color: #334155;
+                font-weight: 700;
+                font-size: 11.5px;
+                padding: 6px 8px;
+                border: 1px solid #E2E8F0;
+                border-top: none;
+                border-left: none;
+            }
+            QTableWidget {
+                gridline-color: #F1F5F9;
+                selection-background-color: #EFF6FF;
+                selection-color: #0F172A;
+                font-size: 12px;
+            }
+            QTableWidget::item {
+                padding: 4px 8px;
+            }
+        """)
         tc_lay.addWidget(self.team_clashes_table)
 
         tc_lay.addWidget(QLabel("💡 <i>Click 'Appoint Available Delegate' to inspect who is free in that time slot and appoint coverage on a session-by-session basis.</i>"))
@@ -1939,8 +2026,24 @@ class SessionPlanWindow(QWidget):
                         break
 
             item_ai = QTableWidgetItem(ai_num)
+            item_ai.setTextAlignment(Qt.AlignCenter)
+            item_ai.setToolTip(f"Agenda Item {ai_num}")
+
             item_desc = QTableWidgetItem(desc)
+            item_desc.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+            item_desc.setToolTip(desc)
+
             item_slots = QTableWidgetItem(slots_summary)
+            item_slots.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+            item_slots.setData(Qt.UserRole, len(slots_for_ai))
+            item_slots.setToolTip(f"Scheduled slots for AI {ai_num}:\n{slots_summary}")
+            if not slots_for_ai:
+                item_slots.setForeground(QColor("#94A3B8"))  # Muted slate for unscheduled
+            else:
+                item_slots.setForeground(QColor("#0F172A"))
+                font_slots = item_slots.font()
+                font_slots.setBold(True)
+                item_slots.setFont(font_slots)
 
             # Checkbox-based multi-select owner picker (replaces combo + custom dialog round-trip)
             picker = DelegateOwnerPicker(members_list, owner_name, initials=initials_map)
@@ -1961,14 +2064,31 @@ class SessionPlanWindow(QWidget):
                 status_bg = "#FFFBEB"
 
             item_status = QTableWidgetItem(status_txt)
+            item_status.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
             item_status.setForeground(QColor(status_col))
             item_status.setBackground(QColor(status_bg))
+            item_status.setToolTip(status_txt)
+            font_status = item_status.font()
+            font_status.setBold(True)
+            item_status.setFont(font_status)
 
             self.team_topics_table.setItem(row, 0, item_ai)
             self.team_topics_table.setItem(row, 1, item_desc)
             self.team_topics_table.setItem(row, 2, item_slots)
             self.team_topics_table.setCellWidget(row, 3, picker)
             self.team_topics_table.setItem(row, 4, item_status)
+
+        # Update button text with dynamic counts
+        num_sched = sum(1 for ai in all_ais if scheduled_ais.get(ai))
+        total_ais = len(all_ais)
+        if hasattr(self, "btn_toggle_scheduled_only"):
+            is_chk = self.btn_toggle_scheduled_only.isChecked()
+            lbl = f"✓ 📅 Scheduled Only ({num_sched}/{total_ais})" if is_chk else f"📅 Scheduled Only ({num_sched}/{total_ais})"
+            self.btn_toggle_scheduled_only.setText(lbl)
+            self._style_scheduled_toggle(is_chk)
+
+        # Apply current filter
+        self._filter_topic_ownership_table()
 
     def _update_team_topic_status_cells(self):
         """Fast status column refresh for the Topic Ownership Matrix without recreating controls."""
@@ -2202,13 +2322,56 @@ class SessionPlanWindow(QWidget):
         self.delegation_plan = self.db.get_delegation_plan(self.meeting_number)
         self._render_current_views()
 
-    def _filter_topic_ownership_table(self, query: str):
-        q = query.lower().strip()
+    def _style_scheduled_toggle(self, checked: bool):
+        base = "padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-radius: 6px;"
+        if checked:
+            self.btn_toggle_scheduled_only.setStyleSheet(
+                f"QPushButton {{ {base} background: #EFF6FF; border: 1.5px solid #2563EB; color: #1D4ED8; }}"
+                f"QPushButton:hover {{ background: #DBEAFE; }}"
+            )
+        else:
+            self.btn_toggle_scheduled_only.setStyleSheet(
+                f"QPushButton {{ {base} background: #F8FAFC; border: 1px solid #CBD5E1; color: #475569; }}"
+                f"QPushButton:hover {{ background: #F1F5F9; color: #1E293B; border-color: #94A3B8; }}"
+            )
+
+    def _on_scheduled_only_toggled(self, checked: bool):
+        if hasattr(self, "btn_toggle_scheduled_only"):
+            total_ais = self.team_topics_table.rowCount()
+            num_sched = sum(
+                1 for r in range(total_ais)
+                if (self.team_topics_table.item(r, 2) and (self.team_topics_table.item(r, 2).data(Qt.UserRole) or 0) > 0)
+            )
+            lbl = f"✓ 📅 Scheduled Only ({num_sched}/{total_ais})" if checked else f"📅 Scheduled Only ({num_sched}/{total_ais})"
+            self.btn_toggle_scheduled_only.setText(lbl)
+            self._style_scheduled_toggle(checked)
+        self._filter_topic_ownership_table()
+
+    def _filter_topic_ownership_table(self, query: Optional[str] = None):
+        q = (self.team_ai_search.text() if hasattr(self, "team_ai_search") else (query or "")).lower().strip()
+        scheduled_only = self.btn_toggle_scheduled_only.isChecked() if hasattr(self, "btn_toggle_scheduled_only") else False
+
         for r in range(self.team_topics_table.rowCount()):
             ai_item = self.team_topics_table.item(r, 0)
             desc_item = self.team_topics_table.item(r, 1)
-            combo = self.team_topics_table.cellWidget(r, 3)
-            owner_txt = combo.currentText() if combo else ""
+            slots_item = self.team_topics_table.item(r, 2)
+            picker = self.team_topics_table.cellWidget(r, 3)
+
+            slot_count = slots_item.data(Qt.UserRole) if slots_item else 0
+            if slot_count is None:
+                slot_count = 0 if (not slots_item or "(not scheduled)" in slots_item.text().lower() or "—" in slots_item.text()) else 1
+
+            if scheduled_only and slot_count == 0:
+                self.team_topics_table.setRowHidden(r, True)
+                continue
+
+            owner_txt = ""
+            if picker:
+                if hasattr(picker, "text"):
+                    owner_txt = picker.text()
+                elif hasattr(picker, "currentText"):
+                    owner_txt = picker.currentText()
+
             txt = f"{ai_item.text()} {desc_item.text()} {owner_txt}".lower() if ai_item and desc_item else ""
             self.team_topics_table.setRowHidden(r, bool(q and q not in txt))
 

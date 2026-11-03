@@ -8,7 +8,7 @@ import struct
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from PyQt5.QtWidgets import QApplication, QWidget
+from PyQt5.QtWidgets import QApplication, QWidget, QTableWidgetItem
 from PyQt5.QtCore import QMimeData, QUrl, QByteArray, QPoint, Qt
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent
 
@@ -223,6 +223,90 @@ class TestSessionPlanRobustness(unittest.TestCase):
         drop_ev = QDropEvent(QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
         overlay.dropEvent(drop_ev)
         parent_widget.dropEvent.assert_called_once_with(drop_ev)
+
+    def test_scheduled_only_toggle_and_table_readability(self):
+        """Verifies the Scheduled Only toggle button, column sizing, and row filtering in Team Allocations."""
+        with tempfile.TemporaryDirectory() as td:
+            win = SessionPlanWindow(
+                meeting_dir=Path(td),
+                mtg_info={"meeting_number": "178", "location": "Calgary"},
+            )
+            try:
+                # 1. UI element and column header verification
+                self.assertTrue(hasattr(win, "btn_toggle_scheduled_only"))
+                self.assertTrue(win.btn_toggle_scheduled_only.isCheckable())
+                self.assertFalse(win.btn_toggle_scheduled_only.isChecked())
+
+                headers = [win.team_topics_table.horizontalHeaderItem(c).text() for c in range(win.team_topics_table.columnCount())]
+                expected_headers = ["AI #", "Topic Description", "📅 Scheduled Slots", "👤 Topic Owner", "🛡️ Coverage Status"]
+                self.assertEqual(headers, expected_headers)
+                self.assertEqual(win.team_topics_table.columnWidth(0), 65)
+                self.assertEqual(win.team_topics_table.columnWidth(2), 220)
+                self.assertEqual(win.team_topics_table.columnWidth(3), 195)
+                self.assertEqual(win.team_topics_table.columnWidth(4), 185)
+
+                # 2. Populate synthetic rows in team_topics_table
+                win.team_topics_table.setRowCount(3)
+
+                # Row 0: Unscheduled AI
+                item_ai0 = QTableWidgetItem("1.1")
+                item_desc0 = QTableWidgetItem("Opening of meeting")
+                item_slots0 = QTableWidgetItem("— (Not scheduled)")
+                item_slots0.setData(Qt.UserRole, 0)
+                win.team_topics_table.setItem(0, 0, item_ai0)
+                win.team_topics_table.setItem(0, 1, item_desc0)
+                win.team_topics_table.setItem(0, 2, item_slots0)
+
+                # Row 1: Scheduled AI
+                item_ai1 = QTableWidgetItem("20.6.5")
+                item_desc1 = QTableWidgetItem("KI#5 (QoS)")
+                item_slots1 = QTableWidgetItem("Mon Q5 (Str 1)")
+                item_slots1.setData(Qt.UserRole, 1)
+                win.team_topics_table.setItem(1, 0, item_ai1)
+                win.team_topics_table.setItem(1, 1, item_desc1)
+                win.team_topics_table.setItem(1, 2, item_slots1)
+
+                # Row 2: Scheduled AI
+                item_ai2 = QTableWidgetItem("20.6.6")
+                item_desc2 = QTableWidgetItem("KI#6 (Policy)")
+                item_slots2 = QTableWidgetItem("Tue Q3 (Str 1)")
+                item_slots2.setData(Qt.UserRole, 1)
+                win.team_topics_table.setItem(2, 0, item_ai2)
+                win.team_topics_table.setItem(2, 1, item_desc2)
+                win.team_topics_table.setItem(2, 2, item_slots2)
+
+                # Initial state: unchecked -> all rows visible
+                win._filter_topic_ownership_table()
+                self.assertFalse(win.team_topics_table.isRowHidden(0))
+                self.assertFalse(win.team_topics_table.isRowHidden(1))
+                self.assertFalse(win.team_topics_table.isRowHidden(2))
+
+                # 3. Toggle ON Scheduled Only
+                win.btn_toggle_scheduled_only.setChecked(True)
+                self.assertTrue(win.team_topics_table.isRowHidden(0))
+                self.assertFalse(win.team_topics_table.isRowHidden(1))
+                self.assertFalse(win.team_topics_table.isRowHidden(2))
+                self.assertIn("✓ 📅 Scheduled Only (2/3)", win.btn_toggle_scheduled_only.text())
+
+                # 4. Search filter interaction while Scheduled Only is active
+                win.team_ai_search.setText("QoS")
+                self.assertTrue(win.team_topics_table.isRowHidden(0))
+                self.assertFalse(win.team_topics_table.isRowHidden(1))
+                self.assertTrue(win.team_topics_table.isRowHidden(2))
+
+                win.team_ai_search.clear()
+                self.assertTrue(win.team_topics_table.isRowHidden(0))
+                self.assertFalse(win.team_topics_table.isRowHidden(1))
+                self.assertFalse(win.team_topics_table.isRowHidden(2))
+
+                # 5. Toggle OFF Scheduled Only -> all visible again
+                win.btn_toggle_scheduled_only.setChecked(False)
+                self.assertFalse(win.team_topics_table.isRowHidden(0))
+                self.assertFalse(win.team_topics_table.isRowHidden(1))
+                self.assertFalse(win.team_topics_table.isRowHidden(2))
+                self.assertIn("📅 Scheduled Only (2/3)", win.btn_toggle_scheduled_only.text())
+            finally:
+                win.close()
 
 
 if __name__ == "__main__":

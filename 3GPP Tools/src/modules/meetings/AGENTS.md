@@ -344,4 +344,17 @@ src/modules/meetings/
     3. *Automatic `.zip` Archive Decompression:* If a delegate drops a zipped 3GPP document archive (`.zip`), `_handle_manual_import` automatically unpacks the archive into `<meeting_dir>/Agenda/SessionPlans/Extracted/<stem>/` and targets the inner `.docx` or `.doc` file.
     4. *Email Body / Webmail Table Text:* Dragging selected Markdown or HTML table text from an email reflector message or TOHRU chat is detected by checking session plan keywords (`Stream 1`, `Main Room`, `Breakout 1`, `Q1`, `Monday`) and routed to `_handle_manual_import("paste", text)`.
     5. *Non-Blocking Visual Overlay (`DropOverlayWidget`):* Forwarding handlers (`dragEnterEvent`, `dragMoveEvent`, `dragLeaveEvent`, `dropEvent`) in `DropOverlayWidget` propagate events back to `SessionPlanWindow`, ensuring child widgets and transparent overlays never swallow or reject drops.
+- **Team Allocation Ergonomics & Readability (Scheduled-Only Filter & Dynamic Sizing):**
+  - **Scheduled-Only Filter Toggle (`btn_toggle_scheduled_only` / `chk_scheduled_only`):**
+    - High-density Working Group agendas often declare hundreds of baseline Agenda Items (e.g. 222 items in SA2#178), while only a small subset (~40 items) are active and scheduled in parallel streams for the week.
+    - Adds a checkable pill button in the Team Allocations header strip with live dynamic counts (`📅 Scheduled Only (40/222)` $\leftrightarrow$ `✓ 📅 Scheduled Only (40/222)`).
+    - Toggling instantly hides unscheduled rows (`slot_count == 0`), eliminating the need to scroll through hundreds of inactive rows.
+    - Seamlessly compounds with instant text search (`team_ai_search`): filtering by owner or text query operates exclusively on the visible subset.
+    - Backed by $O(1)$ fast evaluation via `Qt.UserRole` integer storage on slot items (`item_slots.setData(Qt.UserRole, len(slots_for_ai))`), bypassing fragile string matching.
+  - **Unclipped Table Headers & Optimized Column Geometry:**
+    - Replaces clipped header text (`"Scheduled Slots in Plan"` $\rightarrow$ `"📅 Scheduled Slots"`, `"Lead Topic Owner"` $\rightarrow$ `"👤 Topic Owner"`, `"Coverage Status"` $\rightarrow$ `"🛡️ Coverage Status"`).
+    - Configures explicit, content-calibrated column widths with interactive resizing: Col 0 (AI #): 65px; Col 1 (Topic Description): Stretch; Col 2 (📅 Scheduled Slots): 220px; Col 3 (👤 Topic Owner): 195px; Col 4 (🛡️ Coverage Status): 185px.
+    - Expands vertical row height to 36px (`verticalHeader().setDefaultSectionSize(36)`) and injects internal cell padding (`QTableWidget::item { padding: 4px 8px; }`) to provide comfortable touch targets and prevent clipping of `DelegateOwnerPicker` dropdown chips and coverage badges.
+    - Applies identical unclipped header styling, column widths, and 36px section sizing to the Clash & Dispatch Board (`["📅 Slot", "🕒 Time", "👤 Colliding Delegate", "Stream A (Assigned)", "Parallel Stream B", "🛡️ Action / Coverage"]`).
+
 
