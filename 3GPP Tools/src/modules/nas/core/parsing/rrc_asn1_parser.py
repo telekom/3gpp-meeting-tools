@@ -75,10 +75,13 @@ class RRCAsn1Parser(BaseAsn1DocxParser):
                     field_individual_descs=field_individual_descs,
                 )
                 if unrolled:
+                    msg_desc, msg_dir = self._extract_prose_summary_and_direction(desc_table_html)
                     messages.append({
                         "clause": assigned_clause,
                         "message_name": clean_name,
                         "table_caption": f"{clean_name} ASN.1 PDU Definition (Clause {assigned_clause})",
+                        "description": msg_desc,
+                        "direction": msg_dir,
                         "ies": unrolled,
                     })
 

@@ -70,6 +70,42 @@ class PFCPDocxParser:
             expanded.extend([text] * span)
         return expanded
 
+    @staticmethod
+    def _infer_pfcp_message_context(msg_name: str, prose_lines: List[str]) -> Tuple[str, str]:
+        """Extracts or infers description and direction for a PFCP message."""
+        desc = " ".join(prose_lines).strip()
+        lower_name = msg_name.lower()
+        lower_desc = desc.lower()
+
+        direction = ""
+        if "cp function to the up function" in lower_desc or "sent by the cp function" in lower_desc:
+            if "or the up function" in lower_desc or "or by the up function" in lower_desc:
+                direction = "CP function ↔ UP function"
+            else:
+                direction = "CP function → UP function"
+        elif "up function to the cp function" in lower_desc or "sent by the up function" in lower_desc:
+            if "or the cp function" in lower_desc or "or by the cp function" in lower_desc:
+                direction = "CP function ↔ UP function"
+            else:
+                direction = "UP function → CP function"
+        elif "sending node" in lower_desc and "receiving node" in lower_desc:
+            direction = "CP function ↔ UP function"
+
+        if not direction:
+            if any(k in lower_name for k in ("session establishment", "session modification", "session deletion")):
+                direction = "CP function → UP function" if "request" in lower_name else "UP function → CP function"
+            elif "session report" in lower_name:
+                direction = "UP function → CP function" if "request" in lower_name else "CP function → UP function"
+            elif "session set" in lower_name or "pfd management" in lower_name:
+                direction = "CP function → UP function" if "request" in lower_name else "UP function → CP function"
+            else:
+                direction = "CP function ↔ UP function"
+
+        if not desc:
+            desc = f"PFCP {msg_name} message exchanged over Sxa, Sxb, Sxc, N4, or N4mb reference points ({direction})."
+
+        return desc, direction
+
     def parse(
         self, progress_callback: Optional[Callable[[str, int], None]] = None
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -84,6 +120,7 @@ class PFCPDocxParser:
         raw_tables: List[Tuple[str, str, str, Any]] = []
         ie_definitions_dict: Dict[str, Dict[str, Any]] = {}
         type_registry: Dict[str, Dict[str, str]] = {}
+        clause_7_prose_map: Dict[str, List[str]] = {}
 
         for file_idx, docx_path in enumerate(valid_paths):
             if progress_callback:
@@ -103,6 +140,7 @@ class PFCPDocxParser:
             current_ie_clause = ""
             current_ie_name = ""
             current_ie_html: List[str] = []
+            current_c7_clause = ""
 
             def _finalize_current_ie():
                 nonlocal current_ie_clause, current_ie_name, current_ie_html
@@ -133,6 +171,7 @@ class PFCPDocxParser:
 
                         if cl_num.startswith("8.2.") and cl_title:
                             _finalize_current_ie()
+                            current_c7_clause = ""
                             current_ie_clause = cl_num
                             current_ie_name = cl_title
                             current_ie_html = [
@@ -140,8 +179,14 @@ class PFCPDocxParser:
                                 f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
                                 f'{html.escape(cl_title)} (Clause {cl_num})</h2>'
                             ]
+                        elif cl_num.startswith(("7.4.", "7.5.")) and cl_title:
+                            _finalize_current_ie()
+                            current_c7_clause = cl_num
+                            clause_7_prose_map.setdefault(current_c7_clause, [])
+                            continue
                         elif not cl_num.startswith("8.2."):
                             _finalize_current_ie()
+                            current_c7_clause = ""
 
                     match_cap = RE_PFCP_TABLE_CAPTION.match(p_text)
                     if match_cap:
@@ -150,6 +195,11 @@ class PFCPDocxParser:
                         last_caption_info = (clause_ref, cap_name, p_text)
                     elif not p_text.startswith("Table "):
                         last_caption_info = None
+
+                    if current_c7_clause and not p_text.startswith(("Table ", "Figure ", "NOTE")):
+                        prose_list = clause_7_prose_map.setdefault(current_c7_clause, [])
+                        if len(prose_list) < 5:
+                            prose_list.append(p_text.strip())
 
                     if current_ie_clause:
                         if p_text.startswith("Figure 8."):
@@ -214,18 +264,46 @@ class PFCPDocxParser:
             base_clause = self._clean_clause_number(clause_ref)
             is_top_msg = self._is_top_level_message(clean_name, clause_ref, base_clause)
 
+            prose_lines = list(clause_7_prose_map.get(base_clause, []))
+            if not prose_lines and "." in base_clause:
+                parent_cl = base_clause.rsplit(".", 1)[0]
+                prose_lines = list(clause_7_prose_map.get(parent_cl, []))
+
+            msg_desc, msg_dir = self._infer_pfcp_message_context(clean_name, prose_lines)
+
             table_record = {
                 "clause": base_clause,
                 "clause_ref": clause_ref,
                 "name": clean_name,
                 "message_name": clean_name,
                 "table_caption": full_cap,
+                "description": msg_desc,
+                "direction": msg_dir,
                 "ies": parsed_ies,
                 "fields": parsed_ies,
             }
 
             if is_top_msg:
                 top_messages_raw.append(table_record)
+                norm_msg_k = self._normalize_key(clean_name)
+                if norm_msg_k not in ie_definitions_dict:
+                    tbl_html = _convert_table_to_html(tbl_elem, is_figure_diagram=False)
+                    ie_definitions_dict[norm_msg_k] = {
+                        "clause": base_clause,
+                        "name": clean_name,
+                        "ie_name": clean_name,
+                        "raw_description": (
+                            f'<h2 style="color: #0284C7; margin-top: 4px; margin-bottom: 6px; '
+                            f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
+                            f'{html.escape(clean_name)} (Clause {html.escape(base_clause)})</h2>'
+                            f'<p style="margin: 4px 0; line-height: 1.4; color: #0369A1; font-weight: bold; font-size: 11px;">'
+                            f'Direction: {html.escape(msg_dir)}</p>'
+                            f'<p style="margin: 4px 0; line-height: 1.4; color: #334155; font-size: 11px;">'
+                            f'{html.escape(msg_desc)}</p>'
+                            f'{tbl_html}'
+                        ),
+                        "structure_table": json.dumps([]),
+                    }
                 self.logger.info("Found top-level message [%s] (%s) with %d direct IEs", base_clause, clean_name, len(parsed_ies))
             else:
                 norm_key = self._normalize_key(clean_name)
@@ -252,6 +330,8 @@ class PFCPDocxParser:
                 "name": msg["name"],
                 "message_name": msg["message_name"],
                 "table_caption": msg["table_caption"],
+                "description": msg.get("description", ""),
+                "direction": msg.get("direction", ""),
                 "ies": unrolled_ies,
                 "fields": unrolled_ies,
             })

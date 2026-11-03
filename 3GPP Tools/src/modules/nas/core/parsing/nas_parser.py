@@ -22,6 +22,7 @@ RE_CAPTION = re.compile(
     r"^Table\s+((?:8|D\.5)\.\d+(?:[\.\-/][0-9A-Za-z]+)*)\s*[:\.]\s*(.+?)(?:\s+message\s+content)?$",
     re.IGNORECASE,
 )
+RE_MSG_HEADING_NAS = re.compile(r"^((?:8\.(?:[2-9]|1[0-9])|D\.5)(?:\.[0-9A-Za-z]+)*)\s+(.+)$")
 RE_IE_HEADING_NAS = re.compile(r"^((?:9\.[2-9]|9\.1[0-9]|D\.6)(?:\.[0-9A-Za-z]+)*)\s+(.+)$")
 RE_IE_HEADING_POLICY = re.compile(r"^((?:5\.(?:[2-9]|1[0-4])|12\.[1-9])(?:\.[0-9A-Za-z]+)*)\s+(.+)$")
 RE_PARENT_SECTION_POLICY = re.compile(r"^((?:5\.(?:[2-9]|1[0-4])|12\.[1-9]))\s+(.+)$")
@@ -62,6 +63,8 @@ TS24526_POLICY_MESSAGES = [
         "clause": "5.2",
         "message_name": "URSP rule (UE route selection policy)",
         "table_caption": "Table 5.2.1: UE policy part contents including a URSP rule",
+        "description": "UE Route Selection Policy (URSP) rule associating application traffic descriptors with a prioritized list of Route Selection Descriptors (RSD) for PDU session binding.",
+        "direction": "PCF → UE (via AMF)",
         "ies": [
             {"iei": "-", "information_element": "Length of UE policy part contents", "field_path": "Length of UE policy part contents", "depth": 0, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "M", "format": "V", "length": "2"},
             {"iei": "-", "information_element": "Length of URSP rule", "field_path": "Length of URSP rule", "depth": 0, "type_reference": "Encoding of UE policy part type URSP 5.2", "presence": "M", "format": "V", "length": "2"},
@@ -111,6 +114,8 @@ TS24526_POLICY_MESSAGES = [
         "clause": "5.3",
         "message_name": "ANDSP (Access network discovery and selection policy)",
         "table_caption": "Table 5.3.1.1: ANDSP information format",
+        "description": "Access Network Discovery and Selection Policy (ANDSP) used by the UE for selecting non-3GPP access networks (WLANSP and N3AN node configuration).",
+        "direction": "PCF → UE (via AMF)",
         "ies": [
             {"iei": "0001", "information_element": "WLANSP (WLAN selection policy)", "field_path": "WLANSP (WLAN selection policy)", "depth": 0, "type_reference": "Encoding of WLANSP 5.3.2", "presence": "C", "format": "LV-E", "length": "3-65535"},
             {"iei": "0010", "information_element": "N3AN node configuration information", "field_path": "N3AN node configuration information", "depth": 0, "type_reference": "Encoding of N3AN node configuration information — General 5.3.3.1", "presence": "C", "format": "LV-E", "length": "3-65535"},
@@ -125,6 +130,8 @@ TS24526_POLICY_MESSAGES = [
         "clause": "5.3.2",
         "message_name": "WLANSP (WLAN selection policy)",
         "table_caption": "Table 5.3.2.1: WLANSP information element",
+        "description": "WLAN Selection Policy (WLANSP) rule containing prioritized selection criteria, validity area, and time of day for non-3GPP WLAN access selection.",
+        "direction": "PCF → UE (via AMF)",
         "ies": [
             {"iei": "-", "information_element": "WLANSP rule priority", "field_path": "WLANSP rule priority", "depth": 0, "type_reference": "Encoding of WLANSP 5.3.2", "presence": "M", "format": "V", "length": "1"},
             {"iei": "-", "information_element": "Selection criteria", "field_path": "Selection criteria", "depth": 0, "type_reference": "Encoding of WLANSP 5.3.2", "presence": "M", "format": "LV-E", "length": "2-65535"},
@@ -140,6 +147,8 @@ TS24588_POLICY_MESSAGES = [
         "clause": "5.2",
         "message_name": "V2XP policy part (V2X policy)",
         "table_caption": "Table 5.2.1.1: V2XP information format",
+        "description": "Vehicle-to-Everything Policy (V2XP) UE policy part provisioning V2X communication parameters over PC5 and Uu reference points.",
+        "direction": "PCF → UE (via AMF)",
         "ies": [
             {"iei": "-", "information_element": "Length of V2XP contents", "field_path": "Length of V2XP contents", "depth": 0, "type_reference": "Encoding of V2X policy (V2XP) UE policy part 5.2", "presence": "M", "format": "V", "length": "2"},
             {"iei": "0001", "information_element": "UE policies for V2X communication over PC5", "field_path": "UE policies for V2X communication over PC5", "depth": 0, "type_reference": "Encoding of UE policies for V2X communication over PC5 5.3", "presence": "O", "format": "TLV-E", "length": "3-65535"},
@@ -150,6 +159,8 @@ TS24588_POLICY_MESSAGES = [
         "clause": "5.3",
         "message_name": "V2XP rule for PC5 communication",
         "table_caption": "Table 5.3.1.1: UE policies for V2X communication over PC5",
+        "description": "UE policies for V2X communication over the PC5 reference point (E-UTRA-PC5 and NR-PC5 radio parameters, privacy, and DRX).",
+        "direction": "PCF → UE (via AMF)",
         "ies": [
             {"iei": "01", "information_element": "Served by E-UTRA or served by NR", "field_path": "Served by E-UTRA or served by NR", "depth": 0, "type_reference": "Encoding of UE policies for V2X communication over PC5 5.3", "presence": "O", "format": "TLV-E", "length": "3-65535"},
             {"iei": "02", "information_element": "Not served by E-UTRA and not served by NR", "field_path": "Not served by E-UTRA and not served by NR", "depth": 0, "type_reference": "Encoding of UE policies for V2X communication over PC5 5.3", "presence": "O", "format": "TLV-E", "length": "3-65535"},
@@ -163,6 +174,8 @@ TS24588_POLICY_MESSAGES = [
         "clause": "5.4",
         "message_name": "V2XP rule for Uu communication",
         "table_caption": "Table 5.4.1.1: UE policies for V2X communication over Uu",
+        "description": "UE policies for V2X communication over the Uu reference point (PLMN infos, V2X Application Server addresses, and PDU session mapping rules).",
+        "direction": "PCF → UE (via AMF)",
         "ies": [
             {"iei": "01", "information_element": "PLMN infos", "field_path": "PLMN infos", "depth": 0, "type_reference": "Encoding of UE policies for V2X communication over Uu 5.4", "presence": "O", "format": "TLV-E", "length": "3-65535"},
             {"iei": "02", "information_element": "V2X service identifier unrelated info", "field_path": "V2X service identifier unrelated info", "depth": 0, "type_reference": "Encoding of UE policies for V2X communication over Uu 5.4", "presence": "O", "format": "TLV-E", "length": "3-65535"},
@@ -179,6 +192,8 @@ TS24555_POLICY_MESSAGES = [
         "clause": "5.2",
         "message_name": "5G ProSe policy (ProSeP) part",
         "table_caption": "Table 5.2.1: ProSeP information format",
+        "description": "5G Proximity-based Services Policy (ProSeP) UE policy part provisioning parameters for 5G ProSe direct discovery, direct communication, and UE-to-network/UE-to-UE relays.",
+        "direction": "PCF → UE (via AMF)",
         "ies": [
             {"iei": "-", "information_element": "Length of ProSeP contents", "field_path": "Length of ProSeP contents", "depth": 0, "type_reference": "Encoding of 5G ProSe policy UE policy part 5.2", "presence": "M", "format": "V", "length": "2"},
             {"iei": "0001", "information_element": "UE policies for 5G ProSe direct discovery", "field_path": "UE policies for 5G ProSe direct discovery", "depth": 0, "type_reference": "Encoding of UE policies for 5G ProSe direct discovery 5.3", "presence": "O", "format": "TLV-E", "length": "3-65535"},
@@ -194,6 +209,8 @@ TS24555_POLICY_MESSAGES = [
         "clause": "5.3",
         "message_name": "ProSe policy for direct discovery",
         "table_caption": "Table 5.3.2.1: ProSeP Info = {UE policies for 5G ProSe direct discovery}",
+        "description": "UE policies for 5G ProSe direct discovery when served or not served by NG-RAN, including DRX, group member discovery, and 5G DDNMF address.",
+        "direction": "PCF → UE (via AMF)",
         "ies": [
             {"iei": "01", "information_element": "Served by NG-RAN", "field_path": "Served by NG-RAN", "depth": 0, "type_reference": "Encoding of UE policies for 5G ProSe direct discovery 5.3", "presence": "O", "format": "TLV-E", "length": "3-65535"},
             {"iei": "02", "information_element": "Not served by NG-RAN", "field_path": "Not served by NG-RAN", "depth": 0, "type_reference": "Encoding of UE policies for 5G ProSe direct discovery 5.3", "presence": "O", "format": "TLV-E", "length": "3-65535"},
@@ -206,6 +223,8 @@ TS24555_POLICY_MESSAGES = [
         "clause": "5.4",
         "message_name": "ProSe policy for direct communications",
         "table_caption": "Table 5.4.2.1: ProSeP Info = {UE policies for 5G ProSe direct communication}",
+        "description": "UE policies for 5G ProSe direct communication over PC5 in NR-PC5, including privacy configuration and groupcast parameters.",
+        "direction": "PCF → UE (via AMF)",
         "ies": [
             {"iei": "01", "information_element": "Served by NG-RAN", "field_path": "Served by NG-RAN", "depth": 0, "type_reference": "Encoding of UE policies for 5G ProSe direct communications 5.4", "presence": "O", "format": "TLV-E", "length": "3-65535"},
             {"iei": "02", "information_element": "Not served by NG-RAN", "field_path": "Not served by NG-RAN", "depth": 0, "type_reference": "Encoding of UE policies for 5G ProSe direct communications 5.4", "presence": "O", "format": "TLV-E", "length": "3-65535"},
@@ -222,6 +241,8 @@ TS24514_POLICY_MESSAGES = [
         "clause": "12.2",
         "message_name": "RSLPP policy part (Ranging & sidelink positioning)",
         "table_caption": "Table 12.2.1: UE policy part when UE policy part type = {RSLPP}",
+        "description": "Ranging-based services and Sidelink Positioning Policy (RSLPP) UE policy part provisioning configuration for ranging and PC5 sidelink positioning.",
+        "direction": "PCF → UE (via AMF)",
         "ies": [
             {"iei": "-", "information_element": "Length of RSLPP contents", "field_path": "Length of RSLPP contents", "depth": 0, "type_reference": "RSLPP Information Elements Coding 12.2", "presence": "M", "format": "V", "length": "2"},
             {"iei": "0001", "information_element": "RSLPP contents (Configuration information)", "field_path": "RSLPP contents (Configuration information)", "depth": 0, "type_reference": "RSLPP Information Elements Coding 12.2", "presence": "M", "format": "LV-E", "length": "3-65535"},
@@ -231,6 +252,8 @@ TS24514_POLICY_MESSAGES = [
         "clause": "12.2.2",
         "message_name": "RSLPP contents & configuration",
         "table_caption": "Table 12.2.2: RSLPP contents",
+        "description": "Detailed RSLPP configuration parameters including NG-RAN authorization, 5G ProSe and V2X QoS mapping rules, and SLPKMF address information.",
+        "direction": "PCF → UE (via AMF)",
         "ies": [
             {"iei": "01", "information_element": "Served by NG-RAN", "field_path": "Served by NG-RAN", "depth": 0, "type_reference": "RSLPP Information Elements Coding 12.2", "presence": "O", "format": "TLV-E", "length": "3-65535"},
             {"iei": "02", "information_element": "Not served by NG-RAN", "field_path": "Not served by NG-RAN", "depth": 0, "type_reference": "RSLPP Information Elements Coding 12.2", "presence": "O", "format": "TLV-E", "length": "3-65535"},
@@ -247,6 +270,8 @@ TS24578_POLICY_MESSAGES = [
         "clause": "5.2",
         "message_name": "A2XP policy part (Aerial access policy)",
         "table_caption": "Table 5.2.1.1: A2XP information format",
+        "description": "Aerial-to-Everything Policy (A2XP) UE policy part provisioning UAV parameters for A2X communication over PC5 and Uu, Broadcast Remote ID (BRID), DDAA, and C2.",
+        "direction": "PCF → UE (via AMF)",
         "ies": [
             {"iei": "-", "information_element": "Length of A2XP contents", "field_path": "Length of A2XP contents", "depth": 0, "type_reference": "Encoding of A2X policy (A2XP) UE policy part 5.2", "presence": "M", "format": "V", "length": "2"},
             {"iei": "0001", "information_element": "UE policies for A2X communication over PC5", "field_path": "UE policies for A2X communication over PC5", "depth": 0, "type_reference": "Encoding of UE policies for A2X communication over PC5 5.3", "presence": "O", "format": "TLV-E", "length": "3-65535"},
@@ -261,6 +286,8 @@ TS24578_POLICY_MESSAGES = [
         "clause": "5.3",
         "message_name": "A2XP rule for PC5 communication",
         "table_caption": "Table 5.3.2.1: A2XP info = {UE policies for A2X communication over PC5}",
+        "description": "UE policies for A2X communication over PC5, including radio parameters per altitude range and geographical area.",
+        "direction": "PCF → UE (via AMF)",
         "ies": [
             {"iei": "01", "information_element": "Served by NG-RAN", "field_path": "Served by NG-RAN", "depth": 0, "type_reference": "Encoding of UE policies for A2X communication over PC5 5.3", "presence": "O", "format": "TLV-E", "length": "3-65535"},
             {"iei": "02", "information_element": "Not served by NG-RAN", "field_path": "Not served by NG-RAN", "depth": 0, "type_reference": "Encoding of UE policies for A2X communication over PC5 5.3", "presence": "O", "format": "TLV-E", "length": "3-65535"},
@@ -274,6 +301,8 @@ TS24578_POLICY_MESSAGES = [
         "clause": "5.7",
         "message_name": "A2XP rule for Uu communication",
         "table_caption": "Table 5.7.2.1: A2XP Info = {UE policies for A2X communication over Uu}",
+        "description": "UE policies for A2X communication over Uu, including PLMN infos, A2X Application Server addresses, and PDU session mapping rules.",
+        "direction": "PCF → UE (via AMF)",
         "ies": [
             {"iei": "01", "information_element": "PLMN infos", "field_path": "PLMN infos", "depth": 0, "type_reference": "Encoding of UE policies for A2X communication over Uu 5.7", "presence": "O", "format": "TLV-E", "length": "3-65535"},
             {"iei": "02", "information_element": "A2X service identifier unrelated info", "field_path": "A2X service identifier unrelated info", "depth": 0, "type_reference": "Encoding of UE policies for A2X communication over Uu 5.7", "presence": "O", "format": "TLV-E", "length": "3-65535"},
@@ -358,6 +387,7 @@ class NASDocxParser:
             last_caption_info: Optional[Tuple[str, str, str]] = None
             last_paragraph_text: str = ""
             current_ie_def: Optional[Dict[str, Any]] = None
+            current_msg_sec: Optional[Dict[str, Any]] = None
 
             for elem in list(body):
                 if elem.tag == TAG_P:
@@ -376,6 +406,25 @@ class NASDocxParser:
                             sec_title = RE_TRAILING_PAGE_NUM.sub("", mp_sec.group(2).strip()).strip()
                             parent_section_titles[sec_cl] = sec_title
 
+                    if not is_policy_spec:
+                        match_msg_h = RE_MSG_HEADING_NAS.match(p_text)
+                        if match_msg_h and not p_text.startswith(("Table ", "Figure ")):
+                            msg_cl = match_msg_h.group(1).strip()
+                            msg_title = RE_TRAILING_PAGE_NUM.sub("", match_msg_h.group(2).strip()).strip()
+                            current_msg_sec = {
+                                "clause": msg_cl,
+                                "title": msg_title,
+                                "prose": [],
+                                "direction": "",
+                                "html_content": [
+                                    f'<h2 style="color: #0369A1; margin-top: 4px; margin-bottom: 6px; '
+                                    f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
+                                    f'{html.escape(msg_title)} (Clause {html.escape(msg_cl)})</h2>'
+                                ],
+                            }
+                            last_caption_info = None
+                            continue
+
                     if p_text.startswith(("Table 8.", "Table D.5.")):
                         match_cap = RE_CAPTION.search(p_text)
                         if match_cap:
@@ -387,8 +436,36 @@ class NASDocxParser:
                     else:
                         last_caption_info = None
 
+                    if current_msg_sec and not p_text.startswith(("Table 8.", "Table D.5.", "9.", "D.6")):
+                        low_p = p_text.lower()
+                        if low_p.startswith("direction:"):
+                            raw_dir = re.sub(r"(?i)^direction\s*:\s*", "", p_text).strip().rstrip(".")
+                            norm_dir = re.sub(r"(?i)\bto\b", "→", raw_dir)
+                            norm_dir = re.sub(r"(?i)\band/or\b", "↔", norm_dir)
+                            current_msg_sec["direction"] = norm_dir
+                            current_msg_sec["html_content"].append(
+                                f'<p style="margin: 4px 0 6px 0; font-weight: bold; color: #0284C7; font-size: 11px;">'
+                                f'{html.escape(p_text)}</p>'
+                            )
+                        elif low_p.startswith(("message type:", "significance:")):
+                            current_msg_sec["html_content"].append(
+                                f'<p style="margin: 3px 0; font-weight: 600; color: #475569; font-size: 11px;">'
+                                f'{html.escape(p_text)}</p>'
+                            )
+                        elif p_text.startswith("NOTE"):
+                            current_msg_sec["html_content"].append(
+                                f'<div style="background-color: #F0F4F8; border-left: 3px solid #90A4AE; '
+                                f'padding: 4px 8px; margin: 4px 0; font-size: 11px; color: #455A64;">{html.escape(p_text)}</div>'
+                            )
+                        elif not p_text.startswith(("Table ", "Figure ")) and len(current_msg_sec["prose"]) < 6:
+                            current_msg_sec["prose"].append(p_text)
+                            current_msg_sec["html_content"].append(
+                                f'<p style="margin: 4px 0; line-height: 1.4; color: #263238; font-size: 11px;">{html.escape(p_text)}</p>'
+                            )
+
                     match_ie = re_ie_heading.match(p_text)
                     if match_ie:
+                        current_msg_sec = None
                         if current_ie_def:
                             self._finalize_ie_def(current_ie_def, ie_definitions)
 
@@ -447,12 +524,32 @@ class NASDocxParser:
                         clause, name, full_caption = last_caption_info
                         ies = self._parse_clause_8_table(elem)
                         if ies:
+                            msg_desc = " ".join(current_msg_sec.get("prose", [])).strip() if current_msg_sec else ""
+                            msg_dir = current_msg_sec.get("direction", "") if current_msg_sec else ""
                             messages.append({
                                 "clause": clause,
                                 "message_name": name,
                                 "table_caption": full_caption,
+                                "description": msg_desc,
+                                "direction": msg_dir,
                                 "ies": ies,
                             })
+                            if current_msg_sec:
+                                msg_tbl_html = _convert_table_to_html(elem, is_figure_diagram=False)
+                                msg_html_parts = list(current_msg_sec.get("html_content", []))
+                                msg_html_parts.append(
+                                    f'<p style="font-weight: bold; color: #1A237E; margin-top: 10px; margin-bottom: 4px; font-size: 11px;">'
+                                    f'{html.escape(full_caption)}</p>'
+                                )
+                                if msg_tbl_html:
+                                    msg_html_parts.append(msg_tbl_html)
+                                ie_definitions.append({
+                                    "clause": clause,
+                                    "ie_name": name,
+                                    "raw_description": "".join(msg_html_parts),
+                                    "structure_table": json.dumps([]),
+                                })
+                                current_msg_sec = None
                             handled_as_message = True
                         last_caption_info = None
 

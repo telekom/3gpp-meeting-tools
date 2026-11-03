@@ -75,6 +75,12 @@ progress callback.
   which parser handles otherwise-unmatched specifications.
 - DOCX parsers share the `(messages, ie_definitions)` result shape and optional
   progress callback. Preserve this when adding or changing parser routes.
+  Each message dictionary includes `"description"` (concise prose summary) and
+  `"direction"` (e.g., `"AMF → NG-RAN node"`, `"UE → Network"`) alongside
+  `"clause"`, `"message_name"`, `"table_caption"`, and `"ies"`. Top-level
+  messages also register a rich HTML definition in `ie_definitions` so the UI
+  `NASInspectorWidget` can display the full message prose and tabular layout
+  upon message selection.
 - Multipart ordering, filename patterns, XML tags, and shared clause patterns
   are centralized in `protocol_parser_common.py` and
   `protocol_parser_constants.py`; check these before adding duplicates.
