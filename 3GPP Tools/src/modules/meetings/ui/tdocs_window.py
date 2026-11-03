@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import re
-import subprocess
 import urllib.parse
 import webbrowser
 from pathlib import Path
@@ -15,38 +14,27 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableView,
     QHeaderView, QLabel, QLineEdit, QFrame,
     QPushButton, QMessageBox, QMenu, QApplication,
-    QToolTip, QCheckBox, QDialog, QTextEdit, QFileDialog,
-    QComboBox
+    QToolTip, QCheckBox, QDialog, QTextEdit, QComboBox
 )
 
 from core.network.network_state import NetworkState
 from core.ui.ui_components import (
-    BUTTON_STYLE_TOOLBAR_SECONDARY,
-    BUTTON_STYLE_TOOLBAR_DANGER,
-    BUTTON_STYLE_TOOLBAR_WARNING
+    BUTTON_STYLE_TOOLBAR_SECONDARY
 )
 from modules.emails.ui.email_window import EmailManagerWindow
-from modules.meetings.core.agenda_manager import AgendaManager, AgendaDownloaderThread
-from modules.meetings.core.chair_notes_downloader import ChairNotesDownloaderThread
+from modules.meetings.core.agenda_manager import AgendaManager
 from modules.meetings.core.compare_manager import ComparisonManager
-from modules.meetings.core.excel_exporter import ExcelExporterThread
-from modules.meetings.core.llm_exporter import (
-    TDocMarkdownExporterThread,
-    LLMExporterThread,
-)
-from modules.meetings.core.markdown_exporter import MarkdownExporterThread
+from modules.meetings.core.exporters.markdown_exporter import MarkdownExporterThread
 from modules.meetings.core.settings import MeetingsSettings
 from modules.meetings.core.stats.exporter_thread import StatisticsExporterThread
 from modules.meetings.core.tdocs_db import TDocsDatabase
 from modules.meetings.core.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs_parser import TDocsParser
-from modules.meetings.core.tdocs_package_exporter import TDocsPackageExporterThread
 from modules.meetings.core.meeting_wi_enricher import MeetingWIEnricherThread
 from modules.meetings.core.tdocs_threads import (
     TDocsRevisionsFetcherThread,
     TDocActionThread,
     TdocsByAgendaThread,
-    WordAgendaImporterThread,
 )
 from modules.meetings.core.url_router import URLRouter
 from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate, AgendaItemDelegate
@@ -54,10 +42,9 @@ from modules.meetings.ui.tdocs_components import CheckableComboBox, ComparisonCa
 from modules.meetings.ui.tdocs_dialogs import (
     ReadOnlyViewerDialog,
     InteractiveNotesDialog,
-    StatisticsSettingsDialog, ExcelExportDialog,
-    TDocInfoDialog, ALL_AVAILABLE_COLUMNS
+    StatisticsSettingsDialog, TDocInfoDialog
 )
-from modules.meetings.ui.tdocs_menus import build_action_menu, build_related_menu, build_row_context_menu
+from modules.meetings.ui.tdocs_menus import build_action_menu, build_related_menu
 from modules.meetings.ui.tdocs_menu import handle_table_context_menu
 from modules.meetings.ui.tdocs_export_controller import (
     get_package_export_rows,
@@ -1649,8 +1636,8 @@ class TDocsWindow(QWidget):
 
     def _load_tdoc_as_session_plan(self, tdoc_id: str):
         """Fetches the target TDoc, stages it to Agenda/SessionPlans, and launches SessionPlanWindow."""
-        from modules.meetings.core.session_plan_parser import SessionPlanParser
-        from modules.meetings.core.session_plan_db import SessionPlanDatabase
+        from modules.meetings.core.session_plan.session_plan_parser import SessionPlanParser
+        from modules.meetings.core.session_plan.session_plan_db import SessionPlanDatabase
         from modules.meetings.core.tdoc_file_handler import TDocFileHandler
         from modules.meetings.core.url_router import URLRouter
         from core.network.network_state import NetworkState
@@ -1947,8 +1934,8 @@ class TDocsWindow(QWidget):
 
             if session_plan_files:
                 for spf in session_plan_files:
-                    from modules.meetings.core.session_plan_parser import SessionPlanParser
-                    from modules.meetings.core.session_plan_db import SessionPlanDatabase
+                    from modules.meetings.core.session_plan.session_plan_parser import SessionPlanParser
+                    from modules.meetings.core.session_plan.session_plan_db import SessionPlanDatabase
                     staged = SessionPlanParser.stage_session_plan_file(spf, self.meeting_dir)
                     db = SessionPlanDatabase(self.meeting_dir / "Agenda" / "session_plans.db")
                     if staged.suffix.lower() == ".docx":

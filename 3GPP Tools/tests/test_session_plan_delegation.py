@@ -16,9 +16,9 @@ from pathlib import Path
 
 from PyQt5.QtWidgets import QApplication
 
-from modules.meetings.core.session_plan_db import SessionPlanDatabase
-from modules.meetings.core.session_plan_exporter import SessionPlanExporter
-from modules.meetings.core.session_plan_models import (
+from modules.meetings.core.session_plan.session_plan_db import SessionPlanDatabase
+from modules.meetings.core.session_plan.session_plan_exporter import SessionPlanExporter
+from modules.meetings.core.session_plan.session_plan_models import (
     DELEGATE_PALETTE,
     AgendaSlotItem,
     DelegationMember,
@@ -34,10 +34,7 @@ from modules.meetings.core.session_plan_models import (
 )
 from modules.meetings.ui.delegate_owner_picker import DelegateOwnerPicker
 from modules.meetings.ui.session_plan_dialogs import (
-    DelegationImportDialog,
-    DelegationMemberDialog,
     MultiDelegateSelectDialog,
-    SessionDispatchDialog,
 )
 from modules.meetings.ui.session_plan_window import SessionPlanWindow
 
@@ -1068,7 +1065,7 @@ detectDelegateClashes('ALL');
 """
             temp_js = self.temp_dir / "verify_bundle.js"
             temp_js.write_text(harness, encoding="utf-8")
-            res = subprocess.run([node_bin, str(temp_js)], capture_output=True, text=True)
+            res = subprocess.run([node_bin, str(temp_js)], capture_output=True, text=True, encoding="utf-8", errors="replace")
             self.assertEqual(res.returncode, 0, f"Node.js execution failed:\nSTDOUT: {res.stdout}\nSTDERR: {res.stderr}")
 
     def test_overview_grid_topic_owner_direct_assignment(self):
@@ -1107,7 +1104,6 @@ detectDelegateClashes('ALL');
     def test_delegation_no_myself_tags_in_ui(self):
         """Verifies UI dialogs and pickers do not append (Me) or (Myself) tags to delegate names."""
         from modules.meetings.ui.session_plan_dialogs import DelegationMemberDialog, MultiDelegateSelectDialog
-        from modules.meetings.ui.delegate_owner_picker import DelegateOwnerPicker
 
         m1 = DelegationMember(name="Anna", color="#059669", is_self=True)
         m2 = DelegationMember(name="Thomas", color="#7C3AED", is_self=False)
@@ -1125,6 +1121,255 @@ detectDelegateClashes('ALL');
         self.assertNotIn("(Me)", mem_dlg.preview_lbl.text())
         self.assertNotIn("(Myself)", mem_dlg.preview_lbl.text())
         self.assertFalse(hasattr(mem_dlg, "self_chk"))
+
+    def test_persistent_ai_assignments_across_meetings_and_session_overrides(self):
+        """
+        Verifies that Delegation Roster and AI Topic Ownership persist across different meetings
+        (both within the same DB and across separate meeting folders) as the Default Assignment,
+        can be changed between meetings, and that session_appointments act strictly as per-meeting
+        session-level overrides.
+        """
+        dir_177 = self.temp_dir / "SA2_177"
+        dir_178 = self.temp_dir / "SA2_178"
+        (dir_177 / "Agenda").mkdir(parents=True, exist_ok=True)
+        (dir_178 / "Agenda").mkdir(parents=True, exist_ok=True)
+
+        db_177 = SessionPlanDatabase(dir_177 / "Agenda" / "session_plans.db")
+        m_martin = DelegationMember(name="Martin", color="#2563EB", is_self=True)
+        m_anna = DelegationMember(name="Anna", color="#059669", is_self=False)
+        db_177.save_delegation_member("177", m_martin)
+        db_177.save_delegation_member("177", m_anna)
+        db_177.set_topic_owner("177", "20.6.1", "Martin")
+        db_177.set_topic_owner("177", "20.6.2", "Anna")
+        db_177.set_session_appointment(
+            meeting_number="177",
+            slot_key="Monday|Q2|1|2",
+            appointed_delegate="Anna",
+            original_owner="Martin",
+            reason="Covering parallel collision in SA2#177",
+        )
+
+        # Open a brand-new meeting folder (SA2 #178) with its own SQLite database
+        db_178 = SessionPlanDatabase(dir_178 / "Agenda" / "session_plans.db")
+        plan_178 = db_178.get_delegation_plan("178")
+
+        # 1. Roster and Default AI Assignments are automatically inherited!
+        self.assertIn("Martin", plan_178.members)
+        self.assertIn("Anna", plan_178.members)
+        self.assertEqual(plan_178.topic_owners["20.6.1"].owner_name, "Martin")
+        self.assertEqual(plan_178.topic_owners["20.6.2"].owner_name, "Anna")
+
+        # 2. Session-level overrides from #177 do NOT leak into #178
+        self.assertEqual(len(plan_178.appointments), 0)
+
+        # 3. Changing default assignment in #178 updates the default for future meetings (#179)
+        db_178.set_topic_owner("178", "20.6.1", "Anna")
+        db_178.set_session_appointment(
+            meeting_number="178",
+            slot_key="Wednesday|Q3|0|1",
+            appointed_delegate="Martin",
+            original_owner="Anna",
+            reason="Session override in #178",
+        )
+        plan_178_updated = db_178.get_delegation_plan("178")
+        self.assertEqual(plan_178_updated.topic_owners["20.6.1"].owner_name, "Anna")
+        self.assertIn("Wednesday|Q3|0|1", plan_178_updated.appointments)
+
+        # 4. Clearing session overrides in #178 leaves persistent Default AI Assignments intact
+        cleared = db_178.clear_session_appointments("178")
+        self.assertEqual(cleared, 1)
+        plan_178_after_clear = db_178.get_delegation_plan("178")
+        self.assertEqual(len(plan_178_after_clear.appointments), 0)
+        self.assertEqual(plan_178_after_clear.topic_owners["20.6.1"].owner_name, "Anna")
+
+    def test_html_export_unassigned_conflicts_sticky_and_highlight_now(self):
+        """
+        Verifies the 5 HTML export enhancements:
+        1. No 'Starred Topics' button (`btnTracked`)
+        2. Unassigned AIs view (`#unassignedView`, `#btnViewUnassigned`, `#btnUnassigned`)
+        3. Locked Day header row on vertical scroll (`position: sticky; top: 0; z-index: 20;`)
+        4. Conflicts tab (`#conflictsView`, `#btnViewConflicts`, `renderConflictsView`)
+        5. Highlight Now dispatch board (`#btnHighlightNow`, `#nowDispatchPanel`, `highlightNow`)
+        """
+        snap = SessionPlanSnapshot(
+            meeting_number="177",
+            tdoc_id="S2-2610195",
+            snapshot_label="Rev 2",
+            slots=[
+                SessionSlot(
+                    day_index=0,
+                    day_name="Monday",
+                    quarter="Q1",
+                    sub_slot=1,
+                    stream_number=1,
+                    raw_text="AI 20.6.1 NAS Evolution",
+                    items=[AgendaSlotItem(ai_number="20.6.1", display_expr="AI 20.6.1", topic_label="NAS")],
+                ),
+                SessionSlot(
+                    day_index=0,
+                    day_name="Monday",
+                    quarter="Q1",
+                    sub_slot=1,
+                    stream_number=2,
+                    raw_text="AI 20.6.2 SBA Enhancements",
+                    items=[AgendaSlotItem(ai_number="20.6.2", display_expr="AI 20.6.2", topic_label="SBA")],
+                ),
+                SessionSlot(
+                    day_index=1,
+                    day_name="Tuesday",
+                    quarter="Q2",
+                    sub_slot=0,
+                    stream_number=3,
+                    raw_text="AI 20.6.99 Unassigned Mystery Topic",
+                    items=[AgendaSlotItem(ai_number="20.6.99", display_expr="AI 20.6.99", topic_label="Mystery")],
+                ),
+            ],
+        )
+        plan = DelegationPlan(
+            meeting_number="177",
+            members={
+                "Martin": DelegationMember(name="Martin", color="#2563EB", is_self=True),
+                "Anna": DelegationMember(name="Anna", color="#059669", is_self=False),
+            },
+            topic_owners={
+                "20.6.1": TopicOwnership("177", "20.6.1", "Martin"),
+                "20.6.2": TopicOwnership("177", "20.6.2", "Martin"),  # Collides with 20.6.1 on Mon Q1 TU1!
+            },
+        )
+        out_html = self.temp_dir / "enhanced_session_plan.html"
+        SessionPlanExporter.export_mobile_html(
+            snapshot=snap,
+            output_path=out_html,
+            meeting_tz_offset_min=120,
+            tz_name="Venue Time (Madrid)",
+            meeting_dates_str="2026-08-17",
+            delegation_plan=plan,
+        )
+        content = out_html.read_text(encoding="utf-8")
+
+        # 1. Starred topics view removed
+        self.assertNotIn('id="btnTracked"', content)
+        self.assertNotIn("Starred Topics", content)
+
+        # 2. Unassigned AIs view & quick filter present
+        self.assertIn('id="unassignedView"', content)
+        self.assertIn('id="btnViewUnassigned"', content)
+        self.assertIn('id="btnUnassigned"', content)
+        self.assertIn("const UNASSIGNED_AIS =", content)
+        self.assertIn("20.6.99", content)
+
+        # 3. Sticky Day row & 2D scroll container
+        self.assertIn("max-height: calc(100vh - 175px)", content)
+        self.assertIn("position: sticky; top: 0; z-index: 20;", content)
+        self.assertIn("position: sticky; top: 0; left: 0; z-index: 30", content)
+
+        # 4. Conflicts view tab
+        self.assertIn('id="conflictsView"', content)
+        self.assertIn('id="btnViewConflicts"', content)
+        self.assertIn("renderConflictsView", content)
+
+        # 5. Highlight Now dispatch guide
+        self.assertIn('id="btnHighlightNow"', content)
+        self.assertIn('id="nowDispatchPanel"', content)
+        self.assertIn("highlightNow", content)
+        self.assertIn("Where Each Delegate Should Go", content)
+
+        # Execute new interactive views in Node.js to verify zero runtime exceptions
+        script_matches = re.findall(r"<script>(.*?)</script>", content, re.DOTALL)
+        full_js = "\n".join(script_matches)
+        node_bin = shutil.which("node")
+        if node_bin:
+            harness = f"""
+const mockElement = () => ({{
+  classList: {{ toggle: () => {{}}, remove: () => {{}}, add: () => {{}} }},
+  style: {{ setProperty: () => {{}} }},
+  getAttribute: () => '',
+  querySelectorAll: () => [],
+  querySelector: () => null,
+  addEventListener: () => {{}},
+  scrollIntoView: () => {{}},
+  innerHTML: '',
+  textContent: '',
+  value: ''
+}});
+global.document = {{
+  documentElement: {{ style: {{ setProperty: () => {{}} }} }},
+  getElementById: () => mockElement(),
+  querySelectorAll: () => [],
+  querySelector: () => mockElement(),
+  body: {{ appendChild: () => {{}}, removeChild: () => {{}} }}
+}};
+global.window = {{ innerWidth: 1280, innerHeight: 900, addEventListener: () => {{}} }};
+global.setInterval = () => {{}};
+global.setTimeout = () => {{}};
+
+{full_js}
+
+switchView('conflicts');
+switchView('unassigned');
+toggleUnassigned();
+highlightNow(true);
+stepNowSlot(1);
+resetNowToLiveClock();
+highlightNow(false);
+"""
+            temp_js = self.temp_dir / "verify_enhanced_bundle.js"
+            temp_js.write_text(harness, encoding="utf-8")
+            res = subprocess.run([node_bin, str(temp_js)], capture_output=True, text=True, encoding="utf-8", errors="replace")
+            self.assertEqual(res.returncode, 0, f"Node.js execution failed:\nSTDOUT: {res.stdout}\nSTDERR: {res.stderr}")
+
+    def test_enhanced_conflicts_free_colleagues_and_quick_appoint(self):
+        """
+        Verifies desktop Clash & Dispatch Board enhancements:
+        - Accurate per-delegate conflict detection in Delegate Agenda (no false clash when different delegates cover parallel streams)
+        - Free Colleagues column in `team_clashes_table`
+        - 1-click `_quick_appoint_colleague` resolving the collision
+        """
+        win = SessionPlanWindow(
+            meeting_dir=self.temp_dir,
+            mtg_info=self.mtg_info,
+            agenda_map={},
+            tracked_tokens=set(),
+        )
+        try:
+            m1 = DelegationMember(name="Martin", color="#2563EB", is_self=True)
+            m2 = DelegationMember(name="Anna", color="#059669", is_self=False)
+            win.db.save_delegation_member(win.meeting_number, m1)
+            win.db.save_delegation_member(win.meeting_number, m2)
+            win.db.set_topic_owner(win.meeting_number, "20.6.1", "Martin")
+            win.db.set_topic_owner(win.meeting_number, "20.6.2", "Martin")
+            win.delegation_plan = win.db.get_delegation_plan(win.meeting_number)
+
+            s1 = SessionSlot(
+                day_index=0, day_name="Monday", quarter="Q1", sub_slot=1, stream_number=1,
+                raw_text="AI 20.6.1 NAS", items=[AgendaSlotItem(ai_number="20.6.1", display_expr="AI 20.6.1", topic_label="NAS")],
+            )
+            s2 = SessionSlot(
+                day_index=0, day_name="Monday", quarter="Q1", sub_slot=1, stream_number=2,
+                raw_text="AI 20.6.2 SBA", items=[AgendaSlotItem(ai_number="20.6.2", display_expr="AI 20.6.2", topic_label="SBA")],
+            )
+            win.active_snapshot = SessionPlanSnapshot(
+                meeting_number=win.meeting_number, tdoc_id="S2-2610195", slots=[s1, s2]
+            )
+            win._render_current_views()
+
+            # 1. Clash detected for Martin; Anna is shown as Free Colleague in column 5
+            self.assertEqual(win.team_clashes_table.rowCount(), 1)
+            free_item = win.team_clashes_table.item(0, 5)
+            self.assertIsNotNone(free_item)
+            self.assertIn("Anna", free_item.text())
+            self.assertEqual(win.btn_conflicts_quick.text(), "⚠️ Conflicts (1)")
+
+            # 2. Quick-appoint Anna to cover Stream 2 -> resolves collision!
+            win._quick_appoint_colleague(s2, "Martin", "Anna")
+            self.assertEqual(win.team_clashes_table.rowCount(), 0)
+            self.assertEqual(win.btn_conflicts_quick.text(), "⚠️ Conflicts (0)")
+
+            # 3. Delegate Agenda in 'Whole Delegation (ALL)' scope must NOT report a false conflict
+            # now that Martin is in Stream 1 and Anna is in Stream 2
+            self.assertNotIn("Clash", win.btn_tracked.text())
+        finally:
+            win.close()
 
 
 if __name__ == "__main__":

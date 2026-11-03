@@ -13,7 +13,6 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
-    QButtonGroup,
     QCheckBox,
     QColorDialog,
     QComboBox,
@@ -32,7 +31,6 @@ from PyQt5.QtWidgets import (
     QRadioButton,
     QScrollArea,
     QSpinBox,
-    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -41,19 +39,15 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from modules.meetings.core.session_plan_diff import SessionPlanDiffEngine, SessionPlanDiffResult
-from modules.meetings.core.session_plan_exporter import SessionPlanExporter
-from modules.meetings.core.session_plan_models import (
+from modules.meetings.core.session_plan.session_plan_diff import SessionPlanDiffResult
+from modules.meetings.core.session_plan.session_plan_exporter import SessionPlanExporter
+from modules.meetings.core.session_plan.session_plan_models import (
     DELEGATE_PALETTE,
     DelegationMember,
-    DelegationPlan,
-    SessionAppointment,
-    SessionPlanSnapshot,
     SessionSlot,
-    TopicOwnership,
     UserSessionAnnotation,
 )
-from modules.meetings.core.session_plan_timezone import SessionPlanTimezone
+from modules.meetings.core.session_plan.session_plan_timezone import SessionPlanTimezone
 
 logger = logging.getLogger(__name__)
 

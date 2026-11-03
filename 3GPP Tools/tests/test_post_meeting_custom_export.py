@@ -11,7 +11,7 @@ if str(_src_dir) not in sys.path:
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 
-from modules.meetings.core.post_meeting_exporter import PostMeetingExporterThread
+from modules.meetings.core.exporters.post_meeting_exporter import PostMeetingExporterThread
 from modules.meetings.ui.post_meeting_export_dialog import PostMeetingExportDialog
 
 

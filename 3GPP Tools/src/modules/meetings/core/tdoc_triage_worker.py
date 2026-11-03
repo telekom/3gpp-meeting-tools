@@ -11,7 +11,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.ai.ollama_client import OllamaClient
 from core.utils.paths import get_project_root, to_extended_path
-from modules.meetings.core.llm_exporter import LLM_EXTRACTOR_VERSION
+from modules.meetings.core.exporters.llm_exporter import LLM_EXTRACTOR_VERSION
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.tdoc_url_resolver import resolve_tdoc_download_url
 from modules.meetings.core.tdoc_markdown_converter import (

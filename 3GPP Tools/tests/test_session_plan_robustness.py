@@ -17,9 +17,9 @@ app = QApplication.instance()
 if not app:
     app = QApplication([])
 
-from modules.meetings.core.session_plan_parser import SessionPlanParser
-from modules.meetings.core.session_plan_models import SessionPlanSnapshot, SessionSlot
-from modules.meetings.core.session_plan_db import SessionPlanDatabase
+from modules.meetings.core.session_plan.session_plan_parser import SessionPlanParser
+from modules.meetings.core.session_plan.session_plan_models import SessionPlanSnapshot, SessionSlot
+from modules.meetings.core.session_plan.session_plan_db import SessionPlanDatabase
 from modules.meetings.ui.session_plan_window import SessionPlanWindow
 from modules.meetings.ui.tdocs_drop_overlay import DropOverlayWidget
 
@@ -450,7 +450,7 @@ class TestSessionPlanRobustness(unittest.TestCase):
         Verifies that switching from a snapshot with a populated slot to a snapshot where
         that slot is empty properly clears the old cellWidget from QTableWidget.
         """
-        from modules.meetings.core.session_plan_models import SessionPlanSnapshot, SessionSlot
+        from modules.meetings.core.session_plan.session_plan_models import SessionPlanSnapshot, SessionSlot
 
         with tempfile.TemporaryDirectory() as td:
             win = SessionPlanWindow(

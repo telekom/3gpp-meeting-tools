@@ -6,10 +6,10 @@ from typing import Any, List, Optional
 
 from PyQt5.QtWidgets import QDialog, QFileDialog, QMessageBox
 
-from modules.meetings.core.excel_exporter import ExcelExporterThread
-from modules.meetings.core.tdocs_package_exporter import TDocsPackageExporterThread
-from modules.meetings.core.llm_exporter import TDocMarkdownExporterThread
-from modules.meetings.core.dossier_exporter import DossierExporterThread
+from modules.meetings.core.exporters.excel_exporter import ExcelExporterThread
+from modules.meetings.core.exporters.tdocs_package_exporter import TDocsPackageExporterThread
+from modules.meetings.core.exporters.llm_exporter import TDocMarkdownExporterThread
+from modules.meetings.core.exporters.dossier_exporter import DossierExporterThread
 from modules.meetings.ui.excel_export_dialog import ALL_AVAILABLE_COLUMNS, ExcelExportDialog
 from modules.meetings.ui.dossier_export_dialog import DossierExportDialog
 from core.utils.folder_opener import open_folder as _open_folder
@@ -291,7 +291,7 @@ def export_markdown_single(window: Any, tdoc_id: str) -> None:
 def open_post_meeting_export_dialog(window: Any) -> None:
     """Opens PostMeetingExportDialog and triggers PostMeetingExporterThread."""
     from modules.meetings.ui.post_meeting_export_dialog import PostMeetingExportDialog
-    from modules.meetings.core.post_meeting_exporter import PostMeetingExporterThread
+    from modules.meetings.core.exporters.post_meeting_exporter import PostMeetingExporterThread
 
     visible_tdocs = []
     for r in range(window.proxy.rowCount()):

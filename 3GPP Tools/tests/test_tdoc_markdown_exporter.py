@@ -1,4 +1,3 @@
-import os
 import shutil
 import tempfile
 import time
@@ -9,18 +8,15 @@ from unittest.mock import patch, MagicMock
 
 from core.utils.paths import to_extended_path
 from modules.meetings.core.tdoc_file_handler import TDocFileHandler
-from modules.meetings.core.llm_exporter import (
+from modules.meetings.core.exporters.llm_exporter import (
     TDocMarkdownExporterThread,
     LLMExporterThread,
-    TDOC_MD_EXTRACTOR_VERSION,
 )
 from modules.meetings.core.tdoc_markdown_converter import (
     convert_document_to_markdown,
     is_conversion_stale,
     is_plain_document_type,
     resolve_revision_mode_for_type,
-    write_index,
-    ExportedDoc,
     CONVERTER_VERSION,
 )
 

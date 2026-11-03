@@ -4,7 +4,6 @@ test_dossier_exporter.py - Test suite for the Unified Navigable Dossier Exporter
 Tests HTML synthesis, vector PDF rendering with hierarchical outlines, and companion AI prompts.
 """
 
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -15,7 +14,7 @@ from PyQt5.QtWidgets import QApplication
 # Ensure QApplication exists for QTextDocument / QPrinter
 app = QApplication.instance() or QApplication(sys.argv)
 
-from modules.meetings.core.dossier_exporter import DossierExporterThread
+from modules.meetings.core.exporters.dossier_exporter import DossierExporterThread
 from modules.meetings.ui.dossier_export_dialog import DossierExportDialog
 
 

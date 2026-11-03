@@ -12,10 +12,9 @@ from PyQt5.QtWidgets import QApplication
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 app = QApplication.instance() or QApplication(sys.argv)
 
-from modules.meetings.core.excel_exporter import ExcelExporterThread
+from modules.meetings.core.exporters.excel_exporter import ExcelExporterThread
 from modules.meetings.ui.excel_export_dialog import (
     ExcelExportDialog,
-    ALL_AVAILABLE_COLUMNS,
     DEFAULT_SELECTED_COLUMNS,
     REVIEW_MATRIX_COLUMNS,
 )

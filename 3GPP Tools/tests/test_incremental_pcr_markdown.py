@@ -8,11 +8,9 @@ _src_dir = Path(__file__).resolve().parent.parent / "src"
 if str(_src_dir) not in sys.path:
     sys.path.insert(0, str(_src_dir))
 
-from modules.meetings.core.tdoc2md import (
+from modules.meetings.core.exporters.tdoc2md import (
     DocxConverter,
     change_boundary_qualifier,
-    BOUNDARY_RE,
-    ALL_NEW_RE,
 )
 
 

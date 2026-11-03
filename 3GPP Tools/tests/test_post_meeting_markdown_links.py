@@ -12,9 +12,8 @@ if str(_src_dir) not in sys.path:
 
 from PyQt5.QtWidgets import QApplication
 
-from modules.meetings.core.post_meeting_exporter import (
+from modules.meetings.core.exporters.post_meeting_exporter import (
     PostMeetingExporterThread,
-    sanitize_folder_name,
     quote_markdown_path,
     safe_relpath,
     safe_markdown_rel_link,
