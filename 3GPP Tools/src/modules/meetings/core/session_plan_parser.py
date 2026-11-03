@@ -78,6 +78,22 @@ SA2 SESSION PLAN CONVENTIONS & PARSING QUIRKS REFERENCE GUIDE
    - Plenary cells frequently list "Opening (1), Agenda (2), Reports (3), Work plan (4), Outgoing LSs (5.1)".
    - Parser behavior: `single_ai_matches` extracts each numbered plenary item as an independent
      agenda item entity with its corresponding title.
+
+10. OpenXML Track Changes (<w:ins> / <w:del> / <w:moveTo> / <w:moveFrom>):
+    - Mid-meeting session plan revisions (`-r1.docx`, `-r2.docx`) are distributed with Word
+      Track Changes enabled as chairs swap or reschedule topics across days and quarters.
+    - `python-docx`'s `cell.text` / `paragraph.text` only traverses direct `<w:p>/<w:r>/<w:t>`
+      nodes and completely ignores `<w:ins>` and `<w:moveTo>` containers, causing newly inserted
+      or moved sessions (and revised quarter timings) to vanish as empty strings.
+    - Parser behavior: `_extract_xml_text` walks the underlying `<w:tc>` / `<w:p>` XML tree,
+      accepting all `<w:t>` nodes inside normal runs, `<w:ins>`, `<w:moveTo>`, and hyperlinks,
+      while strictly skipping `<w:del>` and `<w:moveFrom>` subtrees.
+
+11. Dynamic Quarter Time Ranges & Half-Quarter Midpoint Calculation:
+    - Chairs occasionally shift quarter boundaries (e.g. moving Q2 from `1100 - 1230` to
+      `1230 - 1400`, or Q5 to `1745 - 1900`).
+    - Parser behavior: `_resolve_quarter_times` honors the document's explicit time column
+      and dynamically computes the exact midpoint for TU1 and TU2 half-quarters.
 """
 import hashlib
 import logging
@@ -252,6 +268,92 @@ class SessionPlanParser:
             slots=slots,
         )
 
+    _W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    _IGNORED_XML_TAGS = {
+        f"{_W_NS}del",
+        f"{_W_NS}moveFrom",
+        f"{_W_NS}rPr",
+        f"{_W_NS}pPr",
+        f"{_W_NS}tcPr",
+        f"{_W_NS}tblPr",
+        f"{_W_NS}trPr",
+    }
+
+    @classmethod
+    def _extract_xml_text(cls, xml_elem) -> str:
+        """
+        Extracts visible/accepted text from an OpenXML element (<w:tc> or <w:p>),
+        including text inside Track Changes insertions (<w:ins>, <w:moveTo>), hyperlinks,
+        and structured document tags, while strictly ignoring deletions (<w:del>, <w:moveFrom>).
+        """
+        if xml_elem is None:
+            return ""
+
+        w_t = f"{cls._W_NS}t"
+        w_br = f"{cls._W_NS}br"
+        w_cr = f"{cls._W_NS}cr"
+        w_tab = f"{cls._W_NS}tab"
+        w_p = f"{cls._W_NS}p"
+
+        def _walk_runs(node) -> List[str]:
+            parts: List[str] = []
+            for child in node:
+                if child.tag in cls._IGNORED_XML_TAGS:
+                    continue
+                if child.tag == w_t:
+                    if child.text:
+                        parts.append(child.text)
+                elif child.tag in (w_br, w_cr):
+                    parts.append("\n")
+                elif child.tag == w_tab:
+                    parts.append("\t")
+                else:
+                    parts.extend(_walk_runs(child))
+            return parts
+
+        if xml_elem.tag == w_p:
+            paragraphs = [xml_elem]
+        else:
+            paragraphs = xml_elem.findall(f".//{w_p}")
+
+        p_lines: List[str] = []
+        for p in paragraphs:
+            line = "".join(_walk_runs(p)).strip()
+            if line:
+                p_lines.append(line)
+        return "\n".join(p_lines)
+
+    @classmethod
+    def _resolve_quarter_times(
+        cls, quarter: str, current_times: Tuple[str, str]
+    ) -> Tuple[str, str, str, str, str, str]:
+        """
+        Computes (full_start, full_end, tu1_start, tu1_end, tu2_start, tu2_end)
+        honoring document-specified current_times and splitting at the exact midpoint.
+        """
+        default_q = QUARTER_TIMES.get(
+            quarter, ("09:00", "10:30", "09:00", "09:45", "09:45", "10:30")
+        )
+        s_str, e_str = (
+            current_times
+            if (current_times and len(current_times) == 2 and current_times[0] and current_times[1])
+            else (default_q[0], default_q[1])
+        )
+        if (s_str, e_str) == (default_q[0], default_q[1]):
+            return default_q
+        try:
+            sh, sm = map(int, s_str.split(":"))
+            eh, em = map(int, e_str.split(":"))
+            s_min = sh * 60 + sm
+            e_min = eh * 60 + em
+            if e_min > s_min:
+                mid_min = s_min + (e_min - s_min) // 2
+                mid_str = f"{mid_min // 60:02d}:{mid_min % 60:02d}"
+                return (s_str, e_str, s_str, mid_str, mid_str, e_str)
+        except Exception:
+            pass
+        return (s_str, e_str, s_str, default_q[3], default_q[4], e_str)
+
     @classmethod
     def parse_docx(
         cls,
@@ -268,8 +370,9 @@ class SessionPlanParser:
 
         full_text = []
         for p in doc.paragraphs:
-            if p.text.strip():
-                full_text.append(p.text.strip())
+            p_txt = cls._extract_xml_text(p._p).strip()
+            if p_txt:
+                full_text.append(p_txt)
 
         header_text = "\n".join(full_text[:30])
 
@@ -289,7 +392,7 @@ class SessionPlanParser:
         target_table = None
         for t in doc.tables:
             # Look for table with Q0/Q1 and Monday..Friday
-            t_text = " ".join([c.text for row in t.rows[:3] for c in row.cells]).lower()
+            t_text = " ".join([cls._extract_xml_text(c._tc) for row in t.rows[:3] for c in row.cells]).lower()
             if "monday" in t_text or "stream 1" in t_text or "q1" in t_text:
                 target_table = t
                 break
@@ -316,15 +419,15 @@ class SessionPlanParser:
 
     @classmethod
     def _parse_docx_table(cls, table, streams: Dict[int, MeetingStreamInfo], slots: List[SessionSlot]):
-        """Parses a docx Table object handling merged cells and sub-slots."""
+        """Parses a docx Table object handling merged cells, Track Changes, and sub-slots."""
         current_quarter = "Q1"
         current_times = ("09:00", "10:30")
         seen_tcs = set()
         ki_map: Dict[str, str] = {}
 
         for row_idx, row in enumerate(table.rows):
-            # Extract cell texts preserving grid positions
-            cells = [c.text.strip() for c in row.cells]
+            # Extract cell texts preserving grid positions and accepting Track Changes (<w:ins>)
+            cells = [cls._extract_xml_text(c._tc).strip() for c in row.cells]
             if not cells or len(cells) < 3:
                 continue
 
@@ -348,7 +451,16 @@ class SessionPlanParser:
             # Check for Break / Coffee / Lunch rows
             break_period = cls._detect_break_period(first_cell, second_cell, third_cell, current_quarter)
             if break_period:
-                cls._process_break_row(cells, break_period, slots)
+                dedup_cells = list(cells[:3])
+                row_tcs = set()
+                for c_idx, c_obj in enumerate(row.cells[3:], start=3):
+                    if c_obj._tc in seen_tcs:
+                        dedup_cells.append("")
+                    else:
+                        dedup_cells.append(cells[c_idx])
+                    row_tcs.add(c_obj._tc)
+                seen_tcs.update(row_tcs)
+                cls._process_break_row(dedup_cells, break_period, slots)
                 continue
 
             m_str = re.search(r"Stream\s*(\d+)", third_cell, re.I)
@@ -359,7 +471,7 @@ class SessionPlanParser:
 
             if len(row.cells) >= 13:
                 # OpenXML table with 10 sub-cells
-                q_times = QUARTER_TIMES.get(current_quarter, (current_times[0], current_times[1], current_times[0], "", "", current_times[1]))
+                q_times = cls._resolve_quarter_times(current_quarter, current_times)
                 for day_idx in range(5):
                     c_tu1_obj = row.cells[3 + day_idx * 2]
                     c_tu2_obj = row.cells[3 + day_idx * 2 + 1]
@@ -374,8 +486,8 @@ class SessionPlanParser:
                         # Full vertical merge across streams
                         continue
 
-                    t1_txt = "" if tu1_is_dup else c_tu1_obj.text.strip()
-                    t2_txt = "" if tu2_is_dup else c_tu2_obj.text.strip()
+                    t1_txt = "" if tu1_is_dup else cells[3 + day_idx * 2]
+                    t2_txt = "" if tu2_is_dup else cells[3 + day_idx * 2 + 1]
                     if not t1_txt and not t2_txt:
                         continue
 
@@ -447,7 +559,7 @@ class SessionPlanParser:
         Processes day cells for a single row.
         Handles both 5 cells (with colspan=2 or single cells) and 10 cells (2 sub-slots per day).
         """
-        q_times = QUARTER_TIMES.get(quarter, (quarter_times[0], quarter_times[1], quarter_times[0], "", "", quarter_times[1]))
+        q_times = cls._resolve_quarter_times(quarter, quarter_times)
         full_s, full_e, tu1_s, tu1_e, tu2_s, tu2_e = q_times
 
         units = []

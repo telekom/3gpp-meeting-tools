@@ -311,9 +311,9 @@ src/modules/meetings/
   2. **Disambiguating "Breakout" Rooms from Coffee Breaks:**
      - *Quirk:* Room header rows (e.g., `| Main Room | Palomino | Breakout 1 | ...`) contain the word "Breakout". A naive `"break" in cell.lower()` test matched "Breakout 1", turning room header rows into fake coffee breaks across Monday–Wednesday and shifting all session timings.
      - *Fix:* `_detect_break_period` enforces strict word boundary matching `re.search(r"\bbreak\b", ...)` and evaluates active quarter context, ensuring room header rows are never misidentified as breaks.
-  3. **OpenXML Vertically Merged Cells (`<w:vMerge>`) Across Parallel Streams:**
-     - *Quirk:* Plenary sessions (e.g., Monday morning Q1/Q2, Friday afternoon Q4/Q5) or single-stream sessions span across all 3 stream rows using OpenXML vertical cell merges. In `python-docx`, iterating across row cells on vertically merged tables repeats the master cell's XML pointer (`_tc`) and text across Streams 1, 2, and 3.
-     - *Fix:* Table parsing tracks underlying XML cell references (`seen_tcs = set()`). Vertically merged cell continuations across parallel streams are deduplicated, completely eliminating phantom duplicate sessions in Streams 2 and 3 and preventing false parallel-stream double-booking warnings for delegates.
+  3. **OpenXML Vertically Merged Cells (`<w:vMerge>`) Across Parallel Streams & Breaks:**
+     - *Quirk:* Plenary sessions (e.g., Monday morning Q0/Q1/Q2, Friday afternoon Q4/Q5) or single-stream sessions span across all 3 stream rows (and sometimes into adjacent break rows like `08:50–09:00 Break 1`) using OpenXML vertical cell merges. In `python-docx`, iterating across row cells on vertically merged tables repeats the master cell's XML pointer (`_tc`) and text across Streams 1, 2, 3, and break rows.
+     - *Fix:* Table parsing tracks underlying XML cell references (`seen_tcs = set()`) across both stream rows and break rows. Vertically merged cell continuations are deduplicated, eliminating phantom duplicate sessions in Streams 2/3, preventing `Opening of meeting at 0900` from leaking into `Short Break`, and preventing false parallel-stream double-booking warnings for delegates.
   4. **Markdown / HTML Table `colspan` Row Expansion:**
      - *Quirk:* When session plan tables are pasted from email reflectors or Markdown notes, full-quarter sessions (spanning TU1 and TU2) frequently use `<td colspan=2/>`, resulting in fewer than 10 cells in a row (e.g., 8 or 9 cells). Naive slicing (`cells[:5]`) caused day-shifting (e.g., Tuesday TU2 shifting into Wednesday, dropping Thursday and Friday entirely).
      - *Fix:* `_process_day_cells` expands `<td colspan=2/>` and 5-cell day rows into 10 normalized half-quarter slots, maintaining exact Monday–Friday alignment.
@@ -332,6 +332,14 @@ src/modules/meetings/
   9. **Single-Digit Plenary Agenda Items:**
      - *Quirk:* Plenary cells frequently list `Opening (1), Agenda (2), Reports (3), Work plan (4), Outgoing LSs (5.1)`.
      - *Fix:* `single_ai_matches` extracts each numbered plenary item as an independent agenda item entity with its corresponding title.
+  10. **OpenXML Track Changes (`<w:ins>`, `<w:del>`, `<w:moveTo>`, `<w:moveFrom>`):**
+      - *Quirk:* Revised session plans (e.g., `r1.docx`, `r2.docx`) are distributed with Word Track Changes active rather than accepted. In `python-docx`, `cell.text` only reads direct `./w:r/w:t` children of `<w:p>`, completely ignoring `<w:ins><w:r><w:t>` insertions and `<w:moveTo>` blocks (causing newly scheduled or moved sessions and revised time headers to disappear).
+      - *Fix:* `_extract_xml_text(xml_elem)` recursively walks `<w:p>` and `<w:tc>` XML elements, extracting `<w:t>` inside normal runs, `<w:ins>`, `<w:moveTo>`, and hyperlinks while skipping `<w:del>` and `<w:moveFrom>` deletions.
+  11. **Document-Specified Quarter Times & Midpoint Calculation (`_resolve_quarter_times`):**
+      - *Quirk:* Working Group chairs occasionally shift quarter boundaries (e.g., moving Q2 from `1100 - 1230` to `1230 - 1400` in Calgary SA2#178 `r1.docx`). Hardcoding `QUARTER_TIMES[quarter]` ignored the document's time column.
+      - *Fix:* `_resolve_quarter_times(quarter, current_times)` parses the document's time column (including Track Changes) and dynamically computes the exact midpoint for half-quarters (`TU 1`: `12:30–13:15`, `TU 2`: `13:15–14:00`), propagating effective times to desktop grid row headers, hover tooltips, and HTML exports.
+- **Desktop Overview Grid Widget Lifecycle (`_render_overview_grid_impl`):**
+  - When switching between session plan snapshots or importing a revised `.docx`, `self.grid_table.setRowCount(0)` is called before populating the 23 rows. In Qt, calling `setItem(row, col, item_e)` on a cell that previously held a `cellWidget` does not remove the `cellWidget` (which overlays `QTableWidgetItem`), and changing `setSpan` stretches stale widgets across sub-columns. Resetting row count to `0` destroys all previous `cellWidget`s and resets column spans cleanly.
 - **UI Table Rendering Resolution Precedence (`_resolve_ai_description`):**
   - In `SessionPlanWindow`, topic titles in both Agenda Mode (`_render_agenda_mode`) and Team Topics (`_render_team_topics`) are resolved through `_resolve_ai_description(ai_num, scheduled_ais)`:
     1. Look up `ai_num` in `agenda_map` (from `agenda.csv` if available).
