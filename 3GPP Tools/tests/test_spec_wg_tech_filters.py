@@ -100,6 +100,25 @@ class TestSpecWgTechFilters(unittest.TestCase):
         self.assertNotIn("CN1", items_reverted)
         self.assertNotIn("RAN6", items_reverted)
 
+    def test_update_items_adapts_scroll_range_and_container_height(self):
+        """Verify dynamic item updates adjust row count and scrollable range without locking geometry."""
+        cb = CheckableComboBox("WG")
+        cb.addItems([f"Item {i}" for i in range(18)])
+        cb.show()
+        cb.showPopup()
+        h_initial = cb.view().parentWidget().height() if cb.view().parentWidget() else 0
+        cb.hidePopup()
+
+        cb.updateItems([f"Item {i}" for i in range(33)])
+        cb.showPopup()
+        h_updated = cb.view().parentWidget().height() if cb.view().parentWidget() else 0
+        scroll_max = cb.view().verticalScrollBar().maximum()
+        cb.hidePopup()
+
+        self.assertEqual(cb.model().rowCount(), 34)
+        self.assertGreaterEqual(h_updated, h_initial)
+        self.assertGreater(scroll_max, 0)
+
     def test_multi_tech_selection(self):
         """Verify multi-select in Tech combobox updates filter and tags."""
         self.tab.tech_combo.setCheckedItems(["5G", "6G"])
