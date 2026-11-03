@@ -1,7 +1,9 @@
 # --- File: modules/meetings/ui/search_controller.py ---
+import os
 import re
 import logging
 from pathlib import Path
+from PyQt5.QtCore import QPoint
 from PyQt5.QtWidgets import QApplication, QMessageBox, QPushButton
 from modules.meetings.core.tdocs_threads import TDocActionThread
 
@@ -22,6 +24,8 @@ class GlobalSearchController:
         self.tab.btn_open_meeting.clicked.connect(self.action_open_meeting_list)
         if hasattr(self.tab, "btn_compare_active_word"):
             self.tab.btn_compare_active_word.clicked.connect(self.action_compare_with_active_word)
+        if hasattr(self.tab, "btn_copy_tdoc"):
+            self.tab.btn_copy_tdoc.clicked.connect(self.action_show_copy_menu)
 
     def on_tdoc_input_changed(self, text):
         text = text.strip()
@@ -33,6 +37,8 @@ class GlobalSearchController:
         self.tab.btn_open_meeting.setVisible(False)
         if hasattr(self.tab, "btn_compare_active_word"):
             self.tab.btn_compare_active_word.setVisible(False)
+        if hasattr(self.tab, "btn_copy_tdoc"):
+            self.tab.btn_copy_tdoc.setVisible(False)
         self.tab._set_tdoc_metadata_warning([])
 
         if not match:
@@ -45,6 +51,8 @@ class GlobalSearchController:
             self.tab.btn_open_meeting.setVisible(True)
             if hasattr(self.tab, "btn_compare_active_word"):
                 self.tab.btn_compare_active_word.setVisible(True)
+            if hasattr(self.tab, "btn_copy_tdoc"):
+                self.tab.btn_copy_tdoc.setVisible(True)
 
             mtg_name = f"{meeting.get('wg_name', '')} {meeting.get('meeting_number', '')}"
             self.tab.btn_open_meeting.setToolTip(f"Open the full TDocs table for {mtg_name}")
@@ -52,6 +60,10 @@ class GlobalSearchController:
             if hasattr(self.tab, "btn_compare_active_word"):
                 self.tab.btn_compare_active_word.setToolTip(
                     f"Download {text.upper()} ({mtg_name}) and immediately compare it with your currently active Microsoft Word document"
+                )
+            if hasattr(self.tab, "btn_copy_tdoc"):
+                self.tab.btn_copy_tdoc.setToolTip(
+                    f"Copy {text.upper()} ({mtg_name}) number, title, citation, or direct 3GPP download URLs to clipboard"
                 )
             return
 
@@ -161,6 +173,83 @@ class GlobalSearchController:
 
         self.tab.btn_open_meeting.setText("🗓️ Mtg")
         self.tab.btn_open_meeting.setEnabled(True)
+
+    def action_show_copy_menu(self):
+        """Displays the 3GPP Quick Copy dropdown menu for the current TDoc and meeting."""
+        if not self.current_found_meeting:
+            return
+        tdoc_str = self.tab.global_tdoc_input.text().strip()
+        if not tdoc_str:
+            return
+
+        from modules.meetings.ui.tdocs_menus import build_quick_copy_menu
+
+        meeting = self.current_found_meeting
+        row_data = self._resolve_tdoc_row_data(meeting, tdoc_str)
+        docs_url = meeting.get("docs_folder_url") or ""
+        revisions_url = meeting.get("revisions_url") or ""
+        main_url = meeting.get("url_key") or ""
+
+        menu = build_quick_copy_menu(
+            parent=self.tab.btn_copy_tdoc if hasattr(self.tab, "btn_copy_tdoc") else self.tab,
+            tdoc_id=tdoc_str,
+            row_data=row_data,
+            docs_ftp_url=docs_url,
+            revisions_url=revisions_url,
+            main_url=main_url,
+        )
+        if hasattr(self.tab, "btn_copy_tdoc") and self.tab.btn_copy_tdoc.isVisible():
+            menu.exec_(self.tab.btn_copy_tdoc.mapToGlobal(QPoint(0, self.tab.btn_copy_tdoc.height())))
+        else:
+            menu.exec_(self.tab.global_tdoc_input.mapToGlobal(QPoint(0, self.tab.global_tdoc_input.height())))
+
+    def _resolve_tdoc_row_data(self, meeting: dict, tdoc_str: str) -> dict:
+        """
+        Looks up cached row metadata (Title, Source, etc.) for tdoc_str if available.
+        Checks active TDocsWindow (in-memory) first, then local JSON cache and Excel.
+        """
+        clean_tdoc = tdoc_str.strip().upper()
+        base_match = re.match(r"^([A-Za-z0-9]+-\d+)", clean_tdoc)
+        base_tdoc = base_match.group(1).upper() if base_match else clean_tdoc
+
+        # 1. Check open TDoc windows for instant in-memory hit
+        mtg_id = meeting.get("mtg_id")
+        if hasattr(self.tab, "tdoc_windows") and mtg_id in self.tab.tdoc_windows:
+            win = self.tab.tdoc_windows.get(mtg_id)
+            if win and hasattr(win, "model") and hasattr(win.model, "_data"):
+                for row in win.model._data:
+                    if str(row.get("TDoc", "")).strip().upper() == base_tdoc:
+                        return dict(row)
+
+        # 2. Check cached file on disk (via fast JSON cache if present)
+        if hasattr(self.tab, "_get_tdoc_list_path"):
+            filepath = self.tab._get_tdoc_list_path(meeting)
+            if filepath and filepath.exists():
+                json_cache = str(filepath) + ".json"
+                if os.path.exists(json_cache):
+                    try:
+                        import json
+                        with open(json_cache, "r", encoding="utf-8") as f:
+                            cached = json.load(f)
+                        if isinstance(cached, list):
+                            for row in cached:
+                                if str(row.get("TDoc", "")).strip().upper() == base_tdoc:
+                                    return dict(row)
+                    except Exception as e:
+                        logger.debug(f"Could not read TDoc JSON cache: {e}")
+
+                # If no JSON cache yet, attempt light parse
+                try:
+                    from modules.meetings.core.tdocs_parser import TDocsParser
+                    parsed = TDocsParser.parse_tdocs_excel(str(filepath))
+                    if parsed:
+                        for row in parsed:
+                            if str(row.get("TDoc", "")).strip().upper() == base_tdoc:
+                                return dict(row)
+                except Exception as e:
+                    logger.debug(f"Could not parse Excel for TDoc row data: {e}")
+
+        return {"TDoc": clean_tdoc}
 
     def _download_global_tdoc(self, meeting: dict, base_tdoc: str, target_filename: str, has_rev: bool,
                               silent_cart: bool = False, auto_compare_active_word: bool = False):

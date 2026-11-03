@@ -38,10 +38,10 @@ src/modules/meetings/
     ├── meetings_menu.py               # Right-click context menu builder for meetings table
     ├── models.py                      # MeetingsTableModel (7 consolidated columns, English date ranges)
     ├── post_meeting_export_dialog.py  # Post-meeting report generator dialog
-    ├── search_controller.py           # GlobalSearchController for inline Quick TDoc Jump
+    ├── search_controller.py           # GlobalSearchController for inline Quick TDoc Jump & quick actions
     ├── tdocs_components.py            # CheckableComboBox and custom styled UI widgets
     ├── tdocs_dialogs.py               # Statistics parameters, export configuration dialogs
-    ├── tdocs_menus.py                 # Right-click context menus for TDoc tables
+    ├── tdocs_menus.py                 # Right-click context menus & centralized Quick Copy menu (table & quick bar)
     ├── tdocs_models.py                # High-performance TDocsTableModel & TDocsFilterProxyModel
     ├── tdocs_window.py                # Primary TDoc list viewer window
     └── ui_tabs.py                     # MeetingsTab (full-width browser, 2-row top ribbon, floating cart)

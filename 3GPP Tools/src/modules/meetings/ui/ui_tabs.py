@@ -218,6 +218,8 @@ class MeetingsTab(QWidget):
         self.global_tdoc_input.setFixedHeight(30)
         self.global_tdoc_input.setMinimumWidth(210)
         self.global_tdoc_input.setClearButtonEnabled(True)
+        self.global_tdoc_input.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.global_tdoc_input.customContextMenuRequested.connect(self._on_tdoc_input_context_menu)
         self.global_tdoc_input.setToolTip("Type a TDoc number. Press Enter to open or use the quick buttons.")
         row1_layout.addWidget(self.global_tdoc_input)
 
@@ -246,6 +248,14 @@ class MeetingsTab(QWidget):
             "Download this TDoc and immediately compare it with your currently active Microsoft Word document."
         )
         row1_layout.addWidget(self.btn_compare_active_word)
+
+        self.btn_copy_tdoc = QPushButton("📋 Copy ▾")
+        self.btn_copy_tdoc.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_copy_tdoc.setCursor(Qt.PointingHandCursor)
+        self.btn_copy_tdoc.setFixedHeight(28)
+        self.btn_copy_tdoc.setVisible(False)
+        self.btn_copy_tdoc.setToolTip("Copy TDoc number, title, citation, or direct 3GPP download URLs to clipboard.")
+        row1_layout.addWidget(self.btn_copy_tdoc)
 
         self.tdoc_metadata_warning = QLabel()
         self.tdoc_metadata_warning.setStyleSheet("color: #B45309; font-size: 11px; font-weight: bold;")
@@ -670,6 +680,28 @@ class MeetingsTab(QWidget):
         text = self.global_tdoc_input.text().strip()
         if text:
             self.search_controller.on_tdoc_input_changed(text)
+
+    def _on_tdoc_input_context_menu(self, pos: QPoint):
+        """Context menu on the Quick TDoc Jump input box with standard edit actions + 3GPP Quick Copy."""
+        menu = self.global_tdoc_input.createStandardContextMenu()
+        tdoc_str = self.global_tdoc_input.text().strip()
+        if tdoc_str and hasattr(self, "search_controller") and self.search_controller.current_found_meeting:
+            from modules.meetings.ui.tdocs_menus import populate_quick_copy_menu
+            menu.addSeparator()
+            copy_sub = menu.addMenu("📋 Quick Copy")
+            copy_sub.setToolTipsVisible(True)
+            meeting = self.search_controller.current_found_meeting
+            row_data = self.search_controller._resolve_tdoc_row_data(meeting, tdoc_str)
+            populate_quick_copy_menu(
+                menu=copy_sub,
+                tdoc_id=tdoc_str,
+                row_data=row_data,
+                docs_ftp_url=meeting.get("docs_folder_url") or "",
+                revisions_url=meeting.get("revisions_url") or "",
+                main_url=meeting.get("url_key") or "",
+                parent=self.global_tdoc_input,
+            )
+        menu.exec_(self.global_tdoc_input.mapToGlobal(pos))
 
     def _set_tdoc_metadata_warning(self, meetings: list):
         """Update the inline Quick TDoc Jump metadata-gap warning."""
