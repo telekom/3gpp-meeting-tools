@@ -10,6 +10,8 @@ from PyQt5.QtCore import QPoint, QMimeData
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import QApplication, QMenu, QToolTip, QWidget
 
+from modules.meetings.core.tdoc_url_resolver import is_tdoc_revision, resolve_tdoc_download_url
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,6 +76,193 @@ def _copy_to_clipboard(plain_text: str, html_text: str = None, label: str = "tex
         mime.setHtml(html_text)
     QApplication.clipboard().setMimeData(mime)
     QToolTip.showText(QCursor.pos(), f"📋 Copied {label} to clipboard!", parent)
+
+
+def populate_quick_copy_menu(
+    menu: QMenu,
+    tdoc_id: str,
+    row_data: dict = None,
+    docs_ftp_url: str = "",
+    revisions_url: str = "",
+    main_url: str = "",
+    parent: QWidget = None,
+) -> QMenu:
+    """
+    Populates a QMenu with standardized 3GPP clipboard copy actions:
+    - TDoc identifier (plain text + rich HTML hyperlink)
+    - Document title (if available)
+    - Full citation (TDoc: Title (Source) with rich link)
+    - Direct archive download URL (.zip on 3GPP FTP/HTTPS)
+    - Baseline document download URL (if different from revision URL)
+    - 3GU Portal URL (official web link)
+    - Markdown hyperlink syntax ([TDoc](url))
+    """
+    menu.setToolTipsVisible(True)
+    row_data = row_data or {}
+    clean_tdoc = str(tdoc_id or row_data.get("TDoc", "")).strip()
+    if not clean_tdoc:
+        return menu
+
+    base_match = re.match(r"^([A-Za-z0-9]+-\d+)", clean_tdoc)
+    base_tdoc = base_match.group(1).upper() if base_match else clean_tdoc.upper()
+    is_rev = is_tdoc_revision(clean_tdoc)
+
+    # Resolve direct download URLs via central resolver
+    download_url = resolve_tdoc_download_url(
+        clean_tdoc,
+        docs_url=docs_ftp_url,
+        revisions_url=revisions_url,
+        main_url=main_url,
+        meta=row_data,
+    )
+
+    baseline_url = ""
+    if is_rev:
+        baseline_url = resolve_tdoc_download_url(
+            base_tdoc,
+            docs_url=docs_ftp_url,
+            revisions_url=revisions_url,
+            main_url=main_url,
+            meta=row_data,
+        )
+    else:
+        baseline_url = download_url
+
+    portal_url = f"https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&tdocId={base_tdoc}"
+    best_url = download_url or baseline_url or portal_url
+
+    # HTML formatted anchor tag for the TDoc
+    safe_tdoc = html.escape(clean_tdoc)
+    if best_url:
+        tdoc_html_link = f'<a href="{best_url}">{safe_tdoc}</a>'
+    else:
+        tdoc_html_link = safe_tdoc
+
+    # Action 1: Copy TDoc Number
+    act_copy_id = menu.addAction(f"📋 Copy TDoc Number ({clean_tdoc})")
+    act_copy_id.setToolTip('Copy the TDoc number; rich-text targets also receive a clickable link.')
+    act_copy_id.triggered.connect(
+        lambda: _copy_to_clipboard(
+            plain_text=clean_tdoc,
+            html_text=tdoc_html_link,
+            label="TDoc Number",
+            parent=parent or menu,
+        )
+    )
+
+    # Action 2: Copy Title (if present)
+    title = str(row_data.get("Title", "")).strip()
+    safe_title = html.escape(title)
+    if title:
+        act_copy_title = menu.addAction("📋 Copy Title")
+        act_copy_title.setToolTip('Copy the TDoc title.')
+        act_copy_title.triggered.connect(
+            lambda: _copy_to_clipboard(
+                plain_text=title,
+                html_text=safe_title,
+                label="Title",
+                parent=parent or menu,
+            )
+        )
+
+    # Action 3: Copy Full Citation (if title present)
+    source = str(row_data.get("Source", "")).strip()
+    if title:
+        citation_plain = f"{clean_tdoc}: {title} ({source})" if source else f"{clean_tdoc}: {title}"
+        safe_source = html.escape(source)
+        if source:
+            citation_html = f"{tdoc_html_link}: {safe_title} ({safe_source})"
+        else:
+            citation_html = f"{tdoc_html_link}: {safe_title}"
+
+        act_copy_cit = menu.addAction("📋 Copy Full Citation")
+        act_copy_cit.setToolTip('Copy a compact TDoc citation including title and source.')
+        act_copy_cit.triggered.connect(
+            lambda: _copy_to_clipboard(
+                plain_text=citation_plain,
+                html_text=citation_html,
+                label="Citation",
+                parent=parent or menu,
+            )
+        )
+
+    # Action 4: Copy Document Download URL (Direct ZIP archive link)
+    if download_url:
+        url_label = "📋 Copy Revision Download URL" if is_rev else "📋 Copy Document Download URL"
+        act_copy_dl = menu.addAction(url_label)
+        act_copy_dl.setToolTip(f'Copy the direct download URL for the document archive ({download_url}).')
+        act_copy_dl.triggered.connect(
+            lambda: _copy_to_clipboard(
+                plain_text=download_url,
+                html_text=f'<a href="{download_url}">{download_url}</a>',
+                label="Document Download URL",
+                parent=parent or menu,
+            )
+        )
+
+    # Action 5: Copy Baseline Document URL (if different from revision URL)
+    if is_rev and baseline_url and baseline_url != download_url:
+        act_copy_base_url = menu.addAction("📋 Copy Baseline Document URL")
+        act_copy_base_url.setToolTip(f'Copy the baseline document archive download link ({baseline_url}).')
+        act_copy_base_url.triggered.connect(
+            lambda: _copy_to_clipboard(
+                plain_text=baseline_url,
+                html_text=f'<a href="{baseline_url}">{baseline_url}</a>',
+                label="Baseline Document URL",
+                parent=parent or menu,
+            )
+        )
+
+    # Action 6: Copy 3GU Portal Web URL
+    act_copy_portal = menu.addAction("🌐 Copy 3GU Portal URL")
+    act_copy_portal.setToolTip(f'Copy official 3GPP 3GU Portal web link ({portal_url}).')
+    act_copy_portal.triggered.connect(
+        lambda: _copy_to_clipboard(
+            plain_text=portal_url,
+            html_text=f'<a href="{portal_url}">{portal_url}</a>',
+            label="3GU Portal URL",
+            parent=parent or menu,
+        )
+    )
+
+    # Action 7: Copy Markdown Link
+    if best_url:
+        md_text = f"[{clean_tdoc}]({best_url})"
+        act_copy_md = menu.addAction("🔗 Copy Markdown Link")
+        act_copy_md.setToolTip(f'Copy as Markdown hyperlink: {md_text}')
+        act_copy_md.triggered.connect(
+            lambda: _copy_to_clipboard(
+                plain_text=md_text,
+                html_text=tdoc_html_link,
+                label="Markdown Link",
+                parent=parent or menu,
+            )
+        )
+
+    return menu
+
+
+def build_quick_copy_menu(
+    parent: QWidget = None,
+    tdoc_id: str = "",
+    row_data: dict = None,
+    docs_ftp_url: str = "",
+    revisions_url: str = "",
+    main_url: str = "",
+) -> QMenu:
+    """Builds and returns a standalone QMenu pre-populated with Quick Copy actions."""
+    menu = QMenu(parent)
+    menu.setToolTipsVisible(True)
+    populate_quick_copy_menu(
+        menu=menu,
+        tdoc_id=tdoc_id,
+        row_data=row_data,
+        docs_ftp_url=docs_ftp_url,
+        revisions_url=revisions_url,
+        main_url=main_url,
+        parent=parent,
+    )
+    return menu
 
 
 # =========================================================================
@@ -411,93 +600,14 @@ def build_row_context_menu(
     copy_sub = menu.addMenu("📋 Quick Copy")
     copy_sub.setToolTipsVisible(True)
     copy_sub.setToolTip("Copy commonly used TDoc metadata in plain text and, where useful, rich HTML form.")
-
-    # Compute baseline document URL if available
-    baseline_url = ""
-    if docs_ftp_url and tdoc_id and tdoc_id.upper() != "UNKNOWN":
-        clean_docs_url = docs_ftp_url.rstrip('/')
-        if clean_docs_url.startswith("ftp://"):
-            clean_docs_url = "https://" + clean_docs_url[6:]
-        elif not clean_docs_url.startswith("http"):
-            clean_docs_url = "https://www.3gpp.org/ftp/" + clean_docs_url.lstrip('/')
-
-        clean_docs_url = clean_docs_url.replace("https://ftp.3gpp.org/", "https://www.3gpp.org/ftp/")
-
-        if not clean_docs_url.endswith("/Docs") and not clean_docs_url.endswith("/docs"):
-            if "/Docs" not in clean_docs_url and "/docs" not in clean_docs_url:
-                clean_docs_url = f"{clean_docs_url}/Docs"
-
-        base_match = re.match(r"^([A-Za-z0-9]+-\d+)", tdoc_id)
-        base_tdoc = base_match.group(1).upper() if base_match else tdoc_id.upper()
-        baseline_url = f"{clean_docs_url}/{base_tdoc}.zip"
-
-    # HTML formatted anchor tag for the TDoc
-    safe_tdoc = html.escape(tdoc_id)
-    if baseline_url:
-        tdoc_html_link = f'<a href="{baseline_url}">{safe_tdoc}</a>'
-    else:
-        tdoc_html_link = safe_tdoc
-
-    # Action 1: Copy TDoc Number
-    act_copy_id = copy_sub.addAction(f"📋 Copy TDoc Number ({tdoc_id})")
-    act_copy_id.setToolTip('Copy the TDoc number; rich-text targets also receive a link when available.')
-    act_copy_id.triggered.connect(
-        lambda: _copy_to_clipboard(
-            plain_text=tdoc_id,
-            html_text=tdoc_html_link,
-            label="TDoc Number",
-            parent=parent
-        )
+    populate_quick_copy_menu(
+        menu=copy_sub,
+        tdoc_id=tdoc_id,
+        row_data=row_data,
+        docs_ftp_url=docs_ftp_url,
+        revisions_url=revisions_url,
+        parent=parent,
     )
-
-    # Action 2: Copy Title
-    title = str(row_data.get("Title", "")).strip()
-    safe_title = html.escape(title)
-    if title:
-        act_copy_title = copy_sub.addAction("📋 Copy Title")
-        act_copy_title.setToolTip('Copy the TDoc title.')
-        act_copy_title.triggered.connect(
-            lambda: _copy_to_clipboard(
-                plain_text=title,
-                html_text=safe_title,
-                label="Title",
-                parent=parent
-            )
-        )
-
-    # Action 3: Copy Full Citation
-    source = str(row_data.get("Source", "")).strip()
-    citation_plain = f"{tdoc_id}: {title} ({source})" if source else f"{tdoc_id}: {title}"
-
-    safe_source = html.escape(source)
-    if source:
-        citation_html = f"{tdoc_html_link}: {safe_title} ({safe_source})"
-    else:
-        citation_html = f"{tdoc_html_link}: {safe_title}"
-
-    act_copy_cit = copy_sub.addAction("📋 Copy Full Citation")
-    act_copy_cit.setToolTip('Copy a compact TDoc citation including title and source.')
-    act_copy_cit.triggered.connect(
-        lambda: _copy_to_clipboard(
-            plain_text=citation_plain,
-            html_text=citation_html,
-            label="Citation",
-            parent=parent
-        )
-    )
-
-    # Action 4: Copy Baseline Document URL (Plain URL + HTML Anchor)
-    if baseline_url:
-        act_copy_url = copy_sub.addAction("📋 Copy Baseline Document URL")
-        act_copy_url.setToolTip('Copy the baseline document URL.')
-        act_copy_url.triggered.connect(
-            lambda: _copy_to_clipboard(
-                plain_text=baseline_url,
-                html_text=f'<a href="{baseline_url}">{baseline_url}</a>',
-                label="Baseline Document URL",
-                parent=parent
-            )
-        )
 
     menu.exec_(pos or QCursor.pos())
 
