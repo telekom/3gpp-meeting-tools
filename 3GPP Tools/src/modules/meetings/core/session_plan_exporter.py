@@ -324,7 +324,7 @@ class SessionPlanExporter:
             if ann and ann.comment:
                 note_badge = f'<div class="cell-note-pill" title="{html.escape(ann.comment)}">📝 {html.escape(ann.comment[:35])}{"…" if len(ann.comment) > 35 else ""}</div>'
 
-            return f"""<td class="{' '.join(cell_classes)}" colspan="{colspan}" data-stream="{s_num}" data-period="{p}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-tracked="{1 if is_tracked else 0}" data-drafting="{1 if slot.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
+            return f"""<td class="{' '.join(cell_classes)}" colspan="{colspan}" data-stream="{s_num}" data-period="{p}" data-tu="{tu}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-tracked="{1 if is_tracked else 0}" data-drafting="{1 if slot.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
   <div class="cell-top-row">{' '.join(hdr_badges)}</div>
   <div class="cell-title">{raw_esc}</div>
   {f'<div class="cell-chips-row">{"".join(chips)}</div>' if chips else ''}
@@ -426,7 +426,7 @@ class SessionPlanExporter:
         cards_html.append('<div class="day-tabs">\n')
         for idx, d_name in enumerate(active_days):
             active_cls = " active" if idx == 0 else ""
-            cards_html.append(f'<button class="day-tab{active_cls}" onclick="switchDay(\'{d_name}\')">{d_name[:3]}</button>\n')
+            cards_html.append(f'<button class="day-tab{active_cls}" data-day="{d_name}" onclick="switchDay(\'{d_name}\', this)">{d_name[:3]}</button>\n')
         cards_html.append('</div>\n<div class="cards-content">\n')
 
         for idx, d_name in enumerate(active_days):
@@ -513,7 +513,7 @@ class SessionPlanExporter:
                     if is_tracked:
                         row_classes.append("tracked")
 
-                    cards_html.append(f"""    <div class="{' '.join(row_classes)}" data-stream="{s.stream_number}" data-period="{q}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-tracked="{1 if is_tracked else 0}" data-drafting="{1 if s.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
+                    cards_html.append(f"""    <div class="{' '.join(row_classes)}" data-stream="{s.stream_number}" data-period="{q}" data-tu="{s.sub_slot}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-tracked="{1 if is_tracked else 0}" data-drafting="{1 if s.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
       <div class="slot-header-line">
         <span class="stream-badge str-{s.stream_number}">Stream {s.stream_number}</span>
         <span class="room-pill">📍 {html.escape(r_name)}{" · " + html.escape(convener) if convener else ""}</span>
@@ -536,10 +536,11 @@ class SessionPlanExporter:
         # ------------------------------------------------------------------
         del_filter_buttons = []
         for name, m in members.items():
+            safe_name_attr = html.escape(name)
             del_filter_buttons.append(
-                f'<button class="del-filter-btn" data-del="{html.escape(name)}" '
+                f'<button class="del-filter-btn" data-del="{safe_name_attr}" '
                 f'style="--del-color:{m.color}; --del-bg:{m.bg_tint}; --del-bdr:{m.border_tint};" '
-                f'onclick="selectDelegate(\'{html.escape(name)}\')">● {html.escape(name)}</button>'
+                f'onclick="selectDelegate(this.getAttribute(\'data-del\'))">● {safe_name_attr}</button>'
             )
         del_filter_html = "\n".join(del_filter_buttons)
 
@@ -743,7 +744,6 @@ class SessionPlanExporter:
   }
   .grid-cell.highlighted {
     box-shadow: inset 0 0 0 2px var(--primary);
-    background: #FFFFFF !important;
   }
 
   /* Cell Contents */
@@ -915,10 +915,11 @@ class SessionPlanExporter:
     });
   }
 
-  function switchDay(dayName) {
+  function switchDay(dayName, btn) {
     document.querySelectorAll('.day-tab').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.day-section').forEach(s => s.style.display = 'none');
-    event.target.classList.add('active');
+    const activeBtn = btn || (typeof event !== 'undefined' && event && event.target) || document.querySelector('.day-tab[data-day="' + dayName + '"]');
+    if (activeBtn) activeBtn.classList.add('active');
     const target = document.getElementById('day-' + dayName);
     if (target) target.style.display = 'block';
   }
@@ -932,7 +933,7 @@ class SessionPlanExporter:
       const sTxt = cell.getAttribute('data-search') || '';
       const isTrk = cell.getAttribute('data-tracked') === '1';
       const isDrf = cell.getAttribute('data-drafting') === '1';
-      const dels = (cell.getAttribute('data-delegates') || '').split(',').map(d => d.trim().toLowerCase());
+      const dels = (cell.getAttribute('data-delegates') || '').split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
       const isAll = cell.getAttribute('data-is-all') === '1';
 
       const matchesSearch = !query || sTxt.includes(query);
@@ -959,7 +960,7 @@ class SessionPlanExporter:
       const sTxt = row.getAttribute('data-search') || '';
       const isTrk = row.getAttribute('data-tracked') === '1';
       const isDrf = row.getAttribute('data-drafting') === '1';
-      const dels = (row.getAttribute('data-delegates') || '').split(',').map(d => d.trim().toLowerCase());
+      const dels = (row.getAttribute('data-delegates') || '').split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
       const isAll = row.getAttribute('data-is-all') === '1';
 
       const matchesSearch = !query || sTxt.includes(query);
@@ -1093,15 +1094,15 @@ class SessionPlanExporter:
       calLines.push('DTSTAMP:' + nowUtc);
       calLines.push('DTSTART:' + dtStart);
       calLines.push('DTEND:' + dtEnd);
-      calLines.push('SUMMARY:' + summary.replace(/[\r\n]+/g, ' '));
+      calLines.push('SUMMARY:' + summary.replace(/[\\r\\n]+/g, ' '));
       calLines.push('LOCATION:' + (ev.room || ''));
-      calLines.push('DESCRIPTION:' + descParts.join('\\n').replace(/[\r\n]+/g, ' '));
+      calLines.push('DESCRIPTION:' + descParts.join('\\\\n').replace(/[\\r\\n]+/g, ' '));
       calLines.push('END:VEVENT');
       count++;
     }
 
     calLines.push('END:VCALENDAR');
-    const icsContent = calLines.join('\r\n');
+    const icsContent = calLines.join('\\r\\n');
 
     const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -1190,8 +1191,26 @@ class SessionPlanExporter:
     const sDay = String(ev.day_idx);
     const sPeriod = String(ev.quarter);
     const sStr = String(ev.stream_num);
-    document.querySelectorAll('.grid-cell[data-day="' + sDay + '"][data-period="' + sPeriod + '"][data-stream="' + sStr + '"]').forEach(el => el.classList.add('has-clash'));
-    document.querySelectorAll('.cards-slot-row[data-day="' + sDay + '"][data-period="' + sPeriod + '"][data-stream="' + sStr + '"]').forEach(el => el.classList.add('has-clash'));
+    const sTu = ev.sub_slot ? String(ev.sub_slot) : null;
+    const gridSel = '.grid-cell[data-day="' + sDay + '"][data-period="' + sPeriod + '"][data-stream="' + sStr + '"]';
+    const cardSel = '.cards-slot-row[data-day="' + sDay + '"][data-period="' + sPeriod + '"][data-stream="' + sStr + '"]';
+    if (sTu && sTu !== '0') {
+      const tuGrid = document.querySelectorAll(gridSel + '[data-tu="' + sTu + '"]');
+      if (tuGrid.length > 0) {
+        tuGrid.forEach(el => el.classList.add('has-clash'));
+      } else {
+        document.querySelectorAll(gridSel).forEach(el => el.classList.add('has-clash'));
+      }
+      const tuCard = document.querySelectorAll(cardSel + '[data-tu="' + sTu + '"]');
+      if (tuCard.length > 0) {
+        tuCard.forEach(el => el.classList.add('has-clash'));
+      } else {
+        document.querySelectorAll(cardSel).forEach(el => el.classList.add('has-clash'));
+      }
+    } else {
+      document.querySelectorAll(gridSel).forEach(el => el.classList.add('has-clash'));
+      document.querySelectorAll(cardSel).forEach(el => el.classList.add('has-clash'));
+    }
   }
 
   // Live Venue Status Monitor ("Now / Up Next")
@@ -1251,7 +1270,7 @@ class SessionPlanExporter:
       banner.innerHTML = '⏳ <strong>Venue Time ' + curTime + '</strong> &bull; Next session at ' + n.start_local + ': ' + (n.title || '').substring(0, 45);
       banner.style.display = 'flex';
     } else {
-      banner.innerHTML = '🌙 <strong>Venue Time ' + curTime + '</strong> &bull; Today\'s sessions concluded. Resumes tomorrow at 09:00.';
+      banner.innerHTML = "🌙 <strong>Venue Time " + curTime + "</strong> &bull; Today's sessions concluded. Resumes tomorrow at 09:00.";
       banner.style.display = 'flex';
     }
   }
@@ -1340,10 +1359,10 @@ class SessionPlanExporter:
 
 <script>
   const CAL_EVENTS = {cal_events_json};
-  const MEETING_BASE_DATE = "{base_date_js}";
+  const MEETING_BASE_DATE = {json.dumps(base_date_js)};
   const MEETING_TZ_OFFSET_MIN = {meeting_tz_offset_min};
-  const MEETING_NUMBER = "{snapshot.meeting_number}";
-  const TDOC_ID = "{snapshot.tdoc_id}";
+  const MEETING_NUMBER = {json.dumps(str(snapshot.meeting_number or ""))};
+  const TDOC_ID = {json.dumps(str(snapshot.tdoc_id or ""))};
 </script>
 <script>
 {js_script}

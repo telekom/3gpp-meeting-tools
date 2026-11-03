@@ -7,7 +7,9 @@ Unit and integration tests for Session Plan Delegation & Topic Distribution:
 4. Real-time availability calculation and parallel stream collision detection.
 5. SessionPlanWindow UI components and 5-view stack integration.
 """
+import re
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -995,8 +997,7 @@ class TestSessionPlanWindowDelegationIntegration(unittest.TestCase):
         self.assertIn('data-del="ALL"', content)
         self.assertIn('data-del="Anna"', content)
         self.assertIn('data-del="Thomas"', content)
-        self.assertIn("selectDelegate('Anna')", content)
-        self.assertIn("selectDelegate('Thomas')", content)
+        self.assertIn("selectDelegate(this.getAttribute('data-del'))", content)
 
         # 3. Data attributes for client-side filtering
         self.assertIn('data-delegates="Anna"', content)
@@ -1019,6 +1020,56 @@ class TestSessionPlanWindowDelegationIntegration(unittest.TestCase):
         # 7. Live Venue Status Indicator ("Now / Up Next")
         self.assertIn('id="liveVenueBanner"', content)
         self.assertIn("checkLiveVenueStatus", content)
+
+        # 8. Automated JavaScript Syntax and Interactive Function Integrity Verification
+        script_matches = re.findall(r"<script>(.*?)</script>", content, re.DOTALL)
+        self.assertGreaterEqual(len(script_matches), 2)
+        full_js = "\n".join(script_matches)
+
+        node_bin = shutil.which("node")
+        if node_bin:
+            harness = f"""
+const mockElement = () => ({{
+  classList: {{ toggle: () => {{}}, remove: () => {{}}, add: () => {{}} }},
+  style: {{}},
+  getAttribute: () => '',
+  querySelectorAll: () => [],
+  querySelector: () => null,
+  addEventListener: () => {{}},
+  value: ''
+}});
+global.document = {{
+  getElementById: () => mockElement(),
+  querySelectorAll: () => [],
+  querySelector: () => mockElement(),
+  body: {{ appendChild: () => {{}}, removeChild: () => {{}} }}
+}};
+global.window = {{ innerWidth: 1024 }};
+global.setInterval = () => {{}};
+global.Blob = class {{}};
+global.URL = {{ createObjectURL: () => '', revokeObjectURL: () => {{}} }};
+
+{full_js}
+
+if (typeof switchView !== 'function') throw new Error('switchView is not defined');
+if (typeof selectDelegate !== 'function') throw new Error('selectDelegate is not defined');
+if (typeof switchDay !== 'function') throw new Error('switchDay is not defined');
+if (typeof downloadSelectedCalendar !== 'function') throw new Error('downloadSelectedCalendar is not defined');
+if (typeof detectDelegateClashes !== 'function') throw new Error('detectDelegateClashes is not defined');
+if (typeof toggleStream !== 'function') throw new Error('toggleStream is not defined');
+if (typeof toggleBreaks !== 'function') throw new Error('toggleBreaks is not defined');
+if (typeof toggleEmptyBreaks !== 'function') throw new Error('toggleEmptyBreaks is not defined');
+
+// Invoke interactive handlers to ensure zero runtime scope exceptions
+switchView('cards');
+selectDelegate('ALL');
+switchDay('Monday');
+detectDelegateClashes('ALL');
+"""
+            temp_js = self.temp_dir / "verify_bundle.js"
+            temp_js.write_text(harness, encoding="utf-8")
+            res = subprocess.run([node_bin, str(temp_js)], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"Node.js execution failed:\nSTDOUT: {res.stdout}\nSTDERR: {res.stderr}")
 
     def test_overview_grid_topic_owner_direct_assignment(self):
         """Verifies right-click topic owner assignment from the desktop Overview Grid cell context menu."""
