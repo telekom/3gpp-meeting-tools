@@ -143,7 +143,7 @@ class BaseAsn1DocxParser:
                             if norm_t:
                                 clause_map[norm_t] = current_clause_num
 
-                            if current_clause_num.startswith(("9.2", "9.3", "6.2", "6.3", "6.6", "D.6")):
+                            if current_clause_num.startswith(("9.1", "9.2", "9.3", "6.2", "6.3", "6.6", "D.6")):
                                 current_section_def = {
                                     "clause": current_clause_num,
                                     "name": clause_title,

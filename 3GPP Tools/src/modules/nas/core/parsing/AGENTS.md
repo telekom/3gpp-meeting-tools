@@ -44,6 +44,12 @@ progress callback.
   `ProtocolExtensionContainer` resolution, `MessageType` synthesis, and protocol
   IE extraction with Assigned Criticality tracking, built on `BaseAsn1DocxParser`
   (supported specs are listed in the dispatcher).
+- `xnap_asn1_parser.py` — Dedicated parser for 3GPP TS 38.423 (XnAP), built on
+  `RAN3Asn1Parser`. Aligns with XnAP Clause 9.1 message functional definitions,
+  prevents misclassifying Clause 9.2/9.3 Information Elements as messages,
+  synthesizes `MessageType` (Clause 9.2.3.1) with procedure codes and criticality,
+  resolves `CPCCancel` to Clause 9.1.2.31 (`CONDITIONAL PSCELL CHANGE CANCEL`),
+  and extracts transfer directions (`node A → node B`) and prose summaries.
 - `protocol_parser_utils.py` — shared DOCX archive/XML loading, Word paragraph
   and table-cell text extraction with Unicode superscript/subscript preservation
   (e.g., preserving `2⁴⁰ - 1`), multi-line `<w:br/>` and paragraph break
