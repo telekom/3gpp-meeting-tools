@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from PyQt5.QtWidgets import QApplication, QWidget, QTableWidgetItem
-from PyQt5.QtCore import QMimeData, QUrl, QByteArray, QPoint, Qt
+from PyQt5.QtCore import QMimeData, QUrl, QByteArray, QPoint, Qt, QSettings
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent
 
 # Ensure QApplication exists for Qt tests
@@ -226,6 +226,7 @@ class TestSessionPlanRobustness(unittest.TestCase):
 
     def test_scheduled_only_toggle_and_table_readability(self):
         """Verifies the Scheduled Only toggle button, column sizing, and row filtering in Team Allocations."""
+        QSettings("3GPP_Tools", "SessionPlanWindow").remove("team_scheduled_only")
         with tempfile.TemporaryDirectory() as td:
             win = SessionPlanWindow(
                 meeting_dir=Path(td),
@@ -307,7 +308,6 @@ class TestSessionPlanRobustness(unittest.TestCase):
                 self.assertIn("📅 Scheduled Only (2/3)", win.btn_toggle_scheduled_only.text())
 
                 # 6. Verify QSettings persistence
-                from PyQt5.QtCore import QSettings
                 settings = QSettings("3GPP_Tools", "SessionPlanWindow")
                 win.btn_toggle_scheduled_only.setChecked(True)
                 self.assertTrue(settings.value("team_scheduled_only", False, type=bool))

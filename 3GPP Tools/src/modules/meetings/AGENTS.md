@@ -388,4 +388,28 @@ src/modules/meetings/
     - Expands vertical row height to 36px (`verticalHeader().setDefaultSectionSize(36)`) and injects internal cell padding (`QTableWidget::item { padding: 4px 8px; }`) to provide comfortable touch targets and prevent clipping of `DelegateOwnerPicker` dropdown chips and coverage badges.
     - Applies identical unclipped header styling, column widths, and 36px section sizing to the 7-column Clash & Dispatch Board (`["📅 Slot", "🕒 Time", "👤 Colliding Delegate", "Stream A (Assigned)", "Parallel Stream B", "🟢 Free Colleagues", "🛡️ Action / Coverage"]`).
 
+### 3.14. Three-State Delegation Model (`Assigned` / `Unassigned` / `Not Followed`) & Export Gap Hygiene (`session_plan_models.py`, `delegate_owner_picker.py`, `session_plan_window.py`, `session_plan_exporter.py`)
+- **Problem Solved:** Working delegations do not follow every Agenda Item declared by a 3GPP Working Group. When an agenda item is intentionally out of scope, leaving it unassigned caused it to trigger false alerts in the HTML export's `❓ Unassigned AIs` view, `#btnUnassigned` highlight filter, and `📍 Highlight Now` active stream dispatch board, obscuring actual delegation coverage gaps.
+- **Architectural Implementation:**
+  - **Data Model & Normalization (`session_plan_models.py`):**
+    - Defines `NOT_FOLLOWED_TOKENS = ("NOT_FOLLOWED", "NOT FOLLOWED", "NOT_FOLLOW", "NOT FOLLOW", "⛔ NOT FOLLOWED", "⛔ NOT_FOLLOWED", "⚪ NOT FOLLOWED", "EXCLUDE", "IGNORED")`.
+    - `TopicOwnership.is_not_followed()` detects when an item is explicitly marked not followed.
+    - `TopicOwnership.is_all()` and `TopicOwnership.get_owners()` treat not-followed items as having zero individual delegate owners.
+    - `resolve_slot_effective_delegates()` ignores not-followed topics so they never assign phantom coverage or trigger false colleague collisions.
+    - `is_slot_not_followed(slot, plan)` returns `True` when all agenda items scheduled in a session slot are explicitly marked not followed.
+  - **Cross-Meeting Persistence:**
+    - Marking a topic as not followed saves `owner_name = "NOT_FOLLOWED"` to `topic_owners` and `default_topic_owners` (and `<app_data_root>/delegation_defaults.json`), automatically seeding the `Not Followed` status across all subsequent meetings without requiring schema alterations.
+  - **Desktop UI Integration (`delegate_owner_picker.py`, `session_plan_window.py`):**
+    - `DelegateOwnerPicker` provides a 1-click `⛔ Mark as Not Followed` action in its dropdown menu, displaying `⛔ Not Followed ▾` with distinct neutral/muted slate styling (`#64748B`, `#F1F5F9`, border `#CBD5E1`).
+    - The Topic Ownership Matrix in `SessionPlanWindow` renders a `⚪ Not Followed` badge in the `🛡️ Coverage Status` column.
+    - The Overview Grid cell context menu provides a 1-click `⛔ Mark as Not Followed` action under the topic assignment submenu (`👤 Assign Topic Owner (AI X.Y.Z)...`), with `(Not Followed)` status indication.
+    - Overview Grid cells for not-followed slots are rendered with neutral dashed borders and muted text (`border: 1px dashed #CBD5E1; color: #64748B; background: #F8FAFC;`), and rich hover tooltips indicate `⛔ Delegation: Not Followed (Out of Scope)`.
+  - **HTML Export & Gap Analysis Hygiene (`session_plan_exporter.py`):**
+    - `_get_slot_unassigned_ais()` and `_is_slot_unassigned()` exclude not-followed topics and slots.
+    - The `❓ Unassigned AIs` catalog view and summary metric (`unassigned_ai_count`, `unassigned_slot_count`) only report genuine unassigned gaps, completely excluding intentionally ignored topics.
+    - Grid cells and day cards tag not-followed slots with `is-not-followed`, `data-not-followed="1"`, `data-unassigned="0"`, and `⛔ Not Followed` pill badges.
+    - The `📍 Highlight Now` dispatch board (`#nowDispatchPanel`) suppresses `❓ Unassigned Active Stream(s)` warnings for active streams whose topics are marked Not Followed.
+    - The executive email summary generator tags not-followed items with `⛔ Not Followed` badges in the Master Topic Ownership table.
+
+
 

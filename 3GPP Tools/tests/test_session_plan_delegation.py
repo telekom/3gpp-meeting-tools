@@ -30,6 +30,7 @@ from modules.meetings.core.session_plan.session_plan_models import (
     TopicOwnership,
     ai_number_in_text,
     compute_unique_initials,
+    is_slot_not_followed,
     resolve_slot_effective_delegates,
 )
 from modules.meetings.ui.delegate_owner_picker import DelegateOwnerPicker
@@ -1368,6 +1369,113 @@ highlightNow(false);
             # 3. Delegate Agenda in 'Whole Delegation (ALL)' scope must NOT report a false conflict
             # now that Martin is in Stream 1 and Anna is in Stream 2
             self.assertNotIn("Clash", win.btn_tracked.text())
+        finally:
+            win.close()
+
+    def test_not_followed_state_in_models_picker_ui_and_html_export(self):
+        """Verifies 'Not Followed' 3rd state across models, picker, window status, and HTML export."""
+        # 1. Domain model checks
+        to_nf = TopicOwnership(meeting_number="177", ai_number="20.6.99", owner_name="NOT_FOLLOWED")
+        self.assertTrue(to_nf.is_not_followed())
+        self.assertFalse(to_nf.is_all())
+        self.assertEqual(to_nf.get_owners(["Martin", "Anna"]), [])
+
+        plan = DelegationPlan(
+            meeting_number="177",
+            members={"Martin": DelegationMember(name="Martin", color="#2563EB")},
+            topic_owners={"20.6.99": to_nf},
+        )
+        s_nf = SessionSlot(
+            day_index=1, day_name="Tuesday", quarter="Q2", sub_slot=1, stream_number=2,
+            raw_text="AI 20.6.99 OutOfScope", items=[AgendaSlotItem(ai_number="20.6.99", display_expr="AI 20.6.99", topic_label="OutOfScope")],
+        )
+        self.assertTrue(is_slot_not_followed(s_nf, plan))
+        dels, is_cov, is_all = resolve_slot_effective_delegates(s_nf, plan)
+        self.assertEqual(dels, [])
+        self.assertFalse(is_all)
+
+        # 2. DelegateOwnerPicker checks
+        picker = DelegateOwnerPicker([DelegationMember(name="Martin", color="#2563EB")], "NOT_FOLLOWED")
+        self.assertEqual(picker.owner_string(), "NOT_FOLLOWED")
+        self.assertIn("Not Followed", picker.text())
+
+        # Test clicking Mark as Not Followed
+        picker.set_owner_string("Martin")
+        self.assertEqual(picker.owner_string(), "Martin")
+        picker._on_not_followed()
+        self.assertEqual(picker.owner_string(), "NOT_FOLLOWED")
+        self.assertIn("Not Followed", picker.text())
+
+        # 3. SessionPlanWindow UI and persistence across meetings
+        win = SessionPlanWindow(
+            meeting_dir=self.temp_dir,
+            mtg_info=self.mtg_info,
+            agenda_map={},
+            tracked_tokens=set(),
+        )
+        try:
+            m1 = DelegationMember(name="Martin", color="#2563EB", is_self=True)
+            win.db.save_delegation_member("177", m1)
+            win.db.set_topic_owner("177", "20.6.99", "NOT_FOLLOWED")
+            win.delegation_plan = win.db.get_delegation_plan("177")
+
+            s_assigned = SessionSlot(
+                day_index=0, day_name="Monday", quarter="Q1", sub_slot=1, stream_number=1,
+                raw_text="AI 20.6.1 NAS", items=[AgendaSlotItem(ai_number="20.6.1", display_expr="AI 20.6.1", topic_label="NAS")],
+            )
+            win.db.set_topic_owner("177", "20.6.1", "Martin")
+            win.delegation_plan = win.db.get_delegation_plan("177")
+
+            win.active_snapshot = SessionPlanSnapshot(
+                meeting_number="177", tdoc_id="S2-2610195", slots=[s_assigned, s_nf]
+            )
+            win._render_current_views()
+
+            # Verify Topic Ownership Matrix displays "⚪ Not Followed"
+            status_map = {}
+            for r in range(win.team_topics_table.rowCount()):
+                ai_item = win.team_topics_table.item(r, 0)
+                st_item = win.team_topics_table.item(r, 4)
+                if ai_item and st_item:
+                    status_map[ai_item.text().strip()] = st_item.text().strip()
+
+            self.assertIn("20.6.99", status_map)
+            self.assertIn("Not Followed", status_map["20.6.99"])
+
+            # Verify persistence to subsequent meeting 178
+            owners_178 = win.db.get_topic_owners("178")
+            self.assertIn("20.6.99", owners_178)
+            self.assertTrue(owners_178["20.6.99"].is_not_followed())
+
+            # 4. HTML Export validation
+            out_html = self.temp_dir / "nf_session_plan.html"
+            SessionPlanExporter.export_mobile_html(
+                snapshot=win.active_snapshot,
+                output_path=out_html,
+                meeting_tz_offset_min=0,
+                annotations={},
+                delegation_plan=win.delegation_plan,
+            )
+            html_out = out_html.read_text(encoding="utf-8")
+
+            # Not-followed slot gets is-not-followed class and data attribute
+            self.assertIn('data-not-followed="1"', html_out)
+            self.assertIn('is-not-followed', html_out)
+            self.assertIn('⛔ Not Followed', html_out)
+
+            # 20.6.99 MUST NOT be counted in UNASSIGNED_AIS or UNASSIGNED_SLOTS
+            self.assertNotIn('"ai_number": "20.6.99"', html_out)
+
+            # Verify Email Summary
+            subj, html_email, plain_email = SessionPlanExporter.generate_delegation_email_summary(
+                snapshot=win.active_snapshot,
+                plan=win.delegation_plan,
+                meeting_tz_offset_min=0,
+                tz_name="UTC",
+            )
+            self.assertIn("⛔ Not Followed", html_email)
+            self.assertIn("AI 20.6.99", plain_email)
+            self.assertIn("Not Followed", plain_email)
         finally:
             win.close()
 

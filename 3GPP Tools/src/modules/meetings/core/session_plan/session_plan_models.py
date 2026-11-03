@@ -155,24 +155,44 @@ class DelegationMember:
         return "#F1F5F9"
 
 
+NOT_FOLLOWED_TOKENS = (
+    "NOT_FOLLOWED",
+    "NOT FOLLOWED",
+    "NOT_FOLLOW",
+    "NOT FOLLOW",
+    "⛔ NOT FOLLOWED",
+    "⛔ NOT_FOLLOWED",
+    "⚪ NOT FOLLOWED",
+    "EXCLUDE",
+    "IGNORED",
+)
+
+
 @dataclass
 class TopicOwnership:
     """Designates a default topic owner for an Agenda Item."""
     meeting_number: str                 # e.g. '177'
     ai_number: str                      # e.g. '20.6.18'
-    owner_name: str                     # e.g. 'Martin', 'Martin, Anna', or 'ALL'
+    owner_name: str                     # e.g. 'Martin', 'Martin, Anna', 'ALL', or 'NOT_FOLLOWED'
     notes: str = ""
+
+    def is_not_followed(self) -> bool:
+        """Returns True if this topic is explicitly marked as not followed (out of scope)."""
+        if not self.owner_name:
+            return False
+        clean = self.owner_name.strip().upper()
+        return clean in NOT_FOLLOWED_TOKENS
 
     def is_all(self) -> bool:
         """Returns True if this topic is assigned to the entire delegation."""
-        if not self.owner_name:
+        if not self.owner_name or self.is_not_followed():
             return False
         clean = self.owner_name.strip().upper()
         return clean in ("ALL", "ALL TEAM", "ALL DELEGATES", "👥 ALL TEAM", "👥 ALL")
 
     def get_owners(self, all_roster_names: Optional[List[str]] = None) -> List[str]:
         """Returns list of assigned delegate names, expanding 'ALL' if roster names are provided."""
-        if not self.owner_name:
+        if not self.owner_name or self.is_not_followed():
             return []
         if self.is_all():
             return list(all_roster_names) if all_roster_names else ["ALL"]
@@ -264,6 +284,8 @@ def resolve_slot_effective_delegates(
 
     def _absorb(to: TopicOwnership) -> None:
         nonlocal is_all_flag
+        if to.is_not_followed():
+            return
         if to.is_all():
             is_all_flag = True
             owners: Iterable[str] = roster_names
@@ -286,6 +308,29 @@ def resolve_slot_effective_delegates(
             _absorb(to)
 
     return found, False, is_all_flag
+
+
+def is_slot_not_followed(slot: SessionSlot, plan: Optional[DelegationPlan]) -> bool:
+    """
+    Returns True if this session slot is explicitly marked as Not Followed
+    (i.e. has no appointment override and all its agenda items are explicitly marked Not Followed).
+    """
+    if not plan or not plan.topic_owners:
+        return False
+    # Explicit slot-level session appointment override takes precedence
+    if slot.slot_key in plan.appointments:
+        return False
+    ai_nums = [it.ai_number for it in slot.items if it.ai_number]
+    if ai_nums:
+        return all(
+            plan.topic_owners.get(a) is not None and plan.topic_owners[a].is_not_followed()
+            for a in ai_nums
+        )
+    # Fallback to checking raw cell text for boundary-matched not-followed AIs
+    for ai_num, to in plan.topic_owners.items():
+        if to.is_not_followed() and ai_number_in_text(ai_num, slot.raw_text):
+            return True
+    return False
 
 
 def compute_unique_initials(names: Iterable[str]) -> Dict[str, str]:
