@@ -195,7 +195,7 @@ def build_citation_data(meta: dict) -> dict:
     if dynareport_url and zip_url and safe_ver:
         both_anchor = (
             f'<a href="{dynareport_url}">{safe_canonical}</a> '
-            f'(<a href="{zip_url}">ZIP {safe_ver}</a>)'
+            f'(<a href="{zip_url}">{safe_ver}</a>)'
         )
     elif dynareport_url and zip_url:
         both_anchor = (
@@ -217,7 +217,7 @@ def build_citation_data(meta: dict) -> dict:
         zip_md = canonical
 
     if dynareport_url and zip_url and clean_ver:
-        both_md = f"[{canonical}]({dynareport_url}) ([ZIP {clean_ver}]({zip_url}))"
+        both_md = f"[{canonical}]({dynareport_url}) ([{clean_ver}]({zip_url}))"
     elif dynareport_url and zip_url:
         both_md = f"[{canonical}]({dynareport_url}) ([ZIP]({zip_url}))"
     elif zip_url:
@@ -665,20 +665,26 @@ def populate_multi_spec_copy_menu(
     # 7. URLs Lists
     web_urls = [m["dynareport_url"] for m in items_processed if m["dynareport_url"]]
     if web_urls:
-        act_w_urls = copy_sub.addAction(f"🌐 Copy 3GPP Web Report URLs ({len(web_urls)})")
+        web_plain = "\n".join(web_urls)
+        web_html = "<br>".join(f'<a href="{url}">{url}</a>' for url in web_urls)
+        web_count = len(web_urls)
+        act_w_urls = copy_sub.addAction(f"🌐 Copy 3GPP Web Report URLs ({web_count})")
         act_w_urls.setToolTip("Copy direct URLs to 3GPP DynaReport specification pages.")
         act_w_urls.triggered.connect(
-            lambda _, p="\n".join(web_urls), h="<br>".join(f'<a href="{u}">{u}</a>' for u in web_urls), c=len(web_urls): _copy_to_clipboard(
+            lambda _, p=web_plain, h=web_html, c=web_count: _copy_to_clipboard(
                 p, h, f"{c} Web URLs", parent_widget
             )
         )
 
     zip_urls = [m["zip_url"] for m in items_processed if m["zip_url"]]
     if zip_urls:
-        act_z_urls = copy_sub.addAction(f"📦 Copy ZIP Download URLs ({len(zip_urls)})")
+        zip_plain = "\n".join(zip_urls)
+        zip_html = "<br>".join(f'<a href="{url}">{url}</a>' for url in zip_urls)
+        zip_count = len(zip_urls)
+        act_z_urls = copy_sub.addAction(f"📦 Copy ZIP Download URLs ({zip_count})")
         act_z_urls.setToolTip("Copy direct URLs to download specification ZIP archives.")
         act_z_urls.triggered.connect(
-            lambda _, p="\n".join(zip_urls), h="<br>".join(f'<a href="{u}">{u}</a>' for u in zip_urls), c=len(zip_urls): _copy_to_clipboard(
+            lambda _, p=zip_plain, h=zip_html, c=zip_count: _copy_to_clipboard(
                 p, h, f"{c} ZIP URLs", parent_widget
             )
         )
