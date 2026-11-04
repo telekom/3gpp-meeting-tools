@@ -16,6 +16,7 @@ from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_DANGER
 )
 from core.utils.company_sanitizer import CompanySanitizer
+from core.utils.portal_utils import open_portal_tdoc
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.settings import MeetingsSettings
 from modules.meetings.core.tdocs.tdocs_threads import TDocActionThread
@@ -612,7 +613,7 @@ class ContributionReportDialog(QDialog):
             act_open_tdoc.triggered.connect(lambda: self._open_tdoc(row_data))
 
             act_portal = menu.addAction(f"🌐 View {tdoc} on 3GU Portal")
-            act_portal.triggered.connect(lambda: webbrowser.open(f"https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&tdocId={tdoc}"))
+            act_portal.triggered.connect(lambda: open_portal_tdoc(tdoc))
 
             menu.addSeparator()
 
