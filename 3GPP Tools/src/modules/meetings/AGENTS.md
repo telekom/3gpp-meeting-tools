@@ -91,6 +91,10 @@ src/modules/meetings/
   - Manifest index (`write_index`) includes a dedicated `3GPP Server` download link column (`[📥 Download ZIP](<url>)`).
   - Post-Meeting reports display dual links (`[Dossier](<rel_path>) · [📥 3GPP](<url>)`) in executive and WI index tables.
   - AI TDoc Triage dialog provides 1-click header links and includes the download URL in copied summaries and saved user notes.
+- **Official 3GU Web Portal Integration (`core.utils.portal_utils`):**
+  - Canonical resolution (`get_portal_tdoc_url`, `open_portal_tdoc`) constructs and launches official 3GPP (3GU) web portal view URLs (`https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&contributionUid={uid}`).
+  - Employs `contributionUid` (never obsolete `tdocId`) and automatically strips revision markers via `extract_base_tdoc()` so portal lookups consistently resolve to the base contribution.
+  - Standardized across the TDoc right-click context menu, Quick Copy clipboard submenu, dossier HTML headers, meeting workspace links (`open_portal_meeting`), and contribution reservation actions (`open_portal_create_tdoc`).
 
 ### 3.4. Tracked Work Items Quick Filters (Integration with Work Items Module)
 - **Token Resolution & Precomputation:** When loading meeting TDocs, `TDocsTableModel._precompute_row_wi_tokens` parses and caches normalized WI tokens on each row dictionary (`row["_wi_tokens"]`). This covers explicit `Related WIs`, `agenda_map` acronyms, and parenthesized acronyms in `Agenda item description`.
