@@ -271,7 +271,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **📋 Specification Quick Copy & Rich Clipboard Engine:**
   * **Dual-Format Clipboard (`QMimeData`):** Seamless multi-target clipboard export setting both plain text and rich HTML. Rich-text applications (Outlook, Word, Teams, OneNote) paste formatted text with active hyperlinks, while plain-text editors (Notepad, git commit, terminal, IDE) paste clean, unadorned text.
   * **Flexible Link Targeting (Web, Direct ZIP, or Both):**
-    * *🔗 Dual Links (Web + ZIP):* Integrates both destinations cleanly into a single citation line—the specification number links to the official 3GPP DynaReport status overview, while a dedicated version badge (e.g., `[ZIP v20.2.0]`) links directly to the ZIP download file on 3GPP FTP (`<a href="...DynaReport/23501.htm">TS 23.501</a> (<a href="...23501-k20.zip">ZIP v20.2.0</a>): Title (WG)`).
+    * *🔗 Dual Links (Web + ZIP):* Integrates both destinations cleanly into a single citation line—the specification number links to the official 3GPP DynaReport status overview, while a dedicated version badge (e.g., `[v20.2.0]`) links directly to the ZIP download file on 3GPP FTP (`<a href="...DynaReport/23501.htm">TS 23.501</a> (<a href="...23501-k20.zip">v20.2.0</a>): Title (WG)`).
     * *🌐 3GPP Web Links (DynaReport):* Standard specification citations where the number links directly to the 3GPP DynaReport status page.
     * *📦 Direct ZIP Download Links:* Citations where the specification number links directly to the target version's ZIP archive file on the 3GPP FTP server (`<a href="...23501-k20.zip">TS 23.501 (v20.2.0)</a>: Title (WG)`).
   * **Multi-Surface Access & Version Context:**
@@ -280,7 +280,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
     * *Column 2 Document Menu (`📝 Open Word ▾` / `📦 Download ▾`):* Dedicated `📋 Quick Copy (vX.Y.Z)` submenu targeting that exact version's download link.
     * *Specification Details Dialog (`SpecInfoDialog`):* Bottom footer `📋 Quick Copy ▾` dropdown button.
   * **Configurable Default Mode (`Ctrl+C`):** Select one or more rows in the table and press `Ctrl+C` to instantly copy complete citations. Delegates can configure the default link style (`Both Links`, `Web Link`, or `Direct ZIP`) in 1 click under **`⚙️ Default Link Mode (Ctrl+C)`**, persisting to `specs_config.json`.
-  * **Batch Multi-Select Copying:** Select multiple rows to copy comma-separated numbers, multi-line title lists, full citations with working groups, bulleted Markdown lists (`- [TS 23.501](web) ([ZIP v20.2.0](zip)): Title (WG)`), or URL lists.
+  * **Batch Multi-Select Copying:** Select multiple rows to copy comma-separated numbers, multi-line title lists, full citations with working groups, bulleted Markdown lists (`- [TS 23.501](web) ([v20.2.0](zip)): Title (WG)`), or URL lists.
   * **Non-Blocking Tooltip Feedback:** Every copy action displays an instant floating cursor tooltip (`📋 Copied {label} to clipboard!`) without interrupting delegate workflow.
 
 * **📜 Specification Change History, p-CR Tracking & TDoc Cross-Referencing:**
