@@ -345,7 +345,7 @@ def open_post_meeting_export_dialog(window: Any) -> None:
         generate_local_indices=cfg["generate_local_indices"],
         download_missing=cfg["download_missing"],
         force_reconvert=cfg["force_reconvert"],
-        compile_dossier=cfg.get("compile_dossier", True),
+        compile_dossier=cfg.get("compile_dossier", False),
         output_dir=cfg["output_dir"],
         parent=window,
     )
@@ -419,7 +419,7 @@ def open_dossier_export_dialog(window: Any, target_rows: Optional[List[dict]] = 
         embed_base64_images=cfg["embed_base64_images"],
         download_missing=cfg["download_missing"],
         force_reconvert=cfg["force_reconvert"],
-        compile_dossier=cfg.get("compile_dossier", True),
+        compile_dossier=cfg.get("compile_dossier", False),
         output_dir=cfg["output_dir"],
         parent=window,
     )
