@@ -121,7 +121,7 @@ class PostMeetingExporterThread(QThread):
         generate_local_indices: bool = True,
         download_missing: bool = True,
         force_reconvert: bool = False,
-        compile_dossier: bool = True,
+        compile_dossier: bool = False,
         output_dir: Optional[Path] = None,
         parent=None,
     ):
