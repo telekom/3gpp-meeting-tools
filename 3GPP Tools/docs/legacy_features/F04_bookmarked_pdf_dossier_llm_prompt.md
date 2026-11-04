@@ -13,7 +13,7 @@ In the legacy 3GPP Meeting Helper, **F-04** was designed to compile all Word doc
 Instead of legacy Word COM concatenation, **3GPP Tools** uses its high-speed OpenXML Markdown engine (`tdoc2md`) as the intermediate layer:
 * **Headless OpenXML Conversion (<1s per doc):** Directly parses `.docx` into clean CommonMark, extracts diagrams to PNG, and renders inline revision marks (`[INSERTED: ...]`, `[DELETED: ...]`).
 * **Interactive HTML Dossier (`dossier.html`):** A self-contained, responsive single-file document with a sticky/floating navigation bar, jump dropdown, Master Table of Contents, syntax-highlighted revision marks, 3GPP change banners, and Base64-embedded call flows and figures.
-* **Bookmarked Vector PDF (`dossier.pdf`):** Rendered via `QTextDocument` and `PyQt5.QtPrintSupport.QPrinter`, then enhanced with `pypdf` to inject a hierarchical PDF outline bookmark tree (`Agenda Item > TDoc ID > Sections`).
+* **Bookmarked Vector PDF (`dossier.pdf`):** Rendered via modular `QTextDocument` and `PyQt5.QtGui.QPdfWriter`, then stitched and outlined with `pypdf` to produce a high-performance, non-blocking hierarchical PDF outline bookmark tree (`Agenda Item > TDoc ID > Sections`). Modular section rendering avoids Windows GDI/printer subsystem deadlocks and layout freezes on massive multi-megabyte HTML dossiers.
 * **Companion AI Prompt (`dossier_prompt.txt`):** Automatically maps exact 1-indexed page boundaries (`[start_page, end_page]`) for every TDoc, paired with structured 3GPP evaluation guidelines (CR cover sheets vs pCRs vs LSs) and copy-paste prompts for NotebookLM, Claude 3.5 Sonnet, Gemini 1.5 Pro, and Ollama.
 
 ---
@@ -42,7 +42,7 @@ flowchart TD
     
     HTMLSynth --> SaveHTML["Export dossier.html"]
     
-    HTMLSynth --> PrintEngine["QTextDocument + QPrinter: Vector PDF Print"]
+    HTMLSynth --> PrintEngine["QTextDocument + QPdfWriter: Modular Vector PDF Print"]
     PrintEngine --> PageScan["pypdf: Scan Pages for TDoc Start Anchors"]
     PageScan --> Bookmarks["pypdf: Inject Hierarchical PDF Outlines:
     - 📑 Master Index & Summary (Page 1)
@@ -69,7 +69,7 @@ flowchart TD
 * **`DossierExporterThread(QThread)`:**
   * Coordinates parallel document downloads, OpenXML Markdown parsing, and local caching.
   * **HTML Generation:** Synthesizes `dossier.html` with modern CSS, sticky toolbar, jump dropdown, and Base64-inlined images.
-  * **Vector PDF Printing:** Uses `QTextDocument.setHtml()` and `QPrinter(OutputFormat=PdfFormat)` to generate clean vector pages with print media rules (`page-break-before: always;`).
+  * **Vector PDF Printing:** Uses `QTextDocument.setHtml()` and `QPdfWriter(A4)` across decoupled sections merged via `pypdf` to generate clean vector pages with print media rules (`page-break-before: always;`). This linear O(N) pipeline eliminates Windows print spooler timeouts and Qt layout engine lockups on large meeting exports.
   * **PDF Outline Injection:** Uses `pypdf.PdfReader` to scan pages for distinctive TDoc start markers, calculates exact `[start_page, end_page]` boundaries, and builds a hierarchical outline tree with `pypdf.PdfWriter.add_outline_item`.
   * **AI Citation Map:** Generates `dossier_prompt.txt` formatted for large-context LLM ingestion (NotebookLM, Claude 3.5 Sonnet, Gemini).
 
