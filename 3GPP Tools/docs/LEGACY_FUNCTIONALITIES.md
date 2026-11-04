@@ -147,7 +147,7 @@ flowchart TD
     Input["Selected TDocs (e.g. AI 6.2 Dossier or Post-Meeting Scope)"] --> MDExport["tdoc2md: Direct OpenXML Parse to Markdown & Media"]
     MDExport --> HTMLSynth["HTML Synthesizer: Responsive Dossier with Sticky Nav & Embedded Images"]
     HTMLSynth --> SaveHTML["Export dossier.html (Single-File Self-Contained)"]
-    HTMLSynth --> PDFEngine["QtPrintSupport (QPrinter): Vector PDF Print"]
+    HTMLSynth --> PDFEngine["Qt GUI (QPdfWriter + pypdf): Modular Vector PDF Print & Stitch"]
     PDFEngine --> Bookmarks["pypdf: Scan Pages & Inject Hierarchical Bookmarks:
     - Master Index & Summary (Page 1)
     - Agenda Item Groups
