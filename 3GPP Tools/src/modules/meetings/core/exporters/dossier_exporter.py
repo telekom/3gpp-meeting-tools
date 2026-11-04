@@ -32,6 +32,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QPdfWriter, QTextDocument, QPageSize
 
 from core.utils.paths import to_extended_path
+from core.utils.portal_utils import get_portal_tdoc_url
 from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
 from modules.meetings.core.tdocs.tdoc_markdown_converter import (
@@ -806,7 +807,7 @@ class DossierExporterThread(QThread):
             body_html = self._convert_markdown_to_html(raw_md, d["media_dir"], media_export_dir, tid)
 
             url_html = f'<a href="{d["tdoc_url"]}" target="_blank">🌐 3GPP Server</a>' if d.get("tdoc_url") else ""
-            portal_url = f"https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&tdocId={tid}"
+            portal_url = get_portal_tdoc_url(tid)
 
             section_markup = f"""
             <section id="tdoc-{tid}" class="tdoc-section" data-tdoc="{tid}">

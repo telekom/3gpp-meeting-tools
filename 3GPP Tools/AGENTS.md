@@ -65,7 +65,7 @@ python -m main_tools
 │   │   ├── config/                # Global application constants and paths
 │   │   ├── network/               # NetworkSession singleton, RFC 1918 proxy bypassing
 │   │   ├── ui/                    # Base components, ModernDropZone, global QSS style, console/queue panels
-│   │   ├── utils/                 # Path resolution, Java runtime detection, helpers
+│   │   ├── utils/                 # Path resolution, Java runtime detection, 3GPP Portal URL generators, helpers
 │   │   └── queue_manager.py       # Multi-threaded background conversion & sync task queue
 │   ├── db/                        # Persistent SQLite databases (3gpp_data.db, etc.)
 │   └── modules/                   # Independent feature subsystems (tabs)
@@ -307,7 +307,7 @@ python -m main_tools
   - `starred`: Personal interest / watchlist.
   - `following`: Assigned delegation responsibility (team work-split).
 - **Interactive UI & Filtering:** `WorkItemsTab` incorporates a dedicated 1-click `TrackingDelegate`, filter chips (`⭐ Starred`, `🎯 Following`), `➕ Add WI` toolbar and context menu actions, batch context menu actions, and in-dialog toggling inside `WorkItemInfoDialog`. Table delegates and tabular data models are decoupled into modular files (`work_items_delegates.py`, `work_items_model.py`). `WorkItemsDatabase` optimizes tracking filters using SQLite primary-key `IN` clauses with safe empty-set evaluations (`1=0`).
-- **Quick Copy Submenu & Word-Compatible Clipboard (`ui_tabs.py`, `work_items_dialogs.py`):** Provides a comprehensive `📋 Quick Copy` context submenu (for single and multi-row selections), a `📋 Quick Copy ▾` menu button in `WorkItemInfoDialog`, and a `Ctrl+C` table shortcut (`copy_wis_default`) reusing `_copy_to_clipboard` (`QMimeData` dual plain-text + rich HTML anchor stream). Supports copying WI Acronym with link (pasting as a clickable hyperlink in Microsoft Word/Outlook and `Acronym (URL)` in plain text), WI Acronym + visible URL, WI Portal URL only, Latest WID with 3GU Portal link (`CreateTdoc.aspx?mode=view&tdocId=...`), Latest WID URL only, full citations (with optional WID link), Markdown links, plain identifiers, and multi-row batch lists.
+- **Quick Copy Submenu & Word-Compatible Clipboard (`ui_tabs.py`, `work_items_dialogs.py`):** Provides a comprehensive `📋 Quick Copy` context submenu (for single and multi-row selections), a `📋 Quick Copy ▾` menu button in `WorkItemInfoDialog`, and a `Ctrl+C` table shortcut (`copy_wis_default`) reusing `_copy_to_clipboard` (`QMimeData` dual plain-text + rich HTML anchor stream). Supports copying WI Acronym with link (pasting as a clickable hyperlink in Microsoft Word/Outlook and `Acronym (URL)` in plain text), WI Acronym + visible URL, WI Portal URL only, Latest WID with 3GU Portal link (`CreateTdoc.aspx?mode=view&contributionUid=...`), Latest WID URL only, full citations (with optional WID link), Markdown links, plain identifiers, and multi-row batch lists.
 
 ---
 
@@ -412,6 +412,12 @@ The project intentionally separates domain data into distinct SQLite databases l
   - Rely on CSS padding (e.g. `padding: 2px 10px;`), `min-width` rules, and allocate generous container column bounds (`>= 280px` for multi-button table action cells).
 - **Vertical Clearance & Font Descenders:**
   - Buttons and table row section heights must provide sufficient vertical clearance (e.g. button `min-height: 26-28px`, table row `defaultSectionSize: 46-48px`) so that character descenders (`p`, `g`, `y`, `q`, `j`) are never sliced off at the bottom border.
+
+### 5.11. 3GPP Portal & TDoc URI Construction (`core.utils.portal_utils`)
+- **Centralized URI Generation:** Always use `core.utils.portal_utils` (or its alias `core.utils.portal_urls`) as the single source of truth for constructing official 3GPP (3GU) Portal URLs (`https://portal.3gpp.org`). Never construct raw ad-hoc portal URL strings inside feature modules.
+- **TDoc Contribution Parameter (`contributionUid`):** The 3GPP portal application (`/ngppapp/CreateTdoc.aspx?mode=view`) requires the query parameter `contributionUid` (e.g. `contributionUid=S2-2611250`). **Never use `tdocId`**, which is obsolete and rejected by the portal.
+- **Base TDoc Extraction:** Use `extract_base_tdoc(tdoc_id)` or `get_portal_tdoc_url(tdoc_id, base_only=True)` to cleanly strip revision suffixes (e.g. `r01`, `rev2`) before querying the 3GPP contribution portal.
+- **One-Click Launchers:** Prefer `open_portal_tdoc()`, `open_portal_meeting()`, `open_portal_create_tdoc()`, and `open_portal_work_item()` to cleanly launch official portal pages in the delegate's default browser with uniform logging.
 
 
 ---

@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from PyQt5.QtCore import Qt, QPoint
+from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QMenu
 
 from modules.meetings.ui.tdocs_menus import build_quick_copy_menu, populate_quick_copy_menu
@@ -156,32 +157,49 @@ class TestJumpToTDocClipboard(unittest.TestCase):
 
         actions_by_text = {act.text(): act for act in menu.actions()}
 
-        # 1. Test Document Download URL copy
-        act_dl = actions_by_text["📋 Copy Document Download URL"]
-        act_dl.trigger()
-        expected_url = "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_168_Jeju/Docs/S2-2605740.zip"
-        self.assertEqual(QApplication.clipboard().text(), expected_url)
+        with patch("modules.meetings.ui.tdocs_menus._copy_to_clipboard") as mock_copy:
+            # 1. Test Document Download URL copy
+            act_dl = actions_by_text["📋 Copy Document Download URL"]
+            act_dl.trigger()
+            expected_url = "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_168_Jeju/Docs/S2-2605740.zip"
+            mock_copy.assert_called_with(
+                plain_text=expected_url,
+                html_text=f'<a href="{expected_url}">{expected_url}</a>',
+                label="Document Download URL",
+                parent=menu,
+            )
 
-        # 2. Test Markdown Link copy
-        act_md = actions_by_text["🔗 Copy Markdown Link"]
-        act_md.trigger()
-        expected_md = f"[S2-2605740]({expected_url})"
-        self.assertEqual(QApplication.clipboard().text(), expected_md)
+            # 2. Test Markdown Link copy
+            act_md = actions_by_text["🔗 Copy Markdown Link"]
+            act_md.trigger()
+            expected_md = f"[S2-2605740]({expected_url})"
+            mock_copy.assert_called_with(
+                plain_text=expected_md,
+                html_text=f'<a href="{expected_url}">S2-2605740</a>',
+                label="Markdown Link",
+                parent=menu,
+            )
 
-        # 3. Test 3GU Portal URL copy
-        act_portal = actions_by_text["🌐 Copy 3GU Portal URL"]
-        act_portal.trigger()
-        self.assertEqual(
-            QApplication.clipboard().text(),
-            "https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&tdocId=S2-2605740"
-        )
+            # 3. Test 3GU Portal URL copy
+            act_portal = actions_by_text["🌐 Copy 3GU Portal URL"]
+            act_portal.trigger()
+            expected_portal = "https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&contributionUid=S2-2605740"
+            mock_copy.assert_called_with(
+                plain_text=expected_portal,
+                html_text=f'<a href="{expected_portal}">{expected_portal}</a>',
+                label="3GU Portal URL",
+                parent=menu,
+            )
 
-        # 4. Test TDoc Number copy (plain text + rich HTML)
-        act_id = actions_by_text["📋 Copy TDoc Number (S2-2605740)"]
-        act_id.trigger()
-        self.assertEqual(QApplication.clipboard().text(), "S2-2605740")
-        mime = QApplication.clipboard().mimeData()
-        self.assertIn(expected_url, mime.html())
+            # 4. Test TDoc Number copy (plain text + rich HTML)
+            act_id = actions_by_text["📋 Copy TDoc Number (S2-2605740)"]
+            act_id.trigger()
+            mock_copy.assert_called_with(
+                plain_text="S2-2605740",
+                html_text=f'<a href="{expected_url}">S2-2605740</a>',
+                label="TDoc Number",
+                parent=menu,
+            )
 
 
 if __name__ == "__main__":

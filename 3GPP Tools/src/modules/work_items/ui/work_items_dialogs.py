@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
+from core.utils.portal_utils import get_portal_tdoc_url, get_portal_work_item_url, open_portal_work_item
 from modules.meetings.ui.tdocs_menus import _copy_to_clipboard
 from modules.work_items.core.wi_database import WorkItemsDatabase
 from modules.work_items.core.wi_scraper import extract_wi_code, fetch_wi_details_from_portal
@@ -48,7 +49,7 @@ def build_wi_copy_data(row_data: dict) -> dict:
     latest_wid = str(row_data.get("latest_wid") or "").strip()
 
     wi_url = (
-        f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}"
+        get_portal_work_item_url(wi_code)
         if wi_code
         else ""
     )
@@ -58,7 +59,7 @@ def build_wi_copy_data(row_data: dict) -> dict:
         base_wid = re.split(r"(?:r|rev)\d+", latest_wid, maxsplit=1, flags=re.IGNORECASE)[0].rstrip("-")
         if not base_wid:
             base_wid = latest_wid.split("r")[0].split("R")[0]
-        wid_url = f"https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&tdocId={base_wid}"
+        wid_url = get_portal_tdoc_url(base_wid)
 
     safe_code = html.escape(wi_code)
     safe_acr = html.escape(acronym)
@@ -573,7 +574,7 @@ class WorkItemInfoDialog(QDialog):
         portal_btn.setObjectName("primaryBtn")
         portal_btn.setCursor(Qt.PointingHandCursor)
         portal_btn.clicked.connect(lambda: webbrowser.open(
-            f"https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId={wi_code}"
+            get_portal_work_item_url(wi_code)
         ))
         btn_layout.addWidget(portal_btn)
 

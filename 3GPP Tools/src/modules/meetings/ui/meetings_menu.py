@@ -7,6 +7,7 @@ from typing import Any, Dict
 from PyQt5.QtCore import QDate
 from PyQt5.QtWidgets import QMenu
 
+from core.utils.portal_utils import open_portal_create_tdoc, open_portal_meeting
 from modules.meetings.ui.tdocs_window import _open_terminal
 
 
@@ -39,7 +40,7 @@ def populate_meeting_context_menu(tab: Any, menu: QMenu, row_data: Dict[str, Any
     mtg_id = row_data.get("mtg_id")
     if mtg_id:
         menu.addAction("🖥️ 3GU Meeting Portal").triggered.connect(
-            lambda _, m=mtg_id: webbrowser.open(f"https://portal.3gpp.org/Home.aspx#/meeting?MtgId={m}")
+            lambda _, m=mtg_id: open_portal_meeting(m)
         )
 
         end_date_str = row_data.get("end_date", "")
@@ -48,9 +49,7 @@ def populate_meeting_context_menu(tab: Any, menu: QMenu, row_data: Dict[str, Any
 
         if not end_date.isValid() or end_date >= current_date:
             menu.addAction("📝 Reserve / Contribute TDoc").triggered.connect(
-                lambda _, m=mtg_id: webbrowser.open(
-                    f"https://portal.3gpp.org/ngppapp/CreateTdoc.Aspx?mode=create&meetingId={m}"
-                )
+                lambda _, m=mtg_id: open_portal_create_tdoc(m)
             )
 
     menu.addAction("📝 Draft CR / pCR for this Meeting...").triggered.connect(

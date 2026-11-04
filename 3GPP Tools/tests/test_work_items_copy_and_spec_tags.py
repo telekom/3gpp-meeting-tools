@@ -67,7 +67,7 @@ class TestWorkItemsCopyAndSpecTags(unittest.TestCase):
             "https://portal.3gpp.org/desktopmodules/WorkItem/WorkItemDetails.aspx?workitemId=1121123"
         )
         expected_wid_url = (
-            "https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&tdocId=SP-230456"
+            "https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&contributionUid=SP-230456"
         )
 
         self.assertEqual(data["wi_url"], expected_wi_url)

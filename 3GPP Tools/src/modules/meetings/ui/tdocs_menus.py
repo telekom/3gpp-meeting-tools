@@ -10,6 +10,7 @@ from PyQt5.QtCore import QPoint, QMimeData
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import QApplication, QMenu, QToolTip, QWidget
 
+from core.utils.portal_utils import get_portal_tdoc_url, open_portal_tdoc
 from modules.meetings.core.tdocs.tdoc_url_resolver import is_tdoc_revision, resolve_tdoc_download_url
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,7 @@ def open_tdoc_local_folder(meeting_dir: Path, base_tdoc: str):
 
 def open_3gu_portal(base_tdoc: str):
     """Opens the official 3GU portal view for the target TDoc."""
-    url = f"https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&tdocId={base_tdoc}"
+    url = get_portal_tdoc_url(base_tdoc)
     webbrowser.open(url)
 
 
@@ -128,7 +129,7 @@ def populate_quick_copy_menu(
     else:
         baseline_url = download_url
 
-    portal_url = f"https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&tdocId={base_tdoc}"
+    portal_url = get_portal_tdoc_url(base_tdoc)
     best_url = download_url or baseline_url or portal_url
 
     # HTML formatted anchor tag for the TDoc

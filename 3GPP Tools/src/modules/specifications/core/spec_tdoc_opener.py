@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import QApplication, QMessageBox, QProgressDialog, QToolTip
 
 from core.network.session import NetworkSession
 from core.utils.paths import get_app_data_root, get_cache_root, get_project_root, to_extended_path
+from core.utils.portal_utils import get_portal_tdoc_url, open_portal_tdoc
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.tdocs.tdoc_url_resolver import normalize_3gpp_url, resolve_tdoc_download_url
 from modules.word_tools.core.document_opener import open_document
@@ -194,8 +195,8 @@ class SpecTDocOpener:
         if not download_url:
             # Fallback 2: Open official 3GU portal view
             logger.info(f"Opening 3GU portal for {clean_tdoc}")
-            portal_url = f"https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&tdocId={clean_tdoc.split('r')[0].split('R')[0]}"
-            webbrowser.open(portal_url)
+            open_portal_tdoc(clean_tdoc)
+            pass
             return True
 
         # 3. Asynchronous download with modal progress dialog
@@ -233,7 +234,7 @@ class SpecTDocOpener:
             )
             if reply == QMessageBox.Yes:
                 base_id = clean_tdoc.split("r")[0].split("R")[0]
-                webbrowser.open(f"https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&tdocId={base_id}")
+                open_portal_tdoc(clean_tdoc)
 
         worker.progress.connect(_on_progress)
         worker.finished_success.connect(_on_success)
@@ -251,7 +252,7 @@ class SpecTDocOpener:
         """Opens the official 3GU web portal view for a TDoc in default browser."""
         clean_tdoc = tdoc_id.strip()
         base_id = clean_tdoc.split("r")[0].split("R")[0]
-        portal_url = f"https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&tdocId={base_id}"
+        portal_url = get_portal_tdoc_url(clean_tdoc)
         logger.info(f"🌐 [TDoc Opener] Opening 3GU portal: {portal_url}")
         return webbrowser.open(portal_url)
 
@@ -302,7 +303,7 @@ class SpecTDocOpener:
         """Generates (plain_text, rich_html) citation strings for a TDoc and specification version."""
         clean_tdoc = tdoc_id.strip()
         base_id = clean_tdoc.split("r")[0].split("R")[0]
-        portal_url = f"https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&tdocId={base_id}"
+        portal_url = get_portal_tdoc_url(clean_tdoc)
 
         details = []
         if spec_number:
