@@ -256,3 +256,52 @@ def on_chair_notes_finished(window, success: bool, count: int, files: list, msg:
 def open_chair_notes_folder(window):
     """Opens the local folder containing Chairman's Notes."""
     _open_folder(window.meeting_dir / "Agenda" / "ChairNotes")
+
+
+def start_window_tdocs_caching(window):
+    """Initiates asynchronous parallel caching of all meeting TDocs from Docs/."""
+    from modules.meetings.core.tdocs.tdocs_cacher import TDocsCacherThread
+
+    if getattr(window, "cacher_thread", None) and window.cacher_thread.isRunning():
+        QMessageBox.information(
+            window,
+            "Caching in Progress",
+            "TDocs caching is already running in the background. Please wait for it to complete.",
+        )
+        return
+
+    docs_url = getattr(window, "docs_ftp_url", "")
+    if not docs_url and getattr(window, "main_ftp_url", ""):
+        docs_url = f"{window.main_ftp_url.rstrip('/')}/Docs/"
+
+    if not docs_url:
+        QMessageBox.warning(
+            window,
+            "No Docs Folder URL",
+            "Cannot cache TDocs: No valid Docs folder URL found for this meeting.",
+        )
+        return
+
+    window.refresh_btn.setEnabled(False)
+    window.refresh_btn.setText("⏳ Caching TDocs...")
+
+    parent_obj = window if hasattr(window, "metaObject") else None
+    window.cacher_thread = TDocsCacherThread(docs_url, window.meeting_dir, parent=parent_obj)
+    window.cacher_thread.progress.connect(
+        lambda msg: window.refresh_btn.setText(f"⏳ {msg}"[:30])
+    )
+    window.cacher_thread.finished.connect(
+        lambda success, msg: on_window_tdocs_caching_finished(window, success, msg)
+    )
+    window.cacher_thread.start()
+
+
+def on_window_tdocs_caching_finished(window, success: bool, msg: str):
+    """Resets UI and displays the result of the meeting TDocs caching process."""
+    window.refresh_btn.setEnabled(True)
+    window.refresh_btn.setText("🔄 Refresh")
+
+    if success:
+        QMessageBox.information(window, "Caching Complete", msg)
+    else:
+        QMessageBox.warning(window, "Caching Failed", msg)

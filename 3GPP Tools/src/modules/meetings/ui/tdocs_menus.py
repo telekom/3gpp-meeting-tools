@@ -20,27 +20,34 @@ def is_tdoc_cached(meeting_dir: Path, target_name: str) -> bool:
     """Checks if a TDoc or revision file exists locally on disk."""
     if not meeting_dir:
         return False
-    tdocs_dir = Path(meeting_dir) / "TDocs"
-    if not tdocs_dir.exists():
-        return False
 
     name = target_name.strip()
-    candidates = [
-        tdocs_dir / f"{name}.zip",
-        tdocs_dir / f"{name}.docx",
-        tdocs_dir / f"{name}.doc",
-    ]
-    if any(c.exists() for c in candidates):
-        return True
-
-    # Check extracted subdirectories: TDocs/{base_tdoc}/*{name}*
     base_match = re.match(r"^([A-Za-z0-9]+-\d+)", name)
     base_tdoc = base_match.group(1).upper() if base_match else name.upper()
-    sub_dir = tdocs_dir / base_tdoc
-    if sub_dir.is_dir():
-        for f in sub_dir.glob(f"*{name}*"):
-            if f.is_file():
-                return True
+
+    mtg_path = Path(meeting_dir)
+    candidate_roots = []
+    if (mtg_path / "TDocs").is_dir():
+        candidate_roots.append(mtg_path / "TDocs")
+    candidate_roots.append(mtg_path)
+
+    for root in candidate_roots:
+        candidates = [
+            root / f"{name}.zip",
+            root / f"{name}.docx",
+            root / f"{name}.doc",
+            root / base_tdoc / f"{name}.zip",
+            root / base_tdoc / f"{name}.docx",
+            root / base_tdoc / f"{name}.doc",
+        ]
+        if any(c.exists() for c in candidates):
+            return True
+
+        sub_dir = root / base_tdoc
+        if sub_dir.is_dir():
+            for f in sub_dir.glob(f"*{name}*"):
+                if f.is_file():
+                    return True
     return False
 
 
