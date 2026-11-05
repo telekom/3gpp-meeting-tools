@@ -22,6 +22,7 @@ src/modules/meetings/
 │   │   ├── llm_exporter.py            # Batch/single document extraction and export to Markdown
 │   │   ├── markdown_exporter.py       # Meeting summary reports (agreed CRs, LSs, company contributions)
 │   │   ├── post_meeting_exporter.py   # Post-meeting report generator (per-release & per-WI dossier)
+│   │   ├── pre_meeting_exporter.py    # Pre-meeting briefing generator (active proposals, multi-reply LS, lineage dedup)
 │   │   ├── tdoc2md.py                 # [PROTECTED] Standalone 3GPP TDoc to Markdown conversion core
 │   │   └── tdocs_package_exporter.py  # Packaged TDoc archive exporter
 │   ├── session_plan/                  # SA2 Session Plan parsing, diffing, DB & mobile HTML export
@@ -48,7 +49,10 @@ src/modules/meetings/
     ├── meetings_delegates.py          # DynamicHoverMenuDelegate, TDocsButtonDelegate, WGTagDelegate
     ├── meetings_menu.py               # Right-click context menu builder for meetings table
     ├── models.py                      # MeetingsTableModel (7 consolidated columns, English date ranges)
-    ├── post_meeting_export_dialog.py  # Post-meeting report generator dialog
+    ├── dialogs/                       # Modal export & parameter configuration dialogs
+    │   ├── post_meeting_export_dialog.py  # Post-meeting report generator dialog
+    │   ├── pre_meeting_export_dialog.py   # Pre-meeting briefing generator dialog
+    │   └── tdocs_export_controller.py     # Centralized export dispatcher & controller
     ├── search_controller.py           # GlobalSearchController for inline Quick TDoc Jump & quick actions
     ├── session_plan_dialogs.py        # Timezone, Roster, Dispatch, Import & Diff dialogs for Session Plan
     ├── session_plan_window.py         # Interactive SA2 Session Plan Studio window
@@ -136,7 +140,20 @@ src/modules/meetings/
     - Automatically injects reciprocal Markdown callouts (`[!TIP] Outgoing Reply` and `[!NOTE] Reply Liaison Statement`) into dossier headers for seamless 1-click back-and-forth navigation.
     - **Guaranteed Reply Document Inclusion:** If an included `LS in` was replied to by an approved `LS out` whose Work Item was not in the export scope (or unassigned), the reply document is automatically exported under `General/LS_OUT/<tdoc>.md` (in `revisions="accept"` mode) so that all reply links resolve to valid dossiers on disk without creating unwanted non-followed WI sections in the master index.
 
-### 3.6. Meeting Analytics & Statistics Dashboard
+### 3.6. Pre-Meeting Briefing & Markdown Dossier Generator
+- **UI Dialog (`PreMeetingExportDialog`):** Modeless configuration dialog accessible from `TDocsWindow`'s Export menu (`🧭 Export Pre-Meeting Report (.md)...`). Designed with a responsive 2-column layout tailored for pre-meeting briefing and technical triage:
+  - **Pre-Meeting Document Categories:** Defaults to capturing incoming liaison statements (`LS in`), proposed outgoing liaison statement replies (`LS out`), proposed pseudo-CRs (`pCR`), proposed Change Requests (`CR`), and company study/evaluation/status papers (`Discussion`, `WID`, `SID` — enabled by default).
+  - **Intelligent Pre-Meeting Revision Deduplication (`deduplicate_revisions=True`):** Automatically traces revision chains (e.g. `S2-260100` $\rightarrow$ `S2-260500`) to export only the latest active non-withdrawn draft, annotating predecessor provenance `(rev of S2-260100)` to eliminate reviewing obsolete drafts twice.
+  - **Unuploaded Reservation Awareness (`include_reserved_in_index=True`):** Lists agenda reservations in index tables with a `⏳ Reserved` badge while bypassing network downloads in Phase 0 to avoid 404 stalls.
+  - **Contributor Focus Filter:** Optional single-click company focus selector to isolate or highlight specific companies' submissions across the meeting.
+  - **Personal Triage Integration (`include_user_notes=True`):** Embeds the delegate's personal `My Status` (`🟢 Support`, `🔴 Object`, `🔵 My TDoc`) and `My Notes` into index tables and injects `> [!IMPORTANT] Delegate Pre-Meeting Stance` callouts into dossier headers.
+- **Exporter Worker (`PreMeetingExporterThread`):**
+  - **Structure:** Hierarchical dossier tree under `Export/PreMeeting_<WG>_<Meeting>_<timestamp>/` arranged by Release (`Rel-XX/`) and Work Item (`<WI>/`), containing subfolders (`LS_IN/`, `LS_OUT/`, `pCR/`, `CR/`, and `Discussion/`).
+  - **Multi-Proposal Candidate LS Reply Clustering:** Supports 1-to-many candidate reply mappings where a single `LS in` has competing draft replies from multiple companies. Generates reciprocal Markdown callouts (`Proposed Reply Liaison Statements (N candidates)` on `LS in` and `Competing Reply Proposals (M other(s))` on `LS out`) enabling 1-click side-by-side navigation across competing company proposals.
+  - **Work Item Inheritance for Draft LS Replies:** When a candidate `LS out` proposal leaves `Related WIs` unassigned, it automatically inherits the Work Item of the parent `LS in` it answers, ensuring competing replies co-locate inside the parent topic directory.
+  - **Contributor Activity Landscape Matrix:** Synthesizes master and local WI activity matrices aggregating document volume per company across `pCR`, `CR`, `Discussion`, and `LS out`.
+
+### 3.7. Meeting Analytics & Statistics Dashboard
 - **Single-Meeting Dashboard (`StatisticsExporterThread`, `html_dashboard_compiler.py`):**
   - Generates `Export/Statistics_Report.html` and companion structured Excel workbook `Export/Statistics_Data.xlsx`.
   - **Dynamic Multi-Scope Navigation:** Seamlessly scopes data across Overall Meeting (`global`), per-Work Item (🧩 `WI_Name`), and per-Agenda Item (📌 `AI_Topic`).
@@ -149,7 +166,7 @@ src/modules/meetings/
 - **Cross-Meeting Contribution Audit (`ContributionStatsExporterThread`, `contribution_stats.py`):**
   - Multi-meeting audit visualizing longitudinal contribution trends, WG distribution, top co-signers, and Work Item allocation.
 
-### 3.7. Opportunistic Work Item Auto-Enrichment (`meeting_wi_enricher.py`)
+### 3.8. Opportunistic Work Item Auto-Enrichment (`meeting_wi_enricher.py`)
 - **Decoupled Asynchronous Architecture:** `MeetingWIEnricherThread` is fired fire-and-forget in the background when `TDocsWindow` is initialized or when a meeting list is refreshed. It never blocks or slows down initial TDocs table loading.
 - **Bounded Hyperlink Extraction:** Scans populated rows of the "Related WIs" column for 3GPP Portal hyperlinks matching `workitemId=(\d+)`. Breaks boundedly when consecutive blank TDoc rows are encountered.
 - **Database Cross-Checking:** Queries SQLite `work_items` via `WorkItemsDatabase.get_existing_wi_codes()` to isolate only unindexed WIs.
@@ -157,7 +174,7 @@ src/modules/meetings/
 - **Audit Marker Caching:** Writes `<excel_path>.wi_checked.json` (recording timestamp, file mtime, discovered count, and scraped codes). On subsequent opens, `is_enrichment_needed` checks `mtime(marker) >= mtime(excel)` and exits in ~0 ms.
 - **Dynamic Refresh & Config:** Quietly updates tracked tokens and filter badges if any newly scraped WI matches user watchlist tokens. Can be toggled on/off in `MeetingsConfigDialog`.
 
-### 3.8. Meetings Browser Modern Architecture (`MeetingsTab`)
+### 3.9. Meetings Browser Modern Architecture (`MeetingsTab`)
 - **Full-Width Table & 2-Row Top Ribbon:** Eliminates the legacy fixed-width right sidebar, allocating 100% of horizontal space to the meetings table:
   - **Row 1 (Primary Navigation & Toolbar):** Houses `🚀 Last Meeting` quick launcher with active theme styling, inline `⚡ TDoc:` jump box with dynamic `📄 Doc`, `🗓️ Mtg`, and `⚖️ vs Word` action buttons, right-aligned `🔄 Sync ▾` menu, `📊 Reports ▾` menu, and `⚙️ Settings`.
   - **Row 2 (Inline Filter Engine):** `🔍 Search` (by number, city, or title), TSG segmented buttons (`[All] [SA] [RAN] [CT]`), `Working Group` checkable multi-select combo, Nature (`Regular` / `Ad-Hoc`), Format (`In-Person` / `Electronic`), and Date Presets (`All Dates`, `Upcoming`, `This Year`, `Past 12 Months`, `Custom Range...`). Selecting *Custom Range...* dynamically reveals the calendar pickers.
@@ -171,9 +188,9 @@ src/modules/meetings/
 - **Floating Comparison Cart & Active Word Comparison (`ComparisonCartWidget`, `ComparisonManager`):** Shared lower-right status bar widget across `MeetingsTab` and `TDocsWindow` that collapses to a compact `⚖️ Stage Active Word ▾` launcher when empty and expands when Slot A or Slot B is populated (`⚖️ Cart: [Slot A ▾] ⇄ [Slot B ▾] [🪟 Active Word] [Compare in Word] [Clear]`). Supports 1-click staging of the foreground Active Word document, any open Word document, TDocs, or local files into either slot, 1-click slot direction swapping (`⇄`), automatic snapshot refresh (`resolve_comparison_paths()`) for unsaved/edited open Word drafts, and direct 1-click **Active Word vs. TDoc** comparison from the Quick Jump bar, `TDocsWindow` Instant Fetch bar, row context menu, action button menu, and Related TDoc hyperlinks.
 - **Safe Maintenance Grouping:** Relocated destructive `Clear All Meetings...` from the main UI into `MeetingsConfigDialog` (`⚙️ Settings`) under a dedicated *⚠️ Database Maintenance (Danger Zone)* section.
 
-### 3.9. High-Speed Parallel Pre-Download Pipeline for Markdown Exports (`llm_exporter.py`, `post_meeting_exporter.py`, `tdoc_file_handler.py`)
-- **Decoupled Two-Phase Processing:** Both visible-table Markdown exports (`TDocMarkdownExporterThread` in `llm_exporter.py`) and post-meeting report dossiers (`PostMeetingExporterThread` in `post_meeting_exporter.py`) employ a two-phase architecture to eliminate serial network latency when exporting unindexed or uncached TDocs:
-  - **Phase 1 (Concurrent Pre-Download):** Sub-millisecond pre-scan identifies unindexed or missing source documents (`.docx`/`.doc`) across the export scope, skipping already-cached and fresh dossiers. Dispatches missing archives to a polite worker pool (`ThreadPoolExecutor(max_workers=5..6)`). Downloads stream concurrently, cutting total elapsed network time by 5x–6x (~60s down to ~10s for 40 contributions) while staying within 3GPP server rate-limits.
+### 3.10. High-Speed Parallel Pre-Download Pipeline for Markdown Exports (`llm_exporter.py`, `post_meeting_exporter.py`, `pre_meeting_exporter.py`, `tdoc_file_handler.py`)
+- **Decoupled Two-Phase Processing:** Both visible-table Markdown exports (`TDocMarkdownExporterThread` in `llm_exporter.py`), post-meeting report dossiers (`PostMeetingExporterThread` in `post_meeting_exporter.py`), and pre-meeting briefing dossiers (`PreMeetingExporterThread` in `pre_meeting_exporter.py`) employ a two-phase architecture to eliminate serial network latency when exporting unindexed or uncached TDocs:
+  - **Phase 1 (Concurrent Pre-Download):** Sub-millisecond pre-scan identifies unindexed or missing source documents (`.docx`/`.doc`) across the export scope, skipping already-cached and fresh dossiers (and skipping unuploaded 'Reserved' TDocs). Dispatches missing archives to a polite worker pool (`ThreadPoolExecutor(max_workers=5..6)`). Downloads stream concurrently, cutting total elapsed network time by 5x–6x (~60s down to ~10s for 40 contributions) while staying within 3GPP server rate-limits.
   - **Phase 2 (In-Memory Markdown Conversion):** Sequentially converts the now locally-cached documents via direct OpenXML parsing without intermittent network pauses. Guarantees 100% single-threaded COM isolation for Word fallbacks (`win32com.client`) and prevents system-freezing multi-process churn from concurrent PowerShell vector metafile conversions.
 - **Atomic File Integrity & Self-Healing Cache (`TDocFileHandler`):**
   - Downloads stream to temporary `.zip.part` files prior to atomic `os.replace` renaming, guaranteeing that interrupted network transfers or user cancellations never leave corrupt, 0-byte ZIP files on disk.
@@ -181,7 +198,7 @@ src/modules/meetings/
   - Extracted `.docx`/`.doc` documents are similarly written via atomic `.part` rename.
   - Bidirectional route fallback: Automatically tries primary and secondary routes (`revisions_url` and `docs_ftp_url`) with a generous 15s timeout and non-blocking `cancel_check()` responsiveness.
 
-### 3.10. Chairman's Notes & Session Document Ingestion (F-19)
+### 3.11. Chairman's Notes & Session Document Ingestion (F-19)
 - **Multi-Surface Input:**
   - **Drag & Drop (`TDocsWindow.dropEvent`):** Dragging `.docx`, `.doc`, `.htm`, or `.html` session documents onto `TDocsWindow` renders an interactive frosted blue drop overlay (`TDocsDropOverlay`) with dashed drop borders.
   - **Menu Action:** **🔄 Refresh ▾ $\rightarrow$ 📝 Import Word Document (.docx / .doc)...** provides a manual file chooser.
@@ -205,7 +222,7 @@ src/modules/meetings/
   - Updates real-time `TDoc Status` (`Agreed`, `Revised to...`, `Postponed`) hours before official agenda publication.
   - Dynamically injects newly announced late revisions with predecessor linking (`Is revision of`, base TDoc resolution).
 
-### 3.11. SA2 Meeting Session Plan Management, Version Diffing & Mobile Export
+### 3.12. SA2 Meeting Session Plan Management, Version Diffing & Mobile Export
 - **Problem Solved:** SA2 meeting session plans ("Draft time allocation") are published as living TDocs with frequent revisions (often reusing the same TDoc number `S2-2610195` across intra-day updates), 3 parallel streams, 45-minute half-quarter Time Units (TUs), and ad-hoc drafting sessions (08:00 morning, lunch, and 18:00 evening).
 - **Timezone & Corporate Laptop Synchronization (`SessionPlanTimezone`):**
   - Solves the Austrian corporate laptop clock lock (`Europe/Vienna`, CET `UTC+1` / CEST `UTC+2`) by strictly anchoring internal timestamps in true UTC.

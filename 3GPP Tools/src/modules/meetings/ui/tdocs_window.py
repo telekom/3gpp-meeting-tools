@@ -58,6 +58,7 @@ from modules.meetings.ui.dialogs.tdocs_export_controller import (
     export_markdown_visible,
     export_markdown_single,
     open_post_meeting_export_dialog,
+    open_pre_meeting_export_dialog,
 )
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
 from modules.emails.core.general_email_db import GeneralEmailDatabase
@@ -266,6 +267,15 @@ class TDocsWindow(QWidget):
             "Generate Markdown summary reports for the meeting from the currently loaded TDoc data."
         )
         act_export_reports.setStatusTip(act_export_reports.toolTip())
+
+        act_export_pre_meeting = export_menu.addAction(
+            "🧭 Export Pre-Meeting Report (.md)...", self._open_pre_meeting_export_dialog
+        )
+        act_export_pre_meeting.setToolTip(
+            "Generate a structured, per-release and per-WI pre-meeting Markdown briefing covering incoming LS, "
+            "competing LS reply proposals, proposed CRs/pCRs, and company discussion papers."
+        )
+        act_export_pre_meeting.setStatusTip(act_export_pre_meeting.toolTip())
 
         act_export_post_meeting = export_menu.addAction(
             "📑 Export Post-Meeting Report (.md)...", self._open_post_meeting_export_dialog
@@ -1833,6 +1843,9 @@ class TDocsWindow(QWidget):
 
     # Backwards compatibility alias
     _export_llm_single = _export_markdown_single
+
+    def _open_pre_meeting_export_dialog(self):
+        open_pre_meeting_export_dialog(self)
 
     def _open_post_meeting_export_dialog(self):
         open_post_meeting_export_dialog(self)

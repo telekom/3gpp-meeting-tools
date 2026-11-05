@@ -2,6 +2,7 @@
 import html
 import re
 from functools import lru_cache
+from typing import List, Tuple, Set, Optional
 
 
 class CompanySanitizer:
