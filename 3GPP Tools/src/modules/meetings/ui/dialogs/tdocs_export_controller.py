@@ -371,6 +371,93 @@ def on_post_meeting_export_finished(window: Any, success: bool, msg: str, auto_o
         QMessageBox.warning(window, "Post-Meeting Export Failed", msg)
 
 
+def open_pre_meeting_export_dialog(window: Any) -> None:
+    """Opens PreMeetingExportDialog and triggers PreMeetingExporterThread."""
+    from modules.meetings.ui.dialogs.pre_meeting_export_dialog import PreMeetingExportDialog
+    from modules.meetings.core.exporters.pre_meeting_exporter import PreMeetingExporterThread
+
+    visible_tdocs = []
+    for r in range(window.proxy.rowCount()):
+        index = window.proxy.index(r, 0)
+        source_index = window.proxy.mapToSource(index)
+        if source_index.isValid() and source_index.row() < len(window.model._data):
+            visible_tdocs.append(window.model._data[source_index.row()])
+
+    followed_tokens = getattr(window.proxy, "followed_wi_tokens", set())
+    starred_tokens = getattr(window.proxy, "starred_wi_tokens", set())
+
+    dialog = PreMeetingExportDialog(
+        parent=window,
+        meeting_dir=window.meeting_dir,
+        all_rows=window.model._data,
+        visible_rows=visible_tdocs,
+        agenda_map=window.agenda_map,
+        mtg_info=window.mtg_info,
+        followed_tokens=followed_tokens,
+        starred_tokens=starred_tokens,
+    )
+
+    if dialog.exec_() != QDialog.Accepted:
+        return
+
+    cfg = dialog.get_export_config()
+
+    window.export_btn.setText("⏳ Preparing Pre-Meeting Export...")
+    window.export_btn.setEnabled(False)
+
+    thread = PreMeetingExporterThread(
+        meeting_dir=window.meeting_dir,
+        all_rows=window.model._data,
+        visible_rows=visible_tdocs,
+        agenda_map=window.agenda_map,
+        mtg_info=window.mtg_info,
+        docs_ftp_url=window.docs_ftp_url,
+        revisions_url=window.revisions_url,
+        scope_mode=cfg["scope_mode"],
+        custom_wis=cfg["custom_wis"],
+        custom_ais=cfg.get("custom_ais"),
+        custom_wi_ais=cfg.get("custom_wi_ais"),
+        followed_tokens=followed_tokens,
+        starred_tokens=starred_tokens,
+        include_ls_in=cfg["include_ls_in"],
+        include_pcr=cfg["include_pcr"],
+        include_cr=cfg["include_cr"],
+        include_ls_out=cfg["include_ls_out"],
+        include_disc=cfg.get("include_disc", True),
+        include_general_ls=cfg["include_general_ls"],
+        deduplicate_revisions=cfg.get("deduplicate_revisions", True),
+        include_reserved_in_index=cfg.get("include_reserved_in_index", True),
+        company_filter=cfg.get("company_filter"),
+        include_user_notes=cfg.get("include_user_notes", True),
+        generate_local_indices=cfg["generate_local_indices"],
+        download_missing=cfg["download_missing"],
+        force_reconvert=cfg["force_reconvert"],
+        compile_dossier=cfg.get("compile_dossier", False),
+        output_dir=cfg["output_dir"],
+        parent=window,
+    )
+    window.md_export_thread = thread
+    thread.progress.connect(window._on_md_progress)
+    thread.finished.connect(
+        lambda success, msg, auto_open=cfg["auto_open"]: on_pre_meeting_export_finished(
+            window, success, msg, auto_open
+        )
+    )
+    thread.start()
+
+
+def on_pre_meeting_export_finished(window: Any, success: bool, msg: str, auto_open: bool = True) -> None:
+    window.export_btn.setText("📤 Export ▾")
+    window.export_btn.setEnabled(True)
+    if success:
+        QMessageBox.information(window, "Pre-Meeting Export Complete", msg)
+        target = getattr(window.md_export_thread, "export_dir", None)
+        if auto_open and target and target.is_dir():
+            _open_folder(target)
+    else:
+        QMessageBox.warning(window, "Pre-Meeting Export Failed", msg)
+
+
 def open_dossier_export_dialog(window: Any, target_rows: Optional[List[dict]] = None) -> None:
     """
     Opens DossierExportDialog and triggers DossierExporterThread to generate
