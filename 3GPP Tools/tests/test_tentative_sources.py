@@ -148,5 +148,53 @@ class TestTentativeSources(unittest.TestCase):
         self.assertIn("Unconfirmed / Carry-over (2):", tooltip)
 
 
+
+
+    def test_markdown_header_and_table_formatting_approach_b(self):
+        src = "CATT [pen holder], Huawei? Samsung?, China Mobile Com. Corporation? TNO?"
+        conf_text = CompanySanitizer.get_confirmed_source_text(src)
+        tent_text = CompanySanitizer.get_tentative_source_text(src)
+
+        self.assertEqual(conf_text, "CATT [pen holder]")
+        self.assertEqual(tent_text, "Huawei, Samsung, China Mobile Com. Corporation, TNO")
+
+        # Approach B Two-Line Header
+        header_lines = CompanySanitizer.format_source_markdown_header_lines(src)
+        self.assertEqual(len(header_lines), 2)
+        self.assertEqual(header_lines[0], "- **Source:** CATT [pen holder]")
+        self.assertIn("- **Unconfirmed / Carry-over Sources:** Huawei, Samsung, China Mobile Com. Corporation, TNO", header_lines[1])
+        self.assertIn("unconfirmed co-signers", header_lines[1])
+
+        # Markdown Table Cell
+        tbl_cell = CompanySanitizer.format_source_markdown_table_cell(src)
+        self.assertIn("CATT [pen holder] *(carry-over: Huawei, Samsung, China Mobile Com. Corporation, TNO)*", tbl_cell)
+
+        # Non-tentative source should produce single header line and unmodified table cell
+        clean_src = "Ericsson [to be SA2], Qualcomm Incorporated"
+        clean_header = CompanySanitizer.format_source_markdown_header_lines(clean_src)
+        self.assertEqual(clean_header, ["- **Source:** Ericsson [to be SA2], Qualcomm Incorporated"])
+        self.assertEqual(CompanySanitizer.format_source_markdown_table_cell(clean_src), clean_src)
+
+    def test_triage_context_formatting(self):
+        src = "CATT, [Huawei, Samsung]"
+        triage_ctx = CompanySanitizer.format_source_triage_context(src)
+        self.assertIn("CATT", triage_ctx)
+        self.assertIn("carry-over co-sponsors", triage_ctx)
+        self.assertIn("not confirmed co-signing this revision", triage_ctx)
+
+    def test_all_unconfirmed_source_handling(self):
+        all_tent = "[Apple, Intel, MediaTek]"
+        conf_text = CompanySanitizer.get_confirmed_source_text(all_tent)
+        tent_text = CompanySanitizer.get_tentative_source_text(all_tent)
+        self.assertEqual(conf_text, "")
+        self.assertEqual(tent_text, "Apple, Intel, MediaTek")
+
+        header_lines = CompanySanitizer.format_source_markdown_header_lines(all_tent)
+        self.assertEqual(header_lines[0], "- **Source:** *(none confirmed)*")
+        self.assertIn("- **Unconfirmed / Carry-over Sources:** Apple, Intel, MediaTek", header_lines[1])
+
+        tbl_cell = CompanySanitizer.format_source_markdown_table_cell(all_tent)
+        self.assertEqual(tbl_cell, "*(carry-over only: Apple, Intel, MediaTek)*")
+
 if __name__ == "__main__":
     unittest.main()

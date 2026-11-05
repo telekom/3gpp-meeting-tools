@@ -10,6 +10,7 @@ import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.ai.ollama_client import OllamaClient
+from core.utils.company_sanitizer import CompanySanitizer
 from core.utils.paths import get_project_root, to_extended_path
 from modules.meetings.core.exporters.llm_exporter import LLM_EXTRACTOR_VERSION
 from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
@@ -233,11 +234,13 @@ class TDocTriageWorker(QThread):
                     word_app.DisplayAlerts = 0
                     raw_markdown = self._extract_from_word(word_app, doc_path, doc_type)
                     if raw_markdown and not raw_markdown.strip().startswith(f"# {tdoc_id}"):
+                        raw_source = self.tdoc_data.get('Source', '')
+                        source_header_lines = CompanySanitizer.format_source_markdown_header_lines(raw_source)
                         header_lines = [
                             f"# {tdoc_id}: {self.tdoc_data.get('Title', '')}",
                             f"- **TDoc:** {tdoc_id}",
                             f"- **Title:** {self.tdoc_data.get('Title', '')}",
-                            f"- **Source:** {self.tdoc_data.get('Source', '')}",
+                            *source_header_lines,
                             f"- **Type:** {doc_type}",
                             f"- **Agenda Item:** {self.tdoc_data.get('Agenda Item', '')}",
                         ]
@@ -272,11 +275,13 @@ class TDocTriageWorker(QThread):
                 "TDoc: {tdoc_id}\nTitle: {title}\nSource: {source}\nAgenda Item: {agenda_item}\nType: {doc_type}\n\nContent:\n{content}",
             )
 
+            raw_source = self.tdoc_data.get("Source", "Unknown")
+            source_triage_str = CompanySanitizer.format_source_triage_context(raw_source)
             try:
                 formatted_user = usr_template.format(
                     tdoc_id=tdoc_id,
                     title=self.tdoc_data.get("Title", "No Title"),
-                    source=self.tdoc_data.get("Source", "Unknown"),
+                    source=source_triage_str,
                     agenda_item=self.tdoc_data.get("Agenda Item", "N/A"),
                     doc_type=doc_type,
                     content=focused_content,
@@ -285,7 +290,7 @@ class TDocTriageWorker(QThread):
                 formatted_user = (
                     usr_template.replace("{tdoc_id}", str(tdoc_id))
                     .replace("{title}", str(self.tdoc_data.get("Title", "No Title")))
-                    .replace("{source}", str(self.tdoc_data.get("Source", "Unknown")))
+                    .replace("{source}", str(source_triage_str))
                     .replace("{agenda_item}", str(self.tdoc_data.get("Agenda Item", "N/A")))
                     .replace("{doc_type}", str(doc_type))
                     .replace("{content}", str(focused_content))

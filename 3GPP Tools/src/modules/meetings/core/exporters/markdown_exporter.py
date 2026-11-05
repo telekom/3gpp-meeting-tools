@@ -172,8 +172,11 @@ class MarkdownExporterThread(QThread):
                 # Catch empty values and safely escape newlines and markdown pipes
                 val = str(d.get(col, '')).replace('\n', ' ').replace('\r', '').replace('|', '\\|')
 
+                # Format Source table cell with carry-over separation if unconfirmed sources exist
+                if col == "Source" and val:
+                    val = CompanySanitizer.format_source_markdown_table_cell(d.get(col, ''))
                 # Render the TDoc URL hyperlink natively
-                if col == "TDoc" and val:
+                elif col == "TDoc" and val:
                     tdoc_url = resolve_tdoc_download_url(val, docs_url=self.docs_url, meta=d)
                     if tdoc_url:
                         val = f"[{val}]({tdoc_url})"

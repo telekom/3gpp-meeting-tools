@@ -33,6 +33,7 @@ from PyQt5.QtGui import QPdfWriter, QTextDocument, QPageSize
 
 from core.utils.paths import to_extended_path
 from core.utils.portal_utils import get_portal_tdoc_url
+from core.utils.company_sanitizer import CompanySanitizer
 from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
 from modules.meetings.core.tdocs.tdoc_markdown_converter import (
@@ -789,7 +790,7 @@ class DossierExporterThread(QThread):
               <td><span class="badge {badge_type}">{html.escape(t_type)}</span></td>
               <td>{html.escape(d.get("ai", ""))}</td>
               <td>{html.escape(d.get("title", ""))}</td>
-              <td>{html.escape(d.get("source", ""))}</td>
+              <td>{CompanySanitizer.format_source_html(d.get("source", ""))}</td>
               <td><span class="badge {badge_status}">{html.escape(t_status or "-")}</span></td>
               <td><a href="#tdoc-{tid}">Jump ➔</a></td>
             </tr>
@@ -822,7 +823,7 @@ class DossierExporterThread(QThread):
                   </div>
                 </div>
                 <div class="tdoc-meta-row">
-                  <div><strong>Source:</strong> {html.escape(d.get("source", "Unknown"))}</div>
+                  <div><strong>Source:</strong> {CompanySanitizer.format_source_html(d.get("source", "Unknown"))}</div>
                   <div><strong>Type:</strong> {html.escape(d.get("type", "Unknown"))}</div>
                   <div><strong>Agenda Item:</strong> {html.escape(d.get("ai", "Unassigned"))}</div>
                   <div><strong>Status:</strong> {html.escape(d.get("status", "Unknown"))}</div>
@@ -1251,7 +1252,8 @@ class DossierExporterThread(QThread):
             st, en = span
             span_text = f"pages {st} to {en}" if st != en else f"page {st}"
             title = d.get("title", "Unknown Title")
-            source = d.get("source", "Unknown Source")
+            source_raw = d.get("source", "Unknown Source")
+            source_desc = CompanySanitizer.format_source_triage_context(source_raw)
             dtype = d.get("type", "Unknown Type")
             ai = d.get("ai", "Unknown AI")
             status = d.get("status", "")
@@ -1259,7 +1261,7 @@ class DossierExporterThread(QThread):
             status_str = f" [Status: {status}]" if status else ""
             lines.append(
                 f"- **{tid}**: \"{title}\"\n"
-                f"  - Sourced by: {source} | Type: {dtype} | AI: {ai}{status_str}\n"
+                f"  - Sourced by: {source_desc} | Type: {dtype} | AI: {ai}{status_str}\n"
                 f"  - PDF Span: {span_text} ({en - st + 1} page(s))\n"
             )
 

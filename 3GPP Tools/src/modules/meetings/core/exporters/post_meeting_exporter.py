@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Set, Any, Tuple
 
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from core.utils.company_sanitizer import CompanySanitizer
 from core.utils.paths import to_extended_path, get_project_root
 from modules.meetings.core.agenda_manager import AgendaItem
 from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
@@ -974,15 +975,16 @@ class PostMeetingExporterThread(QThread):
                         else:
                             # Create fallback stub
                             try:
+                                source_lines = "\n".join(CompanySanitizer.format_source_markdown_header_lines(doc.get('source', '')))
                                 with open(to_extended_path(target_md_file), "w", encoding="utf-8") as f:
                                     f.write(
                                         f"{nav_bar}"
                                         f"# {tdoc_id}: {doc['title']}\n\n"
                                         f"{notice_block}"
-                                        f"* **Source:** {doc['source']}\n"
-                                        f"* **Type:** {doc['type']}\n"
-                                        f"* **Agenda Item:** {doc['ai']}\n"
-                                        f"* **Status:** {doc['status']}\n\n"
+                                        f"{source_lines}\n"
+                                        f"- **Type:** {doc['type']}\n"
+                                        f"- **Agenda Item:** {doc['ai']}\n"
+                                        f"- **Status:** {doc['status']}\n\n"
                                         f"> ⚠️ *Note: Document conversion was not available in local cache.*\n"
                                     )
                             except Exception:
@@ -1329,7 +1331,7 @@ class PostMeetingExporterThread(QThread):
             link_str = f"[{tdoc_id}]({link_path})" if link_path else tdoc_id
 
             title_safe = str(d.get("title", "")).replace("\n", " ").replace("\r", "").replace("|", "\\|")
-            source_safe = str(d.get("source", "")).replace("\n", " ").replace("\r", "").replace("|", "\\|")
+            source_safe = CompanySanitizer.format_source_markdown_table_cell(d.get("source", ""))
             cross_wi_str = ", ".join(f"`{w}`" for w in d.get("cross_wis", [])) if d.get("cross_wis") else "—"
 
             raw_status = str(d.get("status", "")).strip()
