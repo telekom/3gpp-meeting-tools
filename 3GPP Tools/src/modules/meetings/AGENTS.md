@@ -436,3 +436,17 @@ src/modules/meetings/
     - **`TDocsWindow`:** `TDocsTableModel` precomputes `_Sanitized_Companies` (confirmed only), `_Tentative_Companies`, and `_All_Sanitized_Companies`. Right-clicking the Company filter dropdown (`self.company_combo`) provides a context menu action `❔ Include unconfirmed (?, [...]) sources in filter` (persisted via `MeetingsSettings.get_include_tentative_sources()`).
     - **`ContributionReportDialog`:** `CompanySelectorWidget` includes an `Include unconfirmed (?, [...]) sources` checkbox (`chk_include_tentative`, unchecked by default). When enabled, `ContributionSearchWorker` includes tentative matches and tags them with `Company (?)` in the `Matched Company` column.
 
+### 3.16. TDocs Window Parallel Meeting Caching (`tdocs_cacher.py`, `tdocs_agenda_controller.py`, `tdocs_window.py`, `tdocs_menus.py`)
+- **Background & Need:** Delegates accessing a meeting in `TDocsWindow` often require all official TDoc archives cached locally on disk prior to traveling, offline sessions, or rapid document comparison. Previously, caching was only accessible from the parent Meetings tab context menu (`📥 Cache TDocs (Docs/)`).
+- **Parallel Retrieval Core (`TDocsCacherThread` in `tdocs_cacher.py`):**
+  - Scrapes the meeting's official 3GPP `Docs/` directory, extracts valid TDoc `.zip` archives, and downloads missing files concurrently using `ThreadPoolExecutor(max_workers=5)`.
+  - Automatically identifies base TDocs from revision names (e.g. `S2-2601234` from `S2-2601234r01.zip`), storing archives into canonical `{local_meeting_dir}/{base_tdoc}/{filename}.zip` folders matching downstream extractors and openers.
+  - Emits real-time progress (`progress = pyqtSignal(str)`) throttled during skips to preserve GUI responsiveness.
+  - Skips already-downloaded archives (`os.path.exists`) and safely handles non-QObject parents.
+- **TDocs Window Integration (`tdocs_agenda_controller.py`, `tdocs_window.py`):**
+  - **Dual Menu Entry Points:** Available under **`🔄 Refresh ▾` $\rightarrow$ `📥 Cache All TDocs (Docs/)`** and **`🗂️ Resources ▾` $\rightarrow$ `📥 Cache TDocs (Docs/)`**.
+  - **Thread-Safe Controller:** `start_window_tdocs_caching` blocks duplicate runs, manages button state (`⏳ Caching TDocs...` with live count feedback), and displays completion summaries (`Downloaded: X, Skipped: Y, Total: Z`).
+  - **Window Lifecycle Cleanliness:** Registered in `TDocsWindow.closeEvent` (`all_threads`) to ensure immediate cooperative cancellation if the window is closed during active downloads.
+- **Cache Detection (`is_tdoc_cached` in `tdocs_menus.py`):**
+  - Inspects both direct meeting directories (`meeting_dir / base_tdoc`) and legacy cache subdirectories (`meeting_dir / TDocs`), ensuring cached files are immediately recognized as `(Local)` in right-click menus and instant document opening.
+

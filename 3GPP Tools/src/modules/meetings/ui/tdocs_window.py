@@ -86,6 +86,7 @@ from modules.meetings.ui.tdocs_agenda_controller import (
     download_chair_notes,
     on_chair_notes_finished,
     open_chair_notes_folder,
+    start_window_tdocs_caching,
 )
 
 
@@ -187,6 +188,8 @@ class TDocsWindow(QWidget):
         act.setToolTip("Download and reload the latest official TDoc Excel list for this meeting.")
         act = refresh_menu.addAction("📋 Download Agenda CSV", self._download_agenda_csv)
         act.setToolTip("Download agenda.csv and refresh Agenda Item names/acronyms used by the TDoc view.")
+        act = refresh_menu.addAction("📥 Cache All TDocs (Docs/)", self._cache_all_tdocs)
+        act.setToolTip("Download and cache all meeting TDocs (.zip) from the 3GPP Docs directory locally using parallel downloads.")
         if self.is_sa2:
             act = refresh_menu.addAction("📄 Import TdocsByAgenda.htm", self._fetch_tdocs_by_agenda)
             act.setToolTip("Fetch TdocsByAgenda.htm and merge chairman/secretary agenda metadata into the TDoc list.")
@@ -422,6 +425,8 @@ class TDocsWindow(QWidget):
             self.folder_menu.addAction("🌐 Web FTP: Main Folder", lambda: webbrowser.open(self.main_ftp_url))
         if self.docs_ftp_url:
             self.folder_menu.addAction("🌐 Web FTP: Docs Folder", lambda: webbrowser.open(self.docs_ftp_url))
+            act_cache = self.folder_menu.addAction("📥 Cache TDocs (Docs/)", self._cache_all_tdocs)
+            act_cache.setToolTip("Cache all official TDoc archives from the 3GPP Docs directory into the local meeting cache.")
         if self.revisions_url:
             self.folder_menu.addAction("🌐 Web FTP: Revisions Folder", lambda: webbrowser.open(self.revisions_url))
 
@@ -1655,6 +1660,9 @@ class TDocsWindow(QWidget):
     def _open_agenda_file(self):
         _open_folder(self.meeting_dir / "Agenda" / "TdocsByAgenda.htm")
 
+    def _cache_all_tdocs(self):
+        start_window_tdocs_caching(self)
+
     def _open_excel(self):
         _open_folder(Path(self.filepath))
 
@@ -2246,6 +2254,7 @@ class TDocsWindow(QWidget):
             getattr(self, 'llm_thread', None),
             getattr(self, 'word_import_thread', None),
             getattr(self, 'chair_notes_thread', None),
+            getattr(self, 'cacher_thread', None),
         ]
         if hasattr(self, 'active_threads'):
             all_threads.extend(self.active_threads.values())

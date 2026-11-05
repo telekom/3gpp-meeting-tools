@@ -14,9 +14,12 @@ from core.network.session import NetworkSession
 class TDocsCacherThread(QThread):
     # Emits (success_boolean, result_message)
     finished = pyqtSignal(bool, str)
+    progress = pyqtSignal(str)
 
     def __init__(self, docs_url: str, local_path: Path, parent=None):
-        super().__init__(parent)
+        from PyQt5.QtCore import QObject
+        q_parent = parent if isinstance(parent, QObject) else None
+        super().__init__(q_parent)
         self.docs_url = docs_url
         self.local_path = local_path
         self.is_cancelled = False
@@ -35,13 +38,15 @@ class TDocsCacherThread(QThread):
             # 3. Filter strictly for files named like TDocs (e.g., S2-2605693.zip or revisions like S2-2605693r1.zip)
             # The regex captures the file name without the .zip extension
             tdoc_pattern = re.compile(r'^([A-Za-z0-9]+-\d+.*)\.zip$', re.IGNORECASE)
+            base_tdoc_pattern = re.compile(r'^([A-Za-z0-9]+-\d+)', re.IGNORECASE)
 
             download_tasks = []
             for href in hrefs:
                 filename = unquote(href.split('/')[-1])
                 match = tdoc_pattern.match(filename)
                 if match:
-                    folder_name = match.group(1)  # Name without .zip (e.g., S2-2605693)
+                    base_m = base_tdoc_pattern.match(filename)
+                    folder_name = base_m.group(1).upper() if base_m else match.group(1)
                     file_url = urljoin(self.docs_url, href)
 
                     target_dir = self.local_path / folder_name
@@ -59,6 +64,7 @@ class TDocsCacherThread(QThread):
                 return
 
             logging.info(f"📥 Found {total_files} TDoc zip files. Starting cache process...")
+            self.progress.emit(f"Caching [0/{total_files}]...")
 
             downloaded = 0
             skipped = 0
@@ -84,15 +90,18 @@ class TDocsCacherThread(QThread):
                         if was_downloaded:
                             downloaded += 1
                             logging.info(f"✅ [{processed}/{total_files}] Downloaded: {filename}")
+                            self.progress.emit(f"Caching [{processed}/{total_files}]...")
                         else:
                             skipped += 1
                             # ---> OPTIMIZATION: Throttle skip logs so we don't crash the UI Event Loop!
                             if skipped % 50 == 0:
                                 logging.info(f"⏭️ Skipped {skipped} existing files so far...")
+                                self.progress.emit(f"Caching [{processed}/{total_files}]...")
 
                     except Exception as e:
                         processed += 1
                         logging.error(f"❌ [{processed}/{total_files}] Failed to download {filename}: {e}")
+                        self.progress.emit(f"Caching [{processed}/{total_files}]...")
 
             # 5. Output Summary
             summary = f"Caching Complete! Downloaded: {downloaded}, Skipped: {skipped}, Total: {total_files}"
