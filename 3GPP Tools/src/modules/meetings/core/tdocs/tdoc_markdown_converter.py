@@ -21,6 +21,7 @@ from modules.word_tools.core.libreoffice_converter import (
     convert_document_libreoffice, is_libreoffice_available,
 )
 from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
+from core.utils.company_sanitizer import CompanySanitizer
 from modules.meetings.core.exporters import tdoc2md as _core
 from modules.meetings.core.exporters.tdoc2md import (
     DEFAULT_CORPUS_PROMPT, MARKUP_LEGEND, DOC_EXTENSIONS,
@@ -144,6 +145,16 @@ def convert_docx_file(
         cancellation_check=cancellation_check, metafile_converter=convert_metafiles,
         include_header=include_header,
     )
+
+    # Format Source in metadata header using Approach B (Two-Line Header if unconfirmed carry-over sources exist)
+    if include_header and res.text:
+        source_match = re.search(r'^- \*\*Source:\*\* (.*)$', res.text, re.MULTILINE)
+        if source_match:
+            old_line = source_match.group(0)
+            raw_source = source_match.group(1).strip()
+            if CompanySanitizer.has_tentative_sources(raw_source):
+                new_lines = "\n".join(CompanySanitizer.format_source_markdown_header_lines(raw_source))
+                res.text = res.text.replace(old_line, new_lines, 1)
 
     # Inject 3GPP server download URL into the metadata header if resolvable
     effective_id = tdoc_id or name or guess_tdoc_id(docx_path)

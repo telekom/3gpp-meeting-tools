@@ -460,3 +460,133 @@ class CompanySanitizer:
             f"</span>"
             f"</div>"
         )
+
+    @classmethod
+    def get_confirmed_source_text(cls, original_source: str) -> str:
+        """
+        Returns clean comma-separated confirmed source segments (preserving original
+        casing, qualifiers, and role brackets like '[pen holder]'), excluding tentative
+        ('?' or '[...]') segments.
+        """
+        if not original_source:
+            return ""
+        if not cls.has_tentative_sources(original_source):
+            return str(original_source).strip()
+
+        confirmed_parts = []
+        for seg_text, is_tent in cls.tokenize_source_segments(original_source):
+            if not is_tent:
+                for sub in re.split(r'[,;]+', seg_text):
+                    sub_s = sub.strip()
+                    if sub_s:
+                        confirmed_parts.append(sub_s)
+        return ", ".join(confirmed_parts)
+
+    @classmethod
+    def get_tentative_source_text(cls, original_source: str) -> str:
+        """
+        Returns clean comma-separated unconfirmed/tentative source segments,
+        stripped of outer brackets ('[...]'), question marks ('?'), and parenthetical question marks.
+        Deduplicates against confirmed sources to prevent repeated names.
+        """
+        if not original_source or not cls.has_tentative_sources(original_source):
+            return ""
+
+        confirmed_norm = {c.lower() for c in re.split(r'[,;\s]+', cls.get_confirmed_source_text(original_source)) if c}
+        tentative_parts = []
+        seen = set()
+
+        for seg_text, is_tent in cls.tokenize_source_segments(original_source):
+            if is_tent:
+                cleaned = re.sub(r'^[\[\(\s]+|[\]\)\s\?？]+$', '', seg_text)
+                for sub in re.split(r'[,;?？\(\)\[\]]+', cleaned):
+                    s = sub.strip()
+                    if s and s.lower() not in confirmed_norm and s.lower() not in seen:
+                        seen.add(s.lower())
+                        tentative_parts.append(s)
+        return ", ".join(tentative_parts)
+
+    @classmethod
+    def format_source_markdown_header_lines(cls, original_source: str) -> List[str]:
+        """
+        Formats source lines for Markdown metadata headers using the Two-Line Header pattern (Approach B):
+        - '- **Source:** <confirmed>'
+        - If tentative sources exist, adds:
+          '- **Unconfirmed / Carry-over Sources:** <tentative> *(carry-over from earlier revision; unconfirmed co-signers)*'
+        """
+        if not original_source:
+            return ["- **Source:** Unknown"]
+
+        if not cls.has_tentative_sources(original_source):
+            return [f"- **Source:** {str(original_source).strip()}"]
+
+        confirmed = cls.get_confirmed_source_text(original_source)
+        tentative = cls.get_tentative_source_text(original_source)
+
+        lines = []
+        if confirmed:
+            lines.append(f"- **Source:** {confirmed}")
+        else:
+            lines.append("- **Source:** *(none confirmed)*")
+
+        if tentative:
+            lines.append(
+                f"- **Unconfirmed / Carry-over Sources:** {tentative} "
+                f"*(carry-over from earlier revision; unconfirmed co-signers)*"
+            )
+        return lines
+
+    @classmethod
+    def format_source_markdown_table_cell(cls, original_source: str) -> str:
+        """
+        Formats a clean, single-line representation of the source for Markdown tables
+        (e.g. in index.md and Company summary reports).
+        - If tentative sources exist: 'Confirmed *(carry-over: Tentative)*'
+        - Escapes markdown table pipes ('|') and removes newlines.
+        """
+        if not original_source:
+            return ""
+
+        if not cls.has_tentative_sources(original_source):
+            return str(original_source).replace('\n', ' ').replace('\r', '').replace('|', '\\|').strip()
+
+        confirmed = cls.get_confirmed_source_text(original_source)
+        tentative = cls.get_tentative_source_text(original_source)
+
+        if confirmed and tentative:
+            cell = f"{confirmed} *(carry-over: {tentative})*"
+        elif confirmed:
+            cell = confirmed
+        elif tentative:
+            cell = f"*(carry-over only: {tentative})*"
+        else:
+            cell = str(original_source).strip()
+
+        return cell.replace('\n', ' ').replace('\r', '').replace('|', '\\|')
+
+    @classmethod
+    def format_source_triage_context(cls, original_source: str) -> str:
+        """
+        Formats the Source parameter passed to the LLM for TDoc technical triage.
+        Prevents LLMs from falsely attributing proposals to unconfirmed carry-over co-sponsors.
+        """
+        if not original_source:
+            return "Unknown"
+
+        if not cls.has_tentative_sources(original_source):
+            return str(original_source).strip()
+
+        confirmed = cls.get_confirmed_source_text(original_source)
+        tentative = cls.get_tentative_source_text(original_source)
+
+        if confirmed and tentative:
+            return (
+                f"{confirmed} "
+                f"[Note: {tentative} are carry-over co-sponsors from an earlier draft and have not confirmed co-signing this revision]"
+            )
+        elif confirmed:
+            return confirmed
+        elif tentative:
+            return f"None confirmed (carry-over co-sponsors: {tentative})"
+        return str(original_source).strip()
+

@@ -11,6 +11,7 @@ import pythoncom
 import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from core.utils.company_sanitizer import CompanySanitizer
 from core.utils.paths import to_extended_path
 from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
@@ -240,11 +241,13 @@ class TDocMarkdownExporterThread(QThread):
                             md_text = self._extract_from_word(word_app, doc_path, doc_type)
                             if md_text and not md_text.startswith("Error"):
                                 if not md_text.strip().startswith(f"# {tdoc_id}"):
+                                    source_val = tdoc_data.get('Source', '')
+                                    source_header_lines = CompanySanitizer.format_source_markdown_header_lines(source_val)
                                     header_lines = [
                                         f"# {tdoc_id}: {title}",
                                         f"- **TDoc:** {tdoc_id}",
                                         f"- **Title:** {title}",
-                                        f"- **Source:** {tdoc_data.get('Source', '')}",
+                                        *source_header_lines,
                                         f"- **Type:** {doc_type}",
                                         f"- **Agenda Item:** {raw_ai}",
                                     ]
