@@ -5,7 +5,7 @@ from PyQt5.QtCore import Qt, pyqtSignal, QStringListModel, QTimer
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QRadioButton, QButtonGroup, QListWidget, QListWidgetItem, QFrame,
-    QCompleter
+    QCompleter, QCheckBox
 )
 
 from core.ui.ui_components import (
@@ -313,6 +313,15 @@ class CompanySelectorWidget(QWidget):
 
         match_layout.addWidget(self.rb_any)
         match_layout.addWidget(self.rb_primary)
+
+        self.chk_include_tentative = QCheckBox("Include unconfirmed (?, [...]) sources")
+        self.chk_include_tentative.setChecked(False)
+        self.chk_include_tentative.setToolTip(
+            "By default, companies marked with '?' or '[...]' (unconfirmed carry-over sources in CR/pCR revisions) "
+            "are excluded from contribution counts.\n"
+            "Check this box if you also want to find revisions where a selected company is listed as unconfirmed."
+        )
+        match_layout.addWidget(self.chk_include_tentative)
         layout.addWidget(match_frame)
 
         self._populate_companies()
@@ -346,3 +355,6 @@ class CompanySelectorWidget(QWidget):
 
     def is_primary_only(self) -> bool:
         return self.rb_primary.isChecked()
+
+    def is_include_tentative(self) -> bool:
+        return self.chk_include_tentative.isChecked()

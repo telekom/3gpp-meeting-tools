@@ -33,6 +33,7 @@ class ContributionSearchWorker(QThread):
         wi_ai_or: bool,
         bypass_cache: bool,
         cache_dir: str,
+        include_tentative: bool = False,
         parent=None
     ):
         super().__init__(parent)
@@ -42,6 +43,7 @@ class ContributionSearchWorker(QThread):
         self.date_to = date_to
         self.target_companies = target_companies
         self.primary_only = primary_only
+        self.include_tentative = bool(include_tentative)
         self.target_wis = [w.strip().lower() for w in target_wis if w.strip()]
         self.target_ais = {self._normalize_ai(ai) for ai in target_ais if self._normalize_ai(ai)}
         self.wi_ai_or = bool(wi_ai_or)
@@ -264,19 +266,28 @@ class ContributionSearchWorker(QThread):
                 return False
 
             if self.primary_only:
-                parts = re.split(r'[,;]|\band\b', source_raw, maxsplit=1)
-                first_author = parts[0] if parts else source_raw
-                matched_companies = set(CompanySanitizer.get_matching_contributors(first_author))
+                matched_companies = set(
+                    CompanySanitizer.get_primary_contributors(source_raw, include_tentative=self.include_tentative)
+                )
             else:
-                matched_companies = set(CompanySanitizer.get_matching_contributors(source_raw))
+                matched_companies = set(
+                    CompanySanitizer.get_matching_contributors(source_raw, include_tentative=self.include_tentative)
+                )
 
             intersect = matched_companies & self.target_companies
             if not intersect:
                 return False
 
-            row["Matched Company"] = ", ".join(sorted(list(intersect)))
+            confirmed_set = set(CompanySanitizer.get_matching_contributors(source_raw, include_tentative=False))
+            matched_labels = [
+                f"{c} (?)" if (self.include_tentative and c not in confirmed_set) else c
+                for c in sorted(list(intersect))
+            ]
+            row["Matched Company"] = ", ".join(matched_labels)
         else:
-            all_contributors = CompanySanitizer.get_matching_contributors(source_raw)
+            all_contributors = CompanySanitizer.get_matching_contributors(
+                source_raw, include_tentative=self.include_tentative
+            )
             row["Matched Company"] = ", ".join(all_contributors) if all_contributors else source_raw
 
         # WI and AI are separate facets. By default both active facets must match.

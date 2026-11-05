@@ -415,5 +415,24 @@ src/modules/meetings/
     - The `📍 Highlight Now` dispatch board (`#nowDispatchPanel`) suppresses `❓ Unassigned Active Stream(s)` warnings for active streams whose topics are marked Not Followed.
     - The executive email summary generator tags not-followed items with `⛔ Not Followed` badges in the Master Topic Ownership table.
 
-
+### 3.15. Unconfirmed / Tentative Source Company Handling (`?`, `(?)`, `[...]`) (`company_sanitizer.py`, `tdoc_delegates.py`, `tdocs_models.py`, `tdocs_window.py`, `contribution_worker.py`, `contribution_dialog.py`)
+- **Problem Solved:** In 3GPP Working Groups (especially SA2), revisions of CRs and pCRs must carry over the original contribution's `Source` list even when co-signing companies have not confirmed co-signing the revision (or may actively oppose the revised text). Delegates indicate unconfirmed carry-over companies by appending a question mark (`Huawei?`, `Nokia (?)`) or wrapping company names in square brackets (`[Apple, AT&T, Nokia]`, `[Samsung]`). Counting these unconfirmed carry-over companies in contribution statistics or default company filters artificially inflates company metrics and misattributes authorship, while stripping them completely would lose useful historical provenance.
+- **Architectural Implementation:**
+  - **Lossless Segment Tokenizer (`CompanySanitizer.tokenize_source_segments`):**
+    - Parses raw `Source` strings into `(segment_text, is_tentative)` pairs with 100% text preservation.
+    - Treats square-bracketed company blocks (`[...]`) and question-marked company names (`?`, `(?)`, `？`) identically (`is_tentative=True`).
+    - Distinguishes role annotations in square brackets (`ROLE_BRACKET_RE`: `[pen holder]`, `[Rapporteur]`, `[Editor]`, `[Moderator]`, `[WI rapporteur]`, `[to be SA2]`) from tentative companies, attaching the role annotation to the preceding confirmed company.
+    - Recombines comma-separated corporate legal suffixes (`CORP_SUFFIX_RE`: `, Inc?`, `, Ltd.?`, `, GmbH?`) and splits consecutive question-marked companies where authors omitted commas (`Huawei? Samsung? China Mobile?` or `ETRI?NEC?`).
+  - **Confirmed vs. Tentative Contributor Resolution (`CompanySanitizer.parse_contributors_detailed`):**
+    - Returns `(confirmed_set, tentative_set)`. If a company appears in both confirmed and tentative segments within the same string, it is normalized to confirmed (`tentative -= confirmed`).
+    - `CompanySanitizer.get_matching_contributors(original_source, include_tentative=False)` and `CompanySanitizer.get_primary_contributors(original_source, include_tentative=False)` exclude tentative companies by default (`include_tentative=False`), ensuring single-meeting statistics (`StatisticsExporterThread`), cross-meeting contribution audits (`ContributionSearchWorker`, `ContributionStatsExporterThread`), and Markdown company reports (`MarkdownExporterThread`) never count unconfirmed sources.
+  - **Inline Visual Rendering (`SourceCompanyDelegate` in `tdoc_delegates.py`, `tdoc_info_dialog.py`):**
+    - Installed on the `Source` column in `TDocsWindow` (col 3) and `ContributionReportDialog` (col 4), as well as the metadata form in `TDocInfoDialog`.
+    - When `CompanySanitizer.has_tentative_sources(source_str)` is `True`, renders confirmed contributors in standard text color and unconfirmed segments (`?`, `(?)`, `[...]`) in muted italic slate (`#94A3B8`, `font-style: italic`) via `QTextDocument` (`CompanySanitizer.format_source_html`), introducing zero extra columns, icons, or UI clutter.
+    - When no tentative markers are present, falls back directly to `super().paint()` for zero rendering overhead.
+  - **Self-Explanatory Hover Tooltip (`CompanySanitizer.build_source_tooltip_html`):**
+    - Hovering over any `Source` cell with tentative markers displays a structured rich HTML tooltip separating **✅ Confirmed Contributors** from **❔ Unconfirmed / Carry-over**, paired with a concise explanation of the 3GPP CR/pCR carry-over convention and statistical exclusion rule.
+  - **Optional Filter Inclusion Toggles:**
+    - **`TDocsWindow`:** `TDocsTableModel` precomputes `_Sanitized_Companies` (confirmed only), `_Tentative_Companies`, and `_All_Sanitized_Companies`. Right-clicking the Company filter dropdown (`self.company_combo`) provides a context menu action `❔ Include unconfirmed (?, [...]) sources in filter` (persisted via `MeetingsSettings.get_include_tentative_sources()`).
+    - **`ContributionReportDialog`:** `CompanySelectorWidget` includes an `Include unconfirmed (?, [...]) sources` checkbox (`chk_include_tentative`, unchecked by default). When enabled, `ContributionSearchWorker` includes tentative matches and tags them with `Company (?)` in the `Matched Company` column.
 

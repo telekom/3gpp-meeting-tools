@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from core.utils.company_sanitizer import CompanySanitizer
 from core.utils.paths import to_extended_path
 from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
 
@@ -99,8 +100,11 @@ class MarkdownExporterThread(QThread):
                 is_pcr = 'pcr' in doc_type or 'p-cr' in doc_type
                 is_cr = ('cr' in doc_type and not is_pcr)
 
-                # Add to Company Report if it matches regex and is not withdrawn
-                if re.search(company_regex, source, re.IGNORECASE) and not is_withdrawn:
+                # Add to Company Report only if a CONFIRMED source segment matches (excludes ? and [...])
+                confirmed_source_text = " ".join(
+                    seg for seg, is_tent in CompanySanitizer.tokenize_source_segments(source) if not is_tent
+                )
+                if re.search(company_regex, confirmed_source_text, re.IGNORECASE) and not is_withdrawn:
                     company_docs.append(row)
 
                 # Process Agenda Items (Handling overlapping AIs like "20.1, 20.2")
