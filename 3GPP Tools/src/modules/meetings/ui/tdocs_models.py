@@ -192,12 +192,19 @@ class TDocsTableModel(QAbstractTableModel):
             )
 
     def _apply_company_sanitization(self, rows_to_process: list):
-        """Passes the raw Source string through the Sanitizer and caches the result."""
+        """Passes the raw Source string through the Sanitizer and caches confirmed and tentative contributors."""
         for row in rows_to_process:
             source_str = str(row.get('Source', ''))
-            companies = CompanySanitizer.get_matching_contributors(source_str)
-            # If the sanitizer returns nothing, categorize it as "Other" so it remains filterable
-            row['_Sanitized_Companies'] = companies if companies else ["Other"]
+            confirmed, tentative = CompanySanitizer.parse_contributors_detailed(source_str)
+            confirmed_list = list(confirmed)
+            tentative_list = list(tentative)
+            all_list = confirmed_list + [c for c in tentative_list if c not in confirmed_list]
+            # Confirmed contributors only (used by default for filtering and statistics)
+            row['_Sanitized_Companies'] = confirmed_list if confirmed_list else ["Other"]
+            # Tentative / unconfirmed contributors ('?' or '[...]')
+            row['_Tentative_Companies'] = tentative_list
+            # Union of confirmed + tentative (used when 'Include unconfirmed (?, []) sources' is enabled)
+            row['_All_Sanitized_Companies'] = all_list if all_list else ["Other"]
 
     def _rebuild_family_cache(self):
         """Precomputes complete bidirectional revision lineage in a single O(N) pass."""
@@ -261,10 +268,10 @@ class TDocsTableModel(QAbstractTableModel):
             row['_email_sort_key'] = (tot, unread)
 
     def get_unmatched_sources(self) -> list:
-        """Returns a sorted list of unique raw 'Source' strings that evaluated to 'Other'."""
+        """Returns a sorted list of unique raw 'Source' strings that evaluated to 'Other' (neither confirmed nor tentative matched)."""
         unmatched = set()
         for row in self._data:
-            if row.get('_Sanitized_Companies') == ["Other"]:
+            if row.get('_All_Sanitized_Companies', row.get('_Sanitized_Companies')) == ["Other"]:
                 raw_source = str(row.get('Source', '')).strip()
                 if raw_source:
                     unmatched.add(raw_source)
@@ -535,7 +542,12 @@ class TDocsTableModel(QAbstractTableModel):
 
             if col_name in ["Abstract", "Secretary Remarks", "My Notes"] and val_str:
                 return f"<div style='width: 400px; white-space: pre-wrap;'>{val_str}</div>"
-            elif col_name in ["Title", "Source"] and len(val_str) > 30:
+            elif col_name == "Source" and val_str:
+                if CompanySanitizer.has_tentative_sources(val_str):
+                    return CompanySanitizer.build_source_tooltip_html(val_str)
+                if len(val_str) > 30:
+                    return val_str
+            elif col_name == "Title" and len(val_str) > 30:
                 return val_str
             return None
 
@@ -757,9 +769,16 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.filter_followed_wis = False
         self.filter_starred_wis = False
         self.include_unassigned_ls_in = True
+        self.include_tentative_sources = False
         self.followed_wi_tokens = set()
         self.starred_wi_tokens = set()
         self.sort_mode = "AGENDA"
+
+    def setIncludeTentativeSources(self, include_tentative: bool):
+        new_val = bool(include_tentative)
+        if self.include_tentative_sources != new_val:
+            self.include_tentative_sources = new_val
+            self.invalidateFilter()
 
     def setSortMode(self, mode: str):
         self.sort_mode = mode
@@ -886,7 +905,8 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         if exclude_filter != "my_status" and str(row.get("My Status", "") or "").strip() not in self.my_status_filters:
             return False
         if exclude_filter != "company":
-            row_companies = row.get("_Sanitized_Companies", ["Other"])
+            comp_key = "_All_Sanitized_Companies" if getattr(self, "include_tentative_sources", False) else "_Sanitized_Companies"
+            row_companies = row.get(comp_key) or row.get("_Sanitized_Companies", ["Other"])
             if not row_companies or not self.company_filters.intersection(row_companies):
                 return False
 

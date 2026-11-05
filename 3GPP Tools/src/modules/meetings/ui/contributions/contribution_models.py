@@ -116,7 +116,13 @@ class ContributionResultsTableModel(QAbstractTableModel):
                 return f"Matched the active Agenda Item filter.\n{val}" if val else "Matched the active Agenda Item filter."
             if col_name == "Abstract" and val:
                 return f"<div style='width: 450px; white-space: pre-wrap;'>{val}</div>"
-            elif col_name in ["Title", "Source"] and len(val) > 40:
+            elif col_name == "Source" and val:
+                from core.utils.company_sanitizer import CompanySanitizer
+                if CompanySanitizer.has_tentative_sources(val):
+                    return CompanySanitizer.build_source_tooltip_html(val)
+                if len(val) > 40:
+                    return f"<div style='width: 400px; white-space: pre-wrap;'>{val}</div>"
+            elif col_name == "Title" and len(val) > 40:
                 return f"<div style='width: 400px; white-space: pre-wrap;'>{val}</div>"
             return None
 

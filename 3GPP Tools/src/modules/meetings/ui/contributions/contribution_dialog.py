@@ -21,6 +21,7 @@ from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.settings import MeetingsSettings
 from modules.meetings.core.tdocs.tdocs_threads import TDocActionThread
 from modules.meetings.core.url_router import URLRouter
+from modules.meetings.ui.tdoc_delegates import SourceCompanyDelegate
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_dialogs import ReadOnlyViewerDialog
 from modules.work_items.core.wi_database import WorkItemsDatabase
@@ -208,6 +209,9 @@ class ContributionReportDialog(QDialog):
         self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table_view.horizontalHeader().setStretchLastSection(True)
 
+        self.source_delegate = SourceCompanyDelegate(self.table_view)
+        self.table_view.setItemDelegateForColumn(4, self.source_delegate)
+
         self.table_view.doubleClicked.connect(self._on_table_double_clicked)
         self.table_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table_view.customContextMenuRequested.connect(self._on_table_context_menu)
@@ -299,6 +303,7 @@ class ContributionReportDialog(QDialog):
         selected_wgs = self.wg_filter.getCheckedItems()
         target_companies = self.company_widget.get_selected_companies()
         primary_only = self.company_widget.is_primary_only()
+        include_tentative = self.company_widget.is_include_tentative()
         target_wis = self.wi_token_widget.get_tokens()
         target_ais = self.ai_token_widget.get_tokens()
         wi_ai_or = self.chk_wi_ai_or.isChecked()
@@ -312,6 +317,8 @@ class ContributionReportDialog(QDialog):
         summary_parts.append(f"{date_from} → {date_to}")
         if target_companies:
             company_rule = "primary" if primary_only else "any co-author"
+            if include_tentative:
+                company_rule += ", incl. ?/[]"
             summary_parts.append("Companies: " + ", ".join(sorted(target_companies)) + f" ({company_rule})")
         wi_text = ", ".join(sorted(target_wis)) if target_wis else ""
         ai_text = ", ".join(sorted(target_ais)) if target_ais else ""
@@ -343,6 +350,7 @@ class ContributionReportDialog(QDialog):
             wi_ai_or=wi_ai_or,
             bypass_cache=bypass,
             cache_dir=self.settings.cache_dir,
+            include_tentative=include_tentative,
             parent=self
         )
 

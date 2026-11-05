@@ -186,3 +186,56 @@ class AgendaItemDelegate(QStyledItemDelegate):
                 painter.drawText(text_rect, Qt.AlignCenter, elided_sub)
 
         painter.restore()
+
+
+class SourceCompanyDelegate(QStyledItemDelegate):
+    """
+    Renders the TDoc 'Source' column with visual differentiation between confirmed contributors
+    (normal foreground text) and unconfirmed / tentative carry-over contributors marked with
+    '?' or '[...]' (rendered greyed-out and italicized).
+    Preserves standard plain-text painting and fast eliding when no tentative sources exist.
+    """
+    def paint(self, painter, option, index):
+        from core.utils.company_sanitizer import CompanySanitizer
+
+        raw_source = str(index.data(Qt.UserRole) or index.data(Qt.DisplayRole) or "").strip()
+        if not raw_source or not CompanySanitizer.has_tentative_sources(raw_source):
+            super().paint(painter, option, index)
+            return
+
+        options = QStyleOptionViewItem(option)
+        self.initStyleOption(options, index)
+        options.text = ""
+        style = options.widget.style() if options.widget else None
+        if style:
+            style.drawControl(QStyle.CE_ItemViewItem, options, painter)
+
+        is_selected = bool(options.state & QStyle.State_Selected)
+        normal_color = (
+            options.palette.highlightedText().color().name()
+            if is_selected
+            else options.palette.color(options.palette.Normal, options.palette.Text).name()
+        )
+        tentative_color = "#64748B" if is_selected else "#94A3B8"
+
+        import html as _html
+        parts = []
+        for seg_text, is_tent in CompanySanitizer.tokenize_source_segments(raw_source):
+            esc = _html.escape(seg_text)
+            if is_tent:
+                parts.append(f'<span style="color: {tentative_color}; font-style: italic;">{esc}</span>')
+            else:
+                parts.append(f'<span style="color: {normal_color};">{esc}</span>')
+
+        painter.save()
+        doc = QTextDocument()
+        doc.setDocumentMargin(4)
+        doc.setDefaultFont(options.font)
+        doc.setTextWidth(max(20, options.rect.width()))
+        doc.setHtml("".join(parts))
+
+        painter.translate(options.rect.left(), options.rect.top())
+        clip = QRectF(0, 0, options.rect.width(), options.rect.height())
+        doc.drawContents(painter, clip)
+        painter.restore()
+

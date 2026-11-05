@@ -37,7 +37,12 @@ from modules.meetings.core.tdocs.tdocs_threads import (
     TdocsByAgendaThread,
 )
 from modules.meetings.core.url_router import URLRouter
-from modules.meetings.ui.tdoc_delegates import HtmlDelegate, TDocActionDelegate, AgendaItemDelegate
+from modules.meetings.ui.tdoc_delegates import (
+    HtmlDelegate,
+    TDocActionDelegate,
+    AgendaItemDelegate,
+    SourceCompanyDelegate,
+)
 from modules.meetings.ui.tdocs_components import CheckableComboBox, ComparisonCartWidget
 from modules.meetings.ui.tdocs_dialogs import (
     ReadOnlyViewerDialog,
@@ -550,7 +555,12 @@ class TDocsWindow(QWidget):
 
         self.company_combo = CheckableComboBox("Company")
         self.company_combo.setMaximumWidth(160)
-        self.company_combo.setToolTip('Filter by contributing company. Grey entries currently have no intersection with the other active filters but remain selectable.')
+        self.company_combo.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.company_combo.customContextMenuRequested.connect(self._show_company_filter_context_menu)
+        self.company_combo.setToolTip(
+            'Filter by contributing company (excludes unconfirmed `?` and `[...]` sources by default).\n'
+            'Right-click to toggle including unconfirmed (?, [...]) carry-over sources.'
+        )
         self.company_combo.selectionChanged.connect(self._on_company_changed)
         filter_layout.addWidget(self.company_combo)
 
@@ -652,6 +662,7 @@ class TDocsWindow(QWidget):
         self.model = TDocsTableModel(self.meeting_dir, data, user_data, agenda_map=self.agenda_map)
         self.proxy = TDocsFilterProxyModel()
         self.proxy.setIncludeUnassignedLsIn(self.settings.get_include_unassigned_ls_in())
+        self.proxy.setIncludeTentativeSources(self.settings.get_include_tentative_sources())
         self.proxy.setSourceModel(self.model)
         self.proxy.layoutChanged.connect(self._update_count_label)
 
@@ -681,6 +692,9 @@ class TDocsWindow(QWidget):
         self.action_delegate = TDocActionDelegate(self.table)
         self.action_delegate.actionClicked.connect(self._handle_tdoc_action)
         self.table.setItemDelegateForColumn(0, self.action_delegate)
+
+        self.source_delegate = SourceCompanyDelegate(self.table)
+        self.table.setItemDelegateForColumn(3, self.source_delegate)
 
         self.html_delegate = HtmlDelegate(self.table)
         self.html_delegate.linkClicked.connect(self._scroll_to_tdoc)
@@ -895,7 +909,32 @@ class TDocsWindow(QWidget):
             self.settings = MeetingsSettings()
         self.settings.set_include_unassigned_ls_in(checked)
         self.proxy.setIncludeUnassignedLsIn(checked)
-        self._update_facet_counts()
+        if hasattr(self, "_update_facet_counts"):
+            self._update_facet_counts()
+        self._update_filter_facets()
+        QTimer.singleShot(0, self._update_count_label)
+
+    def _show_company_filter_context_menu(self, pos):
+        sender = self.sender()
+        menu = QMenu(self)
+        act = menu.addAction("Include unconfirmed (?, [...]) carry-over sources")
+        act.setCheckable(True)
+        act.setChecked(getattr(self.proxy, "include_tentative_sources", False))
+        act.setToolTip(
+            "When checked, filtering by Company also matches revisions where the company is marked with ? or [...] as unconfirmed."
+        )
+        act.toggled.connect(self._on_toggle_include_tentative_sources)
+        if sender and hasattr(sender, "mapToGlobal"):
+            menu.exec_(sender.mapToGlobal(pos))
+        else:
+            menu.exec_(QCursor.pos())
+
+    def _on_toggle_include_tentative_sources(self, checked: bool):
+        if not hasattr(self, "settings"):
+            self.settings = MeetingsSettings()
+        self.settings.set_include_tentative_sources(checked)
+        self.proxy.setIncludeTentativeSources(checked)
+        self._refresh_comboboxes()
         self._update_filter_facets()
         QTimer.singleShot(0, self._update_count_label)
 
@@ -1018,7 +1057,8 @@ class TDocsWindow(QWidget):
         # This answers: "Would selecting this option yield rows given my other filters?"
         for row_idx, row in enumerate(self.model._data):
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="company"):
-                facets["company"].update(row.get("_Sanitized_Companies", ["Other"]))
+                comp_key = "_All_Sanitized_Companies" if getattr(self.proxy, "include_tentative_sources", False) else "_Sanitized_Companies"
+                facets["company"].update(row.get(comp_key) or row.get("_Sanitized_Companies", ["Other"]))
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="type"):
                 facets["type"].add(str(row.get("Type", "") or "").strip())
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="ai"):
@@ -1096,8 +1136,9 @@ class TDocsWindow(QWidget):
         unique_my_statuses = sorted(list(set(sanitize(r.get("My Status", "")) for r in self.model._data)))
 
         unique_companies = set()
+        comp_key = "_All_Sanitized_Companies" if getattr(self.proxy, "include_tentative_sources", False) else "_Sanitized_Companies"
         for r in self.model._data:
-            unique_companies.update(r.get("_Sanitized_Companies", ["Other"]))
+            unique_companies.update(r.get(comp_key) or r.get("_Sanitized_Companies", ["Other"]))
         sorted_companies = sorted(list(unique_companies), key=lambda x: x.lower())
 
         ai_display_labels = {}

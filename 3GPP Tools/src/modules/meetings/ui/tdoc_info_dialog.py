@@ -158,7 +158,7 @@ class TDocInfoDialog(QDialog):
 
         # Primary Metadata
         self._add_row(form, "Agenda Item", details.get("Agenda Item") or "-")
-        self._add_row(form, "Source", details.get("Source") or "-")
+        self._add_source_row(form, details.get("Source") or "-")
         self._add_row(form, "Intended For", details.get("For") or "-")
 
         # Personal Status & Notes
@@ -271,6 +271,21 @@ class TDocInfoDialog(QDialog):
         val_label.setWordWrap(True)
         val_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         form.addRow(self._make_key_label(f"{label_text}:"), val_label)
+
+    def _add_source_row(self, form: QFormLayout, raw_source: str):
+        from core.utils.company_sanitizer import CompanySanitizer
+
+        val_str = str(raw_source or "-").strip()
+        if CompanySanitizer.has_tentative_sources(val_str):
+            val_label = QLabel(CompanySanitizer.format_source_html(val_str))
+            val_label.setTextFormat(Qt.RichText)
+            val_label.setToolTip(CompanySanitizer.build_source_tooltip_html(val_str))
+        else:
+            val_label = QLabel(val_str)
+            val_label.setTextFormat(Qt.PlainText)
+        val_label.setWordWrap(True)
+        val_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        form.addRow(self._make_key_label("Source:"), val_label)
 
     def _get_status_badge_style(self, status: str) -> str:
         s = status.lower()
