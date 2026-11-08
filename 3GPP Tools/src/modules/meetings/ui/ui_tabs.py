@@ -41,6 +41,7 @@ from modules.meetings.ui.meetings_actions import (
     export_merged_tdocs,
     on_merger_finished,
     open_contribution_report,
+    open_agreement_tracker,
     open_meeting_from_report,
 )
 
@@ -298,6 +299,13 @@ class MeetingsTab(QWidget):
         self.reports_menu_btn.setToolTip("Reports, analytics, and consolidated exports...")
 
         reports_menu = QMenu(self)
+        rep_act_agreements = reports_menu.addAction(
+            "⚖️ Study Item && Meeting Agreements Tracker...", self._open_agreement_tracker
+        )
+        rep_act_agreements.setToolTip(
+            "Track, search, and export agreements, working assumptions, FFS, and agreed TPs/pCRs across RAN2, RAN3, RAN1, and SA2 meetings."
+        )
+
         rep_act_contrib = reports_menu.addAction("📊 Contributions Report...", self._open_contribution_report)
         rep_act_contrib.setToolTip("Filter and audit company contributions across multiple meetings.")
 
@@ -976,6 +984,11 @@ class MeetingsTab(QWidget):
                 self.contribution_dialog.close()
             except Exception:
                 pass
+        if hasattr(self, 'agreement_tracker_dialog') and self.agreement_tracker_dialog:
+            try:
+                self.agreement_tracker_dialog.close()
+            except Exception:
+                pass
 
         for win in list(self.tdoc_windows.values()):
             if win:
@@ -1130,6 +1143,9 @@ class MeetingsTab(QWidget):
 
     def _open_contribution_report(self):
         open_contribution_report(self)
+
+    def _open_agreement_tracker(self):
+        open_agreement_tracker(self)
 
     def _open_meeting_from_report(self, wg_name: str, meeting_number: str):
         open_meeting_from_report(self, wg_name, meeting_number)

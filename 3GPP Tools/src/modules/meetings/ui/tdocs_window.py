@@ -191,13 +191,15 @@ class TDocsWindow(QWidget):
         act.setToolTip("Download agenda.csv and refresh Agenda Item names/acronyms used by the TDoc view.")
         act = refresh_menu.addAction("📥 Cache All TDocs (Docs/)", self._cache_all_tdocs)
         act.setToolTip("Download and cache all meeting TDocs (.zip) from the 3GPP Docs directory locally using parallel downloads.")
+        act = refresh_menu.addAction("📥 Download Chairman's Notes", self._download_chair_notes)
+        act.setToolTip("Automatically locate /Inbox/Chairs_Notes (or /Inbox/Chair_Notes), download the Final/EOM Chairman's Notes, and extract agreements.")
+        act = refresh_menu.addAction("📝 Import Chairman's Notes / Agenda (.docx / .doc / .zip)...", self._import_word_agenda_dialog)
+        act.setToolTip("Import one or more local Word, ZIP, or HTML agenda/chairman's notes files and merge their TDoc remarks and agreements.")
+        act = refresh_menu.addAction("⚖️ Track Study Item && Meeting Agreements...", self._open_agreement_tracker)
+        act.setToolTip("Open the Cross-Meeting Study Item & Topic Agreement Tracker pre-filtered to this meeting's Working Group.")
         if self.is_sa2:
             act = refresh_menu.addAction("📄 Import TdocsByAgenda.htm", self._fetch_tdocs_by_agenda)
             act.setToolTip("Fetch TdocsByAgenda.htm and merge chairman/secretary agenda metadata into the TDoc list.")
-            act = refresh_menu.addAction("📝 Import Word Document (.docx / .doc)...", self._import_word_agenda_dialog)
-            act.setToolTip("Import one or more local Word/HTML agenda or chairman-notes files and merge their TDoc metadata.")
-            act = refresh_menu.addAction("📥 Download Chairman's Notes", self._download_chair_notes)
-            act.setToolTip("Download available chairman's notes for this meeting into the local Agenda cache.")
         if self.is_sa2_electronic:
             act = refresh_menu.addAction("📝 Refresh Revisions", lambda: self._refresh_revisions(silent=False))
             act.setToolTip("Refresh the revision list for this electronic meeting without reloading the Excel list.")
@@ -407,6 +409,9 @@ class TDocsWindow(QWidget):
         session_plans_dir = self.meeting_dir / "Agenda" / "SessionPlans"
         if session_plans_dir.is_dir():
             self.folder_menu.addAction("🗓️ Local: Session Plans Folder", lambda: _open_folder(session_plans_dir))
+        chair_notes_dir = self.meeting_dir / "Agenda" / "ChairNotes"
+        if chair_notes_dir.is_dir():
+            self.folder_menu.addAction("📝 Local: ChairNotes Folder", self._open_chair_notes_folder)
         if self.is_sa2:
             self.folder_menu.addAction("📄 Local: TdocsByAgenda.htm", self._open_agenda_file)
 
@@ -781,6 +786,12 @@ class TDocsWindow(QWidget):
                 if agenda_data:
                     self.model.merge_agenda_data(agenda_data)
                     self._refresh_comboboxes()
+
+        from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
+        cached_chair_agenda, _ = ChairNotesAgreementsParser.load_cached_chair_notes_data(self.meeting_dir)
+        if cached_chair_agenda:
+            self.model.merge_agenda_data(cached_chair_agenda)
+            self._refresh_comboboxes()
 
         if self.is_sa2_electronic:
             local_revs = agenda_dir / "revisions.json"
@@ -1950,7 +1961,7 @@ class TDocsWindow(QWidget):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 ext = Path(url.toLocalFile()).suffix.lower()
-                if ext in ['.docx', '.doc', '.htm', '.html']:
+                if ext in ['.docx', '.doc', '.zip', '.htm', '.html']:
                     self.drop_overlay.setGeometry(self.rect())
                     self.drop_overlay.show()
                     self.drop_overlay.raise_()
@@ -1962,7 +1973,7 @@ class TDocsWindow(QWidget):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 ext = Path(url.toLocalFile()).suffix.lower()
-                if ext in ['.docx', '.doc', '.htm', '.html']:
+                if ext in ['.docx', '.doc', '.zip', '.htm', '.html']:
                     event.acceptProposedAction()
                     return
         event.ignore()
@@ -1979,7 +1990,7 @@ class TDocsWindow(QWidget):
         valid_files = []
         for url in event.mimeData().urls():
             file_path = Path(url.toLocalFile())
-            if file_path.suffix.lower() in ['.docx', '.doc', '.htm', '.html']:
+            if file_path.suffix.lower() in ['.docx', '.doc', '.zip', '.htm', '.html']:
                 valid_files.append(file_path)
 
         if valid_files:
@@ -2050,6 +2061,40 @@ class TDocsWindow(QWidget):
 
     def _open_chair_notes_folder(self):
         open_chair_notes_folder(self)
+
+    def _open_agreement_tracker(self):
+        from modules.meetings.ui.agreement_tracker_dialog import AgreementTrackerDialog
+        from modules.meetings.core.meetings_db import MeetingsDatabase
+        from PyQt5.QtCore import QDate
+
+        if not hasattr(self, "_agreement_tracker_dlg") or self._agreement_tracker_dlg is None:
+            db_path = get_project_root() / "db" / "3gpp_data.db"
+            self._agreement_tracker_dlg = AgreementTrackerDialog(MeetingsDatabase(db_path), self)
+            self._agreement_tracker_dlg.open_meeting_requested.connect(
+                lambda wg, num: self.global_action_requested.emit(f"{wg}#{num}", "open_meeting")
+            )
+
+        wg = str(self.mtg_info.get("wg_name", "")).strip()
+        if wg:
+            self._agreement_tracker_dlg.set_active_wgs([wg])
+        s_date = QDate.fromString(str(self.mtg_info.get("start_date", "")), "yyyy-MM-dd")
+        e_date = QDate.fromString(str(self.mtg_info.get("end_date", "")), "yyyy-MM-dd")
+        if s_date.isValid() and e_date.isValid():
+            self._agreement_tracker_dlg.set_date_range(s_date.addDays(-7), e_date.addDays(7))
+
+        checked_wis = self.wi_combo.getCheckedItems() if hasattr(self, "wi_combo") else []
+        all_wis = (
+            self.wi_combo.model().rowCount() - 1
+            if hasattr(self, "wi_combo") and self.wi_combo.model()
+            else 0
+        )
+        if checked_wis and len(checked_wis) < all_wis:
+            self._agreement_tracker_dlg._clear_wi_tokens()
+            self._agreement_tracker_dlg.add_wi_tokens(checked_wis)
+
+        self._agreement_tracker_dlg.show()
+        self._agreement_tracker_dlg.raise_()
+        self._agreement_tracker_dlg.activateWindow()
 
     def _get_package_export_rows(self) -> list:
         return get_package_export_rows(self)

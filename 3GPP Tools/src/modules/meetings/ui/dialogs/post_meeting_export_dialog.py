@@ -238,6 +238,21 @@ class PostMeetingExportDialog(QDialog):
                 self.ai_to_wis[ai_num][w] = self.ai_to_wis[ai_num].get(w, 0) + 1
                 self.ai_counts[ai_num] = self.ai_counts.get(ai_num, 0) + 1
 
+        # Also load cached Chairman's Notes agreements so WIs/AIs with agreements (RAN2/RAN3) are counted
+        from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
+        _, cached_ags = ChairNotesAgreementsParser.load_cached_chair_notes_data(self.meeting_dir)
+        self.chair_agreements = [a for a in (cached_ags or []) if not a.get("is_previous_meeting_recap")]
+        for ag in self.chair_agreements:
+            ai_num = str(ag.get("ai", "")).strip() or "Unassigned"
+            wi = str(ag.get("wi", "")).strip() or "General"
+            ais_set.add(ai_num)
+            if ai_num not in self.ai_descriptions and ag.get("ai_title"):
+                self.ai_descriptions[ai_num] = str(ag.get("ai_title")).strip()
+            if wi != "General":
+                wis_set.add(wi)
+            self.wi_to_ais.setdefault(wi, {})[ai_num] = self.wi_to_ais.get(wi, {}).get(ai_num, 0) + 1
+            self.ai_to_wis.setdefault(ai_num, {})[wi] = self.ai_to_wis.get(ai_num, {}).get(wi, 0) + 1
+
         # If General has contributions, include it in the WI catalog
         if "General" in self.wi_to_ais:
             wis_set.add("General")
@@ -475,11 +490,20 @@ class PostMeetingExportDialog(QDialog):
         )
         self.chk_general_ls.stateChanged.connect(self._update_estimates)
 
+        self.chk_chair_agreements = QCheckBox("⚖️ Chairman's Notes Agreements && Working Assumptions")
+        self.chk_chair_agreements.setChecked(True)
+        self.chk_chair_agreements.setToolTip(
+            "Include extracted Agreements, Working Assumptions, Conclusions, and FFS items from Chairman's Notes "
+            "inside each Work Item's dossier and master report (essential for RAN2/RAN3/RAN1 Study Items)."
+        )
+        self.chk_chair_agreements.stateChanged.connect(self._update_estimates)
+
         docs_layout.addWidget(self.chk_ls_in)
         docs_layout.addWidget(self.chk_pcr)
         docs_layout.addWidget(self.chk_cr)
         docs_layout.addWidget(self.chk_ls_out)
         docs_layout.addWidget(self.chk_disc)
+        docs_layout.addWidget(self.chk_chair_agreements)
         docs_layout.addWidget(self.chk_general_ls)
 
         right_column.addWidget(docs_group)
@@ -1028,6 +1052,7 @@ class PostMeetingExportDialog(QDialog):
             self.chk_cr.isChecked(),
             self.chk_ls_out.isChecked(),
             self.chk_disc.isChecked(),
+            self.chk_chair_agreements.isChecked(),
         ]):
             QMessageBox.warning(self, "No Types Selected", "Please select at least one document category to export.")
             return
@@ -1090,6 +1115,7 @@ class PostMeetingExportDialog(QDialog):
             "include_cr": self.chk_cr.isChecked(),
             "include_ls_out": self.chk_ls_out.isChecked(),
             "include_disc": self.chk_disc.isChecked(),
+            "include_chair_agreements": self.chk_chair_agreements.isChecked(),
             "include_general_ls": self.chk_general_ls.isChecked(),
             "generate_local_indices": self.chk_local_indices.isChecked(),
             "download_missing": self.chk_download.isChecked(),

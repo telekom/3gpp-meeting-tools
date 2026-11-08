@@ -19,7 +19,7 @@ from modules.meetings.core.url_router import URLRouter
 
 
 def import_word_agenda_dialog(window):
-    """Prompts file dialog to select agenda / chair notes Word or HTML files to import."""
+    """Prompts file dialog to select agenda / chair notes Word, ZIP, or HTML files to import."""
     agenda_dir = window.meeting_dir / "Agenda"
     start_dir = str(agenda_dir) if agenda_dir.exists() else str(window.meeting_dir)
 
@@ -27,7 +27,7 @@ def import_word_agenda_dialog(window):
         window,
         "Select TDocsByAgenda / Chairman's Notes File(s)",
         start_dir,
-        "Supported Files (*.docx *.doc *.htm *.html);;Word Documents (*.docx *.doc);;DOCX Files (*.docx);;DOC Files (*.doc);;HTML Files (*.htm *.html);;All Files (*.*)",
+        "Supported Files (*.docx *.doc *.zip *.htm *.html);;Word Documents (*.docx *.doc);;ZIP Archives (*.zip);;HTML Files (*.htm *.html);;All Files (*.*)",
     )
     if file_paths:
         process_imported_agenda_files(window, [Path(p) for p in file_paths])
@@ -44,6 +44,7 @@ def process_imported_agenda_files(window, source_paths: list):
     if not window._is_importing_agenda:
         window._total_import_batch_count = len(window._import_queue)
         window._import_accumulated_merged = 0
+        window._import_accumulated_agreements = 0
         window._import_success_files = []
         window._import_failed_files = []
         window._is_importing_agenda = True
@@ -62,7 +63,12 @@ def process_next_in_import_queue(window):
     window.refresh_btn.setEnabled(False)
     window.refresh_btn.setText(f"⏳ ({current_idx}/{window._total_import_batch_count}) Importing...")
 
-    window.word_import_thread = WordAgendaImporterThread(current_file, window.meeting_dir)
+    window.word_import_thread = WordAgendaImporterThread(
+        current_file,
+        window.meeting_dir,
+        mtg_info=getattr(window, "mtg_info", None),
+        agenda_map=getattr(window, "agenda_map", None),
+    )
     window.word_import_thread.progress.connect(
         lambda msg, idx=current_idx, tot=window._total_import_batch_count: on_word_import_progress(
             window, f"({idx}/{tot}) {msg}"
@@ -81,12 +87,16 @@ def on_word_import_progress(window, msg: str):
 
 def on_word_import_finished(window, success: bool, agenda_data: dict, filename: str, error_msg: str):
     """Handles parsing result for a single agenda file and proceeds to next in queue."""
-    if success and agenda_data:
-        window.model.merge_agenda_data(agenda_data)
-        window._import_accumulated_merged += len(agenda_data)
-        window._import_success_files.append((filename, len(agenda_data)))
+    extracted_ags = getattr(window.word_import_thread, "extracted_agreements", []) if hasattr(window, "word_import_thread") else []
+    ag_count = len([a for a in (extracted_ags or []) if not a.get("is_previous_meeting_recap")])
+    if success and (agenda_data or ag_count > 0):
+        if agenda_data:
+            window.model.merge_agenda_data(agenda_data)
+            window._import_accumulated_merged += len(agenda_data)
+        window._import_accumulated_agreements = getattr(window, "_import_accumulated_agreements", 0) + ag_count
+        window._import_success_files.append((filename, len(agenda_data), ag_count))
     else:
-        window._import_failed_files.append((filename, error_msg or "No valid TDocs table found"))
+        window._import_failed_files.append((filename, error_msg or "No valid TDocs table or agreements found"))
 
     process_next_in_import_queue(window)
 
@@ -97,18 +107,23 @@ def finalize_import_batch(window):
     window.refresh_btn.setEnabled(True)
     window.refresh_btn.setText("🔄 Refresh")
 
-    if window._import_accumulated_merged > 0:
+    ag_total = getattr(window, "_import_accumulated_agreements", 0)
+    if window._import_accumulated_merged > 0 or ag_total > 0:
         window._refresh_comboboxes()
         window.refresh_btn.setText(f"✅ {window._import_accumulated_merged} Merged")
         QTimer.singleShot(4000, lambda: window.refresh_btn.setText("🔄 Refresh"))
 
     if window._total_import_batch_count == 1:
         if window._import_success_files:
-            fname, count = window._import_success_files[0]
+            entry = window._import_success_files[0]
+            fname = entry[0]
+            count = entry[1]
+            ag_cnt = entry[2] if len(entry) > 2 else 0
+            ag_line = f"\n• Extracted {ag_cnt} structured agreement(s) / working assumption(s)" if ag_cnt > 0 else ""
             QMessageBox.information(
                 window,
                 "Import Successful",
-                f"Saved to Agenda/\nSuccessfully merged {count} TDocs from:\n{fname}",
+                f"Saved to Agenda/\nSuccessfully merged {count} TDoc entries{ag_line} from:\n{fname}",
             )
         else:
             fname, err = window._import_failed_files[0]
@@ -118,8 +133,11 @@ def finalize_import_batch(window):
     summary_lines = [
         f"Batch import completed for {window._total_import_batch_count} files.",
         f"• Successfully imported: {len(window._import_success_files)} file(s)",
-        f"• Total TDocs merged: {window._import_accumulated_merged}\n",
+        f"• Total TDocs merged: {window._import_accumulated_merged}",
     ]
+    if ag_total > 0:
+        summary_lines.append(f"• Total Agreements / Working Assumptions extracted: {ag_total}")
+    summary_lines.append("")
 
     if window._import_failed_files:
         summary_lines.append(f"⚠️ Failures ({len(window._import_failed_files)}):")

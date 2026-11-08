@@ -32,6 +32,12 @@ src/modules/meetings/
 │   │   ├── session_plan_models.py     # Domain models & boundary-aware delegate resolvers
 │   │   ├── session_plan_parser.py     # Fault-tolerant Word (.docx) & Markdown session plan parser
 │   │   └── session_plan_timezone.py   # Venue vs Vienna UTC timezone resolution
+│   ├── tdocs/                         # TDoc & Chairman's Notes parsing and importer threads
+│   │   ├── chair_notes_agreements_parser.py # RAN1/RAN2/RAN3/SA2 Chairman's Notes agreements & WA parser
+│   │   ├── tdocs_parser.py            # Excel/HTML/Word TDoc list & agenda parser
+│   │   └── tdocs_threads.py           # Background threads for TDoc & Word agenda loading
+│   ├── agreement_tracker_worker.py    # Multi-meeting cross-WG Study Item & Topic agreement tracker worker
+│   ├── chair_notes_downloader.py      # Smart FTP downloader & ZIP extractor for Final/EOM Chairman's Notes
 │   ├── meeting_wi_enricher.py         # Asynchronous background Work Item discovery & enrichment
 │   ├── meetings_data_loader.py        # 3gpp_data.db queries and meeting list loaders
 │   ├── meetings_network_sync.py       # FTP sync for meetings and TDoc lists
@@ -42,6 +48,7 @@ src/modules/meetings/
 │   ├── tdocs_db.py                    # SQLite interface for user_tdocs.db
 │   └── stats/                         # Meeting statistics calculation and HTML report generation
 └── ui/
+    ├── agreement_tracker_dialog.py    # Cross-Meeting Study Item & Topic Agreement Tracker dialog
     ├── contribution_dialog.py         # Multi-meeting company contribution audit dialog
     ├── delegate_owner_picker.py       # Multi-delegate checkbox dropdown picker for topic ownership
     ├── dialogs.py                     # MeetingInfoDialog, AddMeetingDialog, MeetingsConfigDialog
@@ -198,29 +205,32 @@ src/modules/meetings/
   - Extracted `.docx`/`.doc` documents are similarly written via atomic `.part` rename.
   - Bidirectional route fallback: Automatically tries primary and secondary routes (`revisions_url` and `docs_ftp_url`) with a generous 15s timeout and non-blocking `cancel_check()` responsiveness.
 
-### 3.11. Chairman's Notes & Session Document Ingestion (F-19)
+### 3.11. Chairman's Notes & Cross-Meeting Study Item Agreement Tracker (F-19)
 - **Multi-Surface Input:**
-  - **Drag & Drop (`TDocsWindow.dropEvent`):** Dragging `.docx`, `.doc`, `.htm`, or `.html` session documents onto `TDocsWindow` renders an interactive frosted blue drop overlay (`TDocsDropOverlay`) with dashed drop borders.
+  - **Drag & Drop (`TDocsWindow.dropEvent`):** Dragging `.docx`, `.doc`, `.zip`, `.htm`, or `.html` session documents onto `TDocsWindow` renders an interactive frosted blue drop overlay (`TDocsDropOverlay`) with dashed drop borders.
   - **Menu Action:** **🔄 Refresh ▾ $\rightarrow$ 📝 Import Word Document (.docx / .doc)...** provides a manual file chooser.
-  - **Downloader Bridge (`ChairNotesDownloaderThread`):** Clicking **📥 Notes** downloads all active notes from `/Inbox/Chair_Notes` into `Agenda/ChairNotes/` and prompts the delegate with 1-click parsing and merging.
+  - **Downloader Bridge (`ChairNotesDownloaderThread`):** Unlocked across all Working Groups (`RAN1`, `RAN2`, `RAN3`, `SA2`, etc.). Probes `/Inbox/Chairs_Notes`, `/Inbox/Chair_Notes` (case-insensitive variants) into `Agenda/ChairNotes/`, smartly selects the Final/EOM combined notes and per-session EOM files (preferring `_clean` over `_tracked_changes`), automatically extracts `.zip` packages (such as `R2_XXX_Chair_Notes_..._final.zip`), and merges TDoc updates and extracted agreements into `Agenda/chair_notes_cache.json`.
 - **Background Conversion & Staging Worker (`WordAgendaImporterThread`):**
-  - Copies documents safely to `{meeting_dir}/Agenda/ChairNotes/`.
+  - Copies and extracts `.docx`, `.doc`, and `.zip` archives safely to `{meeting_dir}/Agenda/ChairNotes/`.
   - Strips NTFS `Zone.Identifier` stream metadata via `_unblock_file`.
   - Headless LibreOffice sanitizes legacy Word 97–2003 `.doc` files (which often embed VBA macros) to `.docx` without executing macros or freezing the GUI via Word COM.
-- **Dual-Mode Word Document Parser (`TDocsParser.parse_tdocs_from_docx`):**
-  - **Mode 1: Table-Based Parser (SA2, CT):**
-    - **Multi-Row Header Scanning (Rows 0–4):** Robustly locates table headers even when session chairs place meeting banners, track titles, or date/time headers on rows 0–1.
-    - **Comprehensive Column Synonyms:** Resolves heterogeneous Working Group secretary labels across SA2, SA1/3, and CT (`comments`/`discussion`/`remarks`, `result`/`status`/`decision`/`outcome`, `td#`/`tdoc`/`doc#`, `source`/`company`/`proposer`, `ai`/`agenda item`).
-    - **Section Banners & TDoc Tokens:** Handles merged full-row Agenda Item section banners lacking TDoc IDs and tolerates decorated TDoc numbers (e.g. `[C1-2409999]`, `R2-2405678r01 (rev of ...)`).
-    - **Sequential Deliberation Merging:** Combines sequential discussion notes (`\n---\n`) for documents revisited across morning/afternoon sessions.
-  - **Mode 2: Tab-Delimited Paragraph Parser (RAN1, RAN2):**
-    - Automatically falls back when documents contain no tables (RAN1 and RAN2 chairmen write notes as tab-separated contribution lines `<TDoc>\t<Title>\t<Source>\t<Type>` followed by agreement/decision and discussion paragraphs).
-    - Maps headings (`Heading 1`, `Heading 2`) to `Agenda Item`, extracts decisions/statuses (`Approved`, `Agreed`, `Noted`, `Withdrawn`), and captures multi-paragraph discussion notes per TDoc.
-  - **FTP Presence Reality:** Verified across live 3GPP FTP servers that `/INBOX/Chair_Notes/` is primarily maintained by SA2, RAN1, and RAN2; other groups (SA1, SA3, CT1, CT4, RAN3) rely instead on email reflector rulings (Feature F-15: `<<START>>...<<END>>`), server-side `agenda.csv` files, or formal end-of-meeting summary TDocs in `/Docs/`.
-- **Live Model Synchronization (`TDocsTableModel.merge_agenda_data`):**
-  - Populates in-room discussions directly into the `Secretary Remarks` column (with clickable TDoc hyperlinks).
-  - Updates real-time `TDoc Status` (`Agreed`, `Revised to...`, `Postponed`) hours before official agenda publication.
-  - Dynamically injects newly announced late revisions with predecessor linking (`Is revision of`, base TDoc resolution).
+- **Dual-Mode Word Document & Agreements Parser (`ChairNotesAgreementsParser`, `TDocsParser.parse_tdocs_from_docx`):**
+  - **Mode 1: Color- & Banner-Aware Table Parser (RAN3, SA2, CT):**
+    - **Multi-Row Header Scanning (Rows 0–4):** Robustly locates table headers (`TDoc | Title | Comments` in RAN3, multi-column in SA2) even when session chairs place meeting banners or date/time headers on rows 0–1.
+    - **Shaded Agenda Item Banners & WI Inheritance:** Extracts shaded AI banners and `WID [code]` / `SID [code]` tags, propagating parent AI Work Item mappings (e.g. `10` `FS_6G_Radio` $\rightarrow$ `10.2.2`) to sub-clauses.
+    - **OpenXML Color & Prefix Semantic Classification:** Distinguishes `From RAN3#<prev>:` historical recaps from current-meeting decisions, and classifies OpenXML green (`#008000`, `#00B050`, `#538135`) paragraphs as **Agreements** or **Working Assumptions** (`WA:`) and blue (`#0000FF`, `#3333FF`) paragraphs as **Open Issues / FFS**.
+  - **Mode 2: Document-Order Block Parser (RAN1, RAN2):**
+    - Walks paragraphs and 1x1/2x1 boxed tables in true document order (`iter_block_items`).
+    - Maps headings (`Heading 1..4`) to `Agenda Item`, extracts parenthetical WI tags (`(FS_6G_Radio, ...)`), 5th/6th tab columns on `Doc-title` lines (`Rel-20\tFS_6G_Radio`), and `6GR` / `Study on 6G Radio` heading indicators.
+    - Captures 1-column `Agreements` tables, multi-paragraph `Agreements` blocks, and substantive `style == 'Agreement'` paragraphs while filtering out procedural dispositions (`"The CR is postponed"`, `"Noted"`, etc.).
+- **Live Model Synchronization & Post-Meeting Export Integration:**
+  - `TDocsTableModel.merge_agenda_data` populates in-room discussions and `[⚖️ AGREEMENT]: ...` blocks directly into the `Secretary Remarks` column, updates `TDoc Status`, and synthesizes `[AI X.Y Agreement]` rows for agenda-level agreements not tied to a single TDoc.
+  - `PostMeetingExporterThread` & `PostMeetingExportDialog` include a `⚖️ Chairman's Notes Agreements & Working Assumptions` option (enabled by default) that renders dedicated per-WI and master index agreement tables alongside TDoc dossiers.
+- **Cross-Meeting Study Item & Topic Agreement Tracker (`AgreementTrackerDialog`, `AgreementTrackerWorker`):**
+  - Accessible from `MeetingsTab` (**📊 Reports ▾ $\rightarrow$ ⚖️ Track Study Item & Meeting Agreements...**) and `TDocsWindow` (**🔄 Refresh ▾ $\rightarrow$ ⚖️ Track Study Item & Meeting Agreements...**).
+  - Scans multiple Working Groups (`RAN2`, `RAN3`, `RAN1`, `SA2`, etc.) and date ranges in parallel (`ThreadPoolExecutor`), auto-downloading missing TDoc lists and Final/EOM Chairman's Notes from `/Inbox/Chairs_Notes`.
+  - Filters chronologically across meetings by **Work Item / Study Item** tokens (with 1-click `🎯 Followed` and `⭐ Starred` loaders), **Agenda Item prefix** (`9.3` matching `9.3.1`), **Topic Keyword**, and **Decision Type** (`🟢 Agreements`, `🟡 Working Assumptions`, `🔵 Conclusions / Way Forward`, `🟣 Open Issues / FFS`, `📄 Agreed TPs / pCRs / CRs`, and optional historical recaps).
+  - Provides interactive table exploration, rich detail preview with 1-click TDoc/Notes/Meeting openers, and exports to **Study Item Markdown + Interactive HTML Dossier (`.md` & `.html`)** and **Multi-Sheet Excel (`.xlsx`)**.
 
 ### 3.12. SA2 Meeting Session Plan Management, Version Diffing & Mobile Export
 - **Problem Solved:** SA2 meeting session plans ("Draft time allocation") are published as living TDocs with frequent revisions (often reusing the same TDoc number `S2-2610195` across intra-day updates), 3 parallel streams, 45-minute half-quarter Time Units (TUs), and ad-hoc drafting sessions (08:00 morning, lunch, and 18:00 evening).

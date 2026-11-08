@@ -177,6 +177,36 @@ def open_contribution_report(tab):
     tab.contribution_dialog.show()
 
 
+def open_agreement_tracker(tab):
+    """Opens or activates the independent Cross-Meeting Study Item & Topic Agreement Tracker dialog."""
+    from modules.meetings.ui.agreement_tracker_dialog import AgreementTrackerDialog
+
+    if hasattr(tab, "agreement_tracker_dialog") and tab.agreement_tracker_dialog is not None:
+        if tab.agreement_tracker_dialog.isVisible():
+            tab.agreement_tracker_dialog.raise_()
+            tab.agreement_tracker_dialog.activateWindow()
+            return
+        else:
+            tab.agreement_tracker_dialog.deleteLater()
+            tab.agreement_tracker_dialog = None
+
+    tab.agreement_tracker_dialog = AgreementTrackerDialog(tab.db, parent=None)
+    tab.agreement_tracker_dialog.open_meeting_requested.connect(
+        lambda wg, num: open_meeting_from_report(tab, wg, num)
+    )
+
+    if tab.enable_dates_cb.isChecked():
+        tab.agreement_tracker_dialog.set_date_range(tab.date_from.date(), tab.date_to.date())
+    active_wgs = tab.wg_filter.getCheckedItems()
+    all_wgs = tab.wg_filter.model().rowCount() - 1 if tab.wg_filter.model() else 0
+    if active_wgs and len(active_wgs) < all_wgs:
+        tab.agreement_tracker_dialog.set_active_wgs(active_wgs)
+
+    tab.agreement_tracker_dialog.show()
+    tab.agreement_tracker_dialog.raise_()
+    tab.agreement_tracker_dialog.activateWindow()
+
+
 def open_meeting_from_report(tab, wg_name: str, meeting_number: str):
     """Opens a meeting window triggered from a row selection in the contributions report."""
     results = tab.db.search_meetings(

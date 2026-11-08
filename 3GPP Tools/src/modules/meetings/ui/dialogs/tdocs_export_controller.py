@@ -341,6 +341,7 @@ def open_post_meeting_export_dialog(window: Any) -> None:
         include_cr=cfg["include_cr"],
         include_ls_out=cfg["include_ls_out"],
         include_disc=cfg.get("include_disc", False),
+        include_chair_agreements=cfg.get("include_chair_agreements", True),
         include_general_ls=cfg["include_general_ls"],
         generate_local_indices=cfg["generate_local_indices"],
         download_missing=cfg["download_missing"],

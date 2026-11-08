@@ -118,6 +118,7 @@ class PostMeetingExporterThread(QThread):
         include_cr: bool = True,
         include_ls_out: bool = True,
         include_disc: bool = False,
+        include_chair_agreements: bool = True,
         include_general_ls: bool = True,
         generate_local_indices: bool = True,
         download_missing: bool = True,
@@ -148,6 +149,7 @@ class PostMeetingExporterThread(QThread):
         self.include_cr = include_cr
         self.include_ls_out = include_ls_out
         self.include_disc = include_disc
+        self.include_chair_agreements = include_chair_agreements
         self.include_general_ls = include_general_ls
         self.generate_local_indices = generate_local_indices
         self.download_missing = download_missing
@@ -498,6 +500,7 @@ class PostMeetingExporterThread(QThread):
                         "ais": set(),
                         "ai_titles": {},
                         "categories": {"LS_IN": [], "pCR": [], "CR": [], "LS_OUT": [], "DISC": []},
+                        "agreements": [],
                     }
 
                 tree[release][target_wi]["ais"].add(ai_num)
@@ -596,6 +599,10 @@ class PostMeetingExporterThread(QThread):
             }
             tree[rep_rel][target_wi]["categories"]["LS_OUT"].append(rep_entry)
             all_included_tdocs.add(rep_id)
+
+        # Attach Chairman's Notes Agreements if enabled
+        if self.include_chair_agreements:
+            self._attach_chair_notes_agreements(tree, tdoc_map, wi_db_info)
 
         # Sort entries
         for rel in tree.values():
@@ -1159,8 +1166,15 @@ class PostMeetingExporterThread(QThread):
                         lines.append(self._render_markdown_table(docs, is_local_wi=True, base_dir=wi_dir))
                         lines.append("")
 
+                agreements_list = wi_data.get("agreements", [])
+                if agreements_list:
+                    has_docs = True
+                    lines.append("### ⚖️ Chairman's Notes Agreements & Working Assumptions\n")
+                    lines.append(self._render_agreements_markdown(agreements_list))
+                    lines.append("")
+
                 if not has_docs:
-                    lines.append("*No documents exported under this Work Item.*\n")
+                    lines.append("*No documents or agreements exported under this Work Item.*\n")
 
                 try:
                     with open(to_extended_path(wi_index_file), "w", encoding="utf-8") as f:
@@ -1293,8 +1307,15 @@ class PostMeetingExporterThread(QThread):
                         lines.append(self._render_markdown_table(docs, is_local_wi=False, base_dir=self.export_dir))
                         lines.append("")
 
+                agreements_list = wi_data.get("agreements", [])
+                if agreements_list:
+                    has_docs = True
+                    lines.append("#### ⚖️ Chairman's Notes Agreements & Working Assumptions\n")
+                    lines.append(self._render_agreements_markdown(agreements_list))
+                    lines.append("")
+
                 if not has_docs:
-                    lines.append("*No documents exported in this category.*\n")
+                    lines.append("*No documents or agreements exported in this category.*\n")
 
                 lines.append("")
 
@@ -1396,4 +1417,122 @@ class PostMeetingExporterThread(QThread):
             ]
             lines.append("| " + " | ".join(row_cells) + " |")
 
+        return "\n".join(lines)
+
+
+    def _attach_chair_notes_agreements(self, tree: dict, tdoc_map: dict, wi_db_info: dict):
+        """Loads cached Chairman's Notes agreements and attaches matching items to `tree[release][wi]['agreements']`."""
+        from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
+
+        _, raw_agreements = ChairNotesAgreementsParser.load_cached_chair_notes_data(self.meeting_dir)
+        if not raw_agreements:
+            # Also check if there are any .docx files in Agenda/ChairNotes/ not yet cached
+            cn_dir = self.meeting_dir / "Agenda" / "ChairNotes"
+            if cn_dir.is_dir():
+                merged_ag = {}
+                merged_list = []
+                for f in cn_dir.glob("*.docx"):
+                    if not f.name.startswith("~$"):
+                        ad, al = ChairNotesAgreementsParser.parse_docx_with_agreements(
+                            str(f), mtg_info=self.mtg_info, agenda_map=self.agenda_map
+                        )
+                        merged_ag.update(ad)
+                        merged_list.extend(al)
+                if merged_ag or merged_list:
+                    ChairNotesAgreementsParser.save_cached_chair_notes_data(self.meeting_dir, merged_ag, merged_list)
+                    raw_agreements = merged_list
+
+        if not raw_agreements:
+            return
+
+        for ag in raw_agreements:
+            if ag.get("is_previous_meeting_recap"):
+                continue
+            ai_num = str(ag.get("ai", "")).strip() or "Unassigned"
+            ai_title = str(ag.get("ai_title", "")).strip()
+            tdoc_id = str(ag.get("tdoc_id", "")).strip().upper()
+            raw_wi = str(ag.get("wi", "")).strip()
+
+            t_row = tdoc_map.get(tdoc_id, {}) if tdoc_id else {}
+            associated_wis = []
+            if raw_wi:
+                for part in TDocsTableModel._split_related_wis(raw_wi):
+                    can = self._canonicalize_wi_name(part, wi_db_info)
+                    if can and can not in associated_wis:
+                        associated_wis.append(can)
+            if not associated_wis and t_row:
+                associated_wis = self._resolve_tdoc_wis(t_row, wi_db_info)
+            if not associated_wis:
+                associated_wis = ["General"]
+
+            matching_wis = []
+            for wi in associated_wis:
+                if wi == "General":
+                    if self.scope_mode in ("whole", "visible"):
+                        matching_wis.append(wi)
+                    elif self.scope_mode == "custom" and ("general" in self.custom_wis or ai_num in self.custom_ais):
+                        matching_wis.append(wi)
+                    continue
+                wi_tokens = TDocsTableModel._extract_base_tokens(wi)
+                if self.scope_mode == "followed" and (wi_tokens & wi_db_info["followed_tokens"]):
+                    matching_wis.append(wi)
+                elif self.scope_mode == "starred" and (wi_tokens & wi_db_info["starred_tokens"]):
+                    matching_wis.append(wi)
+                elif self.scope_mode == "tracked" and (wi_tokens & wi_db_info["tracked_tokens"]):
+                    matching_wis.append(wi)
+                elif self.scope_mode == "custom":
+                    if any(t in self.custom_wis for t in wi_tokens) or (wi.lower() in self.custom_wis) or (ai_num in self.custom_ais):
+                        matching_wis.append(wi)
+                elif self.scope_mode in ("whole", "visible"):
+                    matching_wis.append(wi)
+
+            if not matching_wis:
+                continue
+
+            release = str(ag.get("release", "")).strip() or self._resolve_tdoc_release(t_row, matching_wis, wi_db_info)
+            for target_wi in matching_wis:
+                if release not in tree:
+                    tree[release] = {}
+                if target_wi not in tree[release]:
+                    tree[release][target_wi] = {
+                        "info": self._get_wi_display_info(target_wi, wi_db_info, release),
+                        "ais": set(),
+                        "ai_titles": {},
+                        "categories": {"LS_IN": [], "pCR": [], "CR": [], "LS_OUT": [], "DISC": []},
+                        "agreements": [],
+                    }
+                tree[release][target_wi]["ais"].add(ai_num)
+                if ai_num and ai_title and ai_num not in tree[release][target_wi]["ai_titles"]:
+                    tree[release][target_wi]["ai_titles"][ai_num] = ai_title
+                tree[release][target_wi]["agreements"].append(ag)
+
+    def _render_agreements_markdown(self, agreements_list: List[dict]) -> str:
+        """Renders Chairman's Notes agreements grouped by Agenda Item in clean Markdown callouts."""
+        if not agreements_list:
+            return ""
+        lines = []
+        for ag in agreements_list:
+            kind = str(ag.get("kind", "Agreement")).strip()
+            ai = str(ag.get("ai", "")).strip()
+            ai_title = str(ag.get("ai_title", "")).strip()
+            tdoc_id = str(ag.get("tdoc_id", "")).strip()
+            text = str(ag.get("text", "")).strip()
+
+            icon = "🟢"
+            if "ffs" in kind.lower() or "open issue" in kind.lower():
+                icon = "🔵"
+            elif "working assumption" in kind.lower():
+                icon = "🟡"
+            elif "agreed tdoc" in kind.lower():
+                icon = "📄"
+
+            header_parts = [f"{icon} **[{kind}]**"]
+            if ai:
+                header_parts.append(f"**AI {ai}**" + (f" (*{ai_title}*)" if ai_title else ""))
+            if tdoc_id:
+                header_parts.append(f"(Related TDoc: `{tdoc_id}`)")
+            lines.append("- " + " — ".join(header_parts))
+            for subline in text.split("\n"):
+                lines.append(f"  > {subline}")
+            lines.append("")
         return "\n".join(lines)

@@ -299,18 +299,31 @@ def _unblock_file(path: Path):
 class WordAgendaImporterThread(QThread):
     """
     Background worker that stages an imported Chairman's Notes/TDocs file,
-    converts legacy .doc files to .docx via LibreOffice, and parses the table.
+    converts legacy .doc files to .docx via LibreOffice, extracts .zip archives,
+    parses both TDocs and structured agreements, and persists them to the meeting cache.
     """
     progress = pyqtSignal(str)
     finished = pyqtSignal(bool, dict, str, str)  # (success, agenda_data, filename, error_message)
 
-    def __init__(self, source_path: Path, meeting_dir: Path):
+    def __init__(
+        self,
+        source_path: Path,
+        meeting_dir: Path,
+        mtg_info: dict = None,
+        agenda_map: dict = None,
+    ):
         super().__init__()
         self.source_path = Path(source_path)
         self.meeting_dir = Path(meeting_dir)
+        self.mtg_info = mtg_info or {}
+        self.agenda_map = agenda_map or {}
+        self.extracted_agreements = []
 
     def run(self):
         try:
+            from modules.meetings.core.chair_notes_downloader import ChairNotesDownloaderThread
+            from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
+
             if not self.source_path.exists():
                 self.finished.emit(False, {}, self.source_path.name, f"File not found:\n{self.source_path}")
                 return
@@ -330,42 +343,75 @@ class WordAgendaImporterThread(QThread):
             _unblock_file(target_path)
 
             ext = target_path.suffix.lower()
-            agenda_data = {}
-
-            if ext == ".doc":
-                if not is_libreoffice_available():
-                    self.finished.emit(False, {}, target_path.name, get_libreoffice_missing_msg())
-                    return
-
-                self.progress.emit("Converting via LibreOffice...")
-                try:
-                    docx_path = convert_doc_to_docx_libreoffice(
-                        doc_path=target_path,
-                        output_path=target_path.with_suffix(".docx"),
+            files_to_parse = [target_path]
+            if ext == ".zip":
+                self.progress.emit("Extracting ZIP archive...")
+                extracted_names = ChairNotesDownloaderThread.extract_chair_notes_zip(target_path, agenda_dir)
+                if not extracted_names:
+                    self.finished.emit(
+                        False, {}, target_path.name, f"No valid Word/HTML documents found inside ZIP:\n{target_path.name}"
                     )
-                    if not docx_path or not docx_path.exists():
-                        self.finished.emit(False, {}, target_path.name, "LibreOffice conversion produced no output file.")
+                    return
+                files_to_parse = [agenda_dir / fname for fname in extracted_names]
+
+            agenda_data = {}
+            all_agreements = []
+
+            for fpath in files_to_parse:
+                _unblock_file(fpath)
+                f_ext = fpath.suffix.lower()
+                cur_agenda = {}
+                cur_agreements = []
+
+                if f_ext == ".doc":
+                    if not is_libreoffice_available():
+                        self.finished.emit(False, {}, fpath.name, get_libreoffice_missing_msg())
                         return
 
-                    self.progress.emit("Parsing converted document...")
-                    agenda_data = TDocsParser.parse_tdocs_from_docx(str(docx_path))
-                except Exception as e:
-                    self.finished.emit(False, {}, target_path.name, f"LibreOffice conversion failed:\n{e}")
-                    return
+                    self.progress.emit("Converting via LibreOffice...")
+                    try:
+                        docx_path = convert_doc_to_docx_libreoffice(
+                            doc_path=fpath,
+                            output_path=fpath.with_suffix(".docx"),
+                        )
+                        if not docx_path or not docx_path.exists():
+                            self.finished.emit(False, {}, fpath.name, "LibreOffice conversion produced no output file.")
+                            return
 
-            elif ext == ".docx":
-                self.progress.emit("Parsing .docx table...")
-                agenda_data = TDocsParser.parse_tdocs_from_docx(str(target_path))
+                        self.progress.emit("Parsing converted document...")
+                        cur_agenda, cur_agreements = TDocsParser.parse_docx_with_agreements(
+                            str(docx_path), mtg_info=self.mtg_info, agenda_map=self.agenda_map
+                        )
+                    except Exception as e:
+                        self.finished.emit(False, {}, fpath.name, f"LibreOffice conversion failed:\n{e}")
+                        return
 
-            elif ext in [".htm", ".html"]:
-                self.progress.emit("Parsing HTML agenda...")
-                agenda_data = TDocsParser.parse_tdocs_by_agenda(str(target_path))
+                elif f_ext == ".docx":
+                    self.progress.emit("Parsing .docx Chairman's Notes...")
+                    cur_agenda, cur_agreements = TDocsParser.parse_docx_with_agreements(
+                        str(fpath), mtg_info=self.mtg_info, agenda_map=self.agenda_map
+                    )
 
-            if not agenda_data:
+                elif f_ext in [".htm", ".html"]:
+                    self.progress.emit("Parsing HTML agenda...")
+                    cur_agenda = TDocsParser.parse_tdocs_by_agenda(str(fpath))
+
+                if cur_agenda:
+                    agenda_data.update(cur_agenda)
+                if cur_agreements:
+                    all_agreements.extend(cur_agreements)
+
+            self.extracted_agreements = all_agreements
+
+            if not agenda_data and not all_agreements:
                 self.finished.emit(
                     False, {}, target_path.name, f"No valid TDocs table could be extracted from:\n{target_path.name}"
                 )
                 return
+
+            ChairNotesAgreementsParser.save_cached_chair_notes_data(
+                self.meeting_dir, agenda_data, all_agreements
+            )
 
             self.finished.emit(True, agenda_data, target_path.name, "")
 
