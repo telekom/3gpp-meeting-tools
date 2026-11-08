@@ -63,7 +63,7 @@ class TDocFileHandler:
             logging.info(f"🌐 [HTTP GET] Requesting: {dl_url}")
 
             session = NetworkSession.get_instance()
-            NetworkSession.apply_humanness(session)
+            NetworkSession.apply_humanness(session, url=dl_url)
 
             try:
                 response = session.get(dl_url, stream=True, timeout=timeout)

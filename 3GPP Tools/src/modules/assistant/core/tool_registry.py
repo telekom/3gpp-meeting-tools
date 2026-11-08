@@ -8,6 +8,8 @@ from modules.assistant.core.agent_models import ToolResult, ToolStatus
 
 class ToolPermission(str, Enum):
     KNOWLEDGE_READ = "knowledge_read"
+    DOCUMENT_WRITE = "document_write"
+    NETWORK_FETCH = "network_fetch"
 
 class ArgumentType(str, Enum):
     STRING = "string"
@@ -48,6 +50,31 @@ class ToolDefinition:
         return {"type":"function","function":{"name":self.name,"description":self.description,
             "parameters":{"type":"object","properties":props,"required":required,"additionalProperties":False}}}
 
+    def mcp_schema(self) -> Dict[str, Any]:
+        """Returns compact Model Context Protocol (MCP) tool schema."""
+        props, required = {}, []
+        for arg in self.arguments:
+            s: Dict[str, Any] = {"type": arg.type.value}
+            if arg.description:
+                s["description"] = arg.description
+            if arg.enum: s["enum"] = list(arg.enum)
+            if arg.minimum is not None: s["minimum"] = arg.minimum
+            if arg.maximum is not None: s["maximum"] = arg.maximum
+            if arg.max_length is not None and arg.type == ArgumentType.STRING: s["maxLength"] = arg.max_length
+            if arg.default is not None: s["default"] = arg.default
+            props[arg.name] = s
+            if arg.required: required.append(arg.name)
+        return {
+            "name": self.name,
+            "description": self.description,
+            "inputSchema": {
+                "type": "object",
+                "properties": props,
+                "required": required,
+                "additionalProperties": False,
+            },
+        }
+
 class ToolRegistry:
     def __init__(self, allowed_permissions: Optional[Iterable[ToolPermission]] = None):
         self._definitions = {}
@@ -66,6 +93,9 @@ class ToolRegistry:
 
     def ollama_tools(self):
         return [d.ollama_schema() for d in self.definitions()]
+
+    def mcp_tools(self):
+        return [d.mcp_schema() for d in self.definitions()]
 
     def execute(self, name: str, arguments: Optional[Mapping[str, Any]]) -> ToolResult:
         d = self.get(name)

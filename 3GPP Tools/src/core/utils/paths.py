@@ -8,11 +8,31 @@ APP_DATA_ROOT = Path.home() / "3GPP_Delegate_Helper"
 CACHE_ROOT = APP_DATA_ROOT / "cache"
 SPECS_ROOT = APP_DATA_ROOT / "specs"
 TEMP_ROOT = APP_DATA_ROOT / "temp"
+DB_ROOT = PROJECT_ROOT / "db"
+OUTPUT_ROOT = PROJECT_ROOT.parent / "output"
+MEETINGS_ROOT = CACHE_ROOT
 
 
 def get_project_root() -> Path:
     """Return the absolute root of the '3GPP Tools' application package."""
     return PROJECT_ROOT
+
+
+def get_db_root() -> Path:
+    """Return the canonical directory containing SQLite databases (`src/db`)."""
+    return DB_ROOT
+
+
+def get_output_root() -> Path:
+    """Return the default export directory for converted diagrams and documents (`output/`)."""
+    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+    return OUTPUT_ROOT
+
+
+def get_meetings_root() -> Path:
+    """Return the canonical local cache directory for meetings and TDocs."""
+    MEETINGS_ROOT.mkdir(parents=True, exist_ok=True)
+    return MEETINGS_ROOT
 
 
 def get_app_data_root() -> Path:

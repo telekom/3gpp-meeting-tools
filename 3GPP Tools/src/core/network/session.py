@@ -333,8 +333,10 @@ class NetworkSession:
         return {"User-Agent": user_agent}
 
     @classmethod
-    def apply_delay(cls) -> None:
-        """Applies configured sleep delays safely on the calling thread."""
+    def apply_delay(cls, url: Optional[str] = None) -> None:
+        """Applies configured sleep delays safely on the calling thread, bypassing RFC 1918 LAN targets."""
+        if url and is_local_address(url):
+            return
         cfg = HumannessConfig.load()
         min_d = cfg.get("min_delay", 0.0)
         max_d = cfg.get("max_delay", 0.0)
@@ -344,9 +346,9 @@ class NetworkSession:
                 time.sleep(delay)
 
     @classmethod
-    def apply_humanness(cls, session: Optional[requests.Session] = None) -> None:
+    def apply_humanness(cls, session: Optional[requests.Session] = None, url: Optional[str] = None) -> None:
         """Applies delay and configures randomized headers for scraper compatibility."""
-        cls.apply_delay()
+        cls.apply_delay(url=url)
         if session is not None:
             headers = cls.get_request_headers()
             with cls._lock:
@@ -415,7 +417,7 @@ class NetworkSession:
         headers: Optional[Dict[str, str]] = None,
     ) -> str:
         session = cls.get_instance()
-        cls.apply_delay()
+        cls.apply_delay(url=url)
 
         req_headers = cls.get_request_headers()
         if headers:
@@ -447,7 +449,7 @@ class NetworkSession:
         headers: Optional[Dict[str, str]] = None,
     ) -> bytes:
         session = cls.get_instance()
-        cls.apply_delay()
+        cls.apply_delay(url=url)
 
         req_headers = cls.get_request_headers()
         if headers:
@@ -479,7 +481,7 @@ class NetworkSession:
         headers: Optional[Dict[str, str]] = None,
     ) -> Any:
         session = cls.get_instance()
-        cls.apply_delay()
+        cls.apply_delay(url=url)
 
         req_headers = cls.get_request_headers()
         if headers:
@@ -555,7 +557,7 @@ class NetworkSession:
             raise DownloadCancelledError(f"Download cancelled for {dest.name}")
 
         session = cls.get_instance()
-        cls.apply_delay()
+        cls.apply_delay(url=url)
         headers = cls.get_request_headers()
 
         downloaded_bytes = 0
@@ -677,10 +679,15 @@ class NetworkSession:
                 active_proxies["http"] = _make_uri(http_host)
             if https_host:
                 active_proxies["https"] = _make_uri(https_host)
+            if active_proxies:
+                active_proxies["no_proxy"] = "localhost,127.0.0.1,::1,10.10.10.10"
 
             session.proxies = active_proxies
         else:
-            session.proxies = dict(get_proxies())
+            proxies = dict(get_proxies())
+            if any(proxies.values()):
+                proxies.setdefault("no_proxy", "localhost,127.0.0.1,::1,10.10.10.10")
+            session.proxies = proxies
 
         session.headers.update({
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",

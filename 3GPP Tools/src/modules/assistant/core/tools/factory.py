@@ -1,6 +1,7 @@
 from pathlib import Path
 from modules.assistant.core.knowledge import ProtocolKnowledgeService, SpecSearchKnowledgeService, SpecificationKnowledgeService
 from modules.assistant.core.tool_registry import ToolRegistry
+from modules.assistant.core.tools.external_agent_tools import PROFILE_TOOLS, build_external_agent_tool_registry
 from modules.assistant.core.tools.protocol_tools import build_protocol_tools
 from modules.assistant.core.tools.spec_search_tools import build_spec_search_tools
 from modules.assistant.core.tools.specification_tools import build_specification_tools
