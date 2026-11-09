@@ -21,7 +21,7 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QGroupBox,
     QRadioButton, QCheckBox, QPushButton, QLineEdit, QFileDialog,
     QTreeWidget, QTreeWidgetItem, QStackedWidget, QFrame, QComboBox,
-    QWidget, QButtonGroup, QMessageBox, QSizePolicy
+    QWidget, QButtonGroup, QMessageBox, QSizePolicy, QMenu
 )
 
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
@@ -623,14 +623,27 @@ class PreMeetingExportDialog(QDialog):
         default_dir = self.meeting_dir / "Export" / folder_name
         self.dest_edit = QLineEdit(str(default_dir))
         self.dest_edit.setReadOnly(False)
+        self.dest_edit.textChanged.connect(self._update_destination_status)
         dest_layout.addWidget(self.dest_edit)
 
-        btn_browse = QPushButton("📁 Browse...")
-        btn_browse.setStyleSheet(STYLE_COMPACT_BTN)
-        btn_browse.clicked.connect(self._browse_destination)
-        dest_layout.addWidget(btn_browse)
+        self.btn_browse = QPushButton("📁 Browse...")
+        self.btn_browse.setStyleSheet(STYLE_COMPACT_BTN)
+        self.btn_browse.clicked.connect(self._browse_destination)
+        dest_layout.addWidget(self.btn_browse)
+
+        self.btn_recent = QPushButton("🕒 Recent...")
+        self.btn_recent.setStyleSheet(STYLE_COMPACT_BTN)
+        self.btn_recent.setToolTip("Quickly select an existing export directory from this meeting to append missing TDocs")
+        self.btn_recent.clicked.connect(self._show_recent_exports_menu)
+        dest_layout.addWidget(self.btn_recent)
 
         opts_layout.addLayout(dest_layout)
+
+        # Status badge for detected existing export folder
+        self.lbl_dest_status = QLabel()
+        self.lbl_dest_status.setWordWrap(True)
+        self.lbl_dest_status.setVisible(False)
+        opts_layout.addWidget(self.lbl_dest_status)
 
         right_column.addWidget(opts_group)
         body_layout.addLayout(right_column, stretch=9)
@@ -1109,6 +1122,75 @@ class PreMeetingExportDialog(QDialog):
         d = QFileDialog.getExistingDirectory(self, "Select Export Directory", str(self.meeting_dir / "Export"))
         if d:
             self.dest_edit.setText(d)
+
+    def _update_destination_status(self):
+        text = self.dest_edit.text().strip()
+        if not text:
+            self.lbl_dest_status.setVisible(False)
+            return
+
+        p = Path(text)
+        if p.is_dir() and ((p / "index.md").is_file() or (p / ".export_manifest.json").is_file()):
+            from modules.meetings.core.exporters.export_manifest import load_manifest
+            m = load_manifest(p)
+            if m:
+                n_docs = m.get_total_tdocs()
+                n_updates = len(m.sessions) - 1
+                up_str = f", {n_updates} previous update(s)" if n_updates > 0 else ""
+                msg = (
+                    f"🔄 <b>Existing Export Detected:</b> Incremental Append Mode active "
+                    f"({n_docs} existing TDocs{up_str} will be preserved and merged into the index)."
+                )
+            else:
+                md_count = len([f for f in p.glob("**/*.md") if f.name.lower() != "index.md"])
+                msg = (
+                    f"🔄 <b>Existing Export Detected:</b> Incremental Append Mode active "
+                    f"({md_count} existing TDocs will be preserved and merged into the index)."
+                )
+            self.lbl_dest_status.setText(msg)
+            self.lbl_dest_status.setStyleSheet("""
+                QLabel {
+                    background-color: #F0FDF4;
+                    border: 1px solid #BBF7D0;
+                    border-radius: 4px;
+                    padding: 4px 8px;
+                    font-size: 11px;
+                    color: #166534;
+                }
+            """)
+            self.lbl_dest_status.setVisible(True)
+        else:
+            self.lbl_dest_status.setVisible(False)
+
+    def _show_recent_exports_menu(self):
+        export_root = self.meeting_dir / "Export"
+        if not export_root.is_dir():
+            QMessageBox.information(self, "No Recent Exports", "No existing export folders found in this meeting directory.")
+            return
+
+        candidates = []
+        for item in export_root.iterdir():
+            if item.is_dir() and ((item / "index.md").is_file() or (item / ".export_manifest.json").is_file()):
+                try:
+                    candidates.append((item.stat().st_mtime, item))
+                except Exception:
+                    pass
+
+        if not candidates:
+            QMessageBox.information(self, "No Recent Exports", "No previous export folders with index.md found in Export/.")
+            return
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        menu = QMenu(self)
+        for mtime, folder in candidates[:10]:
+            dt_str = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+            action = menu.addAction(f"📁 {folder.name} ({dt_str})")
+            action.triggered.connect(lambda checked=False, p=folder: self._select_recent_export(p))
+
+        menu.exec_(self.btn_recent.mapToGlobal(self.btn_recent.rect().bottomLeft()))
+
+    def _select_recent_export(self, folder: Path):
+        self.dest_edit.setText(str(folder))
 
     def _on_start_clicked(self):
         if not any([

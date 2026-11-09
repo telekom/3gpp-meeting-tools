@@ -183,6 +183,32 @@ class PostMeetingExporterThread(QThread):
 
             os.makedirs(to_extended_path(self.export_dir), exist_ok=True)
 
+            # Incremental Manifest & Session Planning
+            from modules.meetings.core.exporters.export_manifest import (
+                load_or_reconstruct_manifest,
+                plan_incremental_session,
+                merge_manifest_into_tree,
+                save_manifest,
+                format_master_changelog_markdown,
+                format_local_wi_changelog_markdown,
+                ExportManifest,
+            )
+
+            self.manifest = load_or_reconstruct_manifest(
+                self.export_dir, self.mtg_info, self.all_rows, export_type="post_meeting"
+            )
+            self.session_plan = plan_incremental_session(
+                self.manifest, filtered_entries, self.export_dir, force_reconvert=self.force_reconvert
+            )
+
+            if self.session_plan.is_incremental:
+                logger.info(
+                    f"[PostMeetingExporter] Incremental export session #{self.session_plan.session_id}: "
+                    f"{len(self.session_plan.new_tdocs)} new, {len(self.session_plan.tdocs_to_skip)} skipped, "
+                    f"{len(self.session_plan.preserved_tdocs)} preserved."
+                )
+                filtered_entries = merge_manifest_into_tree(self.manifest, filtered_entries, self.export_dir)
+
             # Convert and assemble all dossiers
             self._export_all_dossiers(filtered_entries)
 
@@ -205,7 +231,16 @@ class PostMeetingExporterThread(QThread):
                 except Exception as doss_err:
                     logger.warning(f"[PostMeetingExporter] Consolidated dossier generation warning: {doss_err}")
 
-            msg = f"Successfully generated Post-Meeting Dossier in:\n{self.export_dir}"
+            if hasattr(self, "session_plan") and self.session_plan.is_incremental:
+                preserved_count = len(self.session_plan.tdocs_to_skip) + len(self.session_plan.preserved_tdocs)
+                msg = (
+                    f"Successfully updated Post-Meeting Dossier (Update #{self.session_plan.session_id - 1}):\n"
+                    f"• {len(self.session_plan.new_tdocs)} TDoc(s) added\n"
+                    f"• {preserved_count} TDoc(s) preserved\n\n"
+                    f"Location:\n{self.export_dir}"
+                )
+            else:
+                msg = f"Successfully generated Post-Meeting Dossier in:\n{self.export_dir}"
             self.finished.emit(True, msg)
 
         except Exception as e:
@@ -778,6 +813,8 @@ class PostMeetingExporterThread(QThread):
         if self.download_missing:
             missing_dl_tasks: List[Tuple[str, Path]] = []
             for tdoc_id, row_data in unique_tdocs.items():
+                if hasattr(self, "session_plan") and tdoc_id in self.session_plan.tdocs_to_skip:
+                    continue
                 base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
                 base_tdoc = base_match.group(1).upper() if base_match else tdoc_id.upper()
                 tdoc_folder = self.meeting_dir / base_tdoc
@@ -831,6 +868,9 @@ class PostMeetingExporterThread(QThread):
             if self.isInterruptionRequested():
                 return
 
+            if hasattr(self, "session_plan") and tdoc_id in self.session_plan.tdocs_to_skip:
+                continue
+
             self.progress.emit(f"Converting {tdoc_id} to Markdown ({idx}/{total_unique})...")
             local_md_file, local_media_dir = self._ensure_tdoc_markdown(tdoc_id, row_data)
             converted_cache[tdoc_id] = (local_md_file, local_media_dir)
@@ -877,7 +917,20 @@ class PostMeetingExporterThread(QThread):
                         target_md_file = doc.get("target_md_abs_path") or (type_dir / f"{sanitize_filename(tdoc_id)}.md")
 
                         # Collect header notices (cross-WI, replies, reply-to)
+                        if doc.get("is_preserved_from_previous"):
+                            continue
+                        if hasattr(self, "session_plan") and tdoc_id in self.session_plan.tdocs_to_skip:
+                            continue
+
                         header_notices = []
+
+                        # Notice 0: Incremental Addition Header
+                        if hasattr(self, "session_plan") and self.session_plan.is_incremental and tdoc_id in self.session_plan.new_tdocs:
+                            update_lbl = f"Incremental Update #{self.session_plan.session_id - 1}"
+                            header_notices.append(
+                                f"> [!NOTE]\n"
+                                f"> **Incremental Addition:** Added to this dossier on {self.session_plan.session_timestamp} ({update_lbl})."
+                            )
 
                         # Inject cross-WI notification header if this TDoc overlaps with other WIs
                         if doc.get("cross_wis"):
@@ -1176,6 +1229,19 @@ class PostMeetingExporterThread(QThread):
                 if not has_docs:
                     lines.append("*No documents or agreements exported under this Work Item.*\n")
 
+                # Local incremental changelog if documents were added to this WI
+                if hasattr(self, "session_plan") and self.session_plan.is_incremental:
+                    from modules.meetings.core.exporters.export_manifest import format_local_wi_changelog_markdown
+                    all_wi_docs = [d for cat_docs in wi_data["categories"].values() for d in cat_docs]
+                    added_in_wi = [
+                        d for d in all_wi_docs
+                        if str(d.get("tdoc_id", "")).strip().upper() in self.session_plan.new_tdocs
+                    ]
+                    if added_in_wi:
+                        lines.append(format_local_wi_changelog_markdown(
+                            wi_name, added_in_wi, self.session_plan.session_timestamp
+                        ))
+
                 try:
                     with open(to_extended_path(wi_index_file), "w", encoding="utf-8") as f:
                         f.write("\n".join(lines))
@@ -1318,6 +1384,80 @@ class PostMeetingExporterThread(QThread):
                     lines.append("*No documents or agreements exported in this category.*\n")
 
                 lines.append("")
+
+        # Append Changelog & Incremental LLM Guide and update persistent manifest
+        if hasattr(self, "session_plan"):
+            from modules.meetings.core.exporters.export_manifest import (
+                format_master_changelog_markdown,
+                save_manifest,
+                ExportManifest,
+            )
+            all_added = []
+            all_updated = []
+            seen_added = set()
+            seen_updated = set()
+
+            for rel in filtered_entries.values():
+                for wi in rel.values():
+                    for cat_docs in wi["categories"].values():
+                        for d in cat_docs:
+                            tid = str(d.get("tdoc_id", "")).strip().upper()
+                            if tid in self.session_plan.new_tdocs and tid not in seen_added:
+                                seen_added.add(tid)
+                                all_added.append(d)
+                            elif tid in self.session_plan.tdocs_to_update and tid not in seen_updated:
+                                seen_updated.add(tid)
+                                all_updated.append(d)
+
+            all_added_entries = []
+            for rel_name, wis in filtered_entries.items():
+                for wi_name, wi_data in wis.items():
+                    for cat_name, cat_docs in wi_data["categories"].items():
+                        for d in cat_docs:
+                            tid = str(d.get("tdoc_id", "")).strip().upper()
+                            if tid in self.session_plan.new_tdocs:
+                                entry_copy = dict(d)
+                                entry_copy["release"] = rel_name
+                                entry_copy["wi"] = wi_name
+                                entry_copy["category"] = cat_name
+                                entry_copy["rel_path"] = d.get("target_md_rel_path", "")
+                                all_added_entries.append(entry_copy)
+
+            if getattr(self, "manifest", None) is None:
+                self.manifest = ExportManifest(
+                    meeting=mtg_title,
+                    export_type="post_meeting",
+                    created_at=self.session_plan.session_timestamp,
+                )
+
+            current_session = {
+                "session_id": self.session_plan.session_id,
+                "timestamp": self.session_plan.session_timestamp,
+                "label": "Initial Export" if self.session_plan.session_id == 1 else f"Incremental Update #{self.session_plan.session_id - 1}",
+                "scope_mode": self.scope_mode,
+                "added_tdocs": sorted(list(self.session_plan.new_tdocs)),
+                "updated_tdocs": sorted(list(self.session_plan.tdocs_to_update)),
+                "total_tdocs": len(self.manifest.tdocs) + len(self.session_plan.new_tdocs),
+            }
+
+            changelog_block = format_master_changelog_markdown(
+                self.manifest,
+                current_session,
+                new_doc_entries=all_added,
+                updated_doc_entries=all_updated,
+                base_dir=self.export_dir,
+            )
+            lines.append(changelog_block)
+
+            self.manifest.record_session(
+                session_id=self.session_plan.session_id,
+                timestamp=self.session_plan.session_timestamp,
+                scope_mode=self.scope_mode,
+                added_tdocs=list(self.session_plan.new_tdocs),
+                updated_tdocs=list(self.session_plan.tdocs_to_update),
+                added_entries=all_added_entries,
+            )
+            save_manifest(self.export_dir, self.manifest)
 
         try:
             with open(to_extended_path(master_file), "w", encoding="utf-8") as f:
