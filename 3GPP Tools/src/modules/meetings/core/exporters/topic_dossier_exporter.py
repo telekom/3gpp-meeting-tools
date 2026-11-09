@@ -88,6 +88,26 @@ def safe_markdown_rel_link(target: Path, base: Path) -> str:
     return urllib.parse.quote(clean_path, safe="/")
 
 
+def get_default_topic_export_base() -> Path:
+    """
+    Returns the default base directory for cross-WG topic exports,
+    located in the user's meeting cache directory rather than the code repository.
+    """
+    try:
+        from modules.meetings.core.settings import MeetingsSettings
+        settings = MeetingsSettings()
+        if settings.cache_dir and Path(settings.cache_dir).is_dir():
+            return Path(settings.cache_dir) / "Export"
+    except Exception:
+        pass
+    from core.utils.paths import get_cache_root
+    cache_root = get_cache_root()
+    if cache_root and Path(cache_root).is_dir():
+        return Path(cache_root) / "Export"
+    return Path.home() / "3GPP_Delegate_Helper" / "cache" / "Export"
+
+
+
 class TopicDossierExporterThread(QThread):
     progress_msg = pyqtSignal(str)
     progress_step = pyqtSignal(int, int)
@@ -111,8 +131,7 @@ class TopicDossierExporterThread(QThread):
         self.topic = topic
         self.cohorts = list(selected_cohorts)
         self.export_scope_mode = export_scope_mode
-        root = get_project_root()
-        self.output_base_dir = Path(output_base_dir) if output_base_dir else (root / "Export")
+        self.output_base_dir = Path(output_base_dir) if output_base_dir else get_default_topic_export_base()
         self.target_folder_name = target_folder_name
         self.include_discussions = bool(include_discussions)
         self.deduplicate_revisions = bool(deduplicate_revisions)

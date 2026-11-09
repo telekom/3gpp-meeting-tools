@@ -30,6 +30,7 @@ from modules.meetings.core.cohort_resolver import (
 )
 from modules.meetings.core.exporters.topic_dossier_exporter import (
     TopicDossierExporterThread,
+    get_default_topic_export_base,
     sanitize_folder_name,
 )
 from modules.meetings.core.meetings_db import MeetingsDatabase
@@ -463,10 +464,10 @@ class TopicDossierDialog(QDialog):
             wgs_str = ", ".join(self.active_topic.target_wgs)
             self.lbl_topic_desc.setText(f"<b>WGs:</b> {wgs_str} | {self.active_topic.description}")
 
-            # Update default destination
-            root = get_project_root()
+            # Update default destination in user meeting cache
+            base_dir = get_default_topic_export_base()
             default_name = f"Topic_{sanitize_folder_name(self.active_topic.name)}"
-            self.edit_dest_folder.setText(str(root / "Export" / default_name))
+            self.edit_dest_folder.setText(str(base_dir / default_name))
 
             self._update_cohorts_preview()
             self._check_incremental_status()
@@ -536,7 +537,7 @@ class TopicDossierDialog(QDialog):
             self.lbl_inc_status.setStyleSheet("color: #2563EB; font-size: 11px;")
 
     def _on_browse_dest(self):
-        cur = self.edit_dest_folder.text().strip() or str(get_project_root() / "Export")
+        cur = self.edit_dest_folder.text().strip() or str(get_default_topic_export_base())
         folder = QFileDialog.getExistingDirectory(self, "Select Output Directory", cur)
         if folder:
             self.edit_dest_folder.setText(folder)

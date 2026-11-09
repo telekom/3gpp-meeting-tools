@@ -361,6 +361,15 @@ class TestTopicDossierExporterIncremental(unittest.TestCase):
 
         self.assertTrue((self.target_dir / "deltas" / "delta_session_2.md").is_file())
 
+    def test_default_topic_export_base(self):
+        from modules.meetings.core.exporters.topic_dossier_exporter import get_default_topic_export_base
+        from core.utils.paths import get_project_root
+        base = get_default_topic_export_base()
+        self.assertIsInstance(base, Path)
+        self.assertTrue(str(base).endswith("Export"))
+        # Verify it points to the user cache root and not into the src codebase
+        self.assertNotEqual(base, get_project_root() / "Export")
+
 
 if __name__ == "__main__":
     unittest.main()

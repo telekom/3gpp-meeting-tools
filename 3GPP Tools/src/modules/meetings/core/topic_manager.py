@@ -22,8 +22,8 @@ from core.utils.paths import get_project_root, to_extended_path
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG_PATH = Path("src/config/meta_topics.json")
-USER_CONFIG_PATH = Path("src/config/meta_topics_user.json")
+DEFAULT_CONFIG_PATH = Path("config/meta_topics.json")
+USER_CONFIG_PATH = Path("config/meta_topics_user.json")
 
 
 def _extract_base_tokens(text: str) -> Set[str]:
