@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -377,14 +378,14 @@ class ProtocolKnowledgeService:
 
         return ToolResult(
             ToolStatus.FOUND,
-            data={
+            data=_sanitize_for_json({
                 "query": ie,
                 "specifications": specifications,
                 "versions": versions,
                 "matching_messages": messages,
                 "definitions": definitions,
                 "source_kind": "structured_protocol_knowledge",
-            },
+            }),
             metadata={
                 "searched_versions": _version_labels(selected),
                 "matching_message_count": len(messages),
@@ -466,16 +467,29 @@ def _normalized(value: str) -> str:
     return "".join(ch.casefold() for ch in str(value or "") if ch.isalnum())
 
 
+def _sanitize_for_json(obj: Any) -> Any:
+    if isinstance(obj, float):
+        if not math.isfinite(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(v) for v in obj]
+    return obj
+
+
 def _records(value: Any) -> List[Dict[str, Any]]:
     if value is None:
         return []
     if hasattr(value, "to_dict"):
         try:
-            return list(value.to_dict(orient="records"))
+            raw = list(value.to_dict(orient="records"))
+            return _sanitize_for_json(raw)
         except TypeError:
             pass
     if isinstance(value, list):
-        return [dict(v) for v in value if isinstance(v, dict)]
+        return _sanitize_for_json([dict(v) for v in value if isinstance(v, dict)])
     return []
 
 

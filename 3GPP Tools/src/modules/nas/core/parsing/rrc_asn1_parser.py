@@ -101,9 +101,14 @@ class RRCAsn1Parser(BaseAsn1DocxParser):
                 fname = f["name"]
                 raw_field = f.get("raw_field", "")
                 nested = f.get("nested_fields", [])
-                ftype = f["type"]
+                ftype = f.get("type", "")
 
-                if nested or (raw_field.startswith(fname) and "{" in raw_field):
+                # Only register genuine inline anonymous SEQUENCE or CHOICE structures, never scalar fields
+                is_inline_composite = bool(nested) or (
+                    (ftype.startswith("SEQUENCE") or ftype.startswith("CHOICE"))
+                    and "{" in raw_field
+                )
+                if is_inline_composite:
                     parent_norm = self._normalize_key(parent_name)
                     desc_table = (
                             field_desc_tables.get(parent_norm)
@@ -196,17 +201,22 @@ class RRCAsn1Parser(BaseAsn1DocxParser):
             norm_ctx = self._normalize_key(type_ctx)
             norm_field = self._normalize_key(field_name)
             norm_type = self._normalize_key(type_name)
+            root_field = re.sub(r"-(?:r\d+|v\d+[a-z]?)$", "", field_name, flags=re.IGNORECASE)
+            norm_root = self._normalize_key(root_field)
 
             descs = (
                     field_individual_descs.get(norm_ctx)
                     or field_individual_descs.get(type_ctx.lower())
                     or field_individual_descs.get(self._normalize_key(root_name))
+                    or field_individual_descs.get(root_name.lower())
                     or {}
             )
 
             return (
                     descs.get(norm_field)
+                    or descs.get(norm_root)
                     or descs.get(field_name.lower())
+                    or descs.get(root_field.lower())
                     or descs.get(norm_type)
                     or ""
             )
@@ -225,19 +235,35 @@ class RRCAsn1Parser(BaseAsn1DocxParser):
                 fname = f["name"]
                 ftype = f["type"]
                 presence = f.get("presence", "O")
-                fmt = f.get("format", "SEQUENCE")
                 nested_fields = f.get("nested_fields", [])
 
-                # Parse RRC Condition / Need Codes if present
-                need_match = RE_COND_NEED.search(ftype) or RE_COND_NEED.search(f.get("raw_field", ""))
-                if need_match:
-                    code = need_match.group(1).strip()
-                    presence = f"C ({code})" if "Cond" in code else f"O ({code})"
+                # Parse RRC Condition / Need Codes strictly from field declaration if not already mandatory
+                if not presence.startswith("M") and not nested_fields and "{" not in f.get("raw_field", ""):
+                    need_match = RE_COND_NEED.search(ftype) or RE_COND_NEED.search(f.get("raw_field", ""))
+                    if need_match:
+                        code = need_match.group(1).strip()
+                        presence = f"C ({code})" if "Cond" in code else f"O ({code})"
 
                 # Normalize inline display
                 normalized_ftype = re.sub(r"\bENUMERATED\s*\{", "ENUMERATED { ", ftype)
                 normalized_ftype = re.sub(r"\}\s*$", " }", normalized_ftype)
                 clean_type = self._unwrap_clean_type(normalized_ftype)
+
+                fmt = f.get("format", "")
+                if not fmt or fmt in ("SEQUENCE", "TYPE"):
+                    detected = (
+                        self._detect_asn1_format(ftype)
+                        or self._detect_asn1_format(clean_type)
+                        or self._detect_asn1_format(f.get("raw_field", ""))
+                    )
+                    if detected:
+                        fmt = detected
+                    elif clean_type in type_defs:
+                        ref_kind = type_defs[clean_type].get("kind")
+                        if ref_kind and ref_kind not in ("TYPE", ""):
+                            fmt = ref_kind
+                    if not fmt:
+                        fmt = "SEQUENCE"
 
                 if clean_type in ("SEQUENCE", "CHOICE", "") and (nested_fields or fname in type_defs):
                     clean_type = fname

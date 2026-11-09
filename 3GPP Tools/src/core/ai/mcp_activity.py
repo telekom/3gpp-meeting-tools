@@ -15,6 +15,7 @@ import ctypes
 import datetime
 import json
 import logging
+import math
 import os
 import platform
 import shutil
@@ -316,6 +317,18 @@ def generate_call_summary(tool: str, action: str, args: Dict[str, Any], raw_data
     return " | ".join(summary_parts)
 
 
+def _sanitize_for_json(obj: Any) -> Any:
+    if isinstance(obj, float):
+        if not math.isfinite(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(v) for v in obj]
+    return obj
+
+
 def record_mcp_event(
     event_type: str,
     *,
@@ -351,7 +364,8 @@ def record_mcp_event(
         chars_count = 0
         if raw_data is not None:
             try:
-                preview = json.dumps(raw_data, ensure_ascii=False, indent=2, default=str)
+                sanitized_raw = _sanitize_for_json(raw_data)
+                preview = json.dumps(sanitized_raw, ensure_ascii=False, indent=2, default=str, allow_nan=False)
                 chars_count = len(preview)
                 if len(preview) > 2000:
                     preview = preview[:2000] + "\n... [truncated preview]"
@@ -372,7 +386,7 @@ def record_mcp_event(
             "pid": cur_pid,
             "tool": tool,
             "action": action,
-            "args": args,
+            "args": _sanitize_for_json(args),
             "elapsed_ms": round(elapsed_ms, 1),
             "ok": bool(ok),
             "is_error": bool(is_error),
@@ -382,7 +396,7 @@ def record_mcp_event(
             "response_preview": preview,
         }
 
-        line = json.dumps(entry, ensure_ascii=False) + "\n"
+        line = json.dumps(_sanitize_for_json(entry), ensure_ascii=False, allow_nan=False) + "\n"
 
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with open(log_path, mode="a", encoding="utf-8") as f:

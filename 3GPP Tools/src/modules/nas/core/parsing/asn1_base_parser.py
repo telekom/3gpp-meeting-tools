@@ -194,7 +194,10 @@ class BaseAsn1DocxParser:
                 elif elem.tag == TAG_TBL:
                     tbl_html = _convert_table_to_html(elem)
 
-                    match_tbl = RE_DESC_TABLE.search(last_p_text)
+                    rows = elem.findall(TAG_TR)
+                    first_cells = [_extract_tc_text(tc).strip() for tc in rows[0].findall(TAG_TC)] if rows else []
+                    header_text = " ".join(first_cells)
+                    match_tbl = RE_DESC_TABLE.search(last_p_text) or RE_DESC_TABLE.search(header_text)
                     rrc_target = match_tbl.group(1).strip() if match_tbl else ""
                     if rrc_target:
                         rk = rrc_target.lower()
@@ -204,9 +207,8 @@ class BaseAsn1DocxParser:
                     if current_section_def and tbl_html:
                         current_section_def["tables"].append(tbl_html)
 
-                    rows = elem.findall(TAG_TR)
                     if rows:
-                        header_cells = [_extract_tc_text(tc).lower() for tc in rows[0].findall(TAG_TC)]
+                        header_cells = [c.lower() for c in first_cells]
                         name_col, desc_col = 0, -1
                         for idx, htext in enumerate(header_cells):
                             if any(k in htext for k in ("semantics", "description", "explanation")):
@@ -216,22 +218,37 @@ class BaseAsn1DocxParser:
                             desc_col = 1
 
                         field_dict: Dict[str, str] = {}
-                        for r in rows[1:]:
+                        start_row = 1 if len(rows) > 1 and any("field descriptions" in c.lower() or "conditional presence" in c.lower() for c in first_cells) else 0
+                        for r in rows[start_row:]:
                             cells = r.findall(TAG_TC)
-                            if len(cells) > max(name_col, desc_col) and desc_col != -1:
+                            if len(cells) == 1:
+                                # 1-column RRC field description table: paragraph 0 is name, subsequent paragraphs are description
+                                p_elements = cells[0].findall(TAG_P)
+                                p_texts = [_extract_p_text(p).strip() for p in p_elements if _extract_p_text(p).strip()]
+                                if len(p_texts) >= 2:
+                                    fname = p_texts[0].strip().lstrip("> ")
+                                    fdesc = "\n".join(p_texts[1:]).strip()
+                                    if fname and fdesc and "field descriptions" not in fname.lower():
+                                        field_dict[fname.lower()] = fdesc
+                                        norm_fn = self._normalize_key(fname)
+                                        if norm_fn:
+                                            field_dict[norm_fn] = fdesc
+                            elif len(cells) > max(name_col, desc_col) and desc_col != -1:
                                 fname = _extract_tc_text(cells[name_col]).strip().lstrip("> ")
                                 fdesc = _extract_tc_text(cells[desc_col]).strip()
-                                if fname and fdesc and "field descriptions" not in fname.lower():
+                                if fname and fdesc and "field descriptions" not in fname.lower() and not any(k in fname.lower() for k in ("conditional presence", "explanation")):
                                     field_dict[fname.lower()] = fdesc
                                     norm_fn = self._normalize_key(fname)
                                     if norm_fn:
                                         field_dict[norm_fn] = fdesc
 
                         if field_dict:
-                            target_name = (current_section_def["name"] if current_section_def else current_heading_name)
+                            target_name = rrc_target or (current_section_def["name"] if current_section_def else current_heading_name)
                             if target_name:
-                                field_individual_descs[target_name.lower()] = field_dict
-                                field_individual_descs[self._normalize_key(target_name)] = field_dict
+                                norm_t = self._normalize_key(target_name)
+                                field_individual_descs.setdefault(target_name.lower(), {}).update(field_dict)
+                                if norm_t:
+                                    field_individual_descs.setdefault(norm_t, {}).update(field_dict)
 
             _finalize_section()
 
@@ -368,6 +385,28 @@ class BaseAsn1DocxParser:
             i += 1
         return -1
 
+    @staticmethod
+    def _detect_asn1_format(type_str: str) -> str:
+        """Detects intrinsic scalar or container ASN.1 format from type declaration."""
+        s = type_str.strip()
+        if re.match(r"^INTEGER\b", s, re.IGNORECASE):
+            return "INTEGER"
+        if re.match(r"^ENUMERATED\b", s, re.IGNORECASE):
+            return "ENUMERATED"
+        if re.match(r"^BOOLEAN\b", s, re.IGNORECASE):
+            return "BOOLEAN"
+        if re.match(r"^BIT\s+STRING\b", s, re.IGNORECASE):
+            return "BIT STRING"
+        if re.match(r"^OCTET\s+STRING\b", s, re.IGNORECASE):
+            return "OCTET STRING"
+        if re.match(r"^CHOICE\b", s, re.IGNORECASE):
+            return "CHOICE"
+        if re.match(r"^SEQUENCE\s+(?:\(SIZE\s*\([^)]*\)\)\s*)?OF\b", s, re.IGNORECASE):
+            return "SEQUENCE OF"
+        if re.match(r"^SEQUENCE\b", s, re.IGNORECASE):
+            return "SEQUENCE"
+        return ""
+
     def _parse_sequence_fields(self, inner_asn1: str, parent_kind: str) -> List[Dict[str, Any]]:
         """Extracts field records while fully preserving inline SEQUENCE/CHOICE bodies and comments."""
         fields: List[Dict[str, Any]] = []
@@ -396,8 +435,8 @@ class BaseAsn1DocxParser:
                     tail = rest[brace_end + 1:].strip()
                     inner_body = rest[brace_start + 1:brace_end]
 
-                    # Parse presence and condition from trailing tail
-                    need_match = RE_COND_NEED.search(tail) or RE_COND_NEED.search(tok)
+                    # Parse presence and condition strictly from trailing tail outside the structural block
+                    need_match = RE_COND_NEED.search(tail)
                     if need_match:
                         code = need_match.group(1).strip()
                         presence = f"C ({code})" if "Cond" in code else f"O ({code})"
@@ -413,7 +452,7 @@ class BaseAsn1DocxParser:
                         "name": fname,
                         "type": raw_type_body,
                         "presence": presence,
-                        "format": parent_kind,
+                        "format": child_kind,
                         "raw_field": tok,
                         "nested_fields": nested_fields,
                         "iei": "",
@@ -432,12 +471,13 @@ class BaseAsn1DocxParser:
 
             # Strip outer keywords and trailing comma from simple type
             clean_type_candidate = RE_STRIP_KEYWORDS.sub("", rest.split("--")[0]).strip().rstrip(",").strip()
+            detected_format = self._detect_asn1_format(clean_type_candidate) or self._detect_asn1_format(rest) or parent_kind
 
             fields.append({
                 "name": fname,
                 "type": clean_type_candidate,
                 "presence": presence,
-                "format": parent_kind,
+                "format": detected_format,
                 "raw_field": tok,
                 "nested_fields": [],
                 "iei": "",

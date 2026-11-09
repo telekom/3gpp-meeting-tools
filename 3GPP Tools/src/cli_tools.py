@@ -22,6 +22,7 @@ import argparse
 import faulthandler
 import json
 import logging
+import math
 import os
 import sys
 import time
@@ -74,6 +75,26 @@ def _configure_cli_logging(log_level: str = "WARNING") -> None:
     sh = logging.StreamHandler(sys.__stderr__)
     sh.setFormatter(formatter)
     root_logger.addHandler(sh)
+
+
+def _sanitize_for_json(obj: Any) -> Any:
+    """Recursively replaces non-finite floats (NaN, Infinity) with None for RFC 8259 compliance."""
+    if isinstance(obj, float):
+        if not math.isfinite(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(v) for v in obj]
+    return obj
+
+
+def _safe_json_dumps(obj: Any, **kwargs: Any) -> str:
+    """Strict JSON serializer that guarantees standard compliance without NaN or Infinity."""
+    sanitized = _sanitize_for_json(obj)
+    kwargs.setdefault("allow_nan", False)
+    return json.dumps(sanitized, **kwargs)
 
 
 def _coerce_arg_value(raw: str, expected_type: Optional[ArgumentType] = None) -> Any:
@@ -313,7 +334,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 )
             except Exception:
                 pass
-            real_stdout.write(json.dumps(res.data, ensure_ascii=False, indent=2, default=str) + "\n")
+            real_stdout.write(_safe_json_dumps(res.data, ensure_ascii=False, indent=2, default=str) + "\n")
             real_stdout.flush()
             return 1 if is_err else 0
         else:
@@ -335,7 +356,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             except Exception:
                 pass
             real_stdout.write(
-                json.dumps({"ok": False, "tool": args.tool_name, "error": err_msg}, indent=2) + "\n"
+                _safe_json_dumps({"ok": False, "tool": args.tool_name, "error": err_msg}, indent=2) + "\n"
             )
             real_stdout.flush()
             return 1
@@ -354,7 +375,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "network_status": net_res.data if net_res.ok else {"error": getattr(net_res, "message", "failed")},
             "where_should_we_go_now": now_res.data if now_res.ok else {"error": getattr(now_res, "message", "failed")},
         }
-        real_stdout.write(json.dumps(combined, ensure_ascii=False, indent=2, default=str) + "\n")
+        real_stdout.write(_safe_json_dumps(combined, ensure_ascii=False, indent=2, default=str) + "\n")
         real_stdout.flush()
         return 0
 

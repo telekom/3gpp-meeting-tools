@@ -23,6 +23,7 @@ import argparse
 import faulthandler
 import json
 import logging
+import math
 import os
 import sys
 import time
@@ -90,6 +91,26 @@ def configure_mcp_logging(log_level: str = "INFO") -> Path:
     root_logger.addHandler(stderr_handler)
 
     return log_file_path
+
+
+def _sanitize_for_json(obj: Any) -> Any:
+    """Recursively replaces non-finite floats (NaN, Infinity) with None for RFC 8259 compliance."""
+    if isinstance(obj, float):
+        if not math.isfinite(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(v) for v in obj]
+    return obj
+
+
+def _safe_json_dumps(obj: Any, **kwargs: Any) -> str:
+    """Strict JSON serializer that guarantees standard compliance without NaN or Infinity."""
+    sanitized = _sanitize_for_json(obj)
+    kwargs.setdefault("allow_nan", False)
+    return json.dumps(sanitized, **kwargs)
 
 
 class MCPServer:
@@ -269,7 +290,7 @@ class MCPServer:
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
         if exec_result.ok:
-            payload_text = json.dumps(exec_result.data, ensure_ascii=False, indent=2, default=str)
+            payload_text = _safe_json_dumps(exec_result.data, ensure_ascii=False, indent=2, default=str)
             is_logic_error = isinstance(exec_result.data, dict) and exec_result.data.get("ok") is False
             logger.info(
                 "✅ Tool '%s' (action='%s') finished in %.1f ms (logic_error=%s)",
@@ -303,7 +324,7 @@ class MCPServer:
             )
         else:
             err_msg = getattr(exec_result, "error", None) or getattr(exec_result, "message", "Tool execution failed")
-            err_payload = json.dumps(
+            err_payload = _safe_json_dumps(
                 {"ok": False, "tool": tool_name, "error": err_msg},
                 ensure_ascii=False,
                 indent=2,
@@ -402,7 +423,7 @@ def _read_next_rpc_message(stream: BinaryIO) -> tuple[Optional[Dict[str, Any]], 
 
 
 def _write_rpc_message(stream: BinaryIO, response: Dict[str, Any], framing: str = "jsonl") -> None:
-    payload = json.dumps(response, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    payload = _safe_json_dumps(response, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if framing == "content-length":
         header = f"Content-Length: {len(payload)}\r\n\r\n".encode("ascii")
         stream.write(header)

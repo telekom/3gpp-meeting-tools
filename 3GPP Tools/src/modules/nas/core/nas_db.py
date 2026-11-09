@@ -115,6 +115,8 @@ class NASDatabase:
                 existing_cols = [row[1] for row in cursor.fetchall()]
                 if "applicability" not in existing_cols:
                     cursor.execute("ALTER TABLE message_ies ADD COLUMN applicability TEXT DEFAULT '';")
+                if "field_description" not in existing_cols:
+                    cursor.execute("ALTER TABLE message_ies ADD COLUMN field_description TEXT DEFAULT '';")
 
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_ie_appl ON message_ies(applicability);")
 
@@ -245,12 +247,13 @@ class NASDatabase:
                             ie.get("length", ""),
                             idx,
                             ie.get("applicability", ""),
+                            ie.get("field_description", ""),
                         ))
 
                     cursor.executemany(
                         """
-                        INSERT INTO message_ies (message_id, iei, ie_name, field_path, depth, type_reference, presence, format, length, order_index, applicability)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO message_ies (message_id, iei, ie_name, field_path, depth, type_reference, presence, format, length, order_index, applicability, field_description)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                         ie_rows,
                     )
@@ -608,11 +611,12 @@ class NASDatabase:
                     i.length,
                     i.order_index,
                     i.applicability,
-                    COALESCE(d1.raw_description, d2.raw_description, d3.raw_description) AS ie_description
+                    COALESCE(NULLIF(i.field_description, ''), d1.raw_description, d2.raw_description, d3.raw_description) AS ie_description
                 FROM message_ies i
                 JOIN nas_messages m ON i.message_id = m.id
                 JOIN spec_versions sv ON m.version_id = sv.id
                 LEFT JOIN ie_definitions d1 ON d1.version_id = sv.id AND d1.ie_name = i.ie_name AND d1.ie_name != ''
+                    AND (d1.clause = m.message_name OR d1.clause = m.clause OR d1.clause GLOB '[0-9]*' OR d1.clause GLOB 'Annex*' OR d1.clause = '')
                 LEFT JOIN ie_definitions d2 ON d2.version_id = sv.id AND d2.ie_name = i.type_reference AND d2.ie_name != ''
                 LEFT JOIN ie_definitions d3 ON d3.version_id = sv.id AND d3.clause != '' AND (d3.clause = i.type_reference OR (d3.ie_name || ' ' || d3.clause) = i.type_reference)
                 WHERE m.message_name = ? AND sv.id IN ({placeholders})

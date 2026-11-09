@@ -880,6 +880,94 @@ class TestMcpAndCliTools(unittest.TestCase):
             dialog.close()
             dialog.deleteLater()
 
+    def test_app06_to_app09_regressions(self):
+        """
+        Verify APP-06 through APP-09 regressions:
+        - APP-06: Container presence not contaminated by child annotations (M vs O Need S/R)
+        - APP-07: Scalar field formats are INTEGER/ENUMERATED, not SEQUENCE
+        - APP-08: SIB2 description lookup preserves owning context (no InterFreqCarrierFreqInfo attribution)
+        - APP-09: Embedded JSON has no NaN/Infinity and strict serialization succeeds
+        """
+        import math
+        from mcp_server import _safe_json_dumps, _sanitize_for_json
+        from modules.nas.core.parsing.asn1_base_parser import BaseAsn1DocxParser
+        from modules.assistant.core.agent_models import ToolStatus
+        from modules.assistant.core.knowledge.protocols import ProtocolKnowledgeService
+
+        # 1. Test APP-09 JSON sanitization
+        dirty_payload = {
+            "nan_val": float("nan"),
+            "inf_pos": float("inf"),
+            "inf_neg": float("-inf"),
+            "valid_num": 42.5,
+            "nested": {"inner_nan": float("nan"), "text": "ok"},
+            "items": [1, float("nan"), 3],
+        }
+        clean = _sanitize_for_json(dirty_payload)
+        self.assertIsNone(clean["nan_val"])
+        self.assertIsNone(clean["inf_pos"])
+        self.assertIsNone(clean["inf_neg"])
+        self.assertEqual(clean["valid_num"], 42.5)
+        self.assertIsNone(clean["nested"]["inner_nan"])
+        self.assertEqual(clean["nested"]["text"], "ok")
+        self.assertEqual(clean["items"], [1, None, 3])
+
+        # Strict JSON dumping produces RFC 8259 valid output without ValueError
+        serialized = _safe_json_dumps(dirty_payload)
+        self.assertNotIn("NaN", serialized)
+        self.assertNotIn("Infinity", serialized)
+        parsed = json.loads(serialized)
+        self.assertIsNone(parsed["nan_val"])
+
+        # 2. Test APP-06 and APP-07 via BaseAsn1DocxParser on synthetic fixture
+        parser = BaseAsn1DocxParser([], spec_number="38.331")
+        synthetic_asn1 = """
+            mandatoryContainer SEQUENCE {
+                childWithNeed INTEGER (0..10) OPTIONAL, -- Need S
+                childOptional ENUMERATED {true} OPTIONAL -- Need R
+            },
+            optionalContainer SEQUENCE {
+                subChild BOOLEAN
+            } OPTIONAL, -- Need R
+            scalarInt INTEGER (2..16) OPTIONAL, -- Need S
+            scalarEnum ENUMERATED {true} OPTIONAL -- Need R
+        """
+        fields = parser._parse_sequence_fields(synthetic_asn1, "SEQUENCE")
+        field_by_name = {f["name"]: f for f in fields}
+
+        # APP-06: Outer presence is M, not O (Need S) or O (Need R) from child annotations
+        self.assertEqual(field_by_name["mandatoryContainer"]["presence"], "M")
+        self.assertEqual(field_by_name["mandatoryContainer"]["format"], "SEQUENCE")
+        self.assertEqual(field_by_name["optionalContainer"]["presence"], "O (Need R)")
+
+        # APP-07: Scalar fields expose intrinsic format, not parent SEQUENCE
+        self.assertEqual(field_by_name["scalarInt"]["format"], "INTEGER")
+        self.assertEqual(field_by_name["scalarEnum"]["format"], "ENUMERATED")
+
+        # 3. Test APP-06..08 against live protocol database if imported
+        service = ProtocolKnowledgeService(self.protocol_db_path)
+        res = service.find_message("SIB2", protocol="NR RRC", version="19.3.0")
+        if res.status == ToolStatus.FOUND and res.data:
+            sib2_fields = res.data.get("fields", [])
+            actual = {f["ie_name"]: f for f in sib2_fields if f.get("depth", 0) == 0}
+            if actual:
+                # APP-06
+                for name in ("cellReselectionInfoCommon", "cellReselectionServingFreqInfo", "intraFreqCellReselectionInfo"):
+                    if name in actual:
+                        self.assertEqual(actual[name]["presence"], "M", f"{name} must be mandatory M")
+
+                # APP-07
+                if "cellEquivalentSize-r17" in actual:
+                    self.assertEqual(actual["cellEquivalentSize-r17"]["format"], "INTEGER")
+                if "uav-PrioritizedFrequency-r19" in actual:
+                    self.assertEqual(actual["uav-PrioritizedFrequency-r19"]["format"], "ENUMERATED")
+
+                # APP-08: SIB2 description must not refer to InterFreqCarrierFreqInfo-v1900
+                for fname in ("uav-PrioritizedFrequency-r19", "uav-PrioritizedFrequencyAltitudeRange-r19"):
+                    if fname in actual:
+                        desc = str(actual[fname].get("ie_description", "") or "")
+                        self.assertNotIn("Clause InterFreqCarrierFreqInfo-v1900", desc)
+
 
 if __name__ == "__main__":
     unittest.main()
