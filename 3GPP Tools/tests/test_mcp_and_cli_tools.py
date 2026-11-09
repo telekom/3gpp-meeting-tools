@@ -747,6 +747,139 @@ class TestMcpAndCliTools(unittest.TestCase):
             self.assertEqual(wi_tracked.data["work_items"][0]["code"], "1000002")
             self.assertTrue(wi_tracked.data["work_items"][0]["starred"])
 
+    def test_mcp_activity_and_monitor_ui(self) -> None:
+        """Verify cross-process activity telemetry, session tracking, and McpMonitorDialog UI."""
+        import os
+        from unittest.mock import patch
+        from PyQt5.QtWidgets import QApplication
+        from core.ai.mcp_activity import (
+            clear_mcp_activity_log,
+            generate_call_summary,
+            get_active_mcp_sessions,
+            get_mcp_activity_stats,
+            get_mcp_client_configurations,
+            get_recent_mcp_events,
+            is_pid_alive,
+            record_mcp_event,
+            register_mcp_session,
+            unregister_mcp_session,
+        )
+        from core.ui.mcp_monitor_dialog import McpMonitorDialog
+
+        # 1. Test Process Liveness & Session Registration
+        cur_pid = os.getpid()
+        self.assertTrue(is_pid_alive(cur_pid))
+        self.assertFalse(is_pid_alive(99999999))
+
+        test_log_file = self.tmp_path / "test_mcp_activity.jsonl"
+        test_sessions_dir = self.tmp_path / "sessions"
+
+        with patch("core.ai.mcp_activity.get_mcp_activity_log_path", return_value=test_log_file), \
+             patch("core.ai.mcp_activity.get_mcp_sessions_dir", return_value=test_sessions_dir):
+
+            # Register session
+            register_mcp_session(cur_pid, client="codex", version="1.2.0", profile="all")
+            sessions = get_active_mcp_sessions()
+            self.assertEqual(len(sessions), 1)
+            self.assertEqual(sessions[0]["client"], "codex")
+            self.assertEqual(sessions[0]["pid"], cur_pid)
+
+            # Record telemetry events
+            record_mcp_event(
+                "tools/call",
+                client="codex",
+                client_ver="1.2.0",
+                pid=cur_pid,
+                tool="spec_text_and_clauses",
+                action="search_text",
+                arguments={"spec_number": "23.501", "query": "URSP", "limit": 2},
+                elapsed_ms=45.2,
+                ok=True,
+                raw_data={"count": 2, "items": [{"result_id": "1"}, {"result_id": "2"}]},
+            )
+
+            record_mcp_event(
+                "tools/call",
+                client="claude",
+                client_ver="2.0",
+                pid=cur_pid,
+                tool="protocol_inspector",
+                action="find_message",
+                arguments={"protocol": "5GS_NAS", "query": "REGISTRATION REQUEST"},
+                elapsed_ms=18.5,
+                ok=True,
+                raw_data={"count": 1, "messages": [{"name": "REGISTRATION REQUEST"}]},
+            )
+
+            # Query events & stats
+            events = get_recent_mcp_events(limit=10)
+            self.assertEqual(len(events), 2)
+            self.assertEqual(events[0]["tool"], "protocol_inspector")
+            self.assertEqual(events[1]["tool"], "spec_text_and_clauses")
+
+            stats = get_mcp_activity_stats()
+            self.assertEqual(stats["total_calls"], 2)
+            self.assertEqual(stats["success_rate"], 100.0)
+            self.assertIn("spec_text_and_clauses", stats["by_tool"])
+            self.assertIn("protocol_inspector", stats["by_tool"])
+
+            # Test Call Summary Generator
+            summary = generate_call_summary(
+                "spec_text_and_clauses",
+                "search_text",
+                {"spec_number": "23.501", "query": "URSP"},
+                {"count": 2},
+            )
+            self.assertIn("TS 23.501", summary)
+            self.assertIn("2 clause hits", summary)
+
+            # Test Client Configuration Generator
+            cfgs = get_mcp_client_configurations()
+            self.assertIn("claude_desktop", cfgs)
+            self.assertIn("codex_cli", cfgs)
+            self.assertIn("claude_cli", cfgs)
+            self.assertIn("cursor", cfgs)
+            self.assertIn("mcpServers", cfgs["claude_desktop"]["config_json"])
+
+            # Test Clear Log
+            clear_mcp_activity_log()
+            self.assertEqual(len(get_recent_mcp_events()), 0)
+
+            # Unregister session
+            unregister_mcp_session(cur_pid)
+            self.assertEqual(len(get_active_mcp_sessions()), 0)
+
+            # 2. Test McpMonitorDialog GUI in Qt environment
+            app = QApplication.instance() or QApplication([])
+            dialog = McpMonitorDialog(parent=None)
+            self.assertIsNotNone(dialog)
+            self.assertEqual(dialog.tabs.count(), 3)
+            self.assertEqual(dialog.table.columnCount(), 8)
+
+            # Populate with mock event
+            record_mcp_event(
+                "tools/call",
+                client="codex",
+                pid=cur_pid,
+                tool="spec_text_and_clauses",
+                action="search_text",
+                arguments={"spec_number": "23.501"},
+                ok=True,
+                raw_data={"count": 1},
+            )
+            dialog.refresh_all()
+            self.assertEqual(dialog.table.rowCount(), 1)
+            self.assertEqual(dialog.table.item(0, 1).text(), "codex")
+            self.assertEqual(dialog.table.item(0, 3).text(), "spec_text_and_clauses")
+
+            # Selection update in inspection pane
+            dialog.table.selectRow(0)
+            self.assertIn("23.501", dialog.args_view.toPlainText())
+
+            # Cleanup dialog
+            dialog.close()
+            dialog.deleteLater()
+
 
 if __name__ == "__main__":
     unittest.main()

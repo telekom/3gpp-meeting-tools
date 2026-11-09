@@ -23,6 +23,7 @@ import argparse
 import faulthandler
 import json
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -36,6 +37,12 @@ for _p in (str(_ROOT_DIR), str(_SRC_DIR)):
         sys.path.insert(0, _p)
 
 from core.utils.paths import ensure_app_data_dirs, get_project_root
+from core.ai.mcp_activity import (
+    heartbeat_mcp_session,
+    record_mcp_event,
+    register_mcp_session,
+    unregister_mcp_session,
+)
 from modules.assistant.core.tool_registry import ToolRegistry
 from modules.assistant.core.tools.external_agent_tools import (
     PROFILE_TOOLS,
@@ -98,6 +105,23 @@ class MCPServer:
         self.registry = registry
         self.profile = profile
         self.read_only = read_only
+        self.client_name = "unknown"
+        self.client_version = "?"
+        self.pid = os.getpid()
+
+        # Register live session and setup clean exit hook
+        try:
+            register_mcp_session(
+                self.pid,
+                client=self.client_name,
+                version=self.client_version,
+                profile=self.profile,
+                read_only=self.read_only,
+            )
+            import atexit
+            atexit.register(unregister_mcp_session, self.pid)
+        except Exception:
+            pass
 
     def handle_message(self, message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Process a single JSON-RPC 2.0 request or notification."""
@@ -156,10 +180,35 @@ class MCPServer:
             else DEFAULT_PROTOCOL_VERSION
         )
         client_info = params.get("clientInfo") or {}
+        self.client_name = str(client_info.get("name") or "unknown")
+        self.client_version = str(client_info.get("version") or "?")
+        try:
+            register_mcp_session(
+                self.pid,
+                client=self.client_name,
+                version=self.client_version,
+                profile=self.profile,
+                read_only=self.read_only,
+            )
+            record_mcp_event(
+                "initialize",
+                client=self.client_name,
+                client_ver=self.client_version,
+                pid=self.pid,
+                tool="",
+                action="initialize",
+                arguments={"protocolVersion": negotiated_version, "clientInfo": client_info},
+                elapsed_ms=0.0,
+                ok=True,
+                raw_data={"serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION}},
+            )
+        except Exception:
+            pass
+
         logger.info(
             "🤝 MCP Initialize from client=%s version=%s (negotiated=%s, profile=%s, read_only=%s)",
-            client_info.get("name", "unknown"),
-            client_info.get("version", "?"),
+            self.client_name,
+            self.client_version,
             negotiated_version,
             self.profile,
             self.read_only,
@@ -186,6 +235,21 @@ class MCPServer:
     def _handle_tools_list(self, msg_id: Any, _params: Dict[str, Any]) -> Dict[str, Any]:
         tools = self.registry.mcp_tools()
         logger.info("📋 Returning %d MCP tool schemas (profile='%s')", len(tools), self.profile)
+        try:
+            record_mcp_event(
+                "tools/list",
+                client=self.client_name,
+                client_ver=self.client_version,
+                pid=self.pid,
+                tool="",
+                action="tools/list",
+                arguments={"profile": self.profile},
+                elapsed_ms=0.0,
+                ok=True,
+                raw_data={"count": len(tools)},
+            )
+        except Exception:
+            pass
         return self._result_response(msg_id, {"tools": tools})
 
     def _handle_tools_call(self, msg_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -214,6 +278,22 @@ class MCPServer:
                 elapsed_ms,
                 is_logic_error,
             )
+            try:
+                record_mcp_event(
+                    "tools/call",
+                    client=self.client_name,
+                    client_ver=self.client_version,
+                    pid=self.pid,
+                    tool=tool_name,
+                    action=action,
+                    arguments=arguments,
+                    elapsed_ms=elapsed_ms,
+                    ok=True,
+                    is_error=bool(is_logic_error),
+                    raw_data=exec_result.data,
+                )
+            except Exception:
+                pass
             return self._result_response(
                 msg_id,
                 {
@@ -235,6 +315,22 @@ class MCPServer:
                 elapsed_ms,
                 err_msg,
             )
+            try:
+                record_mcp_event(
+                    "tools/call",
+                    client=self.client_name,
+                    client_ver=self.client_version,
+                    pid=self.pid,
+                    tool=tool_name,
+                    action=action,
+                    arguments=arguments,
+                    elapsed_ms=elapsed_ms,
+                    ok=False,
+                    is_error=True,
+                    error_msg=err_msg,
+                )
+            except Exception:
+                pass
             return self._result_response(
                 msg_id,
                 {

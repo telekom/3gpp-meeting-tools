@@ -334,6 +334,7 @@ class DragDropUI(QMainWindow):
         self.console_panel.update_requested.connect(self.open_java_maintenance)
         self.console_panel.task_manager_requested.connect(self.open_task_manager)
         self.console_panel.db_maintenance_requested.connect(self.open_db_maintenance)
+        self.console_panel.mcp_monitor_requested.connect(self.open_mcp_monitor)
 
         self.queue_panel = QueuePanel()
 
@@ -515,6 +516,10 @@ class DragDropUI(QMainWindow):
             self.task_manager_dialog.raise_()
             self.task_manager_dialog.activateWindow()
 
+    def open_mcp_monitor(self):
+        """Spawns the MCP Server & External AI Agent Cockpit dialog."""
+        self.status_bar.open_mcp_monitor()
+
     # --- AUTO-SAVE LOGIC ---
     def _load_cache(self):
         if self.cache_file.exists():
@@ -539,6 +544,10 @@ class DragDropUI(QMainWindow):
             on_open_url=self.open_external_url,
             on_edit_config=self.edit_useful_links_config,
         )
+        self.help_menu.addSeparator()
+        mcp_action = self.help_menu.addAction("🤖 MCP Server && AI Agent Cockpit...")
+        mcp_action.setToolTip("Inspect real-time MCP server tool calls, external AI agent activity, and client configurations.")
+        mcp_action.triggered.connect(self.open_mcp_monitor)
 
     def open_external_url(self, url: str, title: str = "Web Resource"):
         try:

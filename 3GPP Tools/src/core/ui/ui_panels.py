@@ -118,6 +118,7 @@ class GuiLogHandler(logging.Handler, QObject):
 # Backward-compatibility re-exports for dialogs extracted to dedicated modules
 from core.ui.database_maintenance_dialog import DatabaseMaintenanceDialog, format_file_size
 from core.ui.process_manager_dialog import ProcessManagerDialog
+from core.ui.mcp_monitor_dialog import McpMonitorDialog
 
 
 # ==========================================
@@ -130,6 +131,7 @@ class ConsolePanel(QWidget):
     task_manager_requested = pyqtSignal()
     network_config_requested = pyqtSignal()
     db_maintenance_requested = pyqtSignal()
+    mcp_monitor_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -173,6 +175,12 @@ class ConsolePanel(QWidget):
         self.java_btn.setToolTip("Inspect installed Java runtime version, vendor, architecture, and binary path.")
         self.java_btn.clicked.connect(self.java_info_requested.emit)
 
+        self.mcp_btn = QPushButton("🤖 MCP")
+        self.mcp_btn.setFixedSize(65, 24)
+        self.mcp_btn.setStyleSheet("padding: 2px; font-size: 11px;")
+        self.mcp_btn.setToolTip("Inspect real-time MCP server tool calls, external AI agent activity, and client configurations.")
+        self.mcp_btn.clicked.connect(self.mcp_monitor_requested.emit)
+
         self.clear_btn = QPushButton("Clear")
         self.clear_btn.setFixedSize(60, 24)
         self.clear_btn.setStyleSheet("padding: 2px; font-size: 11px;")
@@ -185,6 +193,7 @@ class ConsolePanel(QWidget):
         header.addWidget(self.proxy_btn)
         header.addWidget(self.net_cfg_btn)
         header.addWidget(self.java_btn)
+        header.addWidget(self.mcp_btn)
         header.addWidget(self.clear_btn)
 
         self.console = QTextEdit()

@@ -4,7 +4,7 @@ import os
 import urllib.request
 from typing import Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtWidgets import (
     QDialog,
     QLabel,
@@ -66,7 +66,29 @@ class SystemStatusBar(QStatusBar):
         self.ollama_indicator.clicked.connect(self.open_ollama_settings)
         self.addPermanentWidget(self.ollama_indicator)
 
-        # 2. Proxy Indicator Pill
+        # 2. MCP AI Agent Indicator Pill
+        self.mcp_indicator = QPushButton("🤖 MCP: Idle")
+        self.mcp_indicator.setCursor(Qt.PointingHandCursor)
+        self.mcp_indicator.setToolTip("Click to inspect MCP Server activity & external AI agents (Claude, Codex)")
+        self.mcp_indicator.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                padding: 1px 8px;
+                font-size: 11px;
+                font-weight: bold;
+                color: #64748B;
+            }
+            QPushButton:hover {
+                background-color: #F1F5F9;
+                border-color: #94A3B8;
+            }
+        """)
+        self.mcp_indicator.clicked.connect(self.open_mcp_monitor)
+        self.addPermanentWidget(self.mcp_indicator)
+
+        # 3. Proxy Indicator Pill
         self.proxy_indicator = QPushButton("🌐 Direct")
         self.proxy_indicator.setCursor(Qt.PointingHandCursor)
         self.proxy_indicator.clicked.connect(self.open_proxy_settings)
@@ -80,6 +102,14 @@ class SystemStatusBar(QStatusBar):
         # Synchronize proxy on boot
         self.sync_proxy_environment_from_session()
         self.update_proxy_indicator()
+
+        # MCP status update timer
+        self._mcp_dialog = None
+        self.mcp_timer = QTimer(self)
+        self.mcp_timer.setInterval(3000)
+        self.mcp_timer.timeout.connect(self.update_mcp_indicator)
+        self.mcp_timer.start()
+        self.update_mcp_indicator()
 
     # ==========================================
     # --- PROXY ORCHESTRATION ---
@@ -259,8 +289,86 @@ class SystemStatusBar(QStatusBar):
             self.ollama_monitor.client.reconfigure(cfg.get("host"), cfg.get("proxy_mode"))
             self.ollama_monitor.trigger_check()
 
+    def open_mcp_monitor(self):
+        """Opens the MCP Server & External AI Agent Cockpit dialog."""
+        try:
+            from core.ui.mcp_monitor_dialog import McpMonitorDialog
+            if self._mcp_dialog is None:
+                self._mcp_dialog = McpMonitorDialog(self.window())
+            self._mcp_dialog.show()
+            self._mcp_dialog.raise_()
+            self._mcp_dialog.activateWindow()
+            self._mcp_dialog.refresh_all()
+        except Exception as exc:
+            logger.exception("Failed to open MCP Monitor dialog: %s", exc)
+
+    def update_mcp_indicator(self):
+        """Polls active MCP sessions and recent activity stats to update the status bar pill."""
+        try:
+            from core.ai.mcp_activity import get_active_mcp_sessions, get_mcp_activity_stats
+            sessions = get_active_mcp_sessions()
+            stats = get_mcp_activity_stats()
+            total_calls = stats.get("total_calls", 0)
+
+            if sessions:
+                clients = ", ".join(s.get("client", "agent") for s in sessions)
+                pids = ", ".join(str(s.get("pid", "?")) for s in sessions)
+                text = f"🤖 MCP: 🟢 Active ({total_calls})"
+                tooltip = (
+                    f"MCP Server: Active\n"
+                    f"Connected Client: {clients} (PID: {pids})\n"
+                    f"Total Calls: {total_calls}\n"
+                    f"Success Rate: {stats.get('success_rate', 100)}%\n\n"
+                    f"Click to open MCP & AI Agent Cockpit"
+                )
+                self.mcp_indicator.setText(text)
+                self.mcp_indicator.setToolTip(tooltip)
+                self.mcp_indicator.setStyleSheet("""
+                    QPushButton {
+                        background-color: #F0FDF4;
+                        border: 1px solid #86EFAC;
+                        border-radius: 4px;
+                        padding: 1px 8px;
+                        font-size: 11px;
+                        font-weight: bold;
+                        color: #15803D;
+                    }
+                    QPushButton:hover {
+                        background-color: #DCFCE7;
+                        border-color: #4ADE80;
+                    }
+                """)
+            else:
+                text = f"🤖 MCP: {total_calls} calls" if total_calls > 0 else "🤖 MCP: Idle"
+                tooltip = (
+                    f"MCP Server: Idle (No active agent process connected)\n"
+                    f"Total Calls Logged: {total_calls}\n\n"
+                    f"Click to open MCP & AI Agent Cockpit"
+                )
+                self.mcp_indicator.setText(text)
+                self.mcp_indicator.setToolTip(tooltip)
+                self.mcp_indicator.setStyleSheet("""
+                    QPushButton {
+                        background-color: transparent;
+                        border: 1px solid #CBD5E1;
+                        border-radius: 4px;
+                        padding: 1px 8px;
+                        font-size: 11px;
+                        font-weight: bold;
+                        color: #64748B;
+                    }
+                    QPushButton:hover {
+                        background-color: #F1F5F9;
+                        border-color: #94A3B8;
+                    }
+                """)
+        except Exception:
+            pass
+
     def stop_monitors(self):
         """Cleanly stops background thread monitors upon window shutdown."""
+        if hasattr(self, "mcp_timer") and self.mcp_timer.isActive():
+            self.mcp_timer.stop()
         if self.wifi_monitor and self.wifi_monitor.isRunning():
             self.wifi_monitor.requestInterruption()
             self.wifi_monitor.wait(300)

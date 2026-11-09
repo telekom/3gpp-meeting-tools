@@ -22,7 +22,9 @@ import argparse
 import faulthandler
 import json
 import logging
+import os
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -33,6 +35,7 @@ for _p in (str(_ROOT_DIR), str(_SRC_DIR)):
         sys.path.insert(0, _p)
 
 from core.utils.paths import ensure_app_data_dirs, get_project_root
+from core.ai.mcp_activity import record_mcp_event
 from modules.assistant.core.tool_registry import ArgumentType
 from modules.assistant.core.tools.external_agent_tools import (
     PROFILE_TOOLS,
@@ -288,14 +291,49 @@ def main(argv: Optional[List[str]] = None) -> int:
             clean_k = k.strip()
             call_args[clean_k] = _coerce_arg_value(v, type_map.get(clean_k))
 
+        t0 = time.perf_counter()
         res = registry.execute(args.tool_name, call_args)
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+
         if res.ok:
+            is_err = isinstance(res.data, dict) and res.data.get("ok") is False
+            try:
+                record_mcp_event(
+                    "cli/call",
+                    client="cli",
+                    client_ver="1.0.0",
+                    pid=os.getpid(),
+                    tool=args.tool_name,
+                    action=call_args.get("action", ""),
+                    arguments=call_args,
+                    elapsed_ms=elapsed_ms,
+                    ok=True,
+                    is_error=bool(is_err),
+                    raw_data=res.data,
+                )
+            except Exception:
+                pass
             real_stdout.write(json.dumps(res.data, ensure_ascii=False, indent=2, default=str) + "\n")
             real_stdout.flush()
-            is_err = isinstance(res.data, dict) and res.data.get("ok") is False
             return 1 if is_err else 0
         else:
             err_msg = getattr(res, "error", None) or getattr(res, "message", "Tool execution failed")
+            try:
+                record_mcp_event(
+                    "cli/call",
+                    client="cli",
+                    client_ver="1.0.0",
+                    pid=os.getpid(),
+                    tool=args.tool_name,
+                    action=call_args.get("action", ""),
+                    arguments=call_args,
+                    elapsed_ms=elapsed_ms,
+                    ok=False,
+                    is_error=True,
+                    error_msg=err_msg,
+                )
+            except Exception:
+                pass
             real_stdout.write(
                 json.dumps({"ok": False, "tool": args.tool_name, "error": err_msg}, indent=2) + "\n"
             )
