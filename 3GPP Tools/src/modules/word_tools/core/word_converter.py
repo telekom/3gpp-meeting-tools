@@ -528,12 +528,15 @@ class WordConverterThread(QThread):
                 original_source = Path(source_path).resolve()
                 _sanitize_file_attributes(original_source)
 
-                from modules.word_tools.core.document_opener import ensure_readable_word_document
-                readable_path, temp_snapshot_to_cleanup = ensure_readable_word_document(
-                    original_source,
-                    logger_fn=lambda msg: self._log(msg, logging.INFO),
-                )
-                source = readable_path
+                if original_source.suffix.lower() in ('.pptx', '.ppt'):
+                    source = original_source
+                else:
+                    from modules.word_tools.core.document_opener import ensure_readable_word_document
+                    readable_path, temp_snapshot_to_cleanup = ensure_readable_word_document(
+                        original_source,
+                        logger_fn=lambda msg: self._log(msg, logging.INFO),
+                    )
+                    source = readable_path
 
             # 1. Markdown Export Pipeline (OpenXML / tdoc_markdown_converter)
             if self.target_format in ("md", "markdown"):

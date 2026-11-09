@@ -16,7 +16,6 @@ from core.utils.paths import to_extended_path
 from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
 from modules.meetings.core.tdocs.tdoc_markdown_converter import (
-    convert_document_to_markdown,
     sanitize_filename,
     write_index,
     is_conversion_stale,
@@ -209,6 +208,7 @@ class TDocMarkdownExporterThread(QThread):
                             # Primary engine: Direct OpenXML extraction with tables, diagrams & track changes
                             os.makedirs(to_extended_path(tdoc_folder), exist_ok=True)
                             os.makedirs(to_extended_path(local_media_dir), exist_ok=True)
+                            from modules.meetings.core.tdocs.tdoc_markdown_converter import convert_document_to_markdown
                             doc_obj = convert_document_to_markdown(
                                 doc_path,
                                 out_dir=tdoc_folder,

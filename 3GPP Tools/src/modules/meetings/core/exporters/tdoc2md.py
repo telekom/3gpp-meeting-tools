@@ -158,7 +158,8 @@ def __getattr__(name):
     raise AttributeError("module %r has no attribute %r" % (__name__, name))
 
 
-DOC_EXTENSIONS = {".docx", ".docm", ".doc"}
+DOC_EXTENSIONS = {".docx", ".docm", ".doc", ".pptx", ".ppt"}
+PRESENTATION_EXTENSIONS = {".pptx", ".ppt"}
 METAFILE_EXTENSIONS = {".emf", ".wmf"}
 COMPRESSED_METAFILES = {".emz": ".emf", ".wmz": ".wmf"}
 RASTER_TO_CONVERT = {".tif", ".tiff", ".bmp"}
@@ -1946,7 +1947,21 @@ def run(input_path: Path, output_dir: Optional[Path] = None, excel: Optional[Pat
                     used[name] = 1
                 meta = metadata.get(tdoc_id.upper()) or metadata.get(base_tdoc_id(tdoc_id)) or {}
                 log.info("Converting %s (%s)", tdoc_id, original.name)
-                doc = convert_docx_file(path, output_dir, tdoc_id=tdoc_id, name=name, meta=meta,
+                if path.suffix.lower() in PRESENTATION_EXTENSIONS:
+                    from modules.word_tools.core.presentation_to_markdown import convert_presentation_to_markdown
+                    doc = convert_presentation_to_markdown(
+                        ppt_path=path,
+                        out_dir=output_dir,
+                        tdoc_id=tdoc_id,
+                        meta=meta,
+                        media_dir=output_dir / "media",
+                        media_rel="media",
+                        cancellation_check=cancellation_check,
+                        include_header=True,
+                        logger_fn=lambda m: log.info(m),
+                    )
+                else:
+                    doc = convert_docx_file(path, output_dir, tdoc_id=tdoc_id, name=name, meta=meta,
                                         original_name=original.name, revisions=revisions, image_dpi=image_dpi,
                                         convert_images=convert_images, keep_metafiles=keep_metafiles,
                                         cancellation_check=cancellation_check, metafile_converter=metafile_converter)

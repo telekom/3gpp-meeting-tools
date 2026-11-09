@@ -37,7 +37,6 @@ from core.utils.company_sanitizer import CompanySanitizer
 from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
 from modules.meetings.core.tdocs.tdoc_markdown_converter import (
-    convert_document_to_markdown,
     sanitize_filename,
     is_conversion_stale,
     resolve_revision_mode_for_type,
@@ -634,6 +633,7 @@ class DossierExporterThread(QThread):
                     try:
                         os.makedirs(to_extended_path(tdoc_folder), exist_ok=True)
                         os.makedirs(to_extended_path(local_media_dir), exist_ok=True)
+                        from modules.meetings.core.tdocs.tdoc_markdown_converter import convert_document_to_markdown
                         convert_document_to_markdown(
                             doc_path,
                             out_dir=tdoc_folder,

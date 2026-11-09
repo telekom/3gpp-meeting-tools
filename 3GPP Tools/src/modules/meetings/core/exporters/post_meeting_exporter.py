@@ -17,7 +17,6 @@ from modules.meetings.core.agenda_manager import AgendaItem
 from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
 from modules.meetings.core.tdocs.tdoc_markdown_converter import (
-    convert_document_to_markdown,
     sanitize_filename,
     is_conversion_stale,
     resolve_revision_mode_for_type,
@@ -1091,6 +1090,7 @@ class PostMeetingExporterThread(QThread):
                         revisions_url=self.revisions_url,
                         meta=row_data,
                     )
+                    from modules.meetings.core.tdocs.tdoc_markdown_converter import convert_document_to_markdown
                     convert_document_to_markdown(
                         doc_path,
                         out_dir=tdoc_folder,

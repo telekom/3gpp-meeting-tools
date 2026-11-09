@@ -126,9 +126,9 @@ class WordMarkdownCard(QWidget):
         md_layout.setSpacing(10)
 
         self.pane_markdown = DocumentSelectorPane(
-            "📄 WORD DOCUMENT TO CONVERT (.docx / .doc)",
-            accepted_extensions=[".docx", ".doc", ".docm", ".md", ".markdown"],
-            drop_prompt="📥 Drag & Drop Word document (.docx / .doc) here\n(or click to browse)",
+            "📄 DOCUMENT / PRESENTATION TO CONVERT (.docx / .doc / .pptx / .ppt)",
+            accepted_extensions=[".docx", ".doc", ".docm", ".pptx", ".ppt", ".md", ".markdown"],
+            drop_prompt="📥 Drag & Drop Word document or PowerPoint deck (.docx, .doc, .pptx, .ppt) here\n(or click to browse)",
         )
         self.pane_markdown.file_selected.connect(self._on_w2m_file_selected)
         md_layout.addWidget(self.pane_markdown)
@@ -432,12 +432,20 @@ class WordMarkdownCard(QWidget):
                 self.pane_m2w._set_files(files)
             finally:
                 self._routing_files = False
+            return
+
+        is_presentation = ext in (".pptx", ".ppt")
+        self.md_revisions_combo.setEnabled(not is_presentation)
+        if is_presentation:
+            self.md_revisions_combo.setToolTip("Track Changes is not applicable for PowerPoint presentations.")
+        else:
+            self.md_revisions_combo.setToolTip("Select how Word Track Changes revisions should be rendered in Markdown.")
 
     def _on_m2w_file_selected(self, files: list):
         if not files or self._routing_files:
             return
         ext = Path(files[0]).suffix.lower()
-        if ext in (".docx", ".doc", ".docm"):
+        if ext in (".docx", ".doc", ".docm", ".pptx", ".ppt"):
             self._routing_files = True
             try:
                 self.pane_m2w.clear_selection()
@@ -452,7 +460,7 @@ class WordMarkdownCard(QWidget):
     def _trigger_markdown_conversion(self):
         inputs = self.pane_markdown.get_inputs()
         if not inputs:
-            QMessageBox.warning(self, "No Document", "Please select or drop a Word document to convert to Markdown.")
+            QMessageBox.warning(self, "No Document", "Please select or drop a Word document or PowerPoint deck to convert to Markdown.")
             return
 
         source_file = inputs[0]

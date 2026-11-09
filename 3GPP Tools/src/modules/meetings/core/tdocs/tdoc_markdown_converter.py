@@ -226,7 +226,22 @@ def convert_document_to_markdown(
     resolved_tdoc_url = tdoc_url or resolve_tdoc_download_url(tid, meta=meta)
 
     try:
-        if suffix == ".doc":
+        if suffix in (".pptx", ".ppt"):
+            logger.info(f"Converting presentation {tid} ({path.name}) to Markdown...")
+            from modules.word_tools.core.presentation_to_markdown import convert_presentation_to_markdown
+            return convert_presentation_to_markdown(
+                ppt_path=effective_path,
+                out_dir=target_dir,
+                tdoc_id=tid,
+                meta=meta,
+                media_dir=media_dir,
+                media_rel=media_rel,
+                cancellation_check=cancellation_check,
+                tdoc_url=resolved_tdoc_url,
+                include_header=include_header,
+                logger_fn=lambda m: logger.info(m),
+            )
+        elif suffix == ".doc":
             logger.info(f"Converting legacy .doc to .docx for {tid} using application converters...")
             tmp_dir = Path(tempfile.mkdtemp(prefix="tdoc_conv_"))
             try:
