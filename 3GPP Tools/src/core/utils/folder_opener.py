@@ -16,3 +16,6 @@ def open_folder(p: Path) -> None:
             webbrowser.open(f"file:///{path_obj}")
     else:
         QMessageBox.warning(None, "Not Found", "Target file/folder does not exist yet.")
+
+
+open_local_file = open_folder

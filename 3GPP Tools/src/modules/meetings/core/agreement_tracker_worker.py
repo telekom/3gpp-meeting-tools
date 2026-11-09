@@ -92,8 +92,13 @@ class AgreementTrackerWorker(QThread):
         logger.log(level, message)
         self.log_msg.emit(message)
 
+    @property
+    def is_cancelled(self) -> bool:
+        return self._is_cancelled or self.isInterruptionRequested()
+
     def cancel(self):
         self._is_cancelled = True
+        self.requestInterruption()
         if self._executor:
             try:
                 self._executor.shutdown(wait=False, cancel_futures=True)
@@ -139,7 +144,7 @@ class AgreementTrackerWorker(QThread):
                 }
 
                 for future in as_completed(future_to_meeting):
-                    if self._is_cancelled:
+                    if self.is_cancelled:
                         self._log("🛑 Operation cancelled by user.", logging.INFO)
                         break
 
@@ -158,7 +163,7 @@ class AgreementTrackerWorker(QThread):
                         )
 
             self._executor = None
-            if self._is_cancelled:
+            if self.is_cancelled:
                 self.finished.emit(False, "Search cancelled.")
                 return
 
@@ -198,7 +203,7 @@ class AgreementTrackerWorker(QThread):
         return (9998, str(ai_str))
 
     def _process_single_meeting(self, mtg: dict) -> List[dict]:
-        if self._is_cancelled:
+        if self.is_cancelled:
             return []
 
         mtg_num = str(mtg.get("meeting_number", "Unknown")).strip()
@@ -215,7 +220,7 @@ class AgreementTrackerWorker(QThread):
         tdocs_by_id, ai_wi_from_excel, ai_title_from_excel = self._load_or_fetch_tdocs_excel(
             mtg, local_mtg_dir, agenda_dir, tag
         )
-        if self._is_cancelled:
+        if self.is_cancelled:
             return []
 
         # 2. Also load agenda.csv if present in Agenda/
@@ -227,7 +232,7 @@ class AgreementTrackerWorker(QThread):
         chair_agenda_data, chair_agreements = self._load_or_fetch_chair_notes(
             mtg, local_mtg_dir, agenda_dir, tag
         )
-        if self._is_cancelled:
+        if self.is_cancelled:
             return []
 
         # Merge any AI -> WI / Title discovered from chair_agenda_data
@@ -483,9 +488,9 @@ class AgreementTrackerWorker(QThread):
                     excel_file = fallback
 
         if (self.bypass_cache or not excel_file) and self.auto_download_missing and mtg_id:
-            if not self._is_cancelled:
+            if not self.is_cancelled:
                 self._log(f"📥 [{tag}] Downloading TDocs list workbook...")
-                dl = TDocsDownloaderThread(mtg_id, local_mtg_dir, cancel_check=lambda: self._is_cancelled)
+                dl = TDocsDownloaderThread(mtg_id, local_mtg_dir, cancel_check=lambda: self.is_cancelled)
                 dl.run()
                 if agenda_dir.exists():
                     excel_file = next(
@@ -594,16 +599,16 @@ class AgreementTrackerWorker(QThread):
                     local_files.append(f)
 
         # If no local files (or bypass_cache=True) and auto_download_missing is enabled, fetch from FTP!
-        if (not local_files or self.bypass_cache) and self.auto_download_missing and not self._is_cancelled:
+        if (not local_files or self.bypass_cache) and self.auto_download_missing and not self.is_cancelled:
             session = NetworkSession.get_instance()
             candidate_urls = self._build_meeting_candidate_urls(mtg)
             base_url, html_text = ChairNotesDownloaderThread.locate_chair_notes_dir(
                 session,
                 candidate_urls,
                 progress_callback=lambda m: self._log(f"   [{tag}] {m}"),
-                cancel_check=lambda: self._is_cancelled,
+                cancel_check=lambda: self.is_cancelled,
             )
-            if base_url and html_text and not self._is_cancelled:
+            if base_url and html_text and not self.is_cancelled:
                 all_remote = ChairNotesDownloaderThread.parse_file_list_static(html_text, base_url)
                 selected_remote = ChairNotesDownloaderThread.select_best_chair_notes_files(
                     all_remote, only_final_or_latest=True
@@ -617,7 +622,7 @@ class AgreementTrackerWorker(QThread):
                         files_to_download=selected_remote,
                         target_dir=chair_notes_dir,
                         progress_callback=lambda m: self._log(f"   [{tag}] {m}"),
-                        cancel_check=lambda: self._is_cancelled,
+                        cancel_check=lambda: self.is_cancelled,
                     )
                     if downloaded_names:
                         local_files = [chair_notes_dir / fname for fname in downloaded_names]
@@ -630,7 +635,7 @@ class AgreementTrackerWorker(QThread):
         merged_agreements: List[dict] = []
 
         for f_path in local_files:
-            if self._is_cancelled:
+            if self.is_cancelled:
                 break
             ext = f_path.suffix.lower()
             parse_targets: List[Path] = []
@@ -645,7 +650,7 @@ class AgreementTrackerWorker(QThread):
                 parse_targets.append(f_path)
 
             for target in parse_targets:
-                if self._is_cancelled:
+                if self.is_cancelled:
                     break
                 t_ext = target.suffix.lower()
                 if t_ext == ".docx":

@@ -46,7 +46,7 @@ from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     SEARCH_INPUT_STYLE,
 )
-from core.utils.file_opener import open_local_file
+from core.utils.folder_opener import open_local_file
 from core.utils.paths import to_extended_path
 from core.utils.portal_utils import open_portal_tdoc
 from modules.meetings.core.agreement_tracker_worker import AgreementTrackerWorker
@@ -678,13 +678,24 @@ class AgreementTrackerDialog(QDialog):
     def _cleanup_threads(self):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
+            self.worker.requestInterruption()
             self.worker.quit()
-            self.worker.wait(300)
+            if not self.worker.wait(1000):
+                try:
+                    self.worker.terminate()
+                    self.worker.wait(500)
+                except Exception:
+                    pass
         for th in list(self.active_tdoc_threads.values()):
             if th and th.isRunning():
                 th.requestInterruption()
                 th.quit()
-                th.wait(200)
+                if not th.wait(500):
+                    try:
+                        th.terminate()
+                        th.wait(200)
+                    except Exception:
+                        pass
         self.active_tdoc_threads.clear()
 
     def closeEvent(self, event):
