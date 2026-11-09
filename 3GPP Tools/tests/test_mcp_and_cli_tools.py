@@ -19,11 +19,16 @@ from cli_tools import main as cli_main
 from mcp_server import MCPServer, _read_next_rpc_message, _write_rpc_message, serve_stdio
 from modules.assistant.core.tools.external_agent_tools import (
     PROFILE_TOOLS,
+    _resolve_db_paths,
     build_external_agent_tool_registry,
 )
+from modules.meetings.core.meetings_db import MeetingsDatabase
+from modules.meetings.core.tdocs.tdocs_db import TDocsDatabase
 from modules.nas.core.nas_db import NASDatabase
 from modules.spec_search.core.spec_search_db import SpecSearchDatabase
 from modules.specifications.core.database import SpecsDatabase
+from modules.specifications.core.spec_history_db import SpecHistoryDatabase
+from modules.work_items.core.wi_database import WorkItemsDatabase
 
 
 class TestMcpAndCliTools(unittest.TestCase):
@@ -34,6 +39,9 @@ class TestMcpAndCliTools(unittest.TestCase):
         self.specs_db_path = self.tmp_path / "specs.db"
         self.spec_search_db_path = self.tmp_path / "spec_search.db"
         self.protocol_db_path = self.tmp_path / "protocol.db"
+        self.spec_history_db_path = self.tmp_path / "spec_history.db"
+        self.user_tdocs_db_path = self.tmp_path / "user_tdocs.db"
+        self.session_plan_db_path = self.tmp_path / "session_plans.db"
 
         # 1. Seed SpecsDatabase (`specifications` + `files` tables)
         specs_db = SpecsDatabase(db_path=self.specs_db_path)
@@ -153,10 +161,175 @@ class TestMcpAndCliTools(unittest.TestCase):
             spec_type="NAS",
         )
 
+        # 4. Seed MeetingsDatabase, SpecHistoryDatabase, WorkItemsDatabase, and TDocsDatabase
+        meetings_db = MeetingsDatabase(db_path=self.specs_db_path)
+        for mtg_dict in [
+            {
+                "wg_name": "SA2",
+                "folder_name": "TSGS2_174_Malta_2026-04",
+                "meeting_number": "174",
+                "name": "S2-174",
+                "location": "Malta",
+                "start_date": "2026-04-13",
+                "end_date": "2026-04-17",
+                "url_key": "tsg_sa/WG2_Arch/TSGS2_174_Malta_2026-04",
+                "docs_folder_url": "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_174_Malta_2026-04/Docs/",
+                "first_tdoc": "S2-2601720",
+                "last_tdoc": "S2-2603600",
+                "mtg_id": "60765",
+            },
+            {
+                "wg_name": "SA2",
+                "folder_name": "TSGS2_175_Dalian_2026-05",
+                "meeting_number": "175",
+                "name": "S2-175",
+                "location": "Dalian, CN",
+                "start_date": "2026-05-18",
+                "end_date": "2026-05-22",
+                "url_key": "tsg_sa/WG2_Arch/TSGS2_175_Dalian_2026-05",
+                "docs_folder_url": "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_175_Dalian_2026-05/Docs/",
+                "first_tdoc": "S2-2604000",
+                "last_tdoc": "S2-2605999",
+                "mtg_id": "60766",
+            },
+        ]:
+            meetings_db.upsert_single_meeting(mtg_dict)
+
+        # Seed cached meeting spreadsheet JSON in a disposable cache dir
+        self.agenda_dir = self.tmp_path / "TSGS2_174_Malta_2026-04" / "Agenda"
+        self.agenda_dir.mkdir(parents=True, exist_ok=True)
+        tdoc_rows = [
+            {
+                "TDoc": "S2-2602001",
+                "Title": "Clarification on URSP rule evaluation",
+                "Source": "Ericsson",
+                "Type": "pCR",
+                "For": "Approval",
+                "Agenda Item": "6.1",
+                "Agenda item description": "5GS Policy",
+                "Related WIs": "TEI18",
+                "Spec": "23.503",
+                "Release": "Rel-18",
+                "TDoc Status": "agreed",
+                "Secretary Remarks": "Agreed",
+            },
+            {
+                "TDoc": "S2-2602002",
+                "Title": "Carry-over pCR with question mark co-signer",
+                "Source": "Nokia, Ericsson?",
+                "Type": "pCR",
+                "For": "Approval",
+                "Agenda Item": "6.1",
+                "Agenda item description": "5GS Policy",
+                "Related WIs": "TEI18",
+                "Spec": "23.503",
+                "Release": "Rel-18",
+                "TDoc Status": "revised",
+                "Secretary Remarks": "Revised to r01",
+            },
+            {
+                "TDoc": "S2-2602003",
+                "Title": "Carry-over pCR with bracketed co-signer",
+                "Source": "Qualcomm, [Ericsson]",
+                "Type": "pCR",
+                "For": "Approval",
+                "Agenda Item": "6.2",
+                "Agenda item description": "5GS Core",
+                "Related WIs": "TEI18",
+                "Spec": "23.501",
+                "Release": "Rel-18",
+                "TDoc Status": "noted",
+                "Secretary Remarks": "Noted",
+            },
+            {
+                "TDoc": "S2-2602004",
+                "Title": "Rapporteur CR pack for SNPN",
+                "Source": "Ericsson [Rapporteur]",
+                "Type": "CR",
+                "For": "Approval",
+                "Agenda Item": "6.3",
+                "Agenda item description": "SNPN",
+                "Related WIs": "SNPN_Ph2",
+                "Spec": "23.501",
+                "Release": "Rel-18",
+                "TDoc Status": "approved",
+                "Secretary Remarks": "Approved",
+            },
+        ]
+        (self.agenda_dir / "TDoc_List_Meeting_SA2#174.xlsx.json").write_text(
+            json.dumps(tdoc_rows),
+            encoding="utf-8",
+        )
+
+        # Seed SpecHistoryDatabase
+        hist_db = SpecHistoryDatabase(db_path=self.spec_history_db_path)
+        hist_db.upsert_history_records(
+            [
+                {
+                    "spec_number": "23.501",
+                    "version": "18.0.0",
+                    "row_order": 1,
+                    "date": "2023-03",
+                    "meeting": "SP#99",
+                    "source_tdoc": "SP-230101",
+                    "cr_number": "4100",
+                    "revision": "1",
+                    "category": "B",
+                    "subject": "PEI verification for SNPN onboarding",
+                    "affected_clauses": "5.5.1",
+                    "pcr_tdocs": ["S2-2301234"],
+                },
+                {
+                    "spec_number": "23.501",
+                    "version": "18.0.0",
+                    "row_order": 2,
+                    "date": "2023-03",
+                    "meeting": "SP#99",
+                    "source_tdoc": "SP-230102",
+                    "cr_number": "4101",
+                    "revision": "2",
+                    "category": "F",
+                    "subject": "Clarification on URSP rule evaluation",
+                    "affected_clauses": "5.15.1",
+                    "pcr_tdocs": ["S2-2602001"],
+                },
+            ]
+        )
+
+        # Seed WorkItemsDatabase
+        wi_db = WorkItemsDatabase(db_path=self.specs_db_path)
+        wi_db.upsert_work_items(
+            "SA2",
+            [
+                {
+                    "code": "1000001",
+                    "acronym": "FS_6G_ARC",
+                    "name": "Study on 6G System Architecture",
+                    "release": "Rel-20",
+                },
+                {
+                    "code": "1000002",
+                    "acronym": "SNPN_Ph2",
+                    "name": "Enhanced support of Non-Public Networks Phase 2",
+                    "release": "Rel-18",
+                },
+            ],
+        )
+
+        # Seed TDocsDatabase
+        TDocsDatabase(db_path=self.user_tdocs_db_path).upsert(
+            "S2-2602001",
+            "🟢 Support",
+            "Aligned with our URSP position",
+        )
+
         self.db_kwargs = {
             "specs_db_path": self.specs_db_path,
             "spec_search_db_path": self.spec_search_db_path,
             "protocol_db_path": self.protocol_db_path,
+            "spec_history_db_path": self.spec_history_db_path,
+            "user_tdocs_db_path": self.user_tdocs_db_path,
+            "session_plan_db_path": self.session_plan_db_path,
         }
 
     def tearDown(self) -> None:
@@ -394,6 +567,185 @@ class TestMcpAndCliTools(unittest.TestCase):
             ]
         )
         self.assertEqual(rc_call, 0)
+
+        # Also verify --args JSON payload alias works on cli_tools call
+        rc_args_alias = cli_main(
+            [
+                "--read-only",
+                "call",
+                "meetings_and_tdocs",
+                "--args",
+                '{"action": "search_meetings", "wg": "SA2", "limit": 2}',
+            ]
+        )
+        self.assertEqual(rc_args_alias, 0)
+
+    def test_app01_to_app05_regressions(self):
+        from unittest.mock import patch
+
+        # APP-01: Default database path resolution points to 3gpp_spec_search.db & 3gpp_protocol_data.db
+        resolved = _resolve_db_paths()
+        self.assertEqual(resolved["specs_db"].name, "3gpp_data.db")
+        self.assertEqual(resolved["spec_search_db"].name, "3gpp_spec_search.db")
+        self.assertEqual(resolved["protocol_db"].name, "3gpp_protocol_data.db")
+        self.assertEqual(resolved["spec_history_db"].name, "3gpp_spec_history.db")
+
+        # Explicit overrides remain respected
+        custom_paths = _resolve_db_paths(
+            spec_search_db_path=self.spec_search_db_path,
+            protocol_db_path=self.protocol_db_path,
+        )
+        self.assertEqual(custom_paths["spec_search_db"], self.spec_search_db_path)
+        self.assertEqual(custom_paths["protocol_db"], self.protocol_db_path)
+
+        reg = build_external_agent_tool_registry(**self.db_kwargs, profile="all")
+
+        # APP-02: search_meetings with WG filter, limit, year, and non-matching query
+        m_res = reg.execute(
+            "meetings_and_tdocs",
+            {"action": "search_meetings", "wg": "SA2", "limit": 1},
+        )
+        self.assertTrue(m_res.ok and m_res.data["ok"])
+        self.assertEqual(m_res.data["count"], 1)
+        self.assertEqual(m_res.data["meetings"][0]["wg_name"], "SA2")
+
+        m_empty = reg.execute(
+            "meetings_and_tdocs",
+            {"action": "search_meetings", "wg": "SA2", "query": "NONEXISTENT_MEETING_99999"},
+        )
+        self.assertTrue(m_empty.ok and m_empty.data["ok"])
+        self.assertEqual(m_empty.data["count"], 0)
+
+        # APP-03: TDoc search, confirmed vs tentative company filtering, stance/notes, and meeting_stats
+        with patch(
+            "modules.assistant.core.tools.external_agent_tools._get_meetings_cache_roots",
+            return_value=[self.tmp_path],
+        ):
+            # Confirmed-only Ericsson should match "Ericsson" and "Ericsson [Rapporteur]" (2 rows),
+            # while excluding "Nokia, Ericsson?" and "Qualcomm, [Ericsson]"
+            t_conf = reg.execute(
+                "meetings_and_tdocs",
+                {
+                    "action": "search_tdocs",
+                    "wg": "SA2",
+                    "meeting_number": "174",
+                    "source_company": "Ericsson",
+                    "confirmed_company_only": True,
+                },
+            )
+            self.assertTrue(t_conf.ok and t_conf.data["ok"])
+            conf_nums = [r["tdoc_number"] for r in t_conf.data["tdocs"]]
+            self.assertEqual(sorted(conf_nums), ["S2-2602001", "S2-2602004"])
+            # Sidecar stance/notes should be attached to S2-2602001
+            row_2001 = next(r for r in t_conf.data["tdocs"] if r["tdoc_number"] == "S2-2602001")
+            self.assertEqual(row_2001["my_status"], "🟢 Support")
+            self.assertIn("URSP", row_2001["my_notes"])
+
+            # Including tentative should return all 4 rows
+            t_all = reg.execute(
+                "meetings_and_tdocs",
+                {
+                    "action": "search_tdocs",
+                    "wg": "SA2",
+                    "meeting_number": "174",
+                    "source_company": "Ericsson",
+                    "confirmed_company_only": False,
+                },
+            )
+            self.assertTrue(t_all.ok and t_all.data["ok"])
+            self.assertEqual(t_all.data["count"], 4)
+
+            # get_or_set_stance round-trip
+            stance_get = reg.execute(
+                "meetings_and_tdocs",
+                {"action": "get_or_set_stance", "tdoc_id": "S2-2602001"},
+            )
+            self.assertTrue(stance_get.ok and stance_get.data["ok"])
+            self.assertEqual(stance_get.data["my_status"], "🟢 Support")
+
+            stance_set = reg.execute(
+                "meetings_and_tdocs",
+                {
+                    "action": "get_or_set_stance",
+                    "tdoc_id": "S2-2602004",
+                    "stance": "🟡 Question",
+                    "notes": "Verify SNPN clause numbering",
+                },
+            )
+            self.assertTrue(stance_set.ok and stance_set.data["ok"])
+            self.assertEqual(stance_set.data["my_status"], "🟡 Question")
+
+            # meeting_stats
+            stats_res = reg.execute(
+                "meetings_and_tdocs",
+                {"action": "meeting_stats", "wg": "SA2", "meeting_number": "174"},
+            )
+            self.assertTrue(stats_res.ok and stats_res.data["ok"])
+            self.assertEqual(stats_res.data["total_tdocs"], 4)
+            top_map = {c["company"]: c["tdoc_count"] for c in stats_res.data["top_confirmed_contributors"]}
+            self.assertEqual(top_map.get("Ericsson"), 2)
+
+        # APP-04: SpecHistoryDatabase.search_history, query_history, attribute_clause, rank_origin_crs, tdoc_dossier
+        h_query = reg.execute(
+            "spec_history_and_attribution",
+            {"action": "query_history", "spec_number": "23.501", "query": "SNPN"},
+        )
+        self.assertTrue(h_query.ok and h_query.data["ok"])
+        self.assertEqual(h_query.data["count"], 1)
+        self.assertEqual(h_query.data["records"][0]["cr_number"], "4100")
+        self.assertIn("S2-2301234", h_query.data["records"][0]["pcr_tdocs"])
+
+        h_attr = reg.execute(
+            "spec_history_and_attribution",
+            {"action": "attribute_clause", "spec_number": "23.501", "clause_id": "5.5.1"},
+        )
+        self.assertTrue(h_attr.ok and h_attr.data["ok"])
+        self.assertGreaterEqual(h_attr.data["all_candidates_count"], 1)
+
+        h_rank = reg.execute(
+            "spec_history_and_attribution",
+            {"action": "rank_origin_crs", "spec_number": "23.501", "query": "SNPN"},
+        )
+        self.assertTrue(h_rank.ok and h_rank.data["ok"])
+        self.assertGreaterEqual(len(h_rank.data["ranked_origin_crs"]), 1)
+
+        with patch(
+            "modules.assistant.core.tools.external_agent_tools._get_meetings_cache_roots",
+            return_value=[self.tmp_path],
+        ):
+            h_dossier = reg.execute(
+                "spec_history_and_attribution",
+                {
+                    "action": "tdoc_dossier",
+                    "spec_number": "23.501",
+                    "version": "18.0.0",
+                    "output_dir": str(self.tmp_path),
+                },
+            )
+            self.assertTrue(h_dossier.ok and h_dossier.data["ok"])
+            self.assertTrue(Path(h_dossier.data["markdown_dossier_path"]).exists())
+
+        # APP-05: search_work_items with query, release ("20" and "Rel-20"), wg, and tracked_only
+        wi_q = reg.execute(
+            "work_items_and_emails",
+            {"action": "search_work_items", "query": "6G", "release": "20", "wg": "SA2"},
+        )
+        self.assertTrue(wi_q.ok and wi_q.data["ok"])
+        self.assertEqual(wi_q.data["count"], 1)
+        self.assertEqual(wi_q.data["work_items"][0]["acronym"], "FS_6G_ARC")
+
+        with patch(
+            "modules.work_items.core.wi_settings.WorkItemsSettings.get_tracking_sets",
+            return_value=({"1000002"}, set()),
+        ):
+            wi_tracked = reg.execute(
+                "work_items_and_emails",
+                {"action": "search_work_items", "tracked_only": True, "limit": 1},
+            )
+            self.assertTrue(wi_tracked.ok and wi_tracked.data["ok"])
+            self.assertEqual(wi_tracked.data["count"], 1)
+            self.assertEqual(wi_tracked.data["work_items"][0]["code"], "1000002")
+            self.assertTrue(wi_tracked.data["work_items"][0]["starred"])
 
 
 if __name__ == "__main__":

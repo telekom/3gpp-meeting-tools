@@ -309,6 +309,131 @@ class SpecHistoryDatabase:
     # Convenience alias for get_spec_history
     get_history_for_spec = get_spec_history
 
+    def search_history(
+        self,
+        spec_number: Optional[str] = None,
+        query: Optional[str] = None,
+        meeting: Optional[str] = None,
+        category: Optional[str] = None,
+        version: Optional[str] = None,
+        clause_id: Optional[str] = None,
+        tdoc_id: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """
+        Searches across spec_change_history and spec_tdoc_cross_ref with flexible filters.
+        Each returned record includes 'tdocs' (list of dicts) and 'pcr_tdocs' (list of raw TDoc strings).
+        """
+        sql = """
+            SELECT h.id, h.spec_number, h.version, h.row_order, h.date, h.meeting,
+                   h.source_tdoc, h.cr_number, h.revision, h.category, h.subject,
+                   h.old_version, h.source_file, h.affected_clauses, h.extracted_at
+            FROM spec_change_history h
+            WHERE 1=1
+        """
+        params: List[Any] = []
+
+        if spec_number:
+            clean_spec = str(spec_number).strip().upper()
+            for prefix in ("3GPP ", "TS ", "TR "):
+                if clean_spec.startswith(prefix):
+                    clean_spec = clean_spec[len(prefix):].strip()
+            sql += " AND h.spec_number = ?"
+            params.append(clean_spec)
+
+        if version:
+            clean_ver = str(version).strip().lstrip("vV")
+            sql += " AND h.version = ?"
+            params.append(clean_ver)
+
+        if meeting:
+            clean_mtg = str(meeting).strip()
+            sql += " AND h.meeting LIKE ?"
+            params.append(f"%{clean_mtg}%")
+
+        if category:
+            clean_cat = str(category).strip().upper()
+            sql += " AND UPPER(h.category) = ?"
+            params.append(clean_cat)
+
+        if clause_id:
+            clean_cl = str(clause_id).strip()
+            sql += " AND (h.affected_clauses LIKE ? OR h.subject LIKE ?)"
+            params.extend([f"%{clean_cl}%", f"%{clean_cl}%"])
+
+        if tdoc_id:
+            clean_tdoc = str(tdoc_id).strip().upper()
+            base_tdoc = clean_tdoc.split("R")[0]
+            sql += """
+                AND (
+                    UPPER(h.source_tdoc) LIKE ?
+                    OR EXISTS (
+                        SELECT 1 FROM spec_tdoc_cross_ref c
+                        WHERE c.history_id = h.id
+                          AND (c.tdoc = ? OR UPPER(c.raw_tdoc) LIKE ?)
+                    )
+                )
+            """
+            params.extend([f"%{clean_tdoc}%", base_tdoc, f"%{clean_tdoc}%"])
+
+        if query:
+            clean_q = str(query).strip()
+            like_q = f"%{clean_q}%"
+            sql += """
+                AND (
+                    h.subject LIKE ?
+                    OR h.source_tdoc LIKE ?
+                    OR h.cr_number LIKE ?
+                    OR h.affected_clauses LIKE ?
+                    OR h.meeting LIKE ?
+                    OR EXISTS (
+                        SELECT 1 FROM spec_tdoc_cross_ref c
+                        WHERE c.history_id = h.id
+                          AND (c.tdoc LIKE ? OR c.raw_tdoc LIKE ?)
+                    )
+                )
+            """
+            params.extend([like_q, like_q, like_q, like_q, like_q, like_q, like_q])
+
+        safe_limit = max(1, int(limit or 50))
+        sql += " ORDER BY h.row_order DESC, h.id DESC LIMIT ?"
+        params.append(safe_limit)
+
+        with self._get_connection() as conn:
+            rows = conn.execute(sql, params).fetchall()
+            results = [dict(r) for r in rows]
+
+            if results:
+                history_ids = [r["id"] for r in results]
+                placeholders = ",".join("?" for _ in history_ids)
+                tdoc_rows = conn.execute(f"""
+                    SELECT history_id, tdoc, raw_tdoc, is_pcr
+                    FROM spec_tdoc_cross_ref
+                    WHERE history_id IN ({placeholders})
+                    ORDER BY id ASC
+                """, history_ids).fetchall()
+
+                tdoc_map: Dict[int, List[Dict[str, Any]]] = {}
+                pcr_map: Dict[int, List[str]] = {}
+                for t in tdoc_rows:
+                    hid = t["history_id"]
+                    is_pcr = bool(t["is_pcr"])
+                    raw_t = str(t["raw_tdoc"] or t["tdoc"] or "").strip()
+                    tdoc_map.setdefault(hid, []).append({
+                        "tdoc": t["tdoc"],
+                        "raw_tdoc": raw_t,
+                        "is_pcr": is_pcr,
+                    })
+                    if is_pcr and raw_t:
+                        pcr_map.setdefault(hid, []).append(raw_t)
+
+                for r in results:
+                    hid = r["id"]
+                    r["tdocs"] = tdoc_map.get(hid, [])
+                    r["pcr_tdocs"] = pcr_map.get(hid, [])
+
+            return results
+
     def get_tdocs_for_spec_version(self, spec_number: str, version: str) -> List[Dict[str, Any]]:
         """Returns all distinct TDocs cross-referenced for a given specification and version."""
         clean_spec = spec_number.strip()

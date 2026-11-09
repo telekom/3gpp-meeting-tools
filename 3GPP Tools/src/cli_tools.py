@@ -142,6 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub_call.add_argument("--action", help="Action name (e.g. search_text, network_status).")
     sub_call.add_argument(
         "--json",
+        "--args",
         dest="json_payload",
         help="JSON object string of arguments (e.g. '{\"action\":\"network_status\"}').",
     )
@@ -169,8 +170,14 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     _configure_cli_logging(args.log_level)
 
-    # Keep stdout purely for CLI output; route stray library print() calls to stderr
+    # Ensure UTF-8 output on Windows consoles so emoji badges (🎯, ⚪, etc.) never raise UnicodeEncodeError
     real_stdout = sys.__stdout__
+    for stream in (real_stdout, sys.__stderr__):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
     sys.stdout = sys.stderr
 
     try:

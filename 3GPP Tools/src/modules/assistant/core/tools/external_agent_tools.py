@@ -30,6 +30,7 @@ from core.network.network_state import NetworkState
 from core.network.session import NetworkSession
 from core.utils.company_sanitizer import CompanySanitizer
 from core.utils.paths import (
+    get_cache_root,
     get_db_root,
     get_meetings_root,
     get_output_root,
@@ -165,8 +166,8 @@ def _resolve_db_paths(
     db_root = get_db_root()
     return {
         "specs_db": Path(specs_db_path or (db_root / "3gpp_data.db")),
-        "spec_search_db": Path(spec_search_db_path or (db_root / "spec_search.db")),
-        "protocol_db": Path(protocol_db_path or (db_root / "nas_knowledge.db")),
+        "spec_search_db": Path(spec_search_db_path or (db_root / "3gpp_spec_search.db")),
+        "protocol_db": Path(protocol_db_path or (db_root / "3gpp_protocol_data.db")),
         "spec_history_db": Path(spec_history_db_path or (db_root / "3gpp_spec_history.db")),
         "user_tdocs_db": Path(user_tdocs_db_path or (db_root / "user_tdocs.db")),
         "session_plan_db": Path(session_plan_db_path or (db_root / "session_plans.db")),
@@ -643,79 +644,69 @@ def _handle_spec_history_and_attribution(
         if not spec_number or not clause_id:
             return {"error": "spec_number and clause_id are required for action='attribute_clause'."}
         from modules.spec_search.core.spec_search_db import SpecSearchDatabase
-        from modules.specifications.core.spec_clause_attribution import (
-            SpecClauseAttributionEngine,
-            verify_candidate_in_docx,
-        )
-        from modules.specifications.core.database import SpecsDatabase
+        from modules.specifications.core.spec_clause_attribution import SpecClauseAttributionEngine
+        from modules.specifications.core.spec_tdoc_opener import SpecTDocOpener
 
         search_db = SpecSearchDatabase(spec_search_db_path)
-        specs_db = SpecsDatabase(specs_db_path)
         engine = SpecClauseAttributionEngine(
             history_db=history_db,
-            specs_db=specs_db,
-            spec_search_db=search_db,
+            search_db=search_db,
         )
-        report = engine.attribute_clause(
-            spec_number=spec_number,
-            clause_id=clause_id,
-            clause_title=str(args.get("clause_title") or ""),
-            clause_text=str(args.get("clause_text") or ""),
-            target_version=version,
-            include_all_versions=bool(args.get("include_all_versions", False)),
-            limit=limit,
+        clean_spec = re.sub(r"^(?:3GPP\s*)?(?:TS|TR)\s*", "", spec_number, flags=re.IGNORECASE).strip()
+        target_ver = version
+        if not target_ver:
+            hist_vers = history_db.get_versions_for_spec(clean_spec)
+            target_ver = hist_vers[0] if hist_vers else "20.0.0"
+
+        clause_title = str(args.get("clause_title") or "")
+        clause_text = str(args.get("clause_text") or "")
+        if not clause_title or not clause_text:
+            try:
+                all_imp = search_db.get_imported_versions()
+                spec_v_rows = [v for v in all_imp if str(v.get("spec_number")) in (spec_number, clean_spec)]
+                if spec_v_rows:
+                    vid = int(spec_v_rows[0]["id"])
+                    cl_row = search_db.get_clause_content(vid, clause_id)
+                    if cl_row:
+                        clause_title = clause_title or str(cl_row.get("clause_title") or "")
+                        clause_text = clause_text or str(cl_row.get("content") or "")
+            except Exception:
+                pass
+
+        candidates = engine.attribute_clause(
+            spec_number=clean_spec,
+            clause_number=clause_id,
+            target_version=target_ver,
+            base_version=str(args.get("base_version") or "") or None,
+            clause_title=clause_title,
+            diff_text=str(args.get("diff_text") or ""),
+            clause_content=clause_text,
         )
-        if bool(args.get("deep_verify_docx", False)) and report.candidates:
-            for cand in report.candidates[: min(10, len(report.candidates))]:
-                verify_candidate_in_docx(cand, clause_id, specs_db=specs_db)
-            report.candidates.sort(key=lambda c: (-c.confidence_score, c.version, c.tdoc_id))
+        if bool(args.get("deep_verify_docx", False)) and candidates:
+            for cand in candidates[: min(5, len(candidates))]:
+                tdoc_tok = str(cand.get("tdoc") or "")
+                local_doc = SpecTDocOpener.resolve_local_tdoc_file(tdoc_tok) if tdoc_tok else None
+                if local_doc and local_doc.exists():
+                    matched, pct, snip = engine.verify_candidate_in_docx(
+                        tdoc=tdoc_tok,
+                        diff_text=str(args.get("diff_text") or clause_text),
+                        doc_path=local_doc,
+                        cr_number=str(cand.get("cr_number") or ""),
+                    )
+                    if matched:
+                        cand["is_verified"] = True
+                        cand["verified_match_pct"] = pct
+                        cand["verified_snippet"] = snip
+                        cand["score"] = max(int(cand.get("score") or 0), min(100, int(cand.get("score") or 0) + 20))
+            candidates.sort(key=lambda x: (bool(x.get("is_verified")), int(x.get("score") or 0)), reverse=True)
 
         return {
-            "spec_number": report.spec_number,
-            "clause_id": report.clause_id,
-            "clause_title": report.clause_title,
-            "first_added_version": report.first_added_version,
-            "first_added_release": report.first_added_release,
-            "origin_candidates": [
-                {
-                    "tdoc_id": c.tdoc_id,
-                    "parent_tdoc": c.parent_tdoc,
-                    "cr_number": c.cr_number,
-                    "category": c.category,
-                    "version": c.version,
-                    "meeting": c.meeting,
-                    "subject": c.subject,
-                    "title": c.title,
-                    "source_company": c.source_company,
-                    "work_item": c.work_item,
-                    "clauses_affected": c.clauses_affected,
-                    "confidence_tier": c.confidence_tier,
-                    "confidence_score": c.confidence_score,
-                    "match_reasons": c.match_reasons,
-                    "is_origin_candidate": c.is_origin_candidate,
-                    "docx_verified": c.docx_verified,
-                }
-                for c in report.origin_candidates[:10]
-            ],
-            "all_candidates_count": len(report.candidates),
-            "candidates": [
-                {
-                    "tdoc_id": c.tdoc_id,
-                    "cr_number": c.cr_number,
-                    "category": c.category,
-                    "version": c.version,
-                    "meeting": c.meeting,
-                    "subject": c.subject,
-                    "source_company": c.source_company,
-                    "work_item": c.work_item,
-                    "clauses_affected": c.clauses_affected,
-                    "confidence_tier": c.confidence_tier,
-                    "confidence_score": c.confidence_score,
-                    "match_reasons": c.match_reasons,
-                    "docx_verified": c.docx_verified,
-                }
-                for c in report.candidates[:limit]
-            ],
+            "spec_number": clean_spec,
+            "clause_id": clause_id,
+            "target_version": target_ver,
+            "clause_title": clause_title,
+            "all_candidates_count": len(candidates),
+            "candidates": candidates[:limit],
         }
 
     if action == "rank_origin_crs":
@@ -723,34 +714,34 @@ def _handle_spec_history_and_attribution(
             return {"error": "query is required for action='rank_origin_crs'."}
         from modules.spec_search.core.spec_search_db import SpecSearchDatabase
         from modules.specifications.core.spec_clause_attribution import SpecClauseAttributionEngine
-        from modules.specifications.core.database import SpecsDatabase
 
         search_db = SpecSearchDatabase(spec_search_db_path)
-        specs_db = SpecsDatabase(specs_db_path)
         engine = SpecClauseAttributionEngine(
             history_db=history_db,
-            specs_db=specs_db,
-            spec_search_db=search_db,
+            search_db=search_db,
         )
+        clean_spec = re.sub(r"^(?:3GPP\s*)?(?:TS|TR)\s*", "", spec_number or "23.501", flags=re.IGNORECASE).strip()
         all_imported = search_db.get_imported_versions()
-        if spec_number:
-            clean_spec = re.sub(r"^(?:3GPP\s*)?(?:TS|TR)\s*", "", spec_number, flags=re.IGNORECASE).strip()
-            v_ids = [int(v["id"]) for v in all_imported if str(v.get("spec_number")) in (spec_number, clean_spec)]
+        v_ids = [int(v["id"]) for v in all_imported if str(v.get("spec_number")) in (spec_number, clean_spec)]
+        clause_hints: List[str] = []
+        if v_ids:
+            df_hits = search_db.search_substring(query, v_ids)
+            hits_resp = df_hits.to_dict(orient="records") if hasattr(df_hits, "to_dict") else []
+            clause_hints = [str(h.get("clause_number") or "") for h in hits_resp[:30] if h.get("clause_number")]
         else:
-            v_ids = [int(v["id"]) for v in all_imported]
-        df_hits = search_db.search_substring(query, v_ids)
-        hits_resp = df_hits.to_dict(orient="records") if hasattr(df_hits, "to_dict") else []
+            hits_resp = []
+
         ranked = engine.rank_origin_crs_for_query(
-            search_query=query,
-            clause_hits=hits_resp[: max(30, limit * 3)],
-            max_clauses=int(args.get("max_clauses") or 12),
-            top_n=limit,
+            spec_number=clean_spec,
+            query=query,
+            target_version=version,
+            affected_clauses_hint=clause_hints or None,
         )
         return {
             "query": query,
-            "spec_number": spec_number or None,
+            "spec_number": clean_spec,
             "clause_hits_analyzed": len(hits_resp),
-            "ranked_origin_crs": ranked,
+            "ranked_origin_crs": ranked[:limit],
         }
 
     if action == "tdoc_dossier":
@@ -768,7 +759,12 @@ def _handle_spec_history_and_attribution(
                 if pcr and pcr != "-":
                     tdoc_tokens.append(str(pcr).strip())
 
-        gen = SpecTDocReportGenerator(data_db_path=specs_db_path, history_db=history_db)
+        cache_roots = _get_meetings_cache_roots()
+        gen = SpecTDocReportGenerator(
+            data_db_path=specs_db_path,
+            cache_root=cache_roots[0] if cache_roots else None,
+            history_db=history_db,
+        )
         resolved_items = gen.resolve_tdocs_metadata(tdoc_tokens)
         md_report = SpecTDocReportGenerator.generate_markdown_report(
             spec_number=spec_number,
@@ -963,18 +959,12 @@ def _handle_onsite_meeting_cockpit(
         base_tdoc = base_m.group(1) if base_m else tdoc_id.upper()
 
         mdb = MeetingsDatabase(specs_db_path)
-        mtg = None
-        if meeting_number:
-            rows = mdb.search_meetings(query=meeting_number, wg=wg)
-            mtg = rows[0] if rows else None
-        if not mtg:
-            rows = mdb.search_meetings(wg=wg)
-            mtg = rows[0] if rows else {}
+        mtg = _resolve_meeting_record(mdb, wg=wg, meeting_number=meeting_number) or {}
 
         docs_ftp = str(mtg.get("docs_folder_url") or "")
         main_ftp = docs_ftp.rsplit("/Docs", 1)[0] if "/Docs" in docs_ftp else docs_ftp
-        mtg_folder = str(mtg.get("meeting_folder_name") or f"{wg}_{meeting_number or 'Live'}")
-        meeting_dir = get_meetings_root() / wg / mtg_folder
+        mtg_folder = str(mtg.get("folder_name") or mtg.get("meeting_folder_name") or f"{wg}_{meeting_number or 'Live'}")
+        meeting_dir = _resolve_meeting_cache_dir(mtg_folder, wg=wg)
         revs_cache_dir = meeting_dir / "Revisions" / base_tdoc
         revs_cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1078,18 +1068,12 @@ def _handle_onsite_meeting_cockpit(
         from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
 
         mdb = MeetingsDatabase(specs_db_path)
-        mtg = None
-        if meeting_number:
-            rows = mdb.search_meetings(query=meeting_number, wg=wg)
-            mtg = rows[0] if rows else None
-        if not mtg:
-            rows = mdb.search_meetings(wg=wg)
-            mtg = rows[0] if rows else {}
+        mtg = _resolve_meeting_record(mdb, wg=wg, meeting_number=meeting_number) or {}
 
         docs_ftp = str(mtg.get("docs_folder_url") or "")
         main_ftp = docs_ftp.rsplit("/Docs", 1)[0] if "/Docs" in docs_ftp else docs_ftp
-        mtg_folder = str(mtg.get("meeting_folder_name") or f"{wg}_{meeting_number or 'Live'}")
-        chair_dir = get_meetings_root() / wg / mtg_folder / "Chair_Notes"
+        mtg_folder = str(mtg.get("folder_name") or mtg.get("meeting_folder_name") or f"{wg}_{meeting_number or 'Live'}")
+        chair_dir = _resolve_meeting_cache_dir(mtg_folder, wg=wg) / "Chair_Notes"
         chair_dir.mkdir(parents=True, exist_ok=True)
 
         candidates = []
@@ -1258,18 +1242,12 @@ def _handle_onsite_meeting_cockpit(
             return {"error": "Provide one or more TDoc IDs in tdoc_id or query (comma-separated)."}
 
         mdb = MeetingsDatabase(specs_db_path)
-        mtg = None
-        if meeting_number:
-            rows = mdb.search_meetings(query=meeting_number, wg=wg)
-            mtg = rows[0] if rows else None
-        if not mtg:
-            rows = mdb.search_meetings(wg=wg)
-            mtg = rows[0] if rows else {}
+        mtg = _resolve_meeting_record(mdb, wg=wg, meeting_number=meeting_number) or {}
 
         docs_ftp = str(mtg.get("docs_folder_url") or "")
         rev_url = str(mtg.get("revisions_url") or "")
-        mtg_folder = str(mtg.get("meeting_folder_name") or f"{wg}_{meeting_number or 'Live'}")
-        meeting_dir = get_meetings_root() / wg / mtg_folder
+        mtg_folder = str(mtg.get("folder_name") or mtg.get("meeting_folder_name") or f"{wg}_{meeting_number or 'Live'}")
+        meeting_dir = _resolve_meeting_cache_dir(mtg_folder, wg=wg)
         convert_md = bool(args.get("convert_to_md", True))
 
         results: List[Dict[str, Any]] = []
@@ -1319,18 +1297,468 @@ def _handle_onsite_meeting_cockpit(
 # DOMAIN 6: Meetings, TDocs, Triage Stances & Dossiers
 # =========================================================================
 
+def _search_meetings_compatible(
+    mdb: Any,
+    *,
+    wg: Optional[str] = None,
+    query: Optional[str] = None,
+    meeting_number: Optional[str] = None,
+    year: Optional[Any] = None,
+    location: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Calls MeetingsDatabase.search_meetings using its canonical signature."""
+    search_term = str(query or meeting_number or "").strip() or None
+    date_from = None
+    date_to = None
+    if year is not None and str(year).strip():
+        yr_str = re.sub(r"\D", "", str(year).strip())
+        if len(yr_str) == 4:
+            date_from = f"{yr_str}-01-01"
+            date_to = f"{yr_str}-12-31"
+
+    rows = mdb.search_meetings(
+        wg_name=wg or None,
+        search_term=search_term,
+        location=location or None,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    normalized: List[Dict[str, Any]] = []
+    for r in rows or []:
+        d = dict(r)
+        folder = str(d.get("folder_name") or d.get("meeting_folder_name") or "")
+        d["folder_name"] = folder
+        d.setdefault("meeting_folder_name", folder)
+        normalized.append(d)
+
+    if meeting_number:
+        clean_num = str(meeting_number).strip().lstrip("#").lower()
+        exact = [
+            m for m in normalized
+            if str(m.get("meeting_number") or "").strip().lstrip("#").lower() == clean_num
+        ]
+        if exact:
+            others = [m for m in normalized if m not in exact]
+            return exact + others
+    return normalized
+
+
+def _resolve_meeting_record(
+    mdb: Any,
+    *,
+    wg: Optional[str] = None,
+    meeting_number: Optional[str] = None,
+    tdoc_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Resolves a single best-matching meeting record from MeetingsDatabase."""
+    if tdoc_id and hasattr(mdb, "find_meeting_by_tdoc"):
+        try:
+            mtg = mdb.find_meeting_by_tdoc(tdoc_id)
+            if mtg:
+                d = dict(mtg)
+                folder = str(d.get("folder_name") or d.get("meeting_folder_name") or "")
+                d["folder_name"] = folder
+                d.setdefault("meeting_folder_name", folder)
+                return d
+        except Exception:
+            pass
+    if meeting_number:
+        rows = _search_meetings_compatible(mdb, wg=wg, meeting_number=meeting_number)
+        if rows:
+            return rows[0]
+    if wg:
+        rows = _search_meetings_compatible(mdb, wg=wg)
+        if rows:
+            return rows[0]
+    return None
+
+
+def _get_meetings_cache_roots() -> List[Path]:
+    """Returns candidate meeting cache roots in priority order."""
+    roots: List[Path] = []
+    try:
+        from modules.meetings.core.settings import MeetingsSettings
+        cfg_dir = Path(MeetingsSettings().cache_dir)
+        if cfg_dir not in roots:
+            roots.append(cfg_dir)
+    except Exception:
+        pass
+    for fallback in (get_cache_root(), get_meetings_root()):
+        if fallback not in roots:
+            roots.append(fallback)
+    return roots
+
+
+def _resolve_meeting_cache_dir(folder_name: str, wg: Optional[str] = None) -> Path:
+    """Finds an existing local cache directory for a meeting folder, or returns the default target."""
+    clean_folder = str(folder_name or "").strip()
+    clean_wg = str(wg or "").strip().upper()
+    roots = _get_meetings_cache_roots()
+    if clean_folder:
+        for r in roots:
+            direct = r / clean_folder
+            if direct.exists():
+                return direct
+            if clean_wg and (r / clean_wg / clean_folder).exists():
+                return r / clean_wg / clean_folder
+    base = roots[0] if roots else get_cache_root()
+    return (base / clean_folder) if clean_folder else base
+
+
+def _normalize_tdoc_record(
+    raw: Dict[str, Any],
+    *,
+    wg_name: str = "",
+    meeting_number: str = "",
+    folder_name: str = "",
+) -> Dict[str, Any]:
+    """Normalizes a TDoc row from Excel/JSON, tdoc_metadata_cache, or SQLite tdocs into a unified dict."""
+    tdoc_num = str(
+        raw.get("tdoc_number")
+        or raw.get("TDoc")
+        or raw.get("tdoc")
+        or ""
+    ).strip()
+    title = str(raw.get("title") or raw.get("Title") or "").strip()
+    source = str(raw.get("source") or raw.get("Source") or "").strip()
+    doc_type = str(raw.get("doc_type") or raw.get("Type") or raw.get("tdoc_type") or "").strip()
+    doc_for = str(raw.get("doc_for") or raw.get("For") or "").strip()
+    agenda_item = str(raw.get("agenda_item") or raw.get("Agenda Item") or "").strip()
+    ai_desc = str(
+        raw.get("agenda_item_description")
+        or raw.get("Agenda item description")
+        or raw.get("ai_desc")
+        or ""
+    ).strip()
+    work_item = str(
+        raw.get("work_item")
+        or raw.get("Related WIs")
+        or raw.get("wi")
+        or ""
+    ).strip()
+    spec = str(raw.get("spec") or raw.get("Spec") or "").strip()
+    release = str(raw.get("release") or raw.get("Release") or "").strip()
+    status = str(
+        raw.get("tdoc_status")
+        or raw.get("TDoc Status")
+        or raw.get("status")
+        or ""
+    ).strip()
+    remarks = str(
+        raw.get("secretary_remarks")
+        or raw.get("Secretary Remarks")
+        or raw.get("remarks")
+        or ""
+    ).strip()
+    revision_of = str(
+        raw.get("revision_of")
+        or raw.get("Is revision of")
+        or raw.get("Revision of")
+        or ""
+    ).strip()
+    revised_to = str(raw.get("revised_to") or raw.get("Revised to") or "").strip()
+    abstract = str(raw.get("abstract") or raw.get("Abstract") or "").strip()
+    clauses_affected = str(
+        raw.get("affected_clauses")
+        or raw.get("Clauses Affected")
+        or raw.get("Clauses affected")
+        or ""
+    ).strip()
+
+    eff_wg = str(raw.get("wg_name") or wg_name or "").strip()
+    eff_mtg_num = str(raw.get("meeting_number") or meeting_number or "").strip()
+    eff_folder = str(
+        raw.get("folder_name")
+        or raw.get("meeting_folder_name")
+        or folder_name
+        or ""
+    ).strip()
+
+    confirmed_cos, tentative_cos = CompanySanitizer.parse_contributors_detailed(source)
+    return {
+        "tdoc_number": tdoc_num,
+        "title": title,
+        "source": source,
+        "confirmed_companies": list(confirmed_cos),
+        "tentative_companies": list(tentative_cos),
+        "doc_type": doc_type,
+        "doc_for": doc_for,
+        "agenda_item": agenda_item,
+        "agenda_item_description": ai_desc,
+        "work_item": work_item,
+        "spec": spec,
+        "release": release,
+        "tdoc_status": status,
+        "secretary_remarks": remarks,
+        "revision_of": revision_of,
+        "revised_to": revised_to,
+        "abstract": abstract,
+        "affected_clauses": clauses_affected,
+        "wg_name": eff_wg,
+        "meeting_number": eff_mtg_num,
+        "folder_name": eff_folder,
+        "meeting_folder_name": eff_folder,
+    }
+
+
+def _load_tdocs_for_meeting_or_db(
+    mdb: Any,
+    *,
+    specs_db_path: Path,
+    spec_history_db_path: Optional[Path] = None,
+    wg: Optional[str] = None,
+    meeting_number: Optional[str] = None,
+    tdoc_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Loads TDoc rows from the application's real storage layers:
+    1. Optional `tdocs` SQLite table in `specs_db_path` (if present in test fixtures).
+    2. Meeting spreadsheet caches (`Agenda/*.xlsx.json` or `Agenda/*.xlsx`) in `MeetingsSettings().cache_dir`.
+    3. `tdoc_metadata_cache` in `3gpp_spec_history.db` as fallback.
+    """
+    from modules.meetings.core.tdocs.tdocs_parser import TDocsParser
+
+    results: List[Dict[str, Any]] = []
+    seen_tdocs: Set[str] = set()
+
+    # 1. Check if `tdocs` table exists in specs_db_path (e.g. disposable unit-test fixtures)
+    try:
+        with mdb._get_connection() as conn:
+            has_tdocs_tbl = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tdocs' LIMIT 1"
+            ).fetchone()
+            if has_tdocs_tbl:
+                sql = """
+                    SELECT t.*, m.meeting_number AS m_meeting_number, m.folder_name AS m_folder_name,
+                           w.name AS m_wg_name
+                    FROM tdocs t
+                    LEFT JOIN meetings m ON t.meeting_id = m.id
+                    LEFT JOIN working_groups w ON m.wg_id = w.id
+                    WHERE 1=1
+                """
+                params: List[Any] = []
+                if tdoc_id:
+                    sql += " AND UPPER(COALESCE(t.tdoc_number, '')) LIKE ?"
+                    params.append(f"%{tdoc_id.upper()}%")
+                rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+                for r in rows:
+                    row_wg = str(r.get("wg_name") or r.get("m_wg_name") or "")
+                    row_num = str(r.get("meeting_number") or r.get("m_meeting_number") or "")
+                    row_folder = str(
+                        r.get("folder_name")
+                        or r.get("meeting_folder_name")
+                        or r.get("m_folder_name")
+                        or ""
+                    )
+                    if wg and row_wg and row_wg.upper() != wg.upper():
+                        continue
+                    if meeting_number and meeting_number.lower() not in row_num.lower() and meeting_number.lower() not in row_folder.lower():
+                        continue
+                    norm = _normalize_tdoc_record(
+                        r,
+                        wg_name=row_wg or (wg or ""),
+                        meeting_number=row_num or (meeting_number or ""),
+                        folder_name=row_folder,
+                    )
+                    key = f"{norm['tdoc_number'].upper()}::{norm['folder_name']}"
+                    if norm["tdoc_number"] and key not in seen_tdocs:
+                        seen_tdocs.add(key)
+                        results.append(norm)
+    except Exception as e:
+        logger.debug(f"Optional SQLite tdocs check skipped: {e}")
+
+    # 2. Resolve candidate meetings and load their cached Agenda spreadsheets (.xlsx.json / .xlsx)
+    candidate_meetings: List[Dict[str, Any]] = []
+    if tdoc_id and not meeting_number:
+        mtg = _resolve_meeting_record(mdb, wg=wg, tdoc_id=tdoc_id)
+        if mtg:
+            candidate_meetings.append(mtg)
+
+    if meeting_number or wg:
+        matched_mtgs = _search_meetings_compatible(mdb, wg=wg, meeting_number=meeting_number)
+        if meeting_number:
+            clean_num = meeting_number.strip().lstrip("#").lower()
+            exact_mtgs = [
+                m for m in matched_mtgs
+                if str(m.get("meeting_number") or "").strip().lstrip("#").lower() == clean_num
+                or clean_num in str(m.get("folder_name") or "").lower()
+            ]
+            candidate_meetings.extend(exact_mtgs or matched_mtgs[:5])
+        else:
+            candidate_meetings.extend(matched_mtgs[:8])
+    elif not candidate_meetings:
+        candidate_meetings.extend(_search_meetings_compatible(mdb)[:5])
+
+    visited_folders: Set[str] = set()
+    for mtg in candidate_meetings:
+        folder = str(mtg.get("folder_name") or mtg.get("meeting_folder_name") or "").strip()
+        if not folder or folder in visited_folders:
+            continue
+        visited_folders.add(folder)
+        m_wg = str(mtg.get("wg_name") or wg or "").strip()
+        m_num = str(mtg.get("meeting_number") or meeting_number or "").strip()
+        mtg_dir = _resolve_meeting_cache_dir(folder, wg=m_wg)
+        agenda_dir = mtg_dir / "Agenda"
+        if not agenda_dir.exists():
+            continue
+
+        excel_rows: List[Dict[str, Any]] = []
+        json_files = sorted(
+            [
+                p for p in agenda_dir.glob("*.xlsx.json")
+                if not p.name.endswith(".wi_checked.json")
+            ]
+        )
+        for jf in json_files:
+            try:
+                data = json.loads(jf.read_text(encoding="utf-8"))
+                if isinstance(data, list) and data:
+                    excel_rows = data
+                    break
+            except Exception:
+                pass
+
+        if not excel_rows:
+            xlsx_files = sorted(
+                [p for p in agenda_dir.glob("*.xlsx") if not p.name.startswith("~$")]
+            )
+            for xf in xlsx_files:
+                try:
+                    parsed = TDocsParser.parse_tdocs_excel(str(xf))
+                    if parsed:
+                        excel_rows = parsed
+                        break
+                except Exception:
+                    pass
+
+        for r in excel_rows:
+            norm = _normalize_tdoc_record(
+                r,
+                wg_name=m_wg,
+                meeting_number=m_num,
+                folder_name=folder,
+            )
+            key = f"{norm['tdoc_number'].upper()}::{folder}"
+            if norm["tdoc_number"] and key not in seen_tdocs:
+                seen_tdocs.add(key)
+                results.append(norm)
+
+    # 3. Fallback to tdoc_metadata_cache in 3gpp_spec_history.db if still empty
+    if not results and spec_history_db_path and Path(spec_history_db_path).exists():
+        try:
+            from modules.specifications.core.spec_history_db import SpecHistoryDatabase
+            hdb = SpecHistoryDatabase(spec_history_db_path)
+            with hdb._get_connection() as conn:
+                sql = "SELECT * FROM tdoc_metadata_cache WHERE 1=1"
+                params = []
+                if tdoc_id:
+                    sql += " AND (UPPER(tdoc) LIKE ? OR UPPER(base_tdoc) LIKE ?)"
+                    params.extend([f"%{tdoc_id.upper()}%", f"%{tdoc_id.upper()}%"])
+                if meeting_number:
+                    sql += " AND meeting LIKE ?"
+                    params.append(f"%{meeting_number}%")
+                sql += " LIMIT 500"
+                for r in conn.execute(sql, params).fetchall():
+                    norm = _normalize_tdoc_record(
+                        dict(r),
+                        wg_name=wg or "",
+                        meeting_number=meeting_number or str(r["meeting"] or ""),
+                    )
+                    if norm["tdoc_number"]:
+                        results.append(norm)
+        except Exception:
+            pass
+
+    return results
+
+
+def _collect_user_tdoc_annotations(
+    user_tdocs_db_path: Path,
+    folder_names: Sequence[str] = (),
+    wg: Optional[str] = None,
+) -> Dict[str, Dict[str, str]]:
+    """Merges personal TDoc stances & notes from per-meeting Agenda/user_tdocs.db and global user_tdocs.db."""
+    from modules.meetings.core.tdocs.tdocs_db import TDocsDatabase
+
+    merged: Dict[str, Dict[str, str]] = {}
+    db_candidates: List[Path] = []
+    for folder in folder_names:
+        if not folder:
+            continue
+        m_dir = _resolve_meeting_cache_dir(folder, wg=wg)
+        per_mtg_db = m_dir / "Agenda" / "user_tdocs.db"
+        if per_mtg_db.exists() and per_mtg_db not in db_candidates:
+            db_candidates.append(per_mtg_db)
+    if user_tdocs_db_path and user_tdocs_db_path not in db_candidates:
+        db_candidates.append(user_tdocs_db_path)
+
+    for db_p in db_candidates:
+        if not db_p.exists() and db_p != user_tdocs_db_path:
+            continue
+        try:
+            udb = TDocsDatabase(db_p)
+            for tid, d in udb.get_all_user_data().items():
+                key = str(tid).strip().upper()
+                if key not in merged or (d.get("my_notes") or d.get("my_status") not in ("", "⚪ Neutral")):
+                    merged[key] = {
+                        "my_status": str(d.get("my_status") or d.get("status") or ""),
+                        "my_notes": str(d.get("my_notes") or d.get("notes") or ""),
+                    }
+        except Exception:
+            pass
+    return merged
+
+
+def _matches_company_filter(
+    raw_source: str,
+    source_company: str,
+    confirmed_only: bool = True,
+) -> bool:
+    """Checks whether `raw_source` matches `source_company`, respecting confirmed vs. `?`/`[...]` tentative rules."""
+    if not source_company:
+        return True
+    if not raw_source:
+        return False
+
+    target_clean = source_company.strip()
+    target_lower = target_clean.lower()
+    target_canon_list = [c.lower() for c in CompanySanitizer.get_matching_contributors(target_clean, include_tentative=True)]
+
+    confirmed_cos, tentative_cos = CompanySanitizer.parse_contributors_detailed(raw_source)
+    candidate_canon = [c.lower() for c in confirmed_cos]
+    if not confirmed_only:
+        candidate_canon.extend(c.lower() for c in tentative_cos if c.lower() not in candidate_canon)
+
+    if target_canon_list:
+        if any(tc in candidate_canon for tc in target_canon_list):
+            return True
+    if any(target_lower in c for c in candidate_canon):
+        return True
+
+    # Fallback for companies not yet in SIGNATURE_SYNONYMS_REGEX: inspect tokenized segments directly
+    for seg_text, is_tent in CompanySanitizer.tokenize_source_segments(raw_source):
+        if confirmed_only and is_tent:
+            continue
+        # Strip role brackets like [Rapporteur] before checking literal substring
+        seg_clean = CompanySanitizer.ROLE_BRACKET_RE.sub(" ", seg_text).lower()
+        if target_lower in seg_clean:
+            return True
+    return False
+
+
 def _handle_meetings_and_tdocs(
     args: Dict[str, Any],
     *,
     specs_db_path: Path,
     user_tdocs_db_path: Path,
+    spec_history_db_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     action = str(args.get("action") or "search_tdocs").strip().lower()
     wg = str(args.get("wg") or "").strip().upper() or None
     meeting_number = str(args.get("meeting_number") or "").strip()
     tdoc_id = str(args.get("tdoc_id") or "").strip()
     query = str(args.get("query") or "").strip()
-    limit = int(args.get("limit") or 25)
+    limit = max(1, int(args.get("limit") or 25))
 
     from modules.meetings.core.meetings_db import MeetingsDatabase
     from modules.meetings.core.tdocs.tdocs_db import TDocsDatabase
@@ -1338,10 +1766,13 @@ def _handle_meetings_and_tdocs(
     mdb = MeetingsDatabase(specs_db_path)
 
     if action == "search_meetings":
-        rows = mdb.search_meetings(
-            query=query or meeting_number or None,
+        rows = _search_meetings_compatible(
+            mdb,
             wg=wg,
+            query=query or None,
+            meeting_number=meeting_number or None,
             year=args.get("year"),
+            location=str(args.get("location") or "").strip() or None,
         )
         return {
             "count": len(rows[:limit]),
@@ -1351,71 +1782,71 @@ def _handle_meetings_and_tdocs(
     if action == "search_tdocs":
         source_company = str(args.get("source_company") or "").strip()
         confirmed_only = bool(args.get("confirmed_company_only", True))
-        with mdb._get_connection() as conn:
-            sql = """
-                SELECT t.tdoc_number, t.title, t.source, t.doc_type, t.doc_for,
-                       t.agenda_item, t.agenda_item_description, t.work_item,
-                       t.spec, t.release, t.tdoc_status, t.secretary_remarks,
-                       t.revision_of, t.revised_to, m.wg_name, m.meeting_number, m.meeting_folder_name
-                FROM tdocs t
-                LEFT JOIN meetings m ON t.meeting_id = m.id
-                WHERE 1=1
-            """
-            params: List[Any] = []
-            if tdoc_id:
-                sql += " AND UPPER(t.tdoc_number) LIKE ?"
-                params.append(f"%{tdoc_id.upper()}%")
-            if wg:
-                sql += " AND UPPER(m.wg_name) = ?"
-                params.append(wg)
+        agenda_filter = str(args.get("agenda_item") or "").strip().lower()
+        wi_filter = str(args.get("work_item") or "").strip().lower()
+        status_filter = str(args.get("status") or "").strip().lower()
+        query_lower = query.lower()
+        tdoc_upper = tdoc_id.upper()
+
+        all_rows = _load_tdocs_for_meeting_or_db(
+            mdb,
+            specs_db_path=specs_db_path,
+            spec_history_db_path=spec_history_db_path,
+            wg=wg,
+            meeting_number=meeting_number or None,
+            tdoc_id=tdoc_id or None,
+        )
+
+        filtered: List[Dict[str, Any]] = []
+        for r in all_rows:
+            if tdoc_upper and tdoc_upper not in str(r.get("tdoc_number") or "").upper():
+                continue
+            if wg and r.get("wg_name") and str(r.get("wg_name")).upper() != wg:
+                continue
             if meeting_number:
-                sql += " AND (m.meeting_number LIKE ? OR m.meeting_folder_name LIKE ?)"
-                params.extend([f"%{meeting_number}%", f"%{meeting_number}%"])
-            if args.get("agenda_item"):
-                sql += " AND t.agenda_item LIKE ?"
-                params.append(f"%{str(args['agenda_item']).strip()}%")
-            if args.get("work_item"):
-                sql += " AND t.work_item LIKE ?"
-                params.append(f"%{str(args['work_item']).strip()}%")
-            if args.get("status"):
-                sql += " AND t.tdoc_status LIKE ?"
-                params.append(f"%{str(args['status']).strip()}%")
-            if query:
-                sql += " AND (t.title LIKE ? OR t.tdoc_number LIKE ? OR t.work_item LIKE ? OR t.source LIKE ?)"
-                params.extend([f"%{query}%"] * 4)
-            if source_company:
-                sql += " AND t.source LIKE ?"
-                params.append(f"%{source_company}%")
+                m_num = str(r.get("meeting_number") or "").lower()
+                m_fol = str(r.get("folder_name") or "").lower()
+                if meeting_number.lower() not in m_num and meeting_number.lower() not in m_fol:
+                    continue
+            if agenda_filter and agenda_filter not in str(r.get("agenda_item") or "").lower():
+                continue
+            if wi_filter and wi_filter not in str(r.get("work_item") or "").lower():
+                continue
+            if status_filter and status_filter not in str(r.get("tdoc_status") or "").lower():
+                continue
+            if query_lower:
+                haystack = " ".join(
+                    str(r.get(k) or "")
+                    for k in ("tdoc_number", "title", "source", "work_item", "agenda_item", "agenda_item_description", "spec", "secretary_remarks")
+                ).lower()
+                if query_lower not in haystack:
+                    continue
+            if source_company and not _matches_company_filter(
+                str(r.get("source") or ""),
+                source_company=source_company,
+                confirmed_only=confirmed_only,
+            ):
+                continue
+            filtered.append(r)
 
-            sql += " ORDER BY t.id DESC LIMIT ?"
-            params.append(max(limit * 4, 100) if source_company else limit)
-            raw_rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
-
-        if source_company:
-            filtered = []
-            target_canon = CompanySanitizer.sanitize(source_company).lower()
-            for r in raw_rows:
-                raw_src = str(r.get("source") or "")
-                if confirmed_only:
-                    contributors = [c.lower() for c in CompanySanitizer.get_matching_contributors(raw_src)]
-                    if any(target_canon in c or source_company.lower() in c for c in contributors):
-                        filtered.append(r)
-                else:
-                    if source_company.lower() in raw_src.lower():
-                        filtered.append(r)
-            raw_rows = filtered[:limit]
-
-        user_db = TDocsDatabase(user_tdocs_db_path)
-        user_map = user_db.get_all_user_data()
-        for r in raw_rows:
-            tn = str(r.get("tdoc_number") or "")
-            if tn in user_map:
-                r["my_status"] = user_map[tn].get("my_status", "")
-                r["my_notes"] = user_map[tn].get("my_notes", "")
+        selected = filtered[:limit]
+        folders = list({str(r.get("folder_name") or "") for r in selected if r.get("folder_name")})
+        user_map = _collect_user_tdoc_annotations(user_tdocs_db_path, folder_names=folders, wg=wg)
+        for r in selected:
+            tn = str(r.get("tdoc_number") or "").strip().upper()
+            base_tn = tn.split("R")[0]
+            u_entry = user_map.get(tn) or user_map.get(base_tn)
+            if u_entry:
+                r["my_status"] = u_entry.get("my_status", "")
+                r["my_notes"] = u_entry.get("my_notes", "")
+            else:
+                r.setdefault("my_status", "")
+                r.setdefault("my_notes", "")
 
         return {
-            "count": len(raw_rows[:limit]),
-            "tdocs": raw_rows[:limit],
+            "count": len(selected),
+            "total_matched": len(filtered),
+            "tdocs": selected,
         }
 
     if action == "read_tdoc_markdown":
@@ -1424,52 +1855,105 @@ def _handle_meetings_and_tdocs(
         from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
         from modules.meetings.core.tdocs.tdoc_markdown_converter import convert_document_to_markdown
 
-        with mdb._get_connection() as conn:
-            row = conn.execute(
-                """
-                SELECT t.*, m.wg_name, m.meeting_folder_name, m.docs_folder_url, m.revisions_url
-                FROM tdocs t
-                LEFT JOIN meetings m ON t.meeting_id = m.id
-                WHERE UPPER(t.tdoc_number) = ?
-                ORDER BY t.id DESC LIMIT 1
-                """,
-                (tdoc_id.upper(),),
-            ).fetchone()
-        meta = dict(row) if row else {}
-        eff_wg = wg or str(meta.get("wg_name") or "SA2")
-        mtg_folder = str(meta.get("meeting_folder_name") or f"{eff_wg}_{meeting_number or 'Cache'}")
-        docs_ftp = str(meta.get("docs_folder_url") or "")
-        rev_url = str(meta.get("revisions_url") or "")
-        meeting_dir = get_meetings_root() / eff_wg / mtg_folder
-
-        files, err = TDocFileHandler.download_and_extract_tdoc(
+        matched_rows = _load_tdocs_for_meeting_or_db(
+            mdb,
+            specs_db_path=specs_db_path,
+            spec_history_db_path=spec_history_db_path,
+            wg=wg,
+            meeting_number=meeting_number or None,
             tdoc_id=tdoc_id,
-            docs_ftp_url=docs_ftp,
-            meeting_dir=meeting_dir,
-            wg_name=eff_wg,
-            revisions_url=rev_url,
         )
+        exact_meta = next(
+            (r for r in matched_rows if str(r.get("tdoc_number") or "").upper() == tdoc_id.upper()),
+            matched_rows[0] if matched_rows else {},
+        )
+        mtg = _resolve_meeting_record(
+            mdb,
+            wg=wg or str(exact_meta.get("wg_name") or "") or None,
+            meeting_number=meeting_number or str(exact_meta.get("meeting_number") or "") or None,
+            tdoc_id=tdoc_id,
+        ) or {}
+
+        eff_wg = wg or str(exact_meta.get("wg_name") or mtg.get("wg_name") or "SA2")
+        mtg_folder = str(
+            exact_meta.get("folder_name")
+            or mtg.get("folder_name")
+            or mtg.get("meeting_folder_name")
+            or f"{eff_wg}_{meeting_number or 'Cache'}"
+        )
+        docs_ftp = str(mtg.get("docs_folder_url") or "")
+        rev_url = str(mtg.get("revisions_url") or "")
+        meeting_dir = _resolve_meeting_cache_dir(mtg_folder, wg=eff_wg)
+
+        # Check if already extracted on disk before attempting network download
+        clean_tdoc = tdoc_id.strip().upper()
+        base_tdoc = clean_tdoc.split("R")[0]
+        existing_docs: List[Path] = []
+        for candidate_dir in (
+            meeting_dir / clean_tdoc,
+            meeting_dir / base_tdoc,
+            meeting_dir / "Docs" / clean_tdoc,
+            meeting_dir / "Docs" / base_tdoc,
+        ):
+            if candidate_dir.exists():
+                existing_docs.extend(
+                    sorted(
+                        p for p in candidate_dir.rglob("*")
+                        if p.is_file() and p.suffix.lower() in (".docx", ".doc", ".md") and not p.name.startswith("~$")
+                    )
+                )
+        files: List[Path] = existing_docs
+        err = None
+        if not files:
+            files, err = TDocFileHandler.download_and_extract_tdoc(
+                tdoc_id=tdoc_id,
+                docs_ftp_url=docs_ftp,
+                meeting_dir=meeting_dir,
+                wg_name=eff_wg,
+                revisions_url=rev_url,
+            )
         if err or not files:
             return {"error": err or f"Could not locate or download TDoc {tdoc_id}."}
 
+        existing_md = next((f for f in files if f.suffix.lower() == ".md"), None)
         target_doc = next((f for f in files if f.suffix.lower() in (".docx", ".doc")), files[0])
-        if target_doc.suffix.lower() == ".doc":
-            from modules.word_tools.core.word_converter import convert_doc_to_docx
-            conv = convert_doc_to_docx(str(target_doc))
-            if conv and Path(conv).exists():
-                target_doc = Path(conv)
-
         rev_mode = str(args.get("revisions") or "markup").strip().lower()
-        md_path = target_doc.with_suffix(".md")
-        convert_document_to_markdown(target_doc, md_path, revisions=rev_mode)
+
+        if target_doc.suffix.lower() in (".docx", ".doc"):
+            if target_doc.suffix.lower() == ".doc":
+                from modules.word_tools.core.word_converter import convert_doc_to_docx
+                conv = convert_doc_to_docx(str(target_doc))
+                if conv and Path(conv).exists():
+                    target_doc = Path(conv)
+            md_path = target_doc.with_suffix(".md")
+            convert_document_to_markdown(target_doc, md_path, revisions=rev_mode)
+        elif existing_md is not None:
+            md_path = existing_md
+        else:
+            md_path = target_doc.with_suffix(".md")
+
         md_content = md_path.read_text(encoding="utf-8", errors="replace") if md_path.exists() else ""
         max_chars = int(args.get("max_chars") or 12000)
         return {
             "tdoc_id": tdoc_id,
             "metadata": {
-                k: meta.get(k)
-                for k in ("tdoc_number", "title", "source", "doc_type", "agenda_item", "work_item", "tdoc_status", "secretary_remarks")
-                if k in meta
+                k: exact_meta.get(k)
+                for k in (
+                    "tdoc_number",
+                    "title",
+                    "source",
+                    "confirmed_companies",
+                    "tentative_companies",
+                    "doc_type",
+                    "agenda_item",
+                    "work_item",
+                    "tdoc_status",
+                    "secretary_remarks",
+                    "wg_name",
+                    "meeting_number",
+                    "folder_name",
+                )
+                if k in exact_meta
             },
             "source_file": str(target_doc),
             "markdown_path": str(md_path),
@@ -1481,38 +1965,34 @@ def _handle_meetings_and_tdocs(
     if action == "get_or_set_stance":
         if not tdoc_id:
             return {"error": "tdoc_id is required for action='get_or_set_stance'."}
+        clean_tid = tdoc_id.strip().upper()
         user_db = TDocsDatabase(user_tdocs_db_path)
         stance = args.get("stance")
         notes = args.get("notes")
         if stance is not None or notes is not None:
-            existing = user_db.get_all_user_data().get(tdoc_id, {})
+            existing = user_db.get_all_user_data().get(clean_tid) or user_db.get_all_user_data().get(tdoc_id) or {}
             new_status = str(stance if stance is not None else existing.get("my_status", "")).strip()
             new_notes = str(notes if notes is not None else existing.get("my_notes", "")).strip()
-            user_db.update_tdoc_user_data(tdoc_id, new_status, new_notes)
-        data = user_db.get_all_user_data().get(tdoc_id, {"my_status": "", "my_notes": ""})
+            user_db.update_tdoc_user_data(clean_tid, new_status, new_notes)
+
+        mtg = _resolve_meeting_record(mdb, wg=wg, meeting_number=meeting_number or None, tdoc_id=clean_tid)
+        folders = [str(mtg.get("folder_name") or "")] if mtg and mtg.get("folder_name") else []
+        merged_map = _collect_user_tdoc_annotations(user_tdocs_db_path, folder_names=folders, wg=wg)
+        data = merged_map.get(clean_tid) or merged_map.get(clean_tid.split("R")[0]) or {"my_status": "", "my_notes": ""}
         return {
-            "tdoc_id": tdoc_id,
+            "tdoc_id": clean_tid,
             "my_status": data.get("my_status", ""),
             "my_notes": data.get("my_notes", ""),
         }
 
     if action == "meeting_stats":
-        with mdb._get_connection() as conn:
-            sql = """
-                SELECT t.tdoc_number, t.source, t.doc_type, t.agenda_item, t.work_item, t.tdoc_status
-                FROM tdocs t
-                JOIN meetings m ON t.meeting_id = m.id
-                WHERE 1=1
-            """
-            params = []
-            if wg:
-                sql += " AND UPPER(m.wg_name) = ?"
-                params.append(wg)
-            if meeting_number:
-                sql += " AND (m.meeting_number LIKE ? OR m.meeting_folder_name LIKE ?)"
-                params.extend([f"%{meeting_number}%", f"%{meeting_number}%"])
-            rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
-
+        rows = _load_tdocs_for_meeting_or_db(
+            mdb,
+            specs_db_path=specs_db_path,
+            spec_history_db_path=spec_history_db_path,
+            wg=wg,
+            meeting_number=meeting_number or None,
+        )
         if not rows:
             return {"error": "No TDocs found for the specified meeting filter."}
 
@@ -1520,7 +2000,7 @@ def _handle_meetings_and_tdocs(
         status_counts: Dict[str, int] = {}
         wi_counts: Dict[str, int] = {}
         for r in rows:
-            st = str(r.get("tdoc_status") or "Unknown").strip()
+            st = str(r.get("tdoc_status") or "Unknown").strip() or "Unknown"
             status_counts[st] = status_counts.get(st, 0) + 1
             for comp in CompanySanitizer.get_matching_contributors(str(r.get("source") or "")):
                 company_counts[comp] = company_counts.get(comp, 0) + 1
@@ -1530,8 +2010,9 @@ def _handle_meetings_and_tdocs(
         top_companies = sorted(company_counts.items(), key=lambda x: -x[1])[:20]
         top_wis = sorted(wi_counts.items(), key=lambda x: -x[1])[:20]
         return {
-            "wg": wg,
-            "meeting_number": meeting_number,
+            "wg": wg or (rows[0].get("wg_name") if rows else None),
+            "meeting_number": meeting_number or (rows[0].get("meeting_number") if rows else None),
+            "folder_name": rows[0].get("folder_name") if rows else None,
             "total_tdocs": len(rows),
             "status_breakdown": status_counts,
             "top_confirmed_contributors": [{"company": k, "tdoc_count": v} for k, v in top_companies],
@@ -2189,6 +2670,29 @@ def _handle_plantuml_office_studio(args: Dict[str, Any]) -> Dict[str, Any]:
 # DOMAIN 12: 3GPP Work Items & Working Group Reflector Emails
 # =========================================================================
 
+def _normalize_release_filters(release: Optional[str]) -> Optional[List[str]]:
+    """Normalizes a release argument (e.g. 'Rel-20', '20', 'R99') into all matching DB forms."""
+    if not release:
+        return None
+    raw_items = _parse_csv_list(release)
+    if not raw_items:
+        return None
+    expanded: List[str] = []
+    for item in raw_items:
+        low = item.lower()
+        if low in ("all", "all releases", "*"):
+            return None
+        if item not in expanded:
+            expanded.append(item)
+        m = re.match(r"^(?:rel(?:ease)?[-_\s]*)?(\d+)$", item, re.IGNORECASE)
+        if m:
+            num = m.group(1)
+            for variant in (f"Rel-{num}", num, f"R{num}"):
+                if variant not in expanded:
+                    expanded.append(variant)
+    return expanded or None
+
+
 def _handle_work_items_and_emails(
     args: Dict[str, Any],
     *,
@@ -2198,7 +2702,7 @@ def _handle_work_items_and_emails(
     query = str(args.get("query") or "").strip()
     wg = str(args.get("wg") or "").strip().upper() or None
     release = str(args.get("release") or "").strip() or None
-    limit = int(args.get("limit") or 25)
+    limit = max(1, int(args.get("limit") or 25))
 
     from modules.work_items.core.wi_database import WorkItemsDatabase
     from modules.work_items.core.wi_settings import WorkItemsSettings
@@ -2208,23 +2712,49 @@ def _handle_work_items_and_emails(
 
     if action == "search_work_items":
         starred, following = wi_settings.get_tracking_sets()
-        rows = wi_db.search_work_items(
-            search_text=query,
-            release=release or "All Releases",
-            wg=wg or "All WGs",
-        )
-        if bool(args.get("tracked_only", False)):
+        wg_list = [w for w in _parse_csv_list(wg) if w.lower() not in ("all", "all wgs", "*")] if wg else None
+        rel_list = _normalize_release_filters(release)
+        tracked_only = bool(args.get("tracked_only", False))
+
+        if tracked_only:
             tracked_codes = starred | following
-            rows = [r for r in rows if str(r.get("code", "")) in tracked_codes or str(r.get("acronym", "")) in tracked_codes]
-        for r in rows[:limit]:
+            if not tracked_codes:
+                return {
+                    "count": 0,
+                    "starred_codes": sorted(starred),
+                    "following_codes": sorted(following),
+                    "work_items": [],
+                }
+            all_rows = wi_db.search_work_items(
+                search_term=query or None,
+                releases=rel_list,
+                wg_names=wg_list,
+                limit=None,
+            )
+            rows = [
+                r for r in all_rows
+                if str(r.get("code") or "") in tracked_codes
+                or str(r.get("acronym") or "") in tracked_codes
+            ]
+        else:
+            rows = wi_db.search_work_items(
+                search_term=query or None,
+                releases=rel_list,
+                wg_names=wg_list,
+                limit=limit,
+            )
+
+        selected = rows[:limit]
+        for r in selected:
             c = str(r.get("code") or "")
-            r["starred"] = c in starred
-            r["following"] = c in following
+            acr = str(r.get("acronym") or "")
+            r["starred"] = (c in starred) or (bool(acr) and acr in starred)
+            r["following"] = (c in following) or (bool(acr) and acr in following)
         return {
-            "count": len(rows[:limit]),
+            "count": len(selected),
             "starred_codes": sorted(starred),
             "following_codes": sorted(following),
-            "work_items": rows[:limit],
+            "work_items": selected,
         }
 
     if action == "fetch_wi_from_portal":
@@ -2260,35 +2790,87 @@ def _handle_work_items_and_emails(
         from modules.emails.core.email_db import EmailDatabase
         from modules.emails.core.general_email_db import GeneralEmailDatabase
 
-        email_db = EmailDatabase(specs_db_path)
-        gen_db = GeneralEmailDatabase(specs_db_path)
-        results = []
-        with email_db._get_connection() as conn:
+        results: List[Dict[str, Any]] = []
+        q_like = f"%{query}%"
+
+        # 1. Check specs_db_path first (supports both canonical `emails` / `general_emails` and legacy fixture tables)
+        for db_p in [specs_db_path]:
+            if not db_p or not db_p.exists():
+                continue
             try:
-                sql = """
-                    SELECT id, tdoc_number, subject, sender_name, sender_company, sent_date, substr(body_clean, 1, 800) AS snippet
-                    FROM meeting_emails
-                    WHERE (? = '' OR tdoc_number LIKE ? OR subject LIKE ? OR body_clean LIKE ? OR sender_company LIKE ?)
-                    ORDER BY sent_date DESC LIMIT ?
-                """
-                q_like = f"%{query}%"
-                rows = conn.execute(sql, (query, q_like, q_like, q_like, q_like, limit)).fetchall()
-                results.extend([dict(r) for r in rows])
+                email_db = EmailDatabase(db_p)
+                with email_db._get_connection() as conn:
+                    tbls = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+                    if "emails" in tbls:
+                        sql = """
+                            SELECT id, tdoc_id AS tdoc_number, subject, sender_name, company AS sender_company,
+                                   date_received AS sent_date, substr(COALESCE(free_text, short_text, ''), 1, 800) AS snippet
+                            FROM emails
+                            WHERE (? = '' OR tdoc_id LIKE ? OR subject LIKE ? OR free_text LIKE ? OR short_text LIKE ? OR company LIKE ?)
+                            ORDER BY date_received DESC LIMIT ?
+                        """
+                        rows = conn.execute(sql, (query, q_like, q_like, q_like, q_like, q_like, limit)).fetchall()
+                        results.extend([dict(r) for r in rows])
+                    if "meeting_emails" in tbls:
+                        sql = """
+                            SELECT id, tdoc_number, subject, sender_name, sender_company, sent_date, substr(body_clean, 1, 800) AS snippet
+                            FROM meeting_emails
+                            WHERE (? = '' OR tdoc_number LIKE ? OR subject LIKE ? OR body_clean LIKE ? OR sender_company LIKE ?)
+                            ORDER BY sent_date DESC LIMIT ?
+                        """
+                        rows = conn.execute(sql, (query, q_like, q_like, q_like, q_like, limit)).fetchall()
+                        results.extend([dict(r) for r in rows])
             except Exception:
                 pass
-        with gen_db._get_connection() as conn:
+
             try:
-                sql = """
-                    SELECT id, wg_name, subject, sender_name, sender_company, sent_date, substr(body_clean, 1, 800) AS snippet
-                    FROM general_wg_emails
-                    WHERE (? = '' OR subject LIKE ? OR body_clean LIKE ? OR sender_company LIKE ?)
-                    ORDER BY sent_date DESC LIMIT ?
-                """
-                q_like = f"%{query}%"
-                rows = conn.execute(sql, (query, q_like, q_like, q_like, limit)).fetchall()
-                results.extend([dict(r) for r in rows])
+                gen_db = GeneralEmailDatabase(db_p)
+                with gen_db._get_connection() as conn:
+                    tbls = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+                    if "general_emails" in tbls:
+                        sql = """
+                            SELECT id, folder_tag AS wg_name, subject, sender_name, company AS sender_company,
+                                   date_received AS sent_date, substr(COALESCE(body_text, ''), 1, 800) AS snippet
+                            FROM general_emails
+                            WHERE (? = '' OR subject LIKE ? OR body_text LIKE ? OR company LIKE ?)
+                            ORDER BY date_received DESC LIMIT ?
+                        """
+                        rows = conn.execute(sql, (query, q_like, q_like, q_like, limit)).fetchall()
+                        results.extend([dict(r) for r in rows])
+                    if "general_wg_emails" in tbls:
+                        sql = """
+                            SELECT id, wg_name, subject, sender_name, sender_company, sent_date, substr(body_clean, 1, 800) AS snippet
+                            FROM general_wg_emails
+                            WHERE (? = '' OR subject LIKE ? OR body_clean LIKE ? OR sender_company LIKE ?)
+                            ORDER BY sent_date DESC LIMIT ?
+                        """
+                        rows = conn.execute(sql, (query, q_like, q_like, q_like, limit)).fetchall()
+                        results.extend([dict(r) for r in rows])
             except Exception:
                 pass
+
+        # 2. Also check per-meeting Agenda/emails.db and global general_emails.db in cache_dir if needed
+        if len(results) < limit:
+            for c_root in _get_meetings_cache_roots():
+                if not c_root.exists():
+                    continue
+                gen_db_file = c_root / "General_Emails" / "general_emails.db"
+                if gen_db_file.exists():
+                    try:
+                        gdb = GeneralEmailDatabase(gen_db_file)
+                        with gdb._get_connection() as conn:
+                            sql = """
+                                SELECT id, folder_tag AS wg_name, subject, sender_name, company AS sender_company,
+                                       date_received AS sent_date, substr(COALESCE(body_text, ''), 1, 800) AS snippet
+                                FROM general_emails
+                                WHERE (? = '' OR subject LIKE ? OR body_text LIKE ? OR company LIKE ?)
+                                ORDER BY date_received DESC LIMIT ?
+                            """
+                            rows = conn.execute(sql, (query, q_like, q_like, q_like, limit)).fetchall()
+                            results.extend([dict(r) for r in rows])
+                    except Exception:
+                        pass
+
         return {
             "query": query,
             "count": len(results[:limit]),
@@ -2412,7 +2994,10 @@ def build_external_agent_tool_registry(
                 ToolArgumentSpec("query", "string", ""),
                 ToolArgumentSpec("version", "string", ""),
                 ToolArgumentSpec("meeting", "string", ""),
+                ToolArgumentSpec("category", "string", ""),
+                ToolArgumentSpec("tdoc_id", "string", ""),
                 ToolArgumentSpec("deep_verify_docx", "boolean", "Verify CR .docx cover"),
+                ToolArgumentSpec("output_dir", "string", ""),
                 ToolArgumentSpec("limit", "integer", ""),
             ),
             handler=_wrap_handler(lambda a: _handle_spec_history_and_attribution(
@@ -2463,17 +3048,27 @@ def build_external_agent_tool_registry(
                 ToolArgumentSpec("action", "string", "", required=True, enum=("search_meetings", "search_tdocs", "read_tdoc_markdown", "get_or_set_stance", "meeting_stats")),
                 ToolArgumentSpec("wg", "string", ""),
                 ToolArgumentSpec("meeting_number", "string", ""),
+                ToolArgumentSpec("year", "string", ""),
+                ToolArgumentSpec("location", "string", ""),
                 ToolArgumentSpec("tdoc_id", "string", ""),
                 ToolArgumentSpec("query", "string", ""),
                 ToolArgumentSpec("source_company", "string", ""),
                 ToolArgumentSpec("confirmed_company_only", "boolean", "Exclude '?'/'[...]'"),
                 ToolArgumentSpec("agenda_item", "string", ""),
                 ToolArgumentSpec("work_item", "string", ""),
+                ToolArgumentSpec("status", "string", ""),
+                ToolArgumentSpec("revisions", "string", ""),
+                ToolArgumentSpec("max_chars", "integer", ""),
                 ToolArgumentSpec("stance", "string", ""),
                 ToolArgumentSpec("notes", "string", ""),
                 ToolArgumentSpec("limit", "integer", ""),
             ),
-            handler=_wrap_handler(lambda a: _handle_meetings_and_tdocs(a, specs_db_path=paths["specs_db"], user_tdocs_db_path=paths["user_tdocs_db"])),
+            handler=_wrap_handler(lambda a: _handle_meetings_and_tdocs(
+                a,
+                specs_db_path=paths["specs_db"],
+                user_tdocs_db_path=paths["user_tdocs_db"],
+                spec_history_db_path=paths["spec_history_db"],
+            )),
         ),
         ToolDefinition(
             name="chair_notes_and_session_plan",
@@ -2559,6 +3154,7 @@ def build_external_agent_tool_registry(
             arguments=(
                 ToolArgumentSpec("action", "string", "", required=True, enum=("search_work_items", "fetch_wi_from_portal", "toggle_wi_tracking", "search_emails")),
                 ToolArgumentSpec("query", "string", ""),
+                ToolArgumentSpec("wi_code", "string", ""),
                 ToolArgumentSpec("wg", "string", ""),
                 ToolArgumentSpec("release", "string", ""),
                 ToolArgumentSpec("tracked_only", "boolean", ""),
@@ -2595,13 +3191,15 @@ def build_external_agent_tool_registry(
                 "extract_clause",
                 "ingest_history",
                 "tdoc_dossier",
-                "get_or_set_stance",
                 "ingest_session_plan",
                 "toggle_wi_tracking",
             }
             def _ro_guard(orig=orig_handler, tname=tool.name, **kw: Any) -> ToolResult:
                 act = str(kw.get("action") or "").strip().lower()
-                if act in mutating_actions:
+                if act in mutating_actions or (
+                    act == "get_or_set_stance"
+                    and (kw.get("stance") is not None or kw.get("notes") is not None)
+                ):
                     return ToolResult(
                         status=ToolStatus.FOUND,
                         data={"ok": False, "error": f"Read-only mode enabled: action '{act}' on '{tname}' is disabled."},
