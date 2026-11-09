@@ -70,6 +70,14 @@ def is_export_complete(
             if doc_info and (doc_info.get("source_file") or doc_info.get("original_file")):
                 return False
 
+        # Placeholder stub created when document was reserved / not uploaded
+        if (
+            "Status: Reserved / Not Uploaded" in head
+            or "allocated or reserved on the meeting agenda but has not yet been uploaded" in head
+            or "⏳ **Status: Reserved" in head
+        ):
+            return False
+
         # Detect presentation export
         is_pres = False
         if source_path and Path(source_path).suffix.lower() in (".pptx", ".ppt"):
@@ -369,7 +377,7 @@ def reconstruct_manifest_from_directory(
                 "rel_path": rel_path,
                 "session_id": 1,
                 "added_at": created_at,
-                "is_reserved": False,
+                "is_reserved": not is_export_complete(md_path),
                 "my_status": str(row.get("My Status", "")),
                 "my_notes": str(row.get("My Notes", "")),
                 "supersedes": [],
@@ -579,7 +587,7 @@ def merge_manifest_into_tree(
             "reply_to_ids": doc_info.get("reply_to_ids", []),
             "sibling_replies": doc_info.get("sibling_replies", []),
             "supersedes": doc_info.get("supersedes", []),
-            "is_reserved": doc_info.get("is_reserved", False),
+            "is_reserved": not is_export_complete(target_abs, doc_info) if os.path.exists(to_extended_path(target_abs)) else bool(doc_info.get("is_reserved", False)),
             "my_status": doc_info.get("my_status", ""),
             "my_notes": doc_info.get("my_notes", ""),
             "for_action": "",

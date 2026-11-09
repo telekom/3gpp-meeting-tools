@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "topics": [
+    {
+      "id": "rel19_ambient_iot",
+      "name": "Ambient IoT (Rel-19)",
+      "description": "Cross-WG tracking of passive/zero-energy IoT across SA2 (architecture), RAN2/3 (radio & protocol), and CT1 (NAS/URSP)",
+      "color": "#10B981",
+      "target_wgs": ["SA2", "RAN2", "RAN3", "CT1"],
+      "cycle_mode": "past_n_cycles",
+      "past_n_cycles": 4,
+      "from_cycle": "2025-Q1",
+      "to_cycle": "2026-Q1",
+      "rules": {
+        "wi_tokens": ["ambientiot", "ambientiot_ph2", "fs_ambientiot"],
+        "ai_patterns": {
+          "SA2": ["5.14*", "5.12*", "5.8*"],
+          "RAN2": ["8.7*"],
+          "RAN3": ["9.3*"],
+          "CT1": ["6.18*"]
+        },
+        "keywords": ["ambient iot", "zero power", "passive iot", "energy harvesting", "device discovery"],
+        "pinned_tdocs": [],
+        "excluded_tdocs": []
+      }
+    },
+    {
+      "id": "rel19_aiml_ph2",
+      "name": "AI/ML Phase 2 (Rel-19)",
+      "description": "Cross-WG tracking of Artificial Intelligence and Machine Learning enhancements across Core, RAN, and UE",
+      "color": "#6366F1",
+      "target_wgs": ["SA2", "RAN1", "RAN2", "RAN3", "CT1"],
+      "cycle_mode": "past_n_cycles",
+      "past_n_cycles": 4,
+      "from_cycle": "2025-Q1",
+      "to_cycle": "2026-Q1",
+      "rules": {
+        "wi_tokens": ["aiml", "aiml_ph2", "fs_aiml", "fs_aiml_ph2", "nr_aiml_air_ph2", "nr_aiml_ngran_ph2", "5g_aiml"],
+        "ai_patterns": {
+          "SA2": ["5.2*", "5.4*"],
+          "RAN1": ["8.1*"],
+          "RAN2": ["8.4*"],
+          "RAN3": ["9.2*"],
+          "CT1": ["6.15*"]
+        },
+        "keywords": ["ai/ml", "machine learning", "model transfer", "inference", "federated learning", "data collection"],
+        "pinned_tdocs": [],
+        "excluded_tdocs": []
+      }
+    },
+    {
+      "id": "rel20_6g_architecture",
+      "name": "6G Architecture & Feasibility (Rel-20)",
+      "description": "Studies on 6G radio and system architecture, requirements, and foundational principles",
+      "color": "#F59E0B",
+      "target_wgs": ["SA2", "RAN2", "RAN3", "CT1"],
+      "cycle_mode": "past_n_cycles",
+      "past_n_cycles": 4,
+      "from_cycle": "2025-Q1",
+      "to_cycle": "2026-Q1",
+      "rules": {
+        "wi_tokens": ["fs_6g_arc", "6g_arc", "fs_6g_radio", "6gr", "6g"],
+        "ai_patterns": {
+          "SA2": ["5.1*", "5.2*"],
+          "RAN2": ["8.1*"],
+          "RAN3": ["10*"],
+          "CT1": ["6.1*"]
+        },
+        "keywords": ["6g architecture", "study on 6g", "sub-terahertz", "integrated sensing", "isac", "compute network"],
+        "pinned_tdocs": [],
+        "excluded_tdocs": []
+      }
+    },
+    {
+      "id": "rel19_network_energy_savings",
+      "name": "Network Energy Savings (Rel-19)",
+      "description": "Network energy savings across radio access, gNB sleep states, and core network coordination",
+      "color": "#06B6D4",
+      "target_wgs": ["SA2", "RAN1", "RAN2", "RAN3"],
+      "cycle_mode": "past_n_cycles",
+      "past_n_cycles": 4,
+      "from_cycle": "2025-Q1",
+      "to_cycle": "2026-Q1",
+      "rules": {
+        "wi_tokens": ["nes", "nes_ph2", "fs_nes", "fs_nes_ph2", "nr_nes_ph2"],
+        "ai_patterns": {
+          "SA2": ["5.9*"],
+          "RAN1": ["8.3*"],
+          "RAN2": ["8.6*"],
+          "RAN3": ["9.4*"]
+        },
+        "keywords": ["energy savings", "nes", "power consumption", "cell sleep", "rf shutdown"],
+        "pinned_tdocs": [],
+        "excluded_tdocs": []
+      }
+    },
+    {
+      "id": "rel20_data_framework",
+      "name": "Data Framework & Data Transfer (Rel-20)",
+      "description": "6G E2E Data Framework topic across SA2 (FS_6G_ARC Key Issue #21), Core, and RAN",
+      "color": "#0284C7",
+      "target_wgs": ["SA2", "RAN2", "RAN3", "CT1", "CT4", "SA5"],
+      "cycle_mode": "past_n_cycles",
+      "past_n_cycles": 4,
+      "from_cycle": "2025-Q1",
+      "to_cycle": "2026-Q4",
+      "rules": {
+        "wi_tokens": ["fs_6g_arc", "6g_arc", "6g_df"],
+        "ai_patterns": {
+          "SA2": ["20.6.21*"]
+        },
+        "keywords": ["data framework", "data transfer", "ki#21", "key issue #21", "key issue 21", "6g data framework"],
+        "pinned_tdocs": [],
+        "excluded_tdocs": []
+      }
+    }
+  ]
+}

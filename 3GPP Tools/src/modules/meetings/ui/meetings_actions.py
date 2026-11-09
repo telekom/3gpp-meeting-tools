@@ -177,6 +177,25 @@ def open_contribution_report(tab):
     tab.contribution_dialog.show()
 
 
+def open_topic_dossier_studio(tab):
+    """Opens or activates the independent Cross-WG Topic Dossier and Briefing Studio dialog."""
+    from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
+
+    if hasattr(tab, "topic_dossier_dialog") and tab.topic_dossier_dialog is not None:
+        if tab.topic_dossier_dialog.isVisible():
+            tab.topic_dossier_dialog.raise_()
+            tab.topic_dossier_dialog.activateWindow()
+            return
+        else:
+            tab.topic_dossier_dialog.deleteLater()
+            tab.topic_dossier_dialog = None
+
+    tab.topic_dossier_dialog = TopicDossierDialog(tab.db, parent=None)
+    tab.topic_dossier_dialog.show()
+    tab.topic_dossier_dialog.raise_()
+    tab.topic_dossier_dialog.activateWindow()
+
+
 def open_agreement_tracker(tab):
     """Opens or activates the independent Cross-Meeting Study Item & Topic Agreement Tracker dialog."""
     from modules.meetings.ui.agreement_tracker_dialog import AgreementTrackerDialog

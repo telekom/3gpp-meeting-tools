@@ -375,6 +375,92 @@ class TestIncrementalExport(unittest.TestCase):
         self.assertIn("S2-2611001", master_content)
         self.assertIn("Export Changelog & LLM Incremental Update Guide", master_content)
 
+    def test_reserved_stub_upgraded_when_docx_becomes_available(self):
+        """
+        Tests that an initially unuploaded/reserved TDoc exported as a metadata-only stub
+        is properly detected as incomplete and upgraded to full Markdown content when
+        its docx document becomes available in an incremental export run.
+        """
+        # S2-2611493 starts as Reserved and NOT present on disk
+        reserved_row = {
+            "TDoc": "S2-2611493",
+            "Type": "pCR",
+            "TDoc Status": "Reserved",
+            "Related WIs": "FS_5G_AIML_Ph2",
+            "Agenda Item": "18.2",
+            "Agenda item description": "AI/ML Phase 2",
+            "Release": "Rel-19",
+            "Title": "Model Checkpointing and Verification",
+            "Source": "Samsung",
+            "_Sanitized_Companies": ["Samsung"],
+            "_All_Sanitized_Companies": ["Samsung"],
+        }
+        test_rows = list(self.all_rows) + [reserved_row]
+
+        # Ensure no docx exists for S2-2611493 initially
+        s2_folder = self.meeting_dir / "S2-2611493"
+        if s2_folder.exists():
+            shutil.rmtree(s2_folder)
+
+        # 1. Run Initial Export with S2-2611493 reserved
+        exp1 = PreMeetingExporterThread(
+            meeting_dir=self.meeting_dir,
+            all_rows=test_rows,
+            visible_rows=test_rows,
+            agenda_map={},
+            mtg_info=self.mtg_info,
+            docs_ftp_url="",
+            revisions_url="",
+            scope_mode="whole",
+            download_missing=False,
+            output_dir=self.export_dir,
+        )
+        exp1.run()
+
+        stub_path = self.export_dir / "Rel-19" / "FS_5G_AIML_Ph2" / "pCR" / "S2-2611493.md"
+        self.assertTrue(stub_path.is_file(), "Reserved stub should have been created on initial export.")
+        stub_content = stub_path.read_text(encoding="utf-8")
+        self.assertIn("Status: Reserved / Not Uploaded", stub_content)
+
+        # Master index should show reserved status
+        master_content = (self.export_dir / "index.md").read_text(encoding="utf-8")
+        self.assertIn("⏳ Reserved", master_content)
+
+        # 2. Later: The author uploads the docx and it is cached locally in the meeting folder!
+        s2_folder.mkdir(parents=True, exist_ok=True)
+        docx_file = s2_folder / "S2-2611493.docx"
+        import zipfile
+        with zipfile.ZipFile(docx_file, "w") as zf:
+            zf.writestr("[Content_Types].xml", "<Types/>")
+        # Also create dummy converted md in cache so _ensure_tdoc_markdown finds it
+        cache_md = s2_folder / "S2-2611493.md"
+        cache_md.write_text("# S2-2611493: Model Checkpointing\n\nFull technical specification text...", encoding="utf-8")
+
+        # 3. Run Incremental Export targeting the SAME export directory
+        exp2 = PreMeetingExporterThread(
+            meeting_dir=self.meeting_dir,
+            all_rows=test_rows,
+            visible_rows=test_rows,
+            agenda_map={},
+            mtg_info=self.mtg_info,
+            docs_ftp_url="",
+            revisions_url="",
+            scope_mode="whole",
+            download_missing=False,
+            output_dir=self.export_dir,
+        )
+        exp2.run()
+
+        # The stub file MUST have been replaced with the full technical text!
+        updated_content = stub_path.read_text(encoding="utf-8")
+        self.assertNotIn("Status: Reserved / Not Uploaded", updated_content, "Reserved stub was not upgraded!")
+        self.assertIn("Full technical specification text", updated_content)
+
+        # Master index must no longer mark S2-2611493 as ⏳ Reserved!
+        master_updated = (self.export_dir / "index.md").read_text(encoding="utf-8")
+        self.assertIn("Model Checkpointing", master_updated)
+        self.assertIn("Updated / Re-converted TDocs", master_updated)
+
 
 if __name__ == "__main__":
     unittest.main()

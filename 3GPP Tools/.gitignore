@@ -4,11 +4,14 @@ src/assets/Pseudo-CR-Form*.docx
 src/assets/3gpp_70.dotx
 src/assets/*.zip
 src/assets/*.doc
+src/assets/plantuml.jar
+src/assets/plantuml.version
 
 # Runtime caches and editor temp
 .editor_cache.puml
 *.tmp
 output/
+src/Export/
 src/3gpp_tools.log
 __pycache__/
 *.pyc
@@ -19,5 +22,6 @@ src/db/*.db*
 
 # User-defined presets & local configurations (not committed to git)
 src/config/*_user.json
+src/config/*_config.json
 src/config/plantuml_presets_user.json
 

@@ -1110,15 +1110,23 @@ class PostMeetingExporterThread(QThread):
         return local_md_file, local_media_dir
 
     def _find_word_doc(self, folder: Path, tdoc_id: str) -> Optional[Path]:
-        if not folder.exists():
-            return None
-        for ext in [".docx", ".docm", ".pptx", ".doc", ".ppt"]:
-            files = list(folder.glob(f"*{ext}"))
-            if files:
-                for f in files:
-                    if tdoc_id.lower() in f.name.lower():
-                        return f
-                return files[0]
+        candidate_folders = [folder]
+        base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
+        base_tdoc = base_match.group(1).upper() if base_match else tdoc_id.upper()
+        alt_folder = self.meeting_dir / base_tdoc
+        if alt_folder != folder:
+            candidate_folders.append(alt_folder)
+
+        for fld in candidate_folders:
+            if not fld.exists():
+                continue
+            for ext in [".docx", ".docm", ".pptx", ".doc", ".ppt"]:
+                files = list(fld.glob(f"*{ext}"))
+                if files:
+                    for f in files:
+                        if tdoc_id.lower() in f.name.lower():
+                            return f
+                    return files[0]
         return None
 
     def _download_and_extract_tdoc(self, tdoc_id: str, tdoc_folder: Path) -> Optional[Path]:

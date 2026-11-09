@@ -24,7 +24,8 @@ src/modules/meetings/
 │   │   ├── post_meeting_exporter.py   # Post-meeting report generator (per-release & per-WI dossier)
 │   │   ├── pre_meeting_exporter.py    # Pre-meeting briefing generator (active proposals, multi-reply LS, lineage dedup)
 │   │   ├── tdoc2md.py                 # [PROTECTED] Standalone 3GPP TDoc to Markdown conversion core
-│   │   └── tdocs_package_exporter.py  # Packaged TDoc archive exporter
+│   │   ├── tdocs_package_exporter.py  # Packaged TDoc archive exporter
+│   │   └── topic_dossier_exporter.py  # Cross-WG multi-meeting topic dossier & LLM delta feed exporter
 │   ├── session_plan/                  # SA2 Session Plan parsing, diffing, DB & mobile HTML export
 │   │   ├── session_plan_db.py         # SQLite persistence & cross-meeting default assignment sync
 │   │   ├── session_plan_diff.py       # Slot-by-slot snapshot diff engine
@@ -38,6 +39,8 @@ src/modules/meetings/
 │   │   └── tdocs_threads.py           # Background threads for TDoc & Word agenda loading
 │   ├── agreement_tracker_worker.py    # Multi-meeting cross-WG Study Item & Topic agreement tracker worker
 │   ├── chair_notes_downloader.py      # Smart FTP downloader & ZIP extractor for Final/EOM Chairman's Notes
+│   ├── cohort_resolver.py             # Multi-WG meeting cohort clustering & quarterly cycle windowing
+│   ├── cross_wg_ls_tracker.py         # Inter-group Liaison Statement dialogue thread tracker
 │   ├── meeting_wi_enricher.py         # Asynchronous background Work Item discovery & enrichment
 │   ├── meetings_data_loader.py        # 3gpp_data.db queries and meeting list loaders
 │   ├── meetings_network_sync.py       # FTP sync for meetings and TDoc lists
@@ -46,6 +49,8 @@ src/modules/meetings/
 │   ├── tdoc_markdown_converter.py     # Application adapter & Office wrappers for tdoc2md
 │   ├── tdoc_triage_worker.py          # Local LLM technical triage generation
 │   ├── tdocs_db.py                    # SQLite interface for user_tdocs.db
+│   ├── topic_decision.py              # Unified technical decision model (RAN text agreements + SA/CT pCRs)
+│   ├── topic_manager.py               # Persistent Meta-Topic manager & rule evaluation
 │   └── stats/                         # Meeting statistics calculation and HTML report generation
 └── ui/
     ├── agreement_tracker_dialog.py    # Cross-Meeting Study Item & Topic Agreement Tracker dialog
@@ -59,7 +64,8 @@ src/modules/meetings/
     ├── dialogs/                       # Modal export & parameter configuration dialogs
     │   ├── post_meeting_export_dialog.py  # Post-meeting report generator dialog
     │   ├── pre_meeting_export_dialog.py   # Pre-meeting briefing generator dialog
-    │   └── tdocs_export_controller.py     # Centralized export dispatcher & controller
+    │   ├── tdocs_export_controller.py     # Centralized export dispatcher & controller
+    │   └── topic_dossier_dialog.py        # Cross-WG Topic Dossier & Briefing Studio dialog
     ├── search_controller.py           # GlobalSearchController for inline Quick TDoc Jump & quick actions
     ├── session_plan_dialogs.py        # Timezone, Roster, Dispatch, Import & Diff dialogs for Session Plan
     ├── session_plan_window.py         # Interactive SA2 Session Plan Studio window
@@ -481,4 +487,34 @@ src/modules/meetings/
   - **Window Lifecycle Cleanliness:** Registered in `TDocsWindow.closeEvent` (`all_threads`) to ensure immediate cooperative cancellation if the window is closed during active downloads.
 - **Cache Detection (`is_tdoc_cached` in `tdocs_menus.py`):**
   - Inspects both direct meeting directories (`meeting_dir / base_tdoc`) and legacy cache subdirectories (`meeting_dir / TDocs`), ensuring cached files are immediately recognized as `(Local)` in right-click menus and instant document opening.
+
+### 3.17. Cross-WG, Multi-Meeting Topic Dossier & Briefing Studio (`meta_topics.json`, `topic_manager.py`, `cohort_resolver.py`, `topic_decision.py`, `cross_wg_ls_tracker.py`, `topic_dossier_exporter.py`, `topic_dossier_dialog.py`)
+- **Problem Solved:** Major 3GPP initiatives (Ambient IoT, AI/ML Phase 2, 6G Architecture, Network Energy Savings) span across multiple Working Groups (SA2 architecture, RAN2/RAN3 radio & protocols, CT1 NAS/URSP, SA3 security) and across 6–10 consecutive quarterly meeting cycles. Individual single-meeting exports fail to capture the multi-WG evolution or inter-group dialogue.
+- **Persistent Meta-Topics (`src/config/meta_topics.json`, `topic_manager.py`):**
+  - User and built-in semantic topic definitions (`MetaTopicDefinition`, `MetaTopicRules`).
+  - Correlates contributions using: (1) normalized Work Item / Study Item tokens (`ambientiot`, `fs_ambientiot`), (2) WG-specific Agenda Item wildcard patterns (`SA2: 5.14*`, `RAN2: 8.7*`, `CT1: 6.18*`), (3) title/abstract keywords, and (4) manual pinned/excluded TDoc IDs.
+  - Features CRUD operations (`list_topics`, `save_topic`, `clone_topic`, `delete_topic`) with atomic JSON persistence and built-in templates.
+- **Meeting Cohort Resolution (`cohort_resolver.py`):**
+  - Groups multi-WG meetings occurring on staggered dates across quarters into standardized quarterly cohorts (e.g. `2025-Q4 Cycle` aligning SA2 #160 in October with RAN2 #129 and CT1 #146 in November).
+  - Supports flexible windowing (`Past N Quarters`, `Quarterly Cycle Range`, or `Date Window`).
+- **Unified Decision & Document Model (`topic_decision.py`):**
+  - Elevates **RAN Chairman's Notes text agreements & Working Assumptions** and **SA/CT Approved pCRs to TRs & CRs to TSs** into identical first-class standing (`TopicDecision`).
+  - Classifies outcomes into `🟢 Text Agreement`, `🟢 Approved pCR`, `🟢 Approved CR`, `🔵 Endorsed WF`, `🟡 Working Assumption`, `🟣 Open Issue / FFS`, and `📬 Agreed LS`.
+  - Generates unified chronological Markdown matrix rows (`to_markdown_row`).
+- **Cross-WG Liaison Statement (LS) Dialogue Tracker (`cross_wg_ls_tracker.py`):**
+  - Traces inter-group questions, guidance, and reply chains (e.g. `SA2 LS OUT` $\rightarrow$ `RAN2 LS IN` $\rightarrow$ `RAN2 reply LS OUT`).
+  - Synthesizes `ls_dialogue.md` featuring dialogue thread trees and comprehensive inventory tables with bidirectional dossier hyperlinks.
+- **Two-Phase Parallel Exporter & Incremental LLM Delta Feed (`topic_dossier_exporter.py`):**
+  - Two-phase parallel processing: Phase 1 concurrent pre-download (`ThreadPoolExecutor(max_workers=5)`) + Phase 2 in-memory OpenXML conversion to Markdown with figures and Visio diagrams.
+  - Multi-candidate resolution checks base TDoc directories, pre-existing `.md` caches (instant copy), `.zip` archives, and 3GPP server URLs. Generates structured metadata stubs for unuploaded/unavailable documents that are seamlessly upgraded on subsequent runs.
+  - **Incremental Manifest Tracking (`.export_manifest.json`):** Re-running on existing directories skips already converted files in $<1$ second without clobbering filesystem modification timestamps (preserving vector embeddings in RAG caches).
+  - **LLM Delta Feed (`deltas/delta_session_N.md`):** Generates dedicated incremental diff files containing strictly the new decisions, approved pCRs, and incoming LSs added in that session, accompanied by explicit AI prompting guidance.
+  - Master index synthesis: `index.md`, `agreements_timeline.md`, `ls_dialogue.md`, and optional `consolidated_briefing.md`.
+- **Topic Dossier Studio UI (`topic_dossier_dialog.py`, `ui_tabs.py`):**
+  - Accessible via **`MeetingsTab` $\rightarrow$ `📊 Reports ▾` $\rightarrow$ `🌐 Cross-WG Topic Dossier && Briefing Studio...`**.
+  - Fully independent, modeless top-level window (`Qt.Window`, `Qt.NonModal`) with window-modal sub-dialogs, allowing delegates to freely interact with `MeetingsTab`, open `TDocsWindow`, and inspect documents concurrently.
+  - Modeless 2-column studio:
+    - Left: Saved Meta-Topics list with `+ New`, `✏️ Edit`, `📋 Clone`, `🗑️ Delete`.
+    - Right: Topic Runner, Scope Mode segmented buttons (`🧭 Pre-Meeting Briefing`, `📑 Post-Meeting Report`, `📚 Complete Feature Dossier`), Cohort Window picker, Incremental folder status badge (`🟢 Existing Corpus` vs `🆕 New Directory`), live progress bar, and 1-click `📂 Open Output Folder`.
+
 

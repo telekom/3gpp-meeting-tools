@@ -42,6 +42,7 @@ from modules.meetings.ui.meetings_actions import (
     on_merger_finished,
     open_contribution_report,
     open_agreement_tracker,
+    open_topic_dossier_studio,
     open_meeting_from_report,
 )
 
@@ -299,6 +300,12 @@ class MeetingsTab(QWidget):
         self.reports_menu_btn.setToolTip("Reports, analytics, and consolidated exports...")
 
         reports_menu = QMenu(self)
+        rep_act_topic = reports_menu.addAction(
+            "🌐 Cross-WG Topic Dossier && Briefing Studio...", self._open_topic_dossier_studio
+        )
+        rep_act_topic.setToolTip(
+            "Define multi-WG topics (Meta-Topics) and generate incremental cross-meeting dossiers with unified decisions and LLM feeds."
+        )
         rep_act_agreements = reports_menu.addAction(
             "⚖️ Study Item && Meeting Agreements Tracker...", self._open_agreement_tracker
         )
@@ -1143,6 +1150,9 @@ class MeetingsTab(QWidget):
 
     def _open_contribution_report(self):
         open_contribution_report(self)
+
+    def _open_topic_dossier_studio(self):
+        open_topic_dossier_studio(self)
 
     def _open_agreement_tracker(self):
         open_agreement_tracker(self)

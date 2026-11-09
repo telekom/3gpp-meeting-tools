@@ -437,6 +437,12 @@ class PreMeetingExporterThread(PostMeetingExporterThread):
                 continue
 
             is_reserved = any(res in status for res in ["reserved", "not uploaded", "not yet uploaded"])
+            if is_reserved:
+                base_m = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
+                b_tdoc = base_m.group(1).upper() if base_m else tdoc_id.upper()
+                if self._find_word_doc(self.meeting_dir / b_tdoc, tdoc_id):
+                    is_reserved = False
+
             if is_reserved and not self.include_reserved_in_index:
                 continue
 
@@ -684,6 +690,12 @@ class PreMeetingExporterThread(PostMeetingExporterThread):
             rep_url = resolve_tdoc_download_url(
                 rep_id, docs_url=self.docs_ftp_url, revisions_url=self.revisions_url, meta=rep_row
             )
+            rep_b_m = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', rep_id, re.IGNORECASE)
+            rep_b_tdoc = rep_b_m.group(1).upper() if rep_b_m else rep_id.upper()
+            rep_is_res = any(res in rep_status for res in ["reserved", "not uploaded"])
+            if rep_is_res and self._find_word_doc(self.meeting_dir / rep_b_tdoc, rep_id):
+                rep_is_res = False
+
             rep_entry = {
                 "tdoc_id": rep_id,
                 "title": str(rep_row.get("Title", "")).strip(),
@@ -698,7 +710,7 @@ class PreMeetingExporterThread(PostMeetingExporterThread):
                 "reply_to_ids": out_to_in.get(rep_id, []),
                 "sibling_replies": [],
                 "supersedes": predecessors_map.get(rep_id, []),
-                "is_reserved": any(res in rep_status for res in ["reserved", "not uploaded"]),
+                "is_reserved": rep_is_res,
                 "my_status": str(rep_row.get("My Status", "⚪ Neutral")).replace("🔄 ", "").strip(),
                 "my_notes": str(rep_row.get("My Notes", "")).replace("🔄 [From Base]: ", "").strip(),
                 "for_action": str(rep_row.get("For", "")).strip(),
@@ -735,8 +747,9 @@ class PreMeetingExporterThread(PostMeetingExporterThread):
         if self.download_missing:
             missing_dl_tasks: List[Tuple[str, Path]] = []
             for tdoc_id, doc_entry in unique_tdocs.items():
-                # Skip unuploaded reserved documents from network download
-                if doc_entry.get("is_reserved"):
+                # Skip unuploaded reserved documents from network download unless upgrading from stub
+                is_stub_upgrade = hasattr(self, "session_plan") and tdoc_id in self.session_plan.tdocs_to_update
+                if doc_entry.get("is_reserved") and not is_stub_upgrade:
                     continue
 
                 # Skip documents preserved from previous export or already existing on disk
@@ -813,6 +826,8 @@ class PreMeetingExporterThread(PostMeetingExporterThread):
             self.progress.emit(f"Converting {tdoc_id} to Markdown ({idx}/{total_unique})...")
             local_md_file, local_media_dir = self._ensure_tdoc_markdown(tdoc_id, row_data)
             converted_cache[tdoc_id] = (local_md_file, local_media_dir)
+            if local_md_file:
+                doc_entry["is_reserved"] = False
 
         # Pre-register target paths for all documents across the dossier structure
         self.exported_tdoc_paths: Dict[str, Path] = {}
