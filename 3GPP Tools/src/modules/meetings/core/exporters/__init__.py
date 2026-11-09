@@ -18,6 +18,8 @@ __all__ = [
     "merge_manifest_into_tree",
     "format_master_changelog_markdown",
     "format_local_wi_changelog_markdown",
+    "is_export_complete",
+    "sanitize_folder_name",
 ]
 
 _EXPORTS = {
@@ -48,6 +50,8 @@ def __getattr__(name: str) -> Any:
         "merge_manifest_into_tree",
         "format_master_changelog_markdown",
         "format_local_wi_changelog_markdown",
+        "is_export_complete",
+        "sanitize_folder_name",
     ):
         from modules.meetings.core.exporters import export_manifest
         val = getattr(export_manifest, name)

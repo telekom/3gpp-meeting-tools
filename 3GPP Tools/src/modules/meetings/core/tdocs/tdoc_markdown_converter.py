@@ -284,16 +284,18 @@ def is_conversion_stale(
     """
     Determine whether a cached Markdown dossier needs re-conversion.
     Checks:
-      1. File existence (is it present and non-empty?)
-      2. Source Word document mtime (was the .docx/.doc updated on disk?)
+      1. File existence and completeness (non-empty, >= 120 bytes, no broken presentation stubs)
+      2. Source Word/PowerPoint document mtime (was source updated on disk?)
       3. Converter engine version (has CONVERTER_VERSION been bumped?)
-      4. Revision mode match (markup vs accept/reject)
+      4. Revision mode match (markup vs accept/reject) for Word documents
     """
+    from modules.meetings.core.exporters.export_manifest import is_export_complete
+
     p_md = Path(to_extended_path(md_path))
-    if not p_md.is_file() or p_md.stat().st_size == 0:
+    if not is_export_complete(p_md, source_path=source_path):
         return True
 
-    # 1. Source Word file updated?
+    # 1. Source file updated?
     if source_path:
         p_src = Path(to_extended_path(source_path))
         if p_src.is_file():
@@ -305,8 +307,19 @@ def is_conversion_stale(
 
     # 2. Check header metadata for version and mode match
     try:
-        with open(p_md, "r", encoding="utf-8") as f:
-            header_sample = f.read(512)
+        with open(p_md, "r", encoding="utf-8", errors="replace") as f:
+            header_sample = f.read(2048)
+
+        # Detect presentation export
+        is_presentation = False
+        if source_path and Path(source_path).suffix.lower() in (".pptx", ".ppt"):
+            is_presentation = True
+        elif "type=presentation" in header_sample or "mode=presentation" in header_sample:
+            is_presentation = True
+        elif re.search(r"\*\*Original file:\*\*.*?\.ppt[x]?", header_sample, re.IGNORECASE):
+            is_presentation = True
+        elif "- **Slides:**" in header_sample:
+            is_presentation = True
 
         # Check explicit machine-readable comment
         m_ver = re.search(r"tdoc_converter:\s*version=([0-9.]+)", header_sample)
@@ -319,14 +332,15 @@ def is_conversion_stale(
             if not m_exp or m_exp.group(1) != expected_version:
                 return True
 
-        m_mode = re.search(r"mode=([a-z]+)", header_sample)
-        if m_mode:
-            if m_mode.group(1) != expected_mode:
-                return True
-        else:
-            m_rev = re.search(r"revisions:\s*([a-z]+)", header_sample)
-            if m_rev and m_rev.group(1) != expected_mode:
-                return True
+        if not is_presentation:
+            m_mode = re.search(r"mode=([a-z]+)", header_sample)
+            if m_mode:
+                if m_mode.group(1) != expected_mode:
+                    return True
+            else:
+                m_rev = re.search(r"revisions:\s*([a-z]+)", header_sample)
+                if m_rev and m_rev.group(1) != expected_mode:
+                    return True
     except Exception:
         return True
 

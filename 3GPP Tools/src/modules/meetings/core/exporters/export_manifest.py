@@ -26,6 +26,93 @@ MANIFEST_FILENAME = ".export_manifest.json"
 MANIFEST_VERSION = 1
 
 
+def sanitize_folder_name(name: str) -> str:
+    """Sanitizes directory names, removing illegal Windows/filesystem and URL-breaking characters."""
+    clean = re.sub(r'[\\/*?:"<>|#%]', "_", str(name or "")).strip()
+    return re.sub(r'_+', '_', clean).strip("._ ") or "General"
+
+
+def is_export_complete(
+    md_path: Union[str, Path],
+    doc_info: Optional[Dict[str, Any]] = None,
+    source_path: Optional[Union[str, Path]] = None,
+) -> bool:
+    """
+    Validates whether an existing Markdown export file on disk is complete and usable.
+    Returns False if:
+      - File does not exist or is 0 bytes
+      - File size is suspiciously small (< 120 bytes, e.g. truncated header or empty stub)
+      - File is an empty placeholder stub ("Document conversion was not available")
+      - File is a presentation export (PPTX/PPT) but has no slides ("## Slide ")
+      - File is a presentation export referencing slide images that are missing on disk
+    """
+    p = Path(to_extended_path(md_path))
+    if not p.is_file():
+        return False
+    try:
+        st = p.stat()
+        if st.st_size == 0:
+            return False
+
+        with open(p, "r", encoding="utf-8", errors="replace") as f:
+            head = f.read(2048)
+
+        # Minimum content threshold: reject tiny stubs unless stamped by converter
+        if st.st_size < 50:
+            return False
+        if st.st_size < 120 and "<!--- tdoc_converter:" not in head:
+            return False
+
+        # Placeholder stub created when source was missing
+        if "Document conversion was not available" in head:
+            if source_path and Path(to_extended_path(source_path)).is_file():
+                return False
+            if doc_info and (doc_info.get("source_file") or doc_info.get("original_file")):
+                return False
+
+        # Detect presentation export
+        is_pres = False
+        if source_path and Path(source_path).suffix.lower() in (".pptx", ".ppt"):
+            is_pres = True
+        elif doc_info:
+            src_file = str(doc_info.get("original_file", "") or doc_info.get("file", "") or doc_info.get("filename", "")).lower()
+            if src_file.endswith((".pptx", ".ppt")):
+                is_pres = True
+            doc_type = str(doc_info.get("type", "")).lower()
+            if "presentation" in doc_type or "slides" in doc_type:
+                is_pres = True
+
+        if not is_pres:
+            if "type=presentation" in head or "mode=presentation" in head:
+                is_pres = True
+            elif re.search(r"\*\*Original file:\*\*.*?\.ppt[x]?", head, re.IGNORECASE):
+                is_pres = True
+            elif "- **Slides:**" in head:
+                is_pres = True
+
+        if is_pres:
+            # Presentation must contain slide headings
+            with open(p, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read(16384)
+            if "## Slide " not in content:
+                return False
+
+            # Check if referenced slide image exists
+            img_match = re.search(r"!\[Slide [^\]]*\]\(([^)]+)\)", content)
+            if img_match:
+                img_rel = img_match.group(1).strip()
+                img_path = (p.parent / img_rel).resolve()
+                if not img_path.is_file():
+                    stem_media_path = (p.parent / f"{p.stem}_media" / Path(img_rel).name).resolve()
+                    sub_media_path = (p.parent / "media" / Path(img_rel).name).resolve()
+                    if not stem_media_path.is_file() and not sub_media_path.is_file():
+                        return False
+
+        return True
+    except Exception:
+        return False
+
+
 @dataclass
 class IncrementalPlan:
     """Plan for an export run detailing what is new, skipped, or updated."""
@@ -230,6 +317,9 @@ def reconstruct_manifest_from_directory(
                 continue
 
             md_path = Path(root) / f
+            # Skip empty or incomplete export files so they aren't registered as valid completed exports
+            if not is_export_complete(md_path):
+                continue
             try:
                 rel_path = md_path.relative_to(export_dir).as_posix()
             except Exception:
@@ -368,27 +458,43 @@ def plan_incremental_session(
     tdocs_to_skip: Set[str] = set()
     tdocs_to_update: Set[str] = set()
 
-    for rel in incoming_entries.values():
-        for wi in rel.values():
-            for cat_docs in wi["categories"].values():
+    for rel_name, wis in incoming_entries.items():
+        rel_slug = sanitize_folder_name(rel_name)
+        for wi_name, wi_data in wis.items():
+            wi_slug = sanitize_folder_name(wi_name)
+            for cat_name, cat_docs in wi_data.get("categories", {}).items():
+                cat_folder = "Discussion" if cat_name == "DISC" else cat_name
+                type_dir = export_dir / rel_slug / wi_slug / cat_folder
                 for doc in cat_docs:
                     tid = str(doc["tdoc_id"]).strip().upper()
                     target_abs = doc.get("target_md_abs_path")
+                    if not target_abs:
+                        target_abs = type_dir / f"{sanitize_filename(tid)}.md"
 
                     # Check if target file already exists on disk
                     file_exists = False
+                    existing_path = None
                     if target_abs and os.path.exists(to_extended_path(target_abs)):
                         file_exists = True
+                        existing_path = Path(to_extended_path(target_abs))
                     elif tid in manifest.tdocs:
                         saved_rel = manifest.tdocs[tid].get("rel_path")
                         if saved_rel and os.path.exists(to_extended_path(export_dir / saved_rel)):
                             file_exists = True
+                            existing_path = Path(to_extended_path(export_dir / saved_rel))
 
-                    if file_exists and not force_reconvert:
+                    # Completeness check: is the existing export non-empty, complete, and valid?
+                    complete = is_export_complete(existing_path, doc) if (file_exists and existing_path) else False
+
+                    if tid in tdocs_to_update:
+                        continue
+                    if file_exists and complete and not force_reconvert:
                         tdocs_to_skip.add(tid)
-                    elif file_exists and force_reconvert:
+                    elif file_exists and (not complete or force_reconvert):
+                        tdocs_to_skip.discard(tid)
                         tdocs_to_update.add(tid)
                     else:
+                        tdocs_to_skip.discard(tid)
                         new_tdocs.add(tid)
 
     # All TDocs already in manifest that were not in incoming entries are preserved
@@ -442,6 +548,8 @@ def merge_manifest_into_tree(
         cat_name = doc_info.get("category") or "DISC"
         rel_path = doc_info.get("rel_path") or f"{rel_name}/{wi_name}/{cat_name}/{sanitize_filename(tid)}.md"
         target_abs = export_dir / rel_path
+        if not target_abs.is_file() or not is_export_complete(target_abs):
+            continue
 
         if rel_name not in tree:
             tree[rel_name] = {}

@@ -365,7 +365,7 @@ class TDocMarkdownExporterThread(QThread):
     def _find_word_doc(self, folder: Path, tdoc_id: str) -> Optional[Path]:
         if not folder.exists():
             return None
-        for ext in [".docx", ".doc"]:
+        for ext in [".docx", ".docm", ".pptx", ".doc", ".ppt"]:
             files = list(folder.glob(f"*{ext}"))
             if files:
                 for f in files:

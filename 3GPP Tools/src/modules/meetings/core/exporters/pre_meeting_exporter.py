@@ -1019,6 +1019,8 @@ class PreMeetingExporterThread(PostMeetingExporterThread):
                                     media_files = list(local_media_dir.glob(f"{tdoc_id}_*"))
                                     if not media_files:
                                         media_files = list(local_media_dir.glob(f"{sanitize_filename(tdoc_id)}_*"))
+                                    if not media_files:
+                                        media_files = list(local_media_dir.glob("slide_*.png"))
                                     if media_files:
                                         os.makedirs(to_extended_path(type_media_dir), exist_ok=True)
                                         for mf in media_files:

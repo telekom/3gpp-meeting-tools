@@ -11,6 +11,14 @@ import zipfile
 from pathlib import Path
 
 from modules.meetings.core.exporters.tdoc2md import DOC_EXTENSIONS, PRESENTATION_EXTENSIONS
+from modules.meetings.core.exporters.export_manifest import (
+    is_export_complete,
+    plan_incremental_session,
+    ExportManifest,
+    reconstruct_manifest_from_directory,
+)
+from modules.meetings.core.tdocs.tdoc_markdown_converter import is_conversion_stale, CONVERTER_VERSION
+from modules.meetings.core.exporters.post_meeting_exporter import PostMeetingExporterThread
 from modules.word_tools.core.presentation_to_markdown import (
     ExtractedSlide,
     _format_markdown_table,
@@ -266,6 +274,160 @@ class TestPresentationToMarkdown(unittest.TestCase):
         )
         self.assertIn(".pptx", pane.accepted_extensions)
         self.assertIn(".ppt", pane.accepted_extensions)
+
+    def test_is_export_complete_and_stale_detection(self):
+        """Verify incomplete or empty presentation exports are detected as stale."""
+        t_dir = self.temp_dir / "stale_tests"
+        t_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Non-existent file
+        non_existent = t_dir / "non_existent.md"
+        self.assertFalse(is_export_complete(non_existent))
+        self.assertTrue(is_conversion_stale(None, non_existent))
+
+        # 2. Empty 0-byte file
+        empty_md = t_dir / "empty.md"
+        empty_md.write_text("", encoding="utf-8")
+        self.assertFalse(is_export_complete(empty_md))
+        self.assertTrue(is_conversion_stale(None, empty_md))
+
+        # 3. Truncated tiny stub (< 120 bytes)
+        stub_md = t_dir / "stub.md"
+        stub_md.write_text("# S2-260001\nSmall stub.", encoding="utf-8")
+        self.assertFalse(is_export_complete(stub_md))
+        self.assertTrue(is_conversion_stale(None, stub_md))
+
+        # 4. Presentation header without any slides
+        no_slides_md = t_dir / "no_slides.md"
+        no_slides_md.write_text(
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; type=presentation; mode=presentation --->\n"
+            "# S2-260002: Discussion Paper\n"
+            "- **TDoc:** S2-260002\n"
+            "- **Original file:** `S2-260002.pptx`\n"
+            "- **Slides:** 0 slides\n"
+            "---\n\n"
+            "Some text but no slide sections at all.\n",
+            encoding="utf-8",
+        )
+        self.assertFalse(is_export_complete(no_slides_md))
+        self.assertTrue(is_conversion_stale(None, no_slides_md))
+
+        # 5. Presentation with missing referenced slide image
+        missing_img_md = t_dir / "missing_img.md"
+        missing_img_md.write_text(
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; type=presentation; mode=presentation --->\n"
+            "# S2-260003: Architecture Concepts\n"
+            "- **TDoc:** S2-260003\n"
+            "- **Original file:** `S2-260003.pptx`\n"
+            "- **Slides:** 1 slides\n"
+            "---\n\n"
+            "## Slide 1: Introduction\n\n"
+            "![Slide 1: Introduction](media/S2-260003_slide_01.png)\n",
+            encoding="utf-8",
+        )
+        self.assertFalse(is_export_complete(missing_img_md))
+        self.assertTrue(is_conversion_stale(None, missing_img_md))
+
+        # 6. Valid complete presentation with image on disk
+        valid_img_dir = t_dir / "media"
+        valid_img_dir.mkdir(parents=True, exist_ok=True)
+        img_file = valid_img_dir / "S2-260003_slide_01.png"
+        img_file.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        self.assertTrue(is_export_complete(missing_img_md))
+        self.assertFalse(is_conversion_stale(None, missing_img_md))
+
+    def test_plan_incremental_session_recovers_empty_powerpoint_export(self):
+        """Verify incremental planning converts empty/incomplete PowerPoint exports instead of skipping."""
+        exp_dir = self.temp_dir / "incremental_test"
+        disc_dir = exp_dir / "Rel-19" / "FS_6G" / "Discussion"
+        disc_dir.mkdir(parents=True, exist_ok=True)
+
+        # Existing incomplete (0-byte) export for S2-2600010
+        bad_md = disc_dir / "S2-2600010.md"
+        bad_md.write_text("", encoding="utf-8")
+
+        # Existing complete export for S2-2600020
+        good_md = disc_dir / "S2-2600020.md"
+        good_md.write_text(
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=markup --->\n"
+            "# S2-2600020: Standard CR\n"
+            "- **TDoc:** S2-2600020\n"
+            "- **Source:** Operator\n"
+            "---\n\n"
+            "Detailed text content describing changes in normative specification.\n" * 5,
+            encoding="utf-8",
+        )
+
+        manifest = ExportManifest(
+            meeting="SA2 #166",
+            export_type="pre_meeting",
+            sessions=[{"session_id": 1, "added_tdocs": ["S2-2600010", "S2-2600020"]}],
+            tdocs={
+                "S2-2600010": {"tdoc_id": "S2-2600010", "rel_path": "Rel-19/FS_6G/Discussion/S2-2600010.md"},
+                "S2-2600020": {"tdoc_id": "S2-2600020", "rel_path": "Rel-19/FS_6G/Discussion/S2-2600020.md"},
+            },
+        )
+
+        incoming_entries = {
+            "Rel-19": {
+                "FS_6G": {
+                    "categories": {
+                        "DISC": [
+                            {"tdoc_id": "S2-2600010", "type": "Discussion", "target_md_abs_path": bad_md},
+                            {"tdoc_id": "S2-2600020", "type": "CR", "target_md_abs_path": good_md},
+                            {"tdoc_id": "S2-2600030", "type": "Discussion"},
+                        ]
+                    }
+                }
+            }
+        }
+
+        plan = plan_incremental_session(manifest, incoming_entries, exp_dir, force_reconvert=False)
+        self.assertTrue(plan.is_incremental)
+        self.assertIn("S2-2600020", plan.tdocs_to_skip, "Valid complete file should be skipped")
+        self.assertIn("S2-2600010", plan.tdocs_to_update, "Empty/incomplete file must be scheduled for update/re-conversion")
+        self.assertNotIn("S2-2600010", plan.tdocs_to_skip, "Empty/incomplete file must NOT be skipped")
+        self.assertIn("S2-2600030", plan.new_tdocs, "Newly introduced TDoc must be in new_tdocs")
+
+    def test_reconstruct_manifest_ignores_incomplete_export(self):
+        """Verify reconstruct_manifest_from_directory skips 0-byte or incomplete files."""
+        exp_dir = self.temp_dir / "reconstruct_test"
+        d_dir = exp_dir / "General" / "General" / "Discussion"
+        d_dir.mkdir(parents=True, exist_ok=True)
+
+        (exp_dir / "index.md").write_text("# Master Index\n**Generated:** 2026-11-09 12:00\n", encoding="utf-8")
+        (d_dir / "S2-2699991.md").write_text("", encoding="utf-8")  # Empty broken export
+        (d_dir / "S2-2699992.md").write_text(  # Valid complete export
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=markup --->\n"
+            "# S2-2699992: Title\n- **Source:** Vendor\n---\nValid content.\n" * 5,
+            encoding="utf-8",
+        )
+
+        manifest = reconstruct_manifest_from_directory(exp_dir, {}, [], export_type="pre_meeting")
+        self.assertIsNotNone(manifest)
+        self.assertNotIn("S2-2699991", manifest.tdocs, "Incomplete/empty file must be omitted from manifest")
+        self.assertIn("S2-2699992", manifest.tdocs, "Complete file must be indexed in manifest")
+
+    def test_find_word_doc_finds_pptx_and_ppt(self):
+        """Verify _find_word_doc finds .pptx and .ppt files."""
+        folder = self.temp_dir / "find_doc_test"
+        folder.mkdir(parents=True, exist_ok=True)
+        pptx_file = folder / "S2-260123_Discussion.pptx"
+        pptx_file.write_bytes(b"dummy")
+
+        thread = PostMeetingExporterThread(
+            meeting_dir=self.temp_dir,
+            all_rows=[],
+            visible_rows=[],
+            agenda_map={},
+            mtg_info={},
+            docs_ftp_url="",
+            revisions_url="",
+        )
+        found = thread._find_word_doc(folder, "S2-260123")
+        self.assertIsNotNone(found)
+        self.assertEqual(found.name, "S2-260123_Discussion.pptx")
 
 
 if __name__ == "__main__":

@@ -43,7 +43,11 @@ def find_cached_tdoc_file(tdoc_id: str, cache_root: Optional[Path] = None) -> Op
     patterns = [
         f"{clean_id}.docx",
         f"{clean_id}.doc",
+        f"{clean_id}.docm",
+        f"{clean_id}.pptx",
+        f"{clean_id}.ppt",
         f"*{clean_id}*.docx",
+        f"*{clean_id}*.pptx",
         f"{clean_id}.zip",
     ]
 
@@ -98,7 +102,7 @@ class TDocDownloadWorker(QThread):
                     for member in zf.namelist():
                         if "__MACOSX" in member or member.startswith("._"):
                             continue
-                        if member.lower().endswith((".docx", ".doc")):
+                        if member.lower().endswith((".docx", ".doc", ".docm", ".pptx", ".ppt")):
                             dest_file = self.target_dir / Path(member).name
                             with open(to_extended_path(dest_file), "wb") as f:
                                 f.write(zf.read(member))

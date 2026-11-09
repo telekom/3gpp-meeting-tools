@@ -33,6 +33,8 @@ from core.utils.paths import to_extended_path, strip_extended_path
 
 logger = logging.getLogger(__name__)
 
+CONVERTER_VERSION = "2.1.0"
+
 TDOC_RE = re.compile(r"(?<![A-Za-z0-9])([A-Z][A-Z0-9]{0,3}-\d{6,8}(?:r\d{1,2})?)(?![0-9])", re.I)
 
 OPENXML_NS = {
@@ -102,6 +104,7 @@ def _format_markdown_table(rows: List[List[str]]) -> str:
 def _extract_via_powerpoint_com(
     ppt_path: Path,
     media_dir: Path,
+    tdoc_id: Optional[str] = None,
     image_width: int = 1920,
     image_height: int = 1080,
     cancellation_check: Optional[Callable[[], bool]] = None,
@@ -162,7 +165,8 @@ def _extract_via_powerpoint_com(
             slide_item = ExtractedSlide(index=i)
 
             # 1. Slide Screenshot
-            img_name = f"slide_{i:02d}.png"
+            clean_prefix = f"{re.sub(r'[^\\w\\-]', '_', tdoc_id)}_" if tdoc_id else ""
+            img_name = f"{clean_prefix}slide_{i:02d}.png"
             img_dest = media_dir / img_name
             img_dest_str = strip_extended_path(str(img_dest.resolve()))
             try:
@@ -294,6 +298,7 @@ def _extract_via_powerpoint_com(
 def _extract_via_openxml(
     pptx_path: Path,
     media_dir: Path,
+    tdoc_id: Optional[str] = None,
     cancellation_check: Optional[Callable[[], bool]] = None,
     log_fn: Optional[Callable[[str], None]] = None,
 ) -> Tuple[List[ExtractedSlide], List[str]]:
@@ -552,6 +557,7 @@ def convert_presentation_to_markdown(
             slides, com_warnings = _extract_via_powerpoint_com(
                 path,
                 media_dir=companion_media,
+                tdoc_id=tid,
                 cancellation_check=cancellation_check,
                 log_fn=logger_fn,
             )
@@ -569,6 +575,7 @@ def convert_presentation_to_markdown(
                 slides, ox_warnings = _extract_via_openxml(
                     path,
                     media_dir=companion_media,
+                    tdoc_id=tid,
                     cancellation_check=cancellation_check,
                     log_fn=logger_fn,
                 )
@@ -647,6 +654,10 @@ def convert_presentation_to_markdown(
         md_lines.append("")
 
     full_markdown = "\n".join(md_lines)
+    stamp = f"<!--- tdoc_converter: version={CONVERTER_VERSION}; type=presentation; mode=presentation --->\n"
+    if not full_markdown.startswith("<!--- tdoc_converter:"):
+        full_markdown = stamp + full_markdown
+
     clean_name = sanitize_filename(tid or path.stem)
     md_output_path = target_dir / f"{clean_name}.md"
     md_output_path.write_text(full_markdown, encoding="utf-8")
