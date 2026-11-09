@@ -33,6 +33,7 @@ for _p in (str(_ROOT_DIR), str(_SRC_DIR)):
         sys.path.insert(0, _p)
 
 from core.utils.paths import ensure_app_data_dirs, get_project_root
+from modules.assistant.core.tool_registry import ArgumentType
 from modules.assistant.core.tools.external_agent_tools import (
     PROFILE_TOOLS,
     build_external_agent_tool_registry,
@@ -72,9 +73,23 @@ def _configure_cli_logging(log_level: str = "WARNING") -> None:
     root_logger.addHandler(sh)
 
 
-def _coerce_arg_value(raw: str) -> Any:
-    """Coerce CLI `key=value` string into bool, int, float, JSON array/object, or string."""
+def _coerce_arg_value(raw: str, expected_type: Optional[ArgumentType] = None) -> Any:
+    """Coerce CLI `key=value` string into bool, int, float, JSON array/object, or string, guided by expected_type."""
     trimmed = raw.strip()
+    if expected_type == ArgumentType.STRING:
+        return trimmed
+    if expected_type == ArgumentType.INTEGER:
+        try:
+            return int(trimmed)
+        except Exception:
+            return trimmed
+    if expected_type == ArgumentType.BOOLEAN:
+        if trimmed.lower() in ("true", "1", "yes"):
+            return True
+        if trimmed.lower() in ("false", "0", "no"):
+            return False
+        return trimmed
+
     if trimmed.lower() == "true":
         return True
     if trimmed.lower() == "false":
@@ -258,6 +273,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.action:
             call_args["action"] = args.action
 
+        tool_defn = registry.get(args.tool_name)
+        type_map = {a.name: a.type for a in tool_defn.arguments} if tool_defn else {}
+
         for kv in args.arg or []:
             if "=" not in kv:
                 real_stdout.write(
@@ -267,7 +285,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 real_stdout.flush()
                 return 1
             k, v = kv.split("=", 1)
-            call_args[k.strip()] = _coerce_arg_value(v)
+            clean_k = k.strip()
+            call_args[clean_k] = _coerce_arg_value(v, type_map.get(clean_k))
 
         res = registry.execute(args.tool_name, call_args)
         if res.ok:

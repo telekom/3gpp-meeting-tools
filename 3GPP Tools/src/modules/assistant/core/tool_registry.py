@@ -158,17 +158,34 @@ class ToolRegistry:
                 continue
             v = arguments[a.name]
             if a.type == ArgumentType.STRING:
-                if not isinstance(v,str): return {}, f"Argument '{a.name}' must be a string."
-                v=v.strip()
-                if a.required and not v: return {}, f"Argument '{a.name}' must not be empty."
-                if a.max_length is not None and len(v)>a.max_length:
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    v = str(v)
+                elif not isinstance(v, str):
+                    return {}, f"Argument '{a.name}' must be a string."
+                v = v.strip()
+                if a.required and not v:
+                    return {}, f"Argument '{a.name}' must not be empty."
+                if a.max_length is not None and len(v) > a.max_length:
                     return {}, f"Argument '{a.name}' exceeds maximum length {a.max_length}."
             elif a.type == ArgumentType.INTEGER:
-                if isinstance(v,bool) or not isinstance(v,int): return {}, f"Argument '{a.name}' must be an integer."
-                if a.minimum is not None and v<a.minimum: return {}, f"Argument '{a.name}' must be >= {a.minimum}."
-                if a.maximum is not None and v>a.maximum: return {}, f"Argument '{a.name}' must be <= {a.maximum}."
-            elif a.type == ArgumentType.BOOLEAN and not isinstance(v,bool):
-                return {}, f"Argument '{a.name}' must be a boolean."
+                if isinstance(v, str) and v.strip().lstrip("-+").isdigit():
+                    v = int(v.strip())
+                elif isinstance(v, bool) or not isinstance(v, int):
+                    return {}, f"Argument '{a.name}' must be an integer."
+                if a.minimum is not None and v < a.minimum:
+                    return {}, f"Argument '{a.name}' must be >= {a.minimum}."
+                if a.maximum is not None and v > a.maximum:
+                    return {}, f"Argument '{a.name}' must be <= {a.maximum}."
+            elif a.type == ArgumentType.BOOLEAN:
+                if isinstance(v, str):
+                    if v.strip().lower() in ("true", "1", "yes"):
+                        v = True
+                    elif v.strip().lower() in ("false", "0", "no"):
+                        v = False
+                    else:
+                        return {}, f"Argument '{a.name}' must be a boolean."
+                elif not isinstance(v, bool):
+                    return {}, f"Argument '{a.name}' must be a boolean."
             if a.enum and v not in a.enum: return {}, f"Argument '{a.name}' has an unsupported value."
             out[a.name]=v
         return out, None
