@@ -97,19 +97,23 @@
     {
       "id": "rel20_data_framework",
       "name": "Data Framework & Data Transfer (Rel-20)",
-      "description": "6G E2E Data Framework topic across SA2 (FS_6G_ARC Key Issue #21), Core, and RAN",
+      "description": "6G E2E Data Framework and Data Transfer topic across SA2, RAN2, RAN3, SA5, and CT4",
       "color": "#0284C7",
-      "target_wgs": ["SA2", "RAN2", "RAN3", "CT1", "CT4", "SA5"],
+      "target_wgs": ["SA2", "RAN2", "RAN3", "SA5", "CT4"],
       "cycle_mode": "past_n_cycles",
       "past_n_cycles": 4,
       "from_cycle": "2025-Q1",
       "to_cycle": "2026-Q4",
       "rules": {
-        "wi_tokens": ["fs_6g_arc", "6g_arc", "6g_df"],
+        "wi_tokens": ["6g_df", "fs_6g_df", "fs_6g_dfcn_ct", "6g_dfcn_ct", "fs_6g_dfcn"],
         "ai_patterns": {
-          "SA2": ["20.6.21*"]
+          "SA2": ["20.6.21*"],
+          "RAN2": ["9.3.3.1*", "10.3.3.1*"],
+          "RAN3": ["10.2.3*", "10.2.1*"],
+          "SA5": ["6.20.6.3*", "5.3*"],
+          "CT4": ["21.5*"]
         },
-        "keywords": ["data framework", "data transfer", "ki#21", "key issue #21", "key issue 21", "6g data framework"],
+        "keywords": ["data framework", "data transfer", "ki#21", "key issue #21", "key issue 21", "6g data framework", "data management framework"],
         "pinned_tdocs": [],
         "excluded_tdocs": []
       }

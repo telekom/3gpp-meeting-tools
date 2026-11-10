@@ -124,6 +124,7 @@ class TopicDossierExporterThread(QThread):
         include_discussions: bool = True,
         deduplicate_revisions: bool = True,
         generate_consolidated_md: bool = True,
+        allow_network_download: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -136,6 +137,7 @@ class TopicDossierExporterThread(QThread):
         self.include_discussions = bool(include_discussions)
         self.deduplicate_revisions = bool(deduplicate_revisions)
         self.generate_consolidated_md = bool(generate_consolidated_md)
+        self.allow_network_download = bool(allow_network_download)
 
         self._is_cancelled = False
         self._executor: Optional[ThreadPoolExecutor] = None
@@ -266,8 +268,9 @@ class TopicDossierExporterThread(QThread):
                     ).strip()
                     source = str(row.get("Source", "") or row.get("source", "")).strip()
                     abstract = str(row.get("Abstract", "") or row.get("abstract", "") or row.get("Secretary Remarks", "")).strip()
+                    ai_desc = str(row.get("Agenda item description", "") or row.get("AI Description", "")).strip()
 
-                    if not self.topic.matches_tdoc(tid, wg_name, ai_val, title, wi_val, abstract):
+                    if not self.topic.matches_tdoc(tid, wg_name, ai_val, title, wi_val, abstract, ai_description=ai_desc):
                         continue
 
                     # Filter based on scope mode
@@ -440,18 +443,28 @@ class TopicDossierExporterThread(QThread):
         base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tid, re.IGNORECASE)
         base_tdoc = base_match.group(1).upper() if base_match else tid.upper()
 
-        candidate_folders = [mtg_dir / tid, mtg_dir / base_tdoc, mtg_dir]
+        candidate_folders = [
+            mtg_dir / tid,
+            mtg_dir / base_tdoc,
+            mtg_dir,
+            mtg_dir / "Docs",
+            mtg_dir / "Revisions",
+        ]
 
-        # 1. Check if already extracted in meeting folder
+        # 1. Fast direct check if already extracted in meeting folder
         for folder in candidate_folders:
             if folder.is_dir():
                 for ext in (".docx", ".docm", ".pptx", ".doc", ".ppt"):
-                    for f in folder.glob(f"*{ext}"):
+                    direct_f = folder / f"{tid}{ext}"
+                    if direct_f.is_file() and direct_f.stat().st_size > 0:
+                        return direct_f
+                    if base_tdoc != tid:
+                        base_f = folder / f"{base_tdoc}{ext}"
+                        if base_f.is_file() and base_f.stat().st_size > 0:
+                            return base_f
+                    for f in folder.glob(f"*{tid}*{ext}"):
                         if not f.name.startswith("~$") and f.is_file() and f.stat().st_size > 0:
-                            if tid.lower() in f.name.lower():
-                                return f
-                            elif base_tdoc.lower() in f.name.lower():
-                                return f
+                            return f
 
         # 2. Check if ZIP archive already exists in tdoc_dir or mtg_dir
         candidate_zips = [
@@ -461,6 +474,8 @@ class TopicDossierExporterThread(QThread):
             mtg_dir / f"{base_tdoc}.zip",
             mtg_dir / "Docs" / f"{tid}.zip",
             mtg_dir / "Docs" / f"{base_tdoc}.zip",
+            mtg_dir / "Revisions" / f"{tid}.zip",
+            mtg_dir / "Revisions" / f"{base_tdoc}.zip",
         ]
         target_extract_dir = mtg_dir / base_tdoc
         for zip_path in candidate_zips:
@@ -475,24 +490,27 @@ class TopicDossierExporterThread(QThread):
                 except Exception:
                     pass
 
-        # 3. Download via TDocFileHandler if missing
-        if self.is_cancelled:
+        # 3. If missing and network download is not enabled, return None (fast metadata stub fallback)
+        if not self.allow_network_download or self.is_cancelled:
             return None
 
         candidate_urls = []
+        is_rev = bool(re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tid, re.IGNORECASE))
         docs_url = meeting_dict.get("docs_folder_url")
-        if docs_url:
-            candidate_urls.append(docs_url.rstrip('/'))
         url_key = meeting_dict.get("url_key")
-        if url_key:
-            candidate_urls.append(f"https://www.3gpp.org/ftp/{url_key}/Docs")
-            candidate_urls.append(f"https://www.3gpp.org/ftp/{url_key}/Revisions")
-        wg_name = meeting_dict.get("wg_name", "")
-        if folder_name and wg_name:
-            candidate_urls.append(f"https://www.3gpp.org/ftp/tsg_{wg_name.lower()}/WG{wg_name.upper()}/{folder_name}/Docs")
-            candidate_urls.append(f"https://www.3gpp.org/ftp/tsg_{wg_name.lower()}/WG{wg_name.upper()}/{folder_name}/Revisions")
-            candidate_urls.append(f"https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/{wg_name.upper()}/Docs")
-            candidate_urls.append(f"https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/{wg_name.upper()}/Revisions")
+
+        if is_rev:
+            if url_key:
+                candidate_urls.append(f"https://www.3gpp.org/ftp/{url_key}/Revisions")
+            if docs_url:
+                candidate_urls.append(docs_url.rstrip('/').replace('/Docs', '/Revisions'))
+            if docs_url:
+                candidate_urls.append(docs_url.rstrip('/'))
+        else:
+            if docs_url:
+                candidate_urls.append(docs_url.rstrip('/'))
+            if url_key:
+                candidate_urls.append(f"https://www.3gpp.org/ftp/{url_key}/Docs")
 
         for base_url in candidate_urls:
             try:
@@ -501,7 +519,7 @@ class TopicDossierExporterThread(QThread):
                     target_filename=tid,
                     base_url=base_url,
                     tdoc_dir=target_extract_dir,
-                    timeout=15,
+                    timeout=6,
                     cancel_check=lambda: self.is_cancelled,
                 )
                 if docs:
@@ -543,7 +561,7 @@ class TopicDossierExporterThread(QThread):
                 return
             tid = doc["tdoc_id"]
             abs_p = doc["abs_path"]
-            src_file = doc.get("source_file") or self._find_or_download_tdoc_file(tid, doc["folder_name"], doc.get("meeting_dict", {}))
+            src_file = doc.get("source_file")
 
             self.progress_msg.emit(f"Converting ({idx + 1}/{total}): {tid}...")
             self.progress_step.emit(60 + int((idx / total) * 25), 100)
@@ -709,19 +727,20 @@ class TopicDossierExporterThread(QThread):
                 except Exception as e:
                     logger.debug(f"[TDocsParser] Excel parse failed for {ef}: {e}")
 
-        # 3. If missing, auto-download via TDocsDownloaderThread
-        mtg_id = mtg.get("id") or mtg.get("meeting_number")
-        if mtg_id and not self.is_cancelled:
-            try:
-                from modules.meetings.core.tdocs.tdocs_downloader import TDocsDownloaderThread
-                dl = TDocsDownloaderThread(str(mtg_id), mtg_dir, cancel_check=lambda: self.is_cancelled)
-                dl.run()
-                if agenda_dir.is_dir():
-                    for ef in agenda_dir.glob("*.xlsx"):
-                        if not ef.name.startswith("~$"):
-                            return TDocsParser.parse_tdocs_excel(str(ef))
-            except Exception as e:
-                logger.debug(f"[TDocsDownloader] Auto-download failed: {e}")
+        # 3. If missing and allowed, auto-download via TDocsDownloaderThread
+        if self.allow_network_download and not self.is_cancelled:
+            mtg_id = mtg.get("id") or mtg.get("meeting_number")
+            if mtg_id:
+                try:
+                    from modules.meetings.core.tdocs.tdocs_downloader import TDocsDownloaderThread
+                    dl = TDocsDownloaderThread(str(mtg_id), mtg_dir, cancel_check=lambda: self.is_cancelled)
+                    dl.run()
+                    if agenda_dir.is_dir():
+                        for ef in agenda_dir.glob("*.xlsx"):
+                            if not ef.name.startswith("~$"):
+                                return TDocsParser.parse_tdocs_excel(str(ef))
+                except Exception as e:
+                    logger.debug(f"[TDocsDownloader] Auto-download failed: {e}")
 
         return []
 

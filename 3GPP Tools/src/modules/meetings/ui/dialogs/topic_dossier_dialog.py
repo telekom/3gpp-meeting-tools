@@ -116,12 +116,18 @@ STYLE_MODE_INACTIVE = """
 class TopicEditorDialog(QDialog):
     """Sub-dialog to create or edit a MetaTopicDefinition."""
 
-    def __init__(self, topic: Optional[MetaTopicDefinition] = None, parent=None):
+    def __init__(
+        self,
+        topic: Optional[MetaTopicDefinition] = None,
+        meetings_db: Optional[MeetingsDatabase] = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self.setWindowModality(Qt.WindowModal)
         self.setWindowTitle("Edit Meta-Topic Definition" if topic else "New Meta-Topic")
-        self.resize(580, 520)
+        self.resize(640, 560)
         self.topic = topic
+        self.meetings_db = meetings_db
         self._init_ui()
 
     def _init_ui(self):
@@ -164,13 +170,22 @@ class TopicEditorDialog(QDialog):
         r_layout.addWidget(self.edit_wi)
 
         r_layout.addWidget(QLabel("Agenda Item Patterns per WG (format: WG: patterns, comma-separated):"))
+        ai_layout = QHBoxLayout()
         ai_lines = []
         if self.topic and self.topic.rules.ai_patterns:
             for wg, pats in self.topic.rules.ai_patterns.items():
                 ai_lines.append(f"{wg}: {', '.join(pats)}")
         self.edit_ai = QLineEdit("; ".join(ai_lines))
         self.edit_ai.setPlaceholderText("e.g. SA2: 5.14*, 5.12*; RAN2: 8.7*; CT1: 6.18*")
-        r_layout.addWidget(self.edit_ai)
+        ai_layout.addWidget(self.edit_ai, 1)
+
+        btn_suggest = QPushButton("🔍 Auto-Suggest AIs...")
+        btn_suggest.setToolTip("Auto-discover and recommend matching Agenda Items across target Working Groups")
+        btn_suggest.setStyleSheet(STYLE_SECONDARY_BTN)
+        btn_suggest.clicked.connect(self._on_suggest_ais)
+        ai_layout.addWidget(btn_suggest)
+
+        r_layout.addLayout(ai_layout)
 
         r_layout.addWidget(QLabel("Keywords in Title / Abstract (comma-separated):"))
         cur_kw = ", ".join(self.topic.rules.keywords) if self.topic else ""
@@ -193,6 +208,81 @@ class TopicEditorDialog(QDialog):
         btn_save.clicked.connect(self._on_save)
         btn_layout.addWidget(btn_save)
         layout.addLayout(btn_layout)
+
+    def _on_suggest_ais(self):
+        """Opens AiSuggestionDialog and applies recommended AIs."""
+        from modules.meetings.ui.dialogs.ai_suggestion_dialog import AiSuggestionDialog
+
+        selected_wgs = [wg for wg, cb in self.wg_checks.items() if cb.isChecked()]
+        if not selected_wgs:
+            QMessageBox.warning(self, "No Working Groups", "Please select at least one Target Working Group first.")
+            return
+
+        kws = [k.strip() for k in self.edit_kw.text().split(",") if k.strip()]
+        wis = [w.strip() for w in self.edit_wi.text().split(",") if w.strip()]
+
+        if not kws and not wis:
+            name = self.edit_name.text().strip()
+            if name:
+                clean_name = re.sub(r'\(.*?\)', '', name).strip()
+                kws = [p.strip() for p in re.split(r'\s*(?:&|and)\s*', clean_name, flags=re.IGNORECASE) if p.strip()]
+
+        if not kws and not wis:
+            QMessageBox.information(
+                self,
+                "Keywords Needed",
+                "Please enter keywords in 'Keywords in Title / Abstract' or 'Topic Name' to search for Agenda Items.",
+            )
+            return
+
+        if not self.meetings_db:
+            from core.utils.paths import get_project_root
+            db_path = get_project_root() / "db" / "3gpp_data.db"
+            self.meetings_db = MeetingsDatabase(db_path)
+
+        dlg = AiSuggestionDialog(
+            meetings_db=self.meetings_db,
+            target_wgs=selected_wgs,
+            initial_keywords=kws,
+            initial_wis=wis,
+            parent=self,
+        )
+
+        if dlg.exec_() == QDialog.Accepted:
+            new_rule = dlg.get_formatted_rule_string()
+            if new_rule:
+                self._merge_ai_rules(new_rule)
+
+    def _merge_ai_rules(self, new_rule_str: str):
+        """Merges discovered WG AI rules with existing ones, avoiding duplicates."""
+        existing_map: Dict[str, List[str]] = {}
+        current_text = self.edit_ai.text().strip()
+        if current_text:
+            for chunk in current_text.split(";"):
+                chunk = chunk.strip()
+                if ":" in chunk:
+                    wg, pats = chunk.split(":", 1)
+                    wg = wg.strip().upper()
+                    p_list = [p.strip() for p in pats.split(",") if p.strip()]
+                    existing_map[wg] = p_list
+
+        for chunk in new_rule_str.split(";"):
+            chunk = chunk.strip()
+            if ":" in chunk:
+                wg, pats = chunk.split(":", 1)
+                wg = wg.strip().upper()
+                p_list = [p.strip() for p in pats.split(",") if p.strip()]
+                if wg not in existing_map:
+                    existing_map[wg] = []
+                for p in p_list:
+                    if p not in existing_map[wg]:
+                        existing_map[wg].append(p)
+
+        out_parts = []
+        for wg, pats in existing_map.items():
+            if pats:
+                out_parts.append(f"{wg}: {', '.join(pats)}")
+        self.edit_ai.setText("; ".join(out_parts))
 
     def _on_save(self):
         name = self.edit_name.text().strip()
@@ -414,6 +504,11 @@ class TopicDossierDialog(QDialog):
         self.chk_consolidated = QCheckBox("Generate Consolidated Single .md")
         self.chk_consolidated.setChecked(True)
         opt_layout.addWidget(self.chk_consolidated)
+
+        self.chk_download = QCheckBox("Download missing documents from 3GPP FTP")
+        self.chk_download.setChecked(False)
+        self.chk_download.setToolTip("If unchecked, exports local documents and creates structured metadata stubs for missing files (instant offline export)")
+        opt_layout.addWidget(self.chk_download)
         right_layout.addWidget(opt_box)
 
         # 6. Progress & Actions
@@ -543,7 +638,7 @@ class TopicDossierDialog(QDialog):
             self.edit_dest_folder.setText(folder)
 
     def _on_new_topic(self):
-        dlg = TopicEditorDialog(parent=self)
+        dlg = TopicEditorDialog(meetings_db=self.meetings_db, parent=self)
         if dlg.exec_() == QDialog.Accepted:
             self.topic_manager.save_topic(dlg.result_topic)
             self._load_topics_list()
@@ -551,7 +646,7 @@ class TopicDossierDialog(QDialog):
     def _on_edit_topic(self):
         if not self.active_topic:
             return
-        dlg = TopicEditorDialog(topic=self.active_topic, parent=self)
+        dlg = TopicEditorDialog(topic=self.active_topic, meetings_db=self.meetings_db, parent=self)
         if dlg.exec_() == QDialog.Accepted:
             self.topic_manager.save_topic(dlg.result_topic)
             self._load_topics_list()
@@ -602,6 +697,7 @@ class TopicDossierDialog(QDialog):
             include_discussions=self.chk_discussions.isChecked(),
             deduplicate_revisions=self.chk_dedup.isChecked(),
             generate_consolidated_md=self.chk_consolidated.isChecked(),
+            allow_network_download=self.chk_download.isChecked(),
         )
         self._worker.progress_msg.connect(self.lbl_status.setText)
         self._worker.progress_step.connect(self.prog_bar.setValue)

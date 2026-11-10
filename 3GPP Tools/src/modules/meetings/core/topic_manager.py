@@ -143,11 +143,12 @@ class MetaTopicDefinition:
         title: str = "",
         related_wis: str = "",
         abstract: str = "",
+        ai_description: str = "",
     ) -> bool:
         """
         Determines if a candidate contribution matches this topic definition.
         Respects explicit manual pins and exclusions first, then evaluates WI tokens,
-        WG AI patterns, and keywords.
+        WG AI patterns, and keywords (including AI descriptions).
         """
         tid = str(tdoc_id or "").strip().upper()
         if not tid:
@@ -191,9 +192,9 @@ class MetaTopicDefinition:
                 elif fnmatch.fnmatch(clean_ai, clean_pat):
                     return True
 
-        # 6. Keyword matching in title and abstract
+        # 6. Keyword matching in title, abstract, and agenda item description
         if self.rules.keywords:
-            haystack = f"{title} {abstract}".lower()
+            haystack = f"{title} {abstract} {ai_description}".lower()
             for kw in self.rules.keywords:
                 clean_kw = kw.strip().lower()
                 if clean_kw and clean_kw in haystack:

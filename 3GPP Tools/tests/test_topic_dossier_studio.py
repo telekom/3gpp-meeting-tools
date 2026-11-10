@@ -99,6 +99,11 @@ class TestMetaTopicMatching(unittest.TestCase):
         self.assertTrue(self.topic.matches_tdoc("R2-2501009", "RAN2", "9.9", "Study on Passive IoT protocols"))
         self.assertFalse(self.topic.matches_tdoc("S2-2501010", "SA2", "9.9", "Completely unrelated core topic"))
 
+    def test_ai_description_matching(self):
+        # AI description matches keywords even if AI number and title don't explicitly mention it
+        self.assertTrue(self.topic.matches_tdoc("S2-2501011", "SA2", "9.9", "General contribution", ai_description="Discussion on ambient iot framework"))
+        self.assertFalse(self.topic.matches_tdoc("S2-2501012", "SA2", "9.9", "General contribution", ai_description="Voice and emergency services"))
+
 
 class TestMetaTopicManager(unittest.TestCase):
     def setUp(self):
@@ -369,6 +374,72 @@ class TestTopicDossierExporterIncremental(unittest.TestCase):
         self.assertTrue(str(base).endswith("Export"))
         # Verify it points to the user cache root and not into the src codebase
         self.assertNotEqual(base, get_project_root() / "Export")
+
+
+class TestAgendaItemSuggester(unittest.TestCase):
+    def setUp(self):
+        from unittest.mock import MagicMock
+        from modules.meetings.core.ai_suggester import AgendaItemSuggester, DiscoveredAi
+
+        self.mock_db = MagicMock()
+        self.suggester = AgendaItemSuggester(self.mock_db)
+
+    def test_suggested_pattern_wildcard(self):
+        from modules.meetings.core.ai_suggester import DiscoveredAi
+        item1 = DiscoveredAi(
+            wg="SA2", ai_number="20.6.21", ai_description="Data Framework",
+            confidence="High", matching_reason="keyword match", tdoc_count=10, matching_tdocs=8
+        )
+        self.assertEqual(item1.suggested_pattern, "20.6.21*")
+
+        item2 = DiscoveredAi(
+            wg="RAN2", ai_number="9.3.3.1*", ai_description="Data Transfer",
+            confidence="High", matching_reason="keyword match", tdoc_count=10, matching_tdocs=8
+        )
+        self.assertEqual(item2.suggested_pattern, "9.3.3.1*")
+
+    def test_ai_suggestion_scoring_and_ranking(self):
+        from unittest.mock import patch
+        from modules.meetings.core.ai_suggester import AgendaItemSuggester
+
+        mock_db = unittest.mock.MagicMock()
+        suggester = AgendaItemSuggester(mock_db)
+
+        # Mock meeting resolution and TDocs loading
+        fake_meetings = [{"folder_name": "TSGS2_170", "meeting_number": "170", "wg_name": "SA2"}]
+        fake_tdocs = [
+            # Matching AI desc + WI + Title
+            {"Agenda Item": "20.6.21", "AI Description": "6G Data Framework in SA WG2", "Title": "Architecture for 6G Data Framework", "Related WIs": "FS_6G_ARC"},
+            {"Agenda Item": "20.6.21", "AI Description": "6G Data Framework in SA WG2", "Title": "Data storage mechanisms", "Related WIs": "FS_6G_ARC"},
+            # Unrelated AI under same broad WI (no keyword in desc, no keyword in title)
+            {"Agenda Item": "20.6.12", "AI Description": "Voice Services for 6G", "Title": "Emergency calling", "Related WIs": "FS_6G_ARC"},
+            # AI with keyword only in TDoc title
+            {"Agenda Item": "10.2.3", "AI Description": "Coordination with SA2", "Title": "LS on 6G data framework coordination", "Related WIs": "FS_6G_ARC"},
+        ]
+
+        with patch.object(suggester, "_resolve_recent_meetings", return_value=fake_meetings), \
+             patch.object(suggester, "_load_meeting_tdocs", return_value=fake_tdocs):
+
+            results = suggester.suggest_ais_for_topic(
+                target_wgs=["SA2"],
+                keywords=["data framework"],
+                wi_tokens=["fs_6g_arc"],
+            )
+
+            sa2_ais = results.get("SA2", [])
+            # 20.6.21 should be top and High confidence
+            self.assertGreaterEqual(len(sa2_ais), 2)
+            top = sa2_ais[0]
+            self.assertEqual(top.ai_number, "20.6.21")
+            self.assertEqual(top.confidence, "High")
+            self.assertTrue("AI description matches" in top.matching_reason)
+
+            # 10.2.3 should also be discovered due to title match
+            ai_nums = [a.ai_number for a in sa2_ais]
+            self.assertIn("10.2.3", ai_nums)
+
+            # 20.6.12 (Voice Services) has 0 keyword matches and should NOT be suggested
+            self.assertNotIn("20.6.12", ai_nums)
 
 
 if __name__ == "__main__":

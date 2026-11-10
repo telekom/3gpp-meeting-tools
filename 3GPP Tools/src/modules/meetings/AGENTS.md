@@ -517,4 +517,22 @@ src/modules/meetings/
     - Left: Saved Meta-Topics list with `+ New`, `✏️ Edit`, `📋 Clone`, `🗑️ Delete`.
     - Right: Topic Runner, Scope Mode segmented buttons (`🧭 Pre-Meeting Briefing`, `📑 Post-Meeting Report`, `📚 Complete Feature Dossier`), Cohort Window picker, Incremental folder status badge (`🟢 Existing Corpus` vs `🆕 New Directory`), live progress bar, and 1-click `📂 Open Output Folder`.
 
+### 3.18. Cross-WG Agenda Item (AI) Auto-Discovery & Suggestion Engine (`ai_suggester.py`, `ai_suggestion_dialog.py`, `topic_dossier_dialog.py`)
+- **Problem Solved:** When creating cross-WG topic dossiers (e.g. for "Data Framework & Data Transfer"), delegates frequently know the relevant Agenda Item for their primary Working Group (e.g. SA2 `20.6.21`), but have no visibility into how other Working Groups (RAN2, RAN3, SA5, CT4) structure their agendas for the same topic.
+- **Scanning & Ranking Engine (`AgendaItemSuggester` in `ai_suggester.py`):**
+  - Analyzes recent meeting agendas across target WGs by loading pre-parsed JSON caches (`Agenda/*.xlsx.json`) or Excel workbooks.
+  - Automatically correlates topic keywords (`clean_kws`) and Work Item tokens (`clean_wis`) against Agenda Item descriptions, TDoc titles, and related WI fields.
+  - **Umbrella Noise Suppression:** Broad parent study items (e.g. `FS_6G_ARC`, `FS_6G_Radio`) touch thousands of documents across dozens of sub-topics. If keywords are provided, candidate AIs must have keyword relevance in either the AI description or in TDoc titles, preventing generic Release-20 items (voice, charging, emergency) from polluting topic suggestions.
+  - **Confidence Classification:**
+    - `🟢 High`: AI description directly matches keywords (`desc_match`), or high concentration of matching TDoc titles (`title_matches >= 3`) with Work Item correlation.
+    - `🟡 Medium`: Secondary correlations where contribution titles contain topic keywords.
+- **Interactive Multi-WG Suggestion Dialog (`AiSuggestionDialog` in `ai_suggestion_dialog.py`):**
+  - Multi-tabbed layout per Working Group showing candidate Agenda Items, confidence badges, hit counts (`X/Y TDocs across Z mtgs`), reasons, and sample contribution titles on hover tooltips.
+  - Quick action shortcuts: `✅ Select High Confidence`, `Select All`, `Clear Selection`.
+  - Live preview bar generating canonical rule strings (e.g. `SA2: 20.6.21*; RAN2: 9.3.3.1*, 10.3.3.1*; RAN3: 10.2.3*; SA5: 6.20.6.3*; CT4: 21.5*`).
+- **Topic Editor Integration (`TopicEditorDialog` in `topic_dossier_dialog.py`):**
+  - Features dedicated **`🔍 Auto-Suggest AIs...`** action button next to the Agenda Item pattern field.
+  - Seamlessly passes target WGs, topic keywords, and WI tokens into `AiSuggestionDialog` and non-destructively merges accepted recommendations into existing rules.
+
+
 
