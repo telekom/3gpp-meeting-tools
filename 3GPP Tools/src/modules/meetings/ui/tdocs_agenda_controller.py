@@ -93,6 +93,9 @@ def on_word_import_finished(window, success: bool, agenda_data: dict, filename: 
     extracted_ags = getattr(window.word_import_thread, "extracted_agreements", []) if hasattr(window, "word_import_thread") else []
     ag_count = len([a for a in (extracted_ags or []) if not a.get("is_previous_meeting_recap")])
     if success and (agenda_data or ag_count > 0):
+        if extracted_ags:
+            window.chair_agreements = list(getattr(window, "chair_agreements", [])) + extracted_ags
+            window.model.set_chair_agreements(window.chair_agreements)
         if agenda_data:
             window.model.merge_agenda_data(agenda_data)
             window._import_accumulated_merged += len(agenda_data)
@@ -111,6 +114,8 @@ def finalize_import_batch(window):
     window.refresh_btn.setText("🔄 Refresh")
 
     ag_total = getattr(window, "_import_accumulated_agreements", 0)
+    if hasattr(window, "_update_agreements_counter"):
+        window._update_agreements_counter()
     if window._import_accumulated_merged > 0 or ag_total > 0:
         window._refresh_comboboxes()
         window.refresh_btn.setText(f"✅ {window._import_accumulated_merged} Merged")
@@ -302,9 +307,16 @@ def scan_existing_chair_notes(window):
         ag_count = len(non_recap_agreements)
         tdoc_count = len(agenda_data)
 
+        if agreements:
+            window.chair_agreements = agreements
+            window.model.set_chair_agreements(agreements)
+
         if agenda_data:
             window.model.merge_agenda_data(agenda_data)
             window._refresh_comboboxes()
+
+        if hasattr(window, "_update_agreements_counter"):
+            window._update_agreements_counter()
 
         window.refresh_btn.setEnabled(True)
         window.refresh_btn.setText("🔄 Refresh")

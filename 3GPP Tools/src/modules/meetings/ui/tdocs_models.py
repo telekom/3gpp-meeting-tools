@@ -1,6 +1,8 @@
 # --- File: src/modules/meetings/ui/tdocs_models.py ---
 import re
 import logging
+import html
+from PyQt5.QtGui import QColor
 from functools import lru_cache
 from pathlib import Path
 from PyQt5.QtCore import QAbstractTableModel, Qt, QModelIndex, QSortFilterProxyModel
@@ -44,6 +46,8 @@ class TDocsTableModel(QAbstractTableModel):
         self._apply_user_data_logic()
         self._rebuild_family_cache()
         self._recompute_cached_email_stats()
+        self.chair_agreements = []
+        self._detect_and_tag_agreements(self._data)
 
     @staticmethod
     def _extract_base_tokens(text: str) -> set:
@@ -431,11 +435,168 @@ class TDocsTableModel(QAbstractTableModel):
             return []
         return self._split_related_wis(self._data[row].get("Related WIs", ""))
 
+    def set_chair_agreements(self, agreements: list):
+        """Stores structured agreements and tags rows with agreement metadata."""
+        self.chair_agreements = agreements or []
+        self._detect_and_tag_agreements(self._data, self.chair_agreements)
+        self.layoutChanged.emit()
+
+    def _detect_and_tag_agreements(self, rows: list, chair_agreements: list = None):
+        """Precomputes _has_agreement, _agreement_kind, and _agreements on row dicts."""
+        tdoc_ag_map = {}
+        if chair_agreements:
+            for ag in chair_agreements:
+                if ag.get("is_previous_meeting_recap"):
+                    continue
+                tid = str(ag.get("tdoc") or ag.get("source_tdoc") or "").strip().upper()
+                if tid and tid != "AI LEVEL":
+                    tdoc_ag_map.setdefault(tid, []).append(ag)
+                ai = str(ag.get("ai") or "").strip()
+                if ai:
+                    syn_id = f"AI-{ai}-AGREEMENTS".upper()
+                    tdoc_ag_map.setdefault(syn_id, []).append(ag)
+                    syn_id2 = f"AI-{ai}-CONCLUSIONS".upper()
+                    tdoc_ag_map.setdefault(syn_id2, []).append(ag)
+
+        for row in rows:
+            tdoc = str(row.get("TDoc", "")).strip().upper()
+            matched_ags = tdoc_ag_map.get(tdoc, [])
+            if matched_ags:
+                row['_has_agreement'] = True
+                row['_agreements'] = matched_ags
+                kinds = [str(a.get("kind", "")).lower() for a in matched_ags]
+                if any("working assumption" in k for k in kinds):
+                    row['_agreement_kind'] = "Working Assumption"
+                elif any("ffs" in k for k in kinds):
+                    row['_agreement_kind'] = "FFS"
+                else:
+                    row['_agreement_kind'] = "Agreement"
+            else:
+                remarks = str(row.get("Secretary Remarks") or row.get("Comments") or "")
+                m = re.search(r'(?:🟢|🟡|🔵)?\s*\[\s*(AGREEMENT|WORKING ASSUMPTION|CONCLUSION|DECISION|FFS)\s*\]', remarks, re.IGNORECASE)
+                if m:
+                    row['_has_agreement'] = True
+                    k_str = m.group(1).title()
+                    row['_agreement_kind'] = "Working Assumption" if "working" in k_str.lower() else ("FFS" if "ffs" in k_str.lower() else "Agreement")
+                elif re.search(r'(?:^|\\n)\\s*(?:Agreements?|Working\\s+Assumptions?)\\s*[:\\n]', remarks, re.IGNORECASE):
+                    row['_has_agreement'] = True
+                    row['_agreement_kind'] = "Agreement"
+                elif str(row.get("Type", "")).lower() == "chair notes agreement" or (tdoc.startswith("AI-") and "AGREEMENT" in tdoc):
+                    row['_has_agreement'] = True
+                    row['_agreement_kind'] = "Agreement"
+
+            if row.get('_has_agreement'):
+                status = str(row.get('TDoc Status') or '').strip()
+                kind = row.get('_agreement_kind', 'Agreement')
+                icon = "🟡" if "working assumption" in kind.lower() else ("🔵" if "ffs" in kind.lower() else "🟢")
+                if not status or status.lower() in ('unknown', '', '-', 'not handled'):
+                    row['TDoc Status'] = f"{icon} {kind}"
+                elif 'agreement' not in status.lower() and 'working assumption' not in status.lower():
+                    if status.lower() in ('noted', 'available'):
+                        row['TDoc Status'] = f"{status} ({icon} {kind})"
+
+    def _format_agreement_remarks_html(self, val_str: str, row: dict) -> str:
+        """Formats executive pill badge and clean 2-line preview for agreement rows in Secretary Remarks."""
+        kind = str(row.get('_agreement_kind', 'Agreement') or 'Agreement').strip()
+        is_wa = "working assumption" in kind.lower()
+        is_ffs = "ffs" in kind.lower() or "open issue" in kind.lower()
+
+        if is_wa:
+            badge_html = '<span style="background-color: #FEF3C7; color: #92400E; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #FCD34D;">⚖️ WORKING ASSUMPTION</span>'
+            title_col = "#92400E"
+        elif is_ffs:
+            badge_html = '<span style="background-color: #DBEAFE; color: #1E40AF; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #93C5FD;">⚖️ FFS / OPEN ISSUE</span>'
+            title_col = "#1E40AF"
+        else:
+            badge_html = '<span style="background-color: #DCFCE7; color: #166534; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #86EFAC;">⚖️ AGREEMENT</span>'
+            title_col = "#166534"
+
+        txt = val_str
+        if row.get('_agreements'):
+            txt = row['_agreements'][0].get("text", "") or val_str
+
+        t = re.sub(r'^(?:🟢|🟡|🔵)?\s*\[\s*(?:AGREEMENT|WORKING ASSUMPTION|CONCLUSION|DECISION|FFS)\s*\]\s*:?', '', txt, flags=re.IGNORECASE)
+        t = re.sub(r'^\\s*(?:Agreements?|Working\\s+Assumptions?)\\s*[:\\n]?', '', t, flags=re.IGNORECASE)
+
+        raw_lines = [l.strip() for l in t.splitlines() if l.strip()]
+        line1 = raw_lines[0] if raw_lines else "Agreement reached in Chairman Notes"
+        line2 = raw_lines[1] if len(raw_lines) > 1 else ""
+
+        esc1 = html.escape(line1[:110] + ('...' if len(line1) > 110 else ''))
+        if line2:
+            esc2 = html.escape(line2[:130] + ('...' if len(line2) > 130 else ''))
+            return f'<div style="line-height: 1.25;"><div>{badge_html} <span style="color: {title_col}; font-weight: bold; font-size: 11px; margin-left: 4px;">{esc1}</span></div><div style="color: #334155; font-size: 11px; margin-top: 1px;">{esc2} <span style="color: #2563EB; font-size: 10px; margin-left: 4px;"><i>(🔍 Double-click to view)</i></span></div></div>'
+        else:
+            return f'<div style="line-height: 1.25;"><div>{badge_html} <span style="color: {title_col}; font-weight: bold; font-size: 11px; margin-left: 4px;">{esc1}</span></div><div style="margin-top: 1px;"><span style="color: #2563EB; font-size: 10px;"><i>(🔍 Double-click to view)</i></span></div></div>'
+
+    def _format_agreement_tooltip_html(self, row: dict) -> str:
+        """Renders rich HTML agreement card for cell hover tooltips."""
+        tdoc = html.escape(str(row.get("TDoc", "") or "TDoc"))
+        ai = html.escape(str(row.get("Agenda Item", "") or "-"))
+        wi = html.escape(str(row.get("Related WIs", "") or "-"))
+        kind = str(row.get("_agreement_kind", "Agreement") or "Agreement").strip()
+        is_wa = "working assumption" in kind.lower()
+        is_ffs = "ffs" in kind.lower() or "open issue" in kind.lower()
+
+        if is_wa:
+            tag_bg, tag_fg, border, card_bg = "#FEF3C7", "#92400E", "#FCD34D", "#FFFDF0"
+            tag_label = "🟡 3GPP Working Assumption"
+        elif is_ffs:
+            tag_bg, tag_fg, border, card_bg = "#DBEAFE", "#1E40AF", "#93C5FD", "#F8FAFF"
+            tag_label = "🔵 3GPP FFS / Open Issue"
+        else:
+            tag_bg, tag_fg, border, card_bg = "#DCFCE7", "#166534", "#86EFAC", "#F0FDF4"
+            tag_label = "🟢 3GPP Technical Agreement"
+
+        raw_txt = ""
+        if row.get('_agreements'):
+            raw_txt = "\n\n".join(a.get("text", "") for a in row['_agreements'] if a.get("text"))
+        if not raw_txt:
+            raw_txt = str(row.get("Secretary Remarks") or row.get("Comments") or "")
+            raw_txt = re.sub(r'^(?:🟢|🟡|🔵)?\s*\[\s*(?:AGREEMENT|WORKING ASSUMPTION|CONCLUSION|DECISION|FFS)\s*\]\s*:?', '', raw_txt, flags=re.IGNORECASE)
+            raw_txt = re.sub(r'^\\s*(?:Agreements?|Working\\s+Assumptions?)\\s*[:\\n]?', '', raw_txt, flags=re.IGNORECASE)
+
+        esc_txt = html.escape(raw_txt.strip())
+        if len(esc_txt) > 1200:
+            esc_txt = esc_txt[:1200] + "\n\n[... truncated in tooltip — double-click cell to view full agreement text ...]"
+
+        meta_parts = []
+        if ai and ai != "-":
+            meta_parts.append(f"AI {ai}")
+        if wi and wi != "-" and wi.lower() != "general":
+            meta_parts.append(f"WI: {wi}")
+        meta_str = f" • {' • '.join(meta_parts)}" if meta_parts else ""
+
+        return f"""<div style="width: 520px; font-family: 'Segoe UI', Arial, sans-serif;">
+<div style="background-color: {card_bg}; border: 1.5px solid {border}; border-radius: 6px; padding: 10px 12px;">
+  <div style="margin-bottom: 6px;">
+    <span style="background-color: {tag_bg}; color: {tag_fg}; font-weight: bold; border-radius: 4px; padding: 2px 7px; font-size: 11px;">{tag_label}</span>
+    <span style="color: #0F172A; font-weight: bold; font-size: 12px; margin-left: 8px;">{tdoc}</span>
+    <span style="color: #64748B; font-size: 11px;">{meta_str}</span>
+  </div>
+  <div style="color: #1E293B; font-size: 12px; line-height: 1.45; white-space: pre-wrap; max-height: 320px;">{esc_txt}</div>
+  <div style="color: #64748B; font-size: 10px; margin-top: 8px; border-top: 1px dashed #CBD5E1; padding-top: 5px;">
+    💡 <b>Tip:</b> Double-click this cell or click <b>⚖️ Agreements</b> on the toolbar to open the full Agreements Viewer.
+  </div>
+</div>
+</div>"""
+
     def data(self, index, role):
         if not index.isValid():
             return None
         row = self._data[index.row()]
         col_name = self._headers[index.column()]
+
+        # Subtle background tint for agreements & working assumptions
+        if role == Qt.BackgroundRole:
+            if row.get('_has_agreement'):
+                kind = str(row.get('_agreement_kind', 'Agreement')).lower()
+                if "working assumption" in kind:
+                    return QColor("#FEFCE8")
+                elif "ffs" in kind:
+                    return QColor("#EFF6FF")
+                return QColor("#F0FDF4")
+            return None
 
         # Render Emails badge column (Precomputed O(1) Lookups)
         if col_name == "Emails":
@@ -461,7 +622,6 @@ class TDocsTableModel(QAbstractTableModel):
             elif role == Qt.TextAlignmentRole:
                 return Qt.AlignCenter
             elif role == Qt.ForegroundRole and unread > 0:
-                from PyQt5.QtGui import QColor
                 return QColor("#005A9E")
             return None
 
@@ -488,6 +648,16 @@ class TDocsTableModel(QAbstractTableModel):
         if role == Qt.UserRole + 4 and col_name == "Agenda Item":
             return str(row.get("Sub-Item", "") or "").strip()
 
+        if role == Qt.ForegroundRole:
+            if col_name == "TDoc Status" and row.get('_has_agreement'):
+                kind = str(row.get('_agreement_kind', 'Agreement')).lower()
+                if "working assumption" in kind:
+                    return QColor("#B45309")
+                elif "ffs" in kind:
+                    return QColor("#1D4ED8")
+                return QColor("#15803D")
+            return None
+
         if role == Qt.UserRole + 2:
             val = row.get(col_name, "")
             return str(val).strip() if val is not None else ""
@@ -506,6 +676,8 @@ class TDocsTableModel(QAbstractTableModel):
                 return "📓 Note"
 
             if col_name == "Secretary Remarks":
+                if row.get('_has_agreement'):
+                    return self._format_agreement_remarks_html(val_str, row)
                 linked = self._linkify("", val_str, html=True)
                 return linked.replace('\n', '<br>')
 
@@ -539,6 +711,9 @@ class TDocsTableModel(QAbstractTableModel):
                 if sub_item:
                     tooltip_lines.append(f"<b>Sub-Item:</b> {sub_item}")
                 return "<br>".join(tooltip_lines) if tooltip_lines else None
+
+            if (col_name in ["Secretary Remarks", "TDoc Status"]) and row.get('_has_agreement'):
+                return self._format_agreement_tooltip_html(row)
 
             if col_name in ["Abstract", "Secretary Remarks", "My Notes"] and val_str:
                 return f"<div style='width: 400px; white-space: pre-wrap;'>{val_str}</div>"
@@ -628,10 +803,13 @@ class TDocsTableModel(QAbstractTableModel):
 
                 if info.get('For') and not self._data[idx].get('For'):
                     self._data[idx]['For'] = info.get('For')
-                if info.get('Result') and self._data[idx].get('TDoc Status', 'Unknown') in [
-                    'Unknown', '', '-', 'Not Handled'
-                ]:
-                    self._data[idx]['TDoc Status'] = info.get('Result')
+                res = info.get('Result')
+                if res:
+                    curr_st = str(self._data[idx].get('TDoc Status', 'Unknown')).strip()
+                    if any(sym in res for sym in ('🟢', '🟡', '🔵')) or 'agreement' in res.lower() or 'working assumption' in res.lower():
+                        self._data[idx]['TDoc Status'] = res
+                    elif curr_st in ['Unknown', '', '-', 'Not Handled']:
+                        self._data[idx]['TDoc Status'] = res
 
             else:
                 logger.info(f"✨ Injecting new on-the-fly TDoc: {tdoc_id}")
@@ -750,6 +928,7 @@ class TDocsTableModel(QAbstractTableModel):
         self._rebuild_family_cache()
         self._recompute_cached_email_stats()
         self._precompute_agenda_sort_tuples(self._data)
+        self._detect_and_tag_agreements(self._data, getattr(self, "chair_agreements", None))
         self.endResetModel()
 
 
@@ -768,6 +947,7 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.filter_no_comments = False
         self.filter_followed_wis = False
         self.filter_starred_wis = False
+        self.filter_agreements_only = False
         self.include_unassigned_ls_in = True
         self.include_tentative_sources = False
         self.followed_wi_tokens = set()
@@ -842,6 +1022,12 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         if self.filter_followed_wis or self.filter_starred_wis:
             self.invalidateFilter()
 
+    def setAgreementsFilter(self, enabled: bool):
+        new_val = bool(enabled)
+        if self.filter_agreements_only != new_val:
+            self.filter_agreements_only = new_val
+            self.invalidateFilter()
+
     def setTrackedWIFilters(self, filter_followed: bool, filter_starred: bool):
         self.filter_followed_wis = bool(filter_followed)
         self.filter_starred_wis = bool(filter_starred)
@@ -861,6 +1047,10 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
             return False
 
         row = model._data[source_row]
+
+        if exclude_filter != "agreements" and self.filter_agreements_only:
+            if not row.get("_has_agreement"):
+                return False
 
         if exclude_filter != "no_comments" and self.filter_no_comments:
             if str(row.get("Secretary Remarks", "") or "").strip():

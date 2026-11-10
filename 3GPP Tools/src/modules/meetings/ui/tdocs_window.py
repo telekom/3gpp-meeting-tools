@@ -101,6 +101,7 @@ class TDocsWindow(QWidget):
         self.filepath = filepath
         self.meeting_dir = Path(filepath).parent.parent
         self.active_threads = {}
+        self.chair_agreements = []
         self._email_dialogs = {}
         self._triage_dialogs = {}
 
@@ -313,6 +314,11 @@ class TDocsWindow(QWidget):
         self.export_menu.aboutToShow.connect(self._on_export_menu_about_to_show)
         self.export_btn.setMenu(export_menu)
 
+        self.btn_meeting_agreements = QPushButton("⚖️ Agreements")
+        self.btn_meeting_agreements.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_meeting_agreements.setToolTip("View, search, and export all Chairman's Notes agreements and working assumptions for this meeting.")
+        self.btn_meeting_agreements.clicked.connect(lambda: self._open_meeting_agreements_dialog())
+
         self.draft_cr_btn = QPushButton("📝 Draft CR / pCR")
         self.draft_cr_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.draft_cr_btn.setToolTip("Compose a Change Request (CR) or Pseudo-CR (pCR) contribution for this meeting.")
@@ -385,6 +391,7 @@ class TDocsWindow(QWidget):
         header_layout.addWidget(self.excel_btn)
         header_layout.addWidget(self.export_btn)
         header_layout.addWidget(self.session_plan_btn)
+        header_layout.addWidget(self.btn_meeting_agreements)
         header_layout.addWidget(self.draft_cr_btn)
         header_layout.addWidget(self.stats_btn)
         header_layout.addWidget(self.stats_cfg_btn)
@@ -565,6 +572,15 @@ class TDocsWindow(QWidget):
         self.btn_starred_wis.setToolTip("Filter to TDocs associated with Work Items you have starred (personal watchlist).\nRight-click to toggle including unassigned Incoming LS.")
         self.btn_starred_wis.clicked.connect(self._toggle_starred_wis_filter)
         filter_layout.addWidget(self.btn_starred_wis)
+
+        self.btn_agreements_filter = QPushButton("⚖️")
+        self.btn_agreements_filter.setCheckable(True)
+        self.btn_agreements_filter.setCursor(Qt.PointingHandCursor)
+        self.btn_agreements_filter.setFixedSize(30, 28)
+        self.btn_agreements_filter.setToolTip("Filter to TDocs with Chairman's Notes Agreements / Working Assumptions.")
+        self.btn_agreements_filter.clicked.connect(self._toggle_agreements_filter)
+        filter_layout.addWidget(self.btn_agreements_filter)
+
         self._update_tracked_wi_button_styles()
 
         def _make_vsep():
@@ -791,10 +807,14 @@ class TDocsWindow(QWidget):
                     self._refresh_comboboxes()
 
         from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
-        cached_chair_agenda, _ = ChairNotesAgreementsParser.load_cached_chair_notes_data(self.meeting_dir)
+        cached_chair_agenda, cached_agreements = ChairNotesAgreementsParser.load_cached_chair_notes_data(self.meeting_dir)
         if cached_chair_agenda:
             self.model.merge_agenda_data(cached_chair_agenda)
             self._refresh_comboboxes()
+        if cached_agreements:
+            self.chair_agreements = cached_agreements
+            self.model.set_chair_agreements(cached_agreements)
+        self._update_agreements_counter()
 
         if self.is_sa2_electronic:
             local_revs = agenda_dir / "revisions.json"
@@ -909,6 +929,102 @@ class TDocsWindow(QWidget):
         self._update_tracked_wi_button_styles()
         self._update_filter_facets()
         QTimer.singleShot(0, self._update_count_label)
+
+    def _toggle_agreements_filter(self):
+        """Toggles table filtering to only TDocs with agreements or working assumptions."""
+        checked = self.btn_agreements_filter.isChecked()
+        self.proxy.setAgreementsFilter(checked)
+        self._update_tracked_wi_button_styles()
+
+    def locate_tdoc(self, tdoc_id: str):
+        """Public API to scroll to and highlight a specific TDoc in the table."""
+        self._scroll_to_tdoc(tdoc_id)
+
+    def _update_agreements_counter(self):
+        """Updates the ⚖️ Agreements toolbar button counter badge and active styling."""
+        if not hasattr(self, "btn_meeting_agreements"):
+            return
+        ag_list = getattr(self, "chair_agreements", [])
+        non_recap = [a for a in ag_list if not a.get("is_previous_meeting_recap")]
+        cnt = len(non_recap)
+        if cnt == 0 and hasattr(self, "model") and hasattr(self.model, "_data"):
+            cnt = sum(1 for r in self.model._data if r.get("_has_agreement"))
+
+        if cnt > 0:
+            self.btn_meeting_agreements.setText(f"⚖️ Agreements ({cnt})")
+            self.btn_meeting_agreements.setStyleSheet("""
+                QPushButton {
+                    background-color: #F0FDF4;
+                    color: #166534;
+                    border: 1.5px solid #86EFAC;
+                    border-radius: 4px;
+                    padding: 4px 10px;
+                    font-size: 12px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #DCFCE7;
+                    border-color: #22C55E;
+                }
+            """)
+        else:
+            self.btn_meeting_agreements.setText("⚖️ Agreements")
+            self.btn_meeting_agreements.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+
+    def _open_meeting_agreements_dialog(self, target_tdoc: str = None):
+        """Opens the dedicated Meeting Agreements Viewer & Management Console."""
+        from modules.meetings.ui.meeting_agreements_dialog import MeetingAgreementsDialog
+
+        ag_list = getattr(self, "chair_agreements", [])
+        if not ag_list:
+            from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
+            _, ag_list = ChairNotesAgreementsParser.load_cached_chair_notes_data(self.meeting_dir)
+            if ag_list:
+                self.chair_agreements = ag_list
+
+        if not ag_list:
+            # Fallback: construct lightweight agreement entries from model rows if remarks contain agreement tags
+            synthetic_ags = []
+            if hasattr(self, "model") and hasattr(self.model, "_data"):
+                for row in self.model._data:
+                    if row.get("_has_agreement"):
+                        synthetic_ags.append({
+                            "kind": row.get("_agreement_kind", "Agreement"),
+                            "tdoc": row.get("TDoc", ""),
+                            "ai": row.get("Agenda Item", ""),
+                            "wi": row.get("Related WIs", ""),
+                            "title": row.get("Title", ""),
+                            "company": row.get("Source", ""),
+                            "text": row.get("Secretary Remarks", ""),
+                        })
+            if synthetic_ags:
+                ag_list = synthetic_ags
+                self.chair_agreements = ag_list
+
+        if not ag_list:
+            reply = QMessageBox.question(
+                self,
+                "No Agreements Loaded",
+                "No Chairman's Notes agreements have been scanned or cached for this meeting yet.\n\n"
+                "Would you like to scan existing Chairman's Notes in Agenda/ChairNotes now?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            if reply == QMessageBox.Yes:
+                self._scan_existing_chair_notes()
+            return
+
+        mtg_name = self.mtg_info.get("meeting_name", "") or f"{self.mtg_info.get('wg_name', '')} {self.mtg_info.get('meeting_number', '')}".strip()
+        dlg = MeetingAgreementsDialog(
+            agreements=ag_list,
+            meeting_name=mtg_name,
+            meeting_dir=self.meeting_dir,
+            parent=self,
+        )
+        dlg.locate_tdoc_requested.connect(self.locate_tdoc)
+        if target_tdoc:
+            dlg.focus_tdoc(target_tdoc)
+        dlg.exec_()
 
     def _toggle_starred_wis_filter(self):
         self._load_tracked_wi_tokens()
@@ -1033,6 +1149,39 @@ class TDocsWindow(QWidget):
                     border-color: #94A3B8;
                 }
             """)
+
+        if hasattr(self, "btn_agreements_filter"):
+            if self.btn_agreements_filter.isChecked():
+                self.btn_agreements_filter.setStyleSheet("""
+                    QPushButton {
+                        background-color: #DCFCE7;
+                        color: #166534;
+                        border: 1.5px solid #22C55E;
+                        border-radius: 4px;
+                        padding: 2px;
+                        font-size: 13px;
+                        font-weight: bold;
+                    }
+                    QPushButton:hover {
+                        background-color: #BBF7D0;
+                        border-color: #16A34A;
+                    }
+                """)
+            else:
+                self.btn_agreements_filter.setStyleSheet("""
+                    QPushButton {
+                        background-color: #F8FAFC;
+                        color: #475569;
+                        border: 1px solid #CBD5E1;
+                        border-radius: 4px;
+                        padding: 2px;
+                        font-size: 13px;
+                    }
+                    QPushButton:hover {
+                        background-color: #F1F5F9;
+                        border-color: #94A3B8;
+                    }
+                """)
 
     def _load_tracked_wi_tokens(self):
         """Loads followed/starred WI codes from settings, resolves tokens from 3gpp_data.db, and updates proxy."""
@@ -1272,7 +1421,13 @@ class TDocsWindow(QWidget):
             self.btn_starred_wis.setChecked(False)
             self.btn_starred_wis.blockSignals(False)
 
+        if hasattr(self, "btn_agreements_filter"):
+            self.btn_agreements_filter.blockSignals(True)
+            self.btn_agreements_filter.setChecked(False)
+            self.btn_agreements_filter.blockSignals(False)
+
         self.proxy.setTrackedWIFilters(False, False)
+        self.proxy.setAgreementsFilter(False)
         self._update_tracked_wi_button_styles()
 
         for combo in [self.company_combo, self.type_combo, self.ai_combo, self.wi_combo, self.status_combo, self.my_status_combo]:
@@ -1401,13 +1556,28 @@ class TDocsWindow(QWidget):
             ).exec_()
             return
 
-        if col_name not in [
-            "Secretary Remarks", "Title", "Source", "Abstract", "My Notes", "My Status"
-        ]:
-            return
-
         row_data = self.model._data[self.proxy.mapToSource(index).row()]
         tdoc_id = row_data.get("TDoc", "")
+
+        if col_name == "Secretary Remarks":
+            if row_data.get("_has_agreement"):
+                self._open_meeting_agreements_dialog(target_tdoc=tdoc_id)
+                return
+            remarks = str(row_data.get("Secretary Remarks", "") or "")
+            if remarks.strip():
+                ReadOnlyViewerDialog(self, f"📄 Viewing: Secretary Remarks ({tdoc_id})", remarks).exec_()
+            else:
+                InteractiveNotesDialog(self, tdoc_id, row_data, self._save_user_data).exec_()
+            return
+
+        if col_name == "TDoc Status" and row_data.get("_has_agreement"):
+            self._open_meeting_agreements_dialog(target_tdoc=tdoc_id)
+            return
+
+        if col_name not in [
+            "Title", "Source", "Abstract", "My Notes", "My Status"
+        ]:
+            return
 
         if col_name in ["Title", "Source", "Abstract"]:
             val = next(
