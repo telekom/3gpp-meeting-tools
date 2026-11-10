@@ -180,12 +180,12 @@ def _build_toolbar_tab_html() -> str:
                 <td>Batch-downloads all TDoc ZIP archives into your local cache directory in the background. Enables 100% offline work during flights or meetings.</td>
             </tr>
             <tr>
-                <td><b>📥 Download Chairman's Notes</b><br><span class="badge badge-amber">RAN Groups Only</span></td>
-                <td>Automatically discovers <code>/Inbox/Chair_Notes</code>, downloads the latest notes DOCX, and extracts all inline text agreements.</td>
+                <td><b>📥 Download Chairman's Notes</b><br><span class="badge badge-blue">All Working Groups</span></td>
+                <td>Scans <code>/Inbox/Chair_Notes</code> on the 3GPP server and opens the <b>Multi-Chair Notes Picker</b>. Automatically pre-selects the newest file per chair/track (e.g. Andy, Hector, Ruicheng, Jian in SA2; EOM/Final in RAN) and indicates which files are already downloaded locally. Downloads files cleanly to <code>Agenda/ChairNotes/</code> with 1-click options to open in Microsoft Word.</td>
             </tr>
             <tr>
                 <td><b>🔍 Scan Existing Chairman's Notes</b><br><span class="badge badge-amber">RAN Groups Only</span></td>
-                <td>Scans locally saved Chairman's Notes in <code>Agenda/ChairNotes</code>, extracts agreements & working assumptions, and updates table badges.</td>
+                <td>Scans locally saved Chairman's Notes in <code>Agenda/ChairNotes</code>, extracts normative text agreements && working assumptions, and updates table badges. (In SA/CT groups, agreements are tracked directly via formal pCR/CR contribution status rather than inline text blocks).</td>
             </tr>
             <tr>
                 <td><b>📄 Import TdocsByAgenda.htm</b><br><span class="badge badge-blue">SA2 Only</span></td>

@@ -9,12 +9,15 @@ import re
 from pathlib import Path
 
 from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import QFileDialog, QMessageBox
+from PyQt5.QtWidgets import QDialog, QFileDialog, QMessageBox
 
 from core.network.network_state import NetworkState
 from core.utils.folder_opener import open_folder as _open_folder
 from modules.meetings.core.agenda_manager import AgendaDownloaderThread, AgendaManager
-from modules.meetings.core.chair_notes_downloader import ChairNotesDownloaderThread
+from modules.meetings.core.chair_notes_downloader import (
+    ChairNotesDownloaderThread,
+    ChairNotesListingThread,
+)
 from modules.meetings.core.tdocs.tdocs_threads import WordAgendaImporterThread
 from modules.meetings.core.url_router import URLRouter
 
@@ -91,9 +94,13 @@ def on_word_import_progress(window, msg: str):
 def on_word_import_finished(window, success: bool, agenda_data: dict, filename: str, error_msg: str):
     """Handles parsing result for a single agenda file and proceeds to next in queue."""
     extracted_ags = getattr(window.word_import_thread, "extracted_agreements", []) if hasattr(window, "word_import_thread") else []
+    # In SA/CT meetings, do not extract individual pCR approvals as RAN-style agreements
+    if not getattr(window, "is_ran", False):
+        extracted_ags = []
+
     ag_count = len([a for a in (extracted_ags or []) if not a.get("is_previous_meeting_recap")])
     if success and (agenda_data or ag_count > 0):
-        if extracted_ags:
+        if extracted_ags and getattr(window, "is_ran", False):
             window.chair_agreements = list(getattr(window, "chair_agreements", [])) + extracted_ags
             window.model.set_chair_agreements(window.chair_agreements)
         if agenda_data:
@@ -218,7 +225,10 @@ def on_agenda_download_finished(window, success: bool, msg: str):
 
 
 def download_chair_notes(window):
-    """Initiates asynchronous download of Chairman's Notes files from 3GPP servers."""
+    """
+    Initiates asynchronous scanning of /Inbox/Chair_Notes or /Inbox/Chairs_Notes
+    and displays the multi-chair picker dialog so delegates can choose which notes to download.
+    """
     wg_name = window.mtg_info.get("wg_name", "").upper()
     main_url = window.mtg_info.get("url_key", "")
     if main_url and not main_url.startswith("http"):
@@ -243,19 +253,86 @@ def download_chair_notes(window):
         )
 
     window.refresh_btn.setEnabled(False)
-    window.refresh_btn.setText("⏳ Downloading Notes...")
+    window.refresh_btn.setText("⏳ Checking Notes...")
+
+    window.chair_notes_listing_thread = ChairNotesListingThread(candidate_urls, window)
+    window.chair_notes_listing_thread.progress.connect(
+        lambda msg: window.refresh_btn.setText(f"⏳ {msg}"[:30])
+    )
+    window.chair_notes_listing_thread.finished.connect(
+        lambda success, files, dir_url, msg: on_chair_notes_listing_finished(
+            window, success, files, dir_url, msg, candidate_urls
+        )
+    )
+    window.chair_notes_listing_thread.start()
+
+
+def on_chair_notes_listing_finished(
+    window, success: bool, files: list, dir_url: str, msg: str, candidate_urls: list
+):
+    """Handles completion of server directory scanning and presents the picker dialog."""
+    window.refresh_btn.setEnabled(True)
+    window.refresh_btn.setText("🔄 Refresh")
+
+    if not success:
+        QMessageBox.warning(window, "Notes Not Found", msg)
+        return
+
+    if not files:
+        QMessageBox.information(
+            window,
+            "No Chairman's Notes Found",
+            msg or "Connected to Chair_Notes folder, but no matching Chairman's Notes files were found on the server.",
+        )
+        return
 
     chair_notes_dir = window.meeting_dir / "Agenda" / "ChairNotes"
-    window.chair_notes_thread = ChairNotesDownloaderThread(candidate_urls, chair_notes_dir)
-    window.chair_notes_thread.progress.connect(lambda msg: window.refresh_btn.setText(f"⏳ {msg}"[:30]))
+
+    from modules.meetings.ui.chair_notes_picker_dialog import ChairNotesPickerDialog
+
+    dlg = ChairNotesPickerDialog(
+        parent=window,
+        file_tuples=files,
+        local_dir=chair_notes_dir,
+        mtg_info=getattr(window, "mtg_info", None),
+        target_dir_url=dir_url,
+    )
+
+    if dlg.exec_() == QDialog.Accepted:
+        selected_files = dlg.get_selected_files()
+        if not selected_files:
+            return
+        overwrite = dlg.should_overwrite()
+        start_chair_notes_download(window, candidate_urls, chair_notes_dir, selected_files, overwrite)
+
+
+def start_chair_notes_download(
+    window, candidate_urls: list, chair_notes_dir: Path, selected_files: list, overwrite: bool
+):
+    """Launches the download thread for the user-selected Chairman's Notes files."""
+    window.refresh_btn.setEnabled(False)
+    window.refresh_btn.setText("⏳ Downloading Notes...")
+
+    window.chair_notes_thread = ChairNotesDownloaderThread(
+        candidate_base_urls=candidate_urls,
+        target_dir=chair_notes_dir,
+        parent=window,
+        selected_files=selected_files,
+        overwrite=overwrite,
+    )
+    window.chair_notes_thread.progress.connect(
+        lambda msg: window.refresh_btn.setText(f"⏳ {msg}"[:30])
+    )
     window.chair_notes_thread.finished.connect(
-        lambda success, count, files, msg: on_chair_notes_finished(window, success, count, files, msg)
+        lambda success, count, files, msg: on_chair_notes_finished(
+            window, success, count, files, msg
+        )
     )
     window.chair_notes_thread.start()
 
 
 def on_chair_notes_finished(window, success: bool, count: int, files: list, msg: str):
-    """Handles completion of Chairman's Notes download and offers instant ingestion."""
+    """Handles completion of Chairman's Notes download and provides direct open actions."""
     window.refresh_btn.setEnabled(True)
     window.refresh_btn.setText("🔄 Refresh")
 
@@ -263,20 +340,50 @@ def on_chair_notes_finished(window, success: bool, count: int, files: list, msg:
         window.refresh_btn.setText(f"✅ {count} Notes")
         QTimer.singleShot(4000, lambda: window.refresh_btn.setText("🔄 Refresh"))
         chair_notes_dir = window.meeting_dir / "Agenda" / "ChairNotes"
-        reply = QMessageBox.question(
-            window,
-            "Chairman's Notes Downloaded",
-            f"{msg}\n\nWould you like to parse and merge these {count} Chairman's Notes file(s) into your meeting table now?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes,
-        )
-        if reply == QMessageBox.Yes:
-            source_paths = [chair_notes_dir / f for f in files]
-            process_imported_agenda_files(window, source_paths)
+
+        box = QMessageBox(window)
+        box.setWindowTitle("Chairman's Notes Downloaded")
+        box.setText(f"Successfully downloaded {count} Chairman's Notes file(s) to:\n{chair_notes_dir}")
+
+        if files:
+            file_sample = "\n".join(f"• {f}" for f in files[:8])
+            if len(files) > 8:
+                file_sample += f"\n...and {len(files) - 8} more"
+            box.setInformativeText(file_sample)
+
+        btn_word = box.addButton("📝 Open in Word", QMessageBox.ActionRole)
+        btn_folder = box.addButton("📂 Open Folder", QMessageBox.ActionRole)
+        btn_close = box.addButton("Close", QMessageBox.RejectRole)
+        box.setDefaultButton(btn_word)
+        box.exec_()
+
+        clicked = box.clickedButton()
+        if clicked == btn_word:
+            if files:
+                doc_files = [f for f in files if Path(f).suffix.lower() in (".docx", ".doc")]
+                target_file = chair_notes_dir / (doc_files[0] if doc_files else files[0])
+                _open_file_in_word(target_file, window)
+        elif clicked == btn_folder:
+            _open_folder(chair_notes_dir)
+
     elif success and count == 0:
         QMessageBox.information(window, "Chairman's Notes", msg)
     else:
         QMessageBox.warning(window, "Download Failed", msg)
+
+
+def _open_file_in_word(filepath: Path, parent=None):
+    """Opens a document in Microsoft Word using the system default handler."""
+    import os
+    try:
+        if hasattr(os, "startfile"):
+            os.startfile(str(filepath))
+        else:
+            import webbrowser
+            webbrowser.open(f"file:///{filepath}")
+    except Exception as e:
+        if parent:
+            QMessageBox.warning(parent, "Open Failed", f"Could not open document:\n{e}")
 
 
 def open_chair_notes_folder(window):

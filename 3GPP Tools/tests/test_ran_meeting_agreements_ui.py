@@ -313,10 +313,10 @@ class TestRanMeetingAgreementsUI(unittest.TestCase):
                 self.assertTrue(win_sa.btn_meeting_agreements.isHidden())
                 self.assertTrue(win_sa.btn_agreements_filter.isHidden())
 
-                # Check Refresh Menu has NO scan chair notes action
+                # Check Refresh Menu: Scan agreements is strictly RAN-only, but Download Chairman's Notes is available for all WGs
                 menu_actions = [a.text() for a in win_sa.refresh_btn.menu().actions()]
                 self.assertFalse(any("Scan Existing Chairman's Notes" in act for act in menu_actions))
-                self.assertFalse(any("Download Chairman's Notes" in act for act in menu_actions))
+                self.assertTrue(any("Download Chairman's Notes" in act for act in menu_actions))
             finally:
                 win_sa.close()
 

@@ -23,6 +23,60 @@ _PURE_TDOC_ZIP_RE = re.compile(
 _VALID_NOTES_EXTENSIONS = (".docx", ".doc", ".zip", ".htm", ".html")
 
 
+class ChairNotesListingThread(QThread):
+    """
+    Lightweight asynchronous probe thread that checks candidate 3GPP meeting URLs
+    for an active /Inbox/Chair_Notes or /Inbox/Chairs_Notes directory, parses all available
+    candidate files without downloading them, and emits the candidate file list.
+    """
+    progress = pyqtSignal(str)
+    # Emits: (success: bool, files: list of (fname, url), target_dir_url: str, message: str)
+    finished = pyqtSignal(bool, list, str, str)
+
+    def __init__(self, candidate_base_urls: list, parent=None):
+        super().__init__(parent)
+        self.candidate_base_urls = candidate_base_urls
+
+    def run(self):
+        try:
+            session = NetworkSession.get_instance()
+            NetworkSession.apply_humanness(session)
+
+            target_dir_url, html_content = ChairNotesDownloaderThread.locate_chair_notes_dir(
+                session,
+                self.candidate_base_urls,
+                progress_callback=lambda msg: self.progress.emit(msg),
+                cancel_check=self.isInterruptionRequested,
+            )
+
+            if self.isInterruptionRequested():
+                return
+
+            if not target_dir_url or not html_content:
+                self.finished.emit(
+                    False,
+                    [],
+                    "",
+                    "Could not locate an active /Inbox/Chairs_Notes or /Inbox/Chair_Notes folder on available servers.",
+                )
+                return
+
+            files = ChairNotesDownloaderThread.parse_file_list_static(html_content, target_dir_url)
+            if not files:
+                self.finished.emit(
+                    True,
+                    [],
+                    target_dir_url,
+                    "Connected to Chairman's Notes folder, but no matching files were found.",
+                )
+                return
+
+            self.finished.emit(True, files, target_dir_url, "")
+        except Exception as ex:
+            logging.error(f"[ChairNotesListing] Unexpected failure: {ex}", exc_info=True)
+            self.finished.emit(False, [], "", f"Error scanning Chairman's Notes: {ex}")
+
+
 class ChairNotesDownloaderThread(QThread):
     """
     Asynchronously crawls /Inbox/Chairs_Notes and /Inbox/Chair_Notes directory listings
@@ -53,11 +107,15 @@ class ChairNotesDownloaderThread(QThread):
         target_dir: Path,
         parent=None,
         only_final_or_latest: bool = True,
+        selected_files: list = None,
+        overwrite: bool = True,
     ):
         super().__init__(parent)
         self.candidate_base_urls = candidate_base_urls
         self.target_dir = Path(target_dir)
         self.only_final_or_latest = only_final_or_latest
+        self.selected_files = selected_files
+        self.overwrite = overwrite
 
     def run(self):
         try:
@@ -65,36 +123,39 @@ class ChairNotesDownloaderThread(QThread):
             session = NetworkSession.get_instance()
             NetworkSession.apply_humanness(session)
 
-            target_dir_url, html_content = self.locate_chair_notes_dir(
-                session,
-                self.candidate_base_urls,
-                progress_callback=lambda msg: self.progress.emit(msg),
-                cancel_check=self.isInterruptionRequested,
-            )
-
-            if self.isInterruptionRequested():
-                return
-
-            if not target_dir_url or not html_content:
-                self.finished.emit(
-                    False,
-                    0,
-                    [],
-                    "Could not locate an active /Inbox/Chairs_Notes or /Inbox/Chair_Notes folder on available servers.",
+            if self.selected_files is not None:
+                files_to_download = list(self.selected_files)
+            else:
+                target_dir_url, html_content = self.locate_chair_notes_dir(
+                    session,
+                    self.candidate_base_urls,
+                    progress_callback=lambda msg: self.progress.emit(msg),
+                    cancel_check=self.isInterruptionRequested,
                 )
-                return
 
-            # 2. Extract valid Chairman's Notes files
-            files_to_download = self._parse_file_list(html_content, target_dir_url)
-            if self.only_final_or_latest and len(files_to_download) > 1:
-                files_to_download = self.select_best_chair_notes_files(files_to_download)
+                if self.isInterruptionRequested():
+                    return
+
+                if not target_dir_url or not html_content:
+                    self.finished.emit(
+                        False,
+                        0,
+                        [],
+                        "Could not locate an active /Inbox/Chairs_Notes or /Inbox/Chair_Notes folder on available servers.",
+                    )
+                    return
+
+                # 2. Extract valid Chairman's Notes files
+                files_to_download = self._parse_file_list(html_content, target_dir_url)
+                if self.only_final_or_latest and len(files_to_download) > 1:
+                    files_to_download = self.select_best_chair_notes_files(files_to_download)
 
             if not files_to_download:
                 self.finished.emit(
                     True,
                     0,
                     [],
-                    "Connected to Chair_Notes folder, but no matching Chairman's Notes files were found.",
+                    "No matching Chairman's Notes files were selected or found.",
                 )
                 return
 
@@ -105,6 +166,7 @@ class ChairNotesDownloaderThread(QThread):
                 self.target_dir,
                 progress_callback=lambda msg: self.progress.emit(msg),
                 cancel_check=self.isInterruptionRequested,
+                overwrite=self.overwrite,
             )
 
             if self.isInterruptionRequested():
@@ -413,6 +475,7 @@ class ChairNotesDownloaderThread(QThread):
         target_dir: Path,
         progress_callback=None,
         cancel_check=None,
+        overwrite: bool = True,
     ) -> List[str]:
         """
         Downloads the specified `(filename, url)` tuples into `target_dir`.
@@ -430,6 +493,19 @@ class ChairNotesDownloaderThread(QThread):
             if progress_callback:
                 progress_callback(f"({idx}/{total_files}) Downloading {filename[:25]}...")
             dest_path = target_dir / filename
+
+            # Skip download if file exists and overwrite is disabled
+            if not overwrite and dest_path.exists() and dest_path.stat().st_size > 0:
+                logging.info(f"[ChairNotes] Skipping already downloaded file: {dest_path}")
+                if dest_path.suffix.lower() == ".zip":
+                    extracted_names = cls.extract_chair_notes_zip(dest_path, target_dir)
+                    if extracted_names:
+                        downloaded.extend(extracted_names)
+                    else:
+                        downloaded.append(filename)
+                else:
+                    downloaded.append(filename)
+                continue
 
             try:
                 dl_resp = session.get(file_url, stream=True, timeout=60)

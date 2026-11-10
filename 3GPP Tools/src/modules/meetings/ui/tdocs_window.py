@@ -198,13 +198,13 @@ class TDocsWindow(QWidget):
         act.setToolTip("Download agenda.csv and refresh Agenda Item names/acronyms used by the TDoc view.")
         act = refresh_menu.addAction("📥 Cache All TDocs (Docs/)", self._cache_all_tdocs)
         act.setToolTip("Download and cache all meeting TDocs (.zip) from the 3GPP Docs directory locally using parallel downloads.")
+        act = refresh_menu.addAction("📥 Download Chairman's Notes", self._download_chair_notes)
+        act.setToolTip("Browse and download Chairman's Notes from /Inbox/Chair_Notes with pre-selected latest files per chair/track.")
         if self.is_ran:
-            act = refresh_menu.addAction("📥 Download Chairman's Notes", self._download_chair_notes)
-            act.setToolTip("Automatically locate /Inbox/Chairs_Notes (or /Inbox/Chair_Notes), download the Final/EOM Chairman's Notes, and extract agreements.")
             act = refresh_menu.addAction("🔍 Scan Existing Chairman's Notes for Agreements", self._scan_existing_chair_notes)
             act.setToolTip("Scan local Chairman's Notes files (.docx) in Agenda/ChairNotes, extract current agreements, and merge into the meeting table.")
-            act = refresh_menu.addAction("📝 Import Chairman's Notes / Agenda (.docx / .doc / .zip)...", self._import_word_agenda_dialog)
-            act.setToolTip("Import one or more local Word, ZIP, or HTML agenda/chairman's notes files and merge their TDoc remarks and agreements.")
+        act = refresh_menu.addAction("📝 Import Chairman's Notes / Agenda (.docx / .doc / .zip)...", self._import_word_agenda_dialog)
+        act.setToolTip("Import one or more local Word, ZIP, or HTML agenda/notes files and merge their TDoc remarks into the table.")
         act = refresh_menu.addAction("⚖️ Track Study Item && Meeting Agreements...", self._open_agreement_tracker)
         act.setToolTip("Open the Cross-Meeting Study Item & Topic Agreement Tracker pre-filtered to this meeting's Working Group.")
         if self.is_sa2:
@@ -483,10 +483,38 @@ class TDocsWindow(QWidget):
         session_plans_dir = self.meeting_dir / "Agenda" / "SessionPlans"
         if session_plans_dir.is_dir():
             self.folder_menu.addAction("🗓️ Local: Session Plans Folder", lambda: _open_folder(session_plans_dir))
-        if getattr(self, "is_ran", False):
-            chair_notes_dir = self.meeting_dir / "Agenda" / "ChairNotes"
-            if chair_notes_dir.is_dir():
-                self.folder_menu.addAction("📝 Local: ChairNotes Folder", self._open_chair_notes_folder)
+        chair_notes_dir = self.meeting_dir / "Agenda" / "ChairNotes"
+        if chair_notes_dir.is_dir():
+            local_docs = []
+            try:
+                local_docs = [
+                    f for f in chair_notes_dir.iterdir()
+                    if f.is_file() and f.suffix.lower() in ('.docx', '.doc') and not f.name.startswith(('~$', '.'))
+                ]
+            except Exception:
+                local_docs = []
+
+            has_any_file = False
+            try:
+                has_any_file = any(chair_notes_dir.iterdir())
+            except Exception:
+                pass
+
+            if has_any_file:
+                self.folder_menu.addAction("📂 Local: ChairNotes Folder", self._open_chair_notes_folder)
+
+            if local_docs:
+                if len(local_docs) == 1:
+                    doc = local_docs[0]
+                    act = self.folder_menu.addAction(f"📝 Open Notes: {doc.name}", lambda d=doc: self._open_doc_in_word(d))
+                    act.setToolTip(f"Open {doc.name} in Microsoft Word.")
+                else:
+                    notes_sub = self.folder_menu.addMenu("📝 Open Chairman's Notes (.docx)")
+                    notes_sub.setToolTipsVisible(True)
+                    sorted_docs = sorted(local_docs, key=lambda f: f.stat().st_mtime, reverse=True)
+                    for doc in sorted_docs:
+                        act = notes_sub.addAction(doc.name, lambda d=doc: self._open_doc_in_word(d))
+                        act.setToolTip(f"Open {doc.name} in Microsoft Word.")
         if self.is_sa2:
             self.folder_menu.addAction("📄 Local: TdocsByAgenda.htm", self._open_agenda_file)
 
@@ -2339,6 +2367,17 @@ class TDocsWindow(QWidget):
 
     def _open_chair_notes_folder(self):
         open_chair_notes_folder(self)
+
+    def _open_doc_in_word(self, doc_path):
+        import os
+        try:
+            if hasattr(os, "startfile"):
+                os.startfile(str(doc_path))
+            else:
+                import webbrowser
+                webbrowser.open(f"file:///{doc_path}")
+        except Exception as e:
+            QMessageBox.warning(self, "Open Failed", f"Could not open document:\n{e}")
 
     def _open_agreement_tracker(self):
         from modules.meetings.ui.agreement_tracker_dialog import AgreementTrackerDialog
