@@ -454,7 +454,7 @@ class TopicDossierExporterThread(QThread):
         # 1. Fast direct check if already extracted in meeting folder
         for folder in candidate_folders:
             if folder.is_dir():
-                for ext in (".docx", ".docm", ".pptx", ".doc", ".ppt"):
+                for ext in (".docx", ".docm", ".pptx", ".doc", ".ppt", ".pdf"):
                     direct_f = folder / f"{tid}{ext}"
                     if direct_f.is_file() and direct_f.stat().st_size > 0:
                         return direct_f
@@ -484,7 +484,7 @@ class TopicDossierExporterThread(QThread):
                     import zipfile
                     with zipfile.ZipFile(zip_path, 'r') as zf:
                         for member in zf.namelist():
-                            if member.lower().endswith(('.docx', '.docm', '.pptx', '.doc', '.ppt')) and not os.path.basename(member).startswith('~$'):
+                            if member.lower().endswith(('.docx', '.docm', '.pptx', '.doc', '.ppt', '.pdf')) and not os.path.basename(member).startswith('~$'):
                                 zf.extract(member, target_extract_dir)
                                 return target_extract_dir / member
                 except Exception:

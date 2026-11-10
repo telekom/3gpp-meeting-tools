@@ -226,7 +226,7 @@ def convert_document_to_markdown(
     resolved_tdoc_url = tdoc_url or resolve_tdoc_download_url(tid, meta=meta)
 
     try:
-        if suffix in (".pptx", ".ppt"):
+        if suffix in (".pptx", ".ppt", ".pdf"):
             logger.info(f"Converting presentation {tid} ({path.name}) to Markdown...")
             from modules.word_tools.core.presentation_to_markdown import convert_presentation_to_markdown
             return convert_presentation_to_markdown(
@@ -312,7 +312,7 @@ def is_conversion_stale(
 
         # Detect presentation export
         is_presentation = False
-        if source_path and Path(source_path).suffix.lower() in (".pptx", ".ppt"):
+        if source_path and Path(source_path).suffix.lower() in (".pptx", ".ppt", ".pdf"):
             is_presentation = True
         elif "type=presentation" in header_sample or "mode=presentation" in header_sample:
             is_presentation = True

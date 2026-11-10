@@ -339,7 +339,7 @@ class TDocTriageWorker(QThread):
     def _find_word_doc(self, folder: Path, tdoc_id: str) -> Optional[Path]:
         if not folder or not folder.exists():
             return None
-        for ext in [".docx", ".docm", ".pptx", ".doc", ".ppt"]:
+        for ext in [".docx", ".docm", ".pptx", ".doc", ".ppt", ".pdf"]:
             files = list(folder.glob(f"*{ext}"))
             if files:
                 for f in files:

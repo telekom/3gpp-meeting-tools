@@ -158,8 +158,8 @@ def __getattr__(name):
     raise AttributeError("module %r has no attribute %r" % (__name__, name))
 
 
-DOC_EXTENSIONS = {".docx", ".docm", ".doc", ".pptx", ".ppt"}
-PRESENTATION_EXTENSIONS = {".pptx", ".ppt"}
+DOC_EXTENSIONS = {".docx", ".docm", ".doc", ".pptx", ".ppt", ".pdf"}
+PRESENTATION_EXTENSIONS = {".pptx", ".ppt", ".pdf"}
 METAFILE_EXTENSIONS = {".emf", ".wmf"}
 COMPRESSED_METAFILES = {".emz": ".emf", ".wmz": ".wmf"}
 RASTER_TO_CONVERT = {".tif", ".tiff", ".bmp"}

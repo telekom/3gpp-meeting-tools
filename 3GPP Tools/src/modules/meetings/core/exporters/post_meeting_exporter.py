@@ -1160,7 +1160,7 @@ class PostMeetingExporterThread(QThread):
         for fld in candidate_folders:
             if not fld.exists():
                 continue
-            for ext in [".docx", ".docm", ".pptx", ".doc", ".ppt"]:
+            for ext in [".docx", ".docm", ".pptx", ".doc", ".ppt", ".pdf"]:
                 files = list(fld.glob(f"*{ext}"))
                 if files:
                     for f in files:

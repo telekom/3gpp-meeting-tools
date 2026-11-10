@@ -490,6 +490,52 @@ class TestPresentationToMarkdown(unittest.TestCase):
         )
         self.assertFalse(is_export_complete(missing_img_file))
 
+    def test_find_word_doc_finds_pdf(self):
+        """Verify _find_word_doc locates .pdf presentations when no .docx or .pptx exists."""
+        folder = self.temp_dir / "find_pdf_test"
+        folder.mkdir(parents=True, exist_ok=True)
+        pdf_file = folder / "S2-2611558_Discussions.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4 dummy")
+
+        thread = PostMeetingExporterThread(
+            meeting_dir=self.temp_dir,
+            all_rows=[],
+            visible_rows=[],
+            agenda_map={},
+            mtg_info={},
+            docs_ftp_url="",
+            revisions_url="",
+        )
+        found = thread._find_word_doc(folder, "S2-2611558")
+        self.assertIsNotNone(found)
+        self.assertEqual(found.name, "S2-2611558_Discussions.pdf")
+
+    def test_pdf_presentation_to_markdown(self):
+        """Verify convert_presentation_to_markdown extracts structured slides from PDF."""
+        import pypdf
+        pdf_dest = self.temp_dir / "test_deck.pdf"
+        writer = pypdf.PdfWriter()
+        writer.add_blank_page(width=960, height=540)
+        with open(pdf_dest, "wb") as f:
+            writer.write(f)
+
+        out_dir = self.temp_dir / "pdf_out"
+        media_dir = out_dir / "media"
+        doc = convert_presentation_to_markdown(
+            ppt_path=pdf_dest,
+            out_dir=out_dir,
+            tdoc_id="S2-2611558",
+            meta={"Title": "PDF Deck Test", "Source": "Samsung", "Type": "discussion"},
+            media_dir=media_dir,
+            media_rel="media",
+        )
+        self.assertIsNotNone(doc)
+        self.assertEqual(doc.tdoc_id, "S2-2611558")
+        self.assertTrue(doc.md_path.is_file())
+        content = doc.md_path.read_text(encoding="utf-8")
+        self.assertIn("## Slide 1:", content)
+        self.assertIn("<!--- tdoc_converter:", content)
+
 
 if __name__ == "__main__":
     unittest.main()

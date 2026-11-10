@@ -487,6 +487,123 @@ def _extract_via_openxml(
     return slides_data, warnings
 
 
+
+# =============================================================================
+# TIER 3: PDF Slide Presentation Engine (pypdfium2 visual + pypdf structured text)
+# =============================================================================
+def _extract_via_pdf(
+    pdf_path: Path,
+    media_dir: Path,
+    tdoc_id: Optional[str] = None,
+    image_width: int = 1920,
+    image_height: int = 1080,
+    cancellation_check: Optional[Callable[[], bool]] = None,
+    log_fn: Optional[Callable[[str], None]] = None,
+) -> Tuple[List[ExtractedSlide], List[str]]:
+    """
+    Extracts slide visuals (via pypdfium2 1080p rendering) and structured text (via pypdf)
+    from PDF presentations and discussion decks.
+    """
+    slides_data: List[ExtractedSlide] = []
+    warnings: List[str] = []
+
+    media_dir = Path(strip_extended_path(str(media_dir)))
+    media_dir.mkdir(parents=True, exist_ok=True)
+    clean_prefix = _clean_tdoc_prefix(tdoc_id)
+
+    # Clean up any leftover corrupted image files from previous regex bug
+    try:
+        for bad_f in media_dir.glob("__-________*"):
+            try:
+                bad_f.unlink()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    import pypdf
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        pdfium = None
+
+    pdf_doc = pypdf.PdfReader(str(pdf_path))
+    pdfium_doc = None
+    if pdfium is not None:
+        try:
+            pdfium_doc = pdfium.PdfDocument(str(pdf_path))
+        except Exception as e:
+            warnings.append(f"pdfium open failed: {e}")
+            pdfium_doc = None
+
+    total_pages = len(pdf_doc.pages)
+    _safe_log(f"Extracting {total_pages} slides from PDF presentation '{pdf_path.name}'...", log_fn)
+
+    for i in range(1, total_pages + 1):
+        if cancellation_check and cancellation_check():
+            break
+
+        slide_item = ExtractedSlide(index=i)
+        page = pdf_doc.pages[i - 1]
+
+        # 1. Slide Visual Rendering
+        img_name = f"{clean_prefix}slide_{i:02d}.png"
+        img_dest = media_dir / img_name
+
+        rendered_visual = False
+        if pdfium_doc is not None and i - 1 < len(pdfium_doc):
+            try:
+                pil_img = pdfium_doc[i - 1].render(scale=2).to_pil()
+                pil_img.save(str(img_dest), "PNG")
+                if img_dest.is_file() and img_dest.stat().st_size > 0:
+                    slide_item.image_filename = img_name
+                    rendered_visual = True
+            except Exception as rend_err:
+                warnings.append(f"Slide {i}: pdfium render failed ({rend_err})")
+
+        # Fallback to embedded image extraction if visual rendering wasn't possible
+        if not rendered_visual:
+            try:
+                if len(page.images) > 0:
+                    first_img = page.images[0]
+                    first_img_ext = Path(first_img.name).suffix or ".png"
+                    fallback_name = f"{clean_prefix}slide_{i:02d}{first_img_ext}"
+                    fallback_dest = media_dir / fallback_name
+                    fallback_dest.write_bytes(first_img.data)
+                    slide_item.image_filename = fallback_name
+            except Exception as img_err:
+                warnings.append(f"Slide {i}: embedded image extraction failed ({img_err})")
+
+        # 2. Extract Text & Structured Content
+        try:
+            raw_text = page.extract_text() or ""
+            lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+
+            title_text = ""
+            body_lines = []
+            for ln in lines:
+                if ln == str(i):
+                    continue
+                if not title_text:
+                    title_text = ln
+                else:
+                    body_lines.append(ln)
+
+            slide_item.title = title_text or f"Slide {i}"
+
+            for bl in body_lines:
+                clean_b = bl.lstrip("•*- \t")
+                if clean_b:
+                    slide_item.body_paragraphs.append(f"- {clean_b}")
+
+        except Exception as txt_err:
+            warnings.append(f"Slide {i}: text extraction failed ({txt_err})")
+
+        slides_data.append(slide_item)
+
+    return slides_data, warnings
+
+
 # =============================================================================
 # Markdown Assembly & Document Construction
 # =============================================================================
@@ -585,59 +702,67 @@ def convert_presentation_to_markdown(
     warnings: List[str] = []
 
     # -------------------------------------------------------------------------
-    # Conversion Dispatch: COM First, OpenXML Fallback
+    # Conversion Dispatch: PDF, COM (PPTX/PPT), OpenXML Fallback
     # -------------------------------------------------------------------------
-    com_succeeded = False
-    if os.name == "nt":
-        try:
-            _safe_log(f"Initiating PowerPoint COM visual extraction for '{path.name}'...", logger_fn)
-            slides, com_warnings = _extract_via_powerpoint_com(
-                path,
-                media_dir=companion_media,
-                tdoc_id=tid,
-                cancellation_check=cancellation_check,
-                log_fn=logger_fn,
-            )
-            warnings.extend(com_warnings)
-            com_succeeded = True
-            _safe_log(f"Extracted {len(slides)} slide screenshots and content via PowerPoint COM.", logger_fn)
-        except Exception as com_err:
-            _safe_log(f"PowerPoint COM extraction unavailable or failed ({com_err}). Trying fallback engines...", logger_fn)
-            warnings.append(f"PowerPoint COM failed: {com_err}")
-
-    if not com_succeeded:
-        if suffix == ".pptx":
-            _safe_log(f"Extracting structured content via OpenXML direct package parser...", logger_fn)
+    if suffix == ".pdf":
+        _safe_log(f"Extracting presentation slides and visuals from PDF '{path.name}'...", logger_fn)
+        slides, pdf_warnings = _extract_via_pdf(
+            path,
+            media_dir=companion_media,
+            tdoc_id=tid,
+            cancellation_check=cancellation_check,
+            log_fn=logger_fn,
+        )
+        warnings.extend(pdf_warnings)
+    else:
+        com_succeeded = False
+        if os.name == "nt":
             try:
-                slides, ox_warnings = _extract_via_openxml(
+                _safe_log(f"Initiating PowerPoint COM visual extraction for '{path.name}'...", logger_fn)
+                slides, com_warnings = _extract_via_powerpoint_com(
                     path,
                     media_dir=companion_media,
                     tdoc_id=tid,
                     cancellation_check=cancellation_check,
                     log_fn=logger_fn,
                 )
-                warnings.extend(ox_warnings)
-                _safe_log(f"Extracted {len(slides)} slides via OpenXML parser.", logger_fn)
-            except Exception as ox_err:
-                raise RuntimeError(f"Failed to parse presentation '{path.name}': {ox_err}") from ox_err
-        elif suffix == ".ppt":
-            from modules.word_tools.core.libreoffice_converter import is_libreoffice_available, convert_document_libreoffice
-            if is_libreoffice_available():
-                _safe_log("Converting legacy .ppt to PDF using Headless LibreOffice...", logger_fn)
-                pdf_path = convert_document_libreoffice(path, target_format="pdf")
+                warnings.extend(com_warnings)
+                com_succeeded = True
+                _safe_log(f"Extracted {len(slides)} slide screenshots and content via PowerPoint COM.", logger_fn)
+            except Exception as com_err:
+                _safe_log(f"PowerPoint COM extraction unavailable or failed ({com_err}). Trying fallback engines...", logger_fn)
+                warnings.append(f"PowerPoint COM failed: {com_err}")
+
+        if not com_succeeded:
+            if suffix == ".pptx":
+                _safe_log(f"Extracting structured content via OpenXML direct package parser...", logger_fn)
                 try:
-                    import pypdf
-                    reader = pypdf.PdfReader(str(pdf_path))
-                    for p_idx, page in enumerate(reader.pages, start=1):
-                        p_text = page.extract_text() or ""
-                        lines = [ln.strip() for ln in p_text.splitlines() if ln.strip()]
-                        t = lines[0] if lines else f"Slide {p_idx}"
-                        body = [f"- {ln}" for ln in lines[1:]]
-                        slides.append(ExtractedSlide(index=p_idx, title=t, body_paragraphs=body))
-                except Exception as pdf_err:
-                    raise RuntimeError(f"Could not extract slides from LibreOffice PDF: {pdf_err}") from pdf_err
-            else:
-                raise RuntimeError("Legacy binary .ppt requires Microsoft PowerPoint (on Windows) or LibreOffice.")
+                    slides, ox_warnings = _extract_via_openxml(
+                        path,
+                        media_dir=companion_media,
+                        tdoc_id=tid,
+                        cancellation_check=cancellation_check,
+                        log_fn=logger_fn,
+                    )
+                    warnings.extend(ox_warnings)
+                    _safe_log(f"Extracted {len(slides)} slides via OpenXML parser.", logger_fn)
+                except Exception as ox_err:
+                    raise RuntimeError(f"Failed to parse presentation '{path.name}': {ox_err}") from ox_err
+            elif suffix == ".ppt":
+                from modules.word_tools.core.libreoffice_converter import is_libreoffice_available, convert_document_libreoffice
+                if is_libreoffice_available():
+                    _safe_log("Converting legacy .ppt to PDF using Headless LibreOffice...", logger_fn)
+                    pdf_path = convert_document_libreoffice(path, target_format="pdf")
+                    slides, pdf_warnings = _extract_via_pdf(
+                        pdf_path,
+                        media_dir=companion_media,
+                        tdoc_id=tid,
+                        cancellation_check=cancellation_check,
+                        log_fn=logger_fn,
+                    )
+                    warnings.extend(pdf_warnings)
+                else:
+                    raise RuntimeError("Legacy binary .ppt requires Microsoft PowerPoint (on Windows) or LibreOffice.")
 
     # -------------------------------------------------------------------------
     # Assemble Markdown Document

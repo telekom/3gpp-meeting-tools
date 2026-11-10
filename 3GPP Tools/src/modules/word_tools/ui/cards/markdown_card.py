@@ -127,7 +127,7 @@ class WordMarkdownCard(QWidget):
 
         self.pane_markdown = DocumentSelectorPane(
             "📄 DOCUMENT / PRESENTATION TO CONVERT (.docx / .doc / .pptx / .ppt)",
-            accepted_extensions=[".docx", ".doc", ".docm", ".pptx", ".ppt", ".md", ".markdown"],
+            accepted_extensions=[".docx", ".doc", ".docm", ".pptx", ".ppt", ".pdf", ".md", ".markdown"],
             drop_prompt="📥 Drag & Drop Word document or PowerPoint deck (.docx, .doc, .pptx, .ppt) here\n(or click to browse)",
         )
         self.pane_markdown.file_selected.connect(self._on_w2m_file_selected)
@@ -445,7 +445,7 @@ class WordMarkdownCard(QWidget):
         if not files or self._routing_files:
             return
         ext = Path(files[0]).suffix.lower()
-        if ext in (".docx", ".doc", ".docm", ".pptx", ".ppt"):
+        if ext in (".docx", ".doc", ".docm", ".pptx", ".ppt", ".pdf"):
             self._routing_files = True
             try:
                 self.pane_m2w.clear_selection()

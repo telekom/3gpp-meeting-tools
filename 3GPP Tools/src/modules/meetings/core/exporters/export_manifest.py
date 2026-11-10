@@ -112,7 +112,7 @@ def is_export_complete(
 
         # Detect presentation export
         is_pres = False
-        if source_path and Path(source_path).suffix.lower() in (".pptx", ".ppt"):
+        if source_path and Path(source_path).suffix.lower() in (".pptx", ".ppt", ".pdf"):
             is_pres = True
         elif doc_info:
             src_file = str(doc_info.get("original_file", "") or doc_info.get("file", "") or doc_info.get("filename", "")).lower()
