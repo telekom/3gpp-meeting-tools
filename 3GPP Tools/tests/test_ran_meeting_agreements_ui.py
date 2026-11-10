@@ -254,8 +254,8 @@ class TestRanMeetingAgreementsUI(unittest.TestCase):
         self.assertEqual(selected_row["tdoc"], "R2-2607999")
 
 
-    def test_sa_agreed_pcr_and_cr_detection(self):
-        """Verifies SA2/SA/CT agreed pCRs, CRs, and LS out are recognized as agreements."""
+    def test_sa_rows_not_mistakenly_tagged_as_chair_notes_agreements(self):
+        """Verifies standard SA2 contributions are NOT auto-tagged as Chairman's Notes Agreements (0 false positives)."""
         sa_rows = [
             {
                 'TDoc': 'S2-2601234',
@@ -265,30 +265,20 @@ class TestRanMeetingAgreementsUI(unittest.TestCase):
                 'For': 'Agreement',
                 'Agenda Item': '6.3',
                 'TDoc Status': 'agreed',
-                'Secretary Remarks': 'Agreed off-line in drafting group 2',
+                'Secretary Remarks': 'This P-CR was agreed in session 2',
             },
             {
                 'TDoc': 'S2-2601235',
                 'Title': 'CR on 23.501 AMF selection',
                 'Source': 'Orange',
                 'Type': 'CR',
-                'For': 'Agreement',
+                'For': 'Approval',
                 'Agenda Item': '7.1',
                 'TDoc Status': 'approved',
-                'Secretary Remarks': '',
+                'Secretary Remarks': 'Approved with technical consensus',
             },
             {
                 'TDoc': 'S2-2601236',
-                'Title': 'Reply LS to RAN2 on 6G Architecture',
-                'Source': 'Qualcomm',
-                'Type': 'LS out',
-                'For': 'Approval',
-                'Agenda Item': '8.2',
-                'TDoc Status': 'approved',
-                'Secretary Remarks': 'Approved as revised',
-            },
-            {
-                'TDoc': 'S2-2601237',
                 'Title': 'Discussion on Edge Computing issues',
                 'Source': 'Nokia',
                 'Type': 'discussion',
@@ -297,90 +287,87 @@ class TestRanMeetingAgreementsUI(unittest.TestCase):
                 'TDoc Status': 'noted',
                 'Secretary Remarks': 'Noted without conclusion',
             },
-            {
-                'TDoc': 'S2-2601238',
-                'Title': 'Competing Solution 2 for KI #3',
-                'Source': 'Huawei',
-                'Type': 'pCR',
-                'For': 'Agreement',
-                'Agenda Item': '6.3',
-                'TDoc Status': 'not agreed',
-                'Secretary Remarks': 'Not agreed, superseded by S2-2601234',
-            },
         ]
 
         model = TDocsTableModel(data=sa_rows)
 
-        # Row 0: Agreed pCR -> agreement
-        self.assertTrue(model._data[0].get('_has_agreement'))
-        self.assertEqual(model._data[0].get('_agreement_kind'), 'Agreed pCR')
-        bg0 = model.data(model.index(0, model._headers.index('Secretary Remarks')), Qt.BackgroundRole)
-        self.assertEqual(bg0.name().upper(), '#F0FDF4')
-        disp0 = model.data(model.index(0, model._headers.index('Secretary Remarks')), Qt.DisplayRole)
-        self.assertIn('📝 AGREED pCR', disp0)
-        self.assertIn('Solution 1 for KI #3', disp0)
+        # In SA2, status 'agreed'/'approved' must NOT be hijacked into Chairman's Notes agreements
+        for row in model._data:
+            self.assertFalse(row.get('_has_agreement', False), f"Row {row.get('TDoc')} should not have _has_agreement")
 
-        # Row 1: Approved CR -> agreement
-        self.assertTrue(model._data[1].get('_has_agreement'))
-        self.assertEqual(model._data[1].get('_agreement_kind'), 'Approved CR')
-        disp1 = model.data(model.index(1, model._headers.index('Secretary Remarks')), Qt.DisplayRole)
-        self.assertIn('📄 APPROVED CR', disp1)
-        self.assertIn('CR on 23.501 AMF selection', disp1)
+    def test_ran_vs_sa_window_scoping(self):
+        """Verifies Chairman's Notes agreements features are strictly scoped to RAN and hidden in SA."""
+        from modules.meetings.ui.tdocs_window import TDocsWindow
+        import tempfile
 
-        # Row 2: Approved LS out -> agreement
-        self.assertTrue(model._data[2].get('_has_agreement'))
-        self.assertEqual(model._data[2].get('_agreement_kind'), 'Approved LS')
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir) / "Agenda" / "TDocs_List.xlsx"
+            tmp_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path.touch()
 
-        # Row 3: Noted discussion paper -> NOT agreement
-        self.assertFalse(model._data[3].get('_has_agreement', False))
-        bg3 = model.data(model.index(3, model._headers.index('Secretary Remarks')), Qt.BackgroundRole)
-        self.assertIsNone(bg3)
+            # 1. Test SA2 Meeting
+            sa_info = {"wg_name": "SA2", "meeting_number": "177", "url_key": ""}
+            win_sa = TDocsWindow(sa_info, tdocs_data=self.sample_rows, filepath=str(tmp_path))
+            try:
+                self.assertFalse(win_sa.is_ran)
+                self.assertTrue(win_sa.btn_meeting_agreements.isHidden())
+                self.assertTrue(win_sa.btn_agreements_filter.isHidden())
 
-        # Row 4: Not agreed pCR -> NOT agreement
-        self.assertFalse(model._data[4].get('_has_agreement', False))
-        bg4 = model.data(model.index(4, model._headers.index('Secretary Remarks')), Qt.BackgroundRole)
-        self.assertIsNone(bg4)
+                # Check Refresh Menu has NO scan chair notes action
+                menu_actions = [a.text() for a in win_sa.refresh_btn.menu().actions()]
+                self.assertFalse(any("Scan Existing Chairman's Notes" in act for act in menu_actions))
+                self.assertFalse(any("Download Chairman's Notes" in act for act in menu_actions))
+            finally:
+                win_sa.close()
 
-    def test_sa_agreements_dialog_chips_and_filtering(self):
-        """Verifies MeetingAgreementsDialog presents SA pCRs and CRs with dedicated badges and filters."""
-        sa_agreements = [
-            {
-                'id': 'SA-1',
-                'ai': '6.3',
-                'wi': 'FS_Ambient_IoT',
-                'kind': 'Agreed pCR',
-                'tdoc': 'S2-2601234',
-                'title': 'Solution 1 for KI #3 on Ambient IoT',
-                'company': 'Deutsche Telekom',
-                'text': 'Agreed off-line in drafting group 2',
-            },
-            {
-                'id': 'SA-2',
-                'ai': '7.1',
-                'wi': '5G_Core_Enh',
-                'kind': 'Approved CR',
-                'tdoc': 'S2-2601235',
-                'title': 'CR on 23.501 AMF selection',
-                'company': 'Orange',
-                'text': 'Approved with technical consensus',
-            },
-        ]
+            # 2. Test RAN2 Meeting
+            ran_info = {"wg_name": "RAN2", "meeting_number": "135BIS", "url_key": ""}
+            win_ran = TDocsWindow(ran_info, tdocs_data=self.sample_rows, filepath=str(tmp_path))
+            try:
+                self.assertTrue(win_ran.is_ran)
+                self.assertFalse(win_ran.btn_meeting_agreements.isHidden())
+                self.assertFalse(win_ran.btn_agreements_filter.isHidden())
 
-        dlg = MeetingAgreementsDialog(agreements=sa_agreements, meeting_name='SA2 160')
-        self.assertEqual(dlg.model.rowCount(), 2)
+                # Check Refresh Menu HAS scan chair notes action
+                menu_actions = [a.text() for a in win_ran.refresh_btn.menu().actions()]
+                self.assertTrue(any("Scan Existing Chairman's Notes" in act for act in menu_actions))
+                self.assertTrue(any("Download Chairman's Notes" in act for act in menu_actions))
+            finally:
+                win_ran.close()
 
-        # Check pCR display
-        pcr_kind_disp = dlg.model.data(dlg.model.index(0, 0), Qt.DisplayRole)
-        self.assertEqual(pcr_kind_disp, '📝 Agreed pCR')
+    def test_tdocs_help_dialog(self):
+        """Verifies TDocsHelpDialog instantiates cleanly with all 4 tabs and interactive filter."""
+        from modules.meetings.ui.tdocs_help_dialog import TDocsHelpDialog
 
-        # Check CR display
-        cr_kind_disp = dlg.model.data(dlg.model.index(1, 0), Qt.DisplayRole)
-        self.assertEqual(cr_kind_disp, '📄 Approved CR')
+        dlg = TDocsHelpDialog(None, is_ran=True)
+        try:
+            self.assertEqual(dlg.tab_widget.count(), 4)
+            self.assertIn("Toolbar", dlg.tab_widget.tabText(0))
+            self.assertIn("Table", dlg.tab_widget.tabText(1))
+            self.assertIn("Search", dlg.tab_widget.tabText(2))
+            self.assertIn("Shortcuts", dlg.tab_widget.tabText(3))
 
-        # Filter by PCR
-        dlg.model.apply_filter(kind_filter='PCR')
-        self.assertEqual(dlg.model.rowCount(), 1)
-        self.assertEqual(dlg.model.get_row(0)['tdoc'], 'S2-2601234')
+            # Test text filter search
+            dlg._on_filter_changed("shortcut")
+            dlg._on_filter_changed("")
+        finally:
+            dlg.close()
+
+    def test_make_rich_tooltip_and_button_tooltips(self):
+        """Verifies make_rich_tooltip produces well-formed HTML cards with titles, shortcuts, descriptions, and tips."""
+        from modules.meetings.ui.tdocs_components import make_rich_tooltip
+
+        tip_html = make_rich_tooltip(
+            title="🔄 Refresh Meeting Data",
+            description="Reload official TDoc list and metadata.",
+            tip="Click arrow ▾ for full caching options.",
+            shortcut="F5"
+        )
+        self.assertIn("🔄 Refresh Meeting Data", tip_html)
+        self.assertIn("(F5)", tip_html)
+        self.assertIn("Reload official TDoc list", tip_html)
+        self.assertIn("Click arrow ▾", tip_html)
+        self.assertIn("font-family", tip_html)
 
 
 if __name__ == "__main__":

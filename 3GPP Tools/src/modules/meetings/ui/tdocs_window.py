@@ -13,7 +13,7 @@ from PyQt5.QtGui import QCursor, QKeySequence
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableView,
     QHeaderView, QLabel, QLineEdit, QFrame,
-    QPushButton, QMessageBox, QMenu, QApplication,
+    QPushButton, QMessageBox, QMenu, QApplication, QShortcut,
     QToolTip, QCheckBox, QDialog, QTextEdit, QComboBox
 )
 
@@ -43,7 +43,7 @@ from modules.meetings.ui.tdoc_delegates import (
     AgendaItemDelegate,
     SourceCompanyDelegate,
 )
-from modules.meetings.ui.tdocs_components import CheckableComboBox, ComparisonCartWidget
+from modules.meetings.ui.tdocs_components import CheckableComboBox, ComparisonCartWidget, make_rich_tooltip
 from modules.meetings.ui.tdocs_dialogs import (
     ReadOnlyViewerDialog,
     InteractiveNotesDialog,
@@ -125,6 +125,7 @@ class TDocsWindow(QWidget):
 
         wg_name = str(self.mtg_info.get('wg_name', '')).upper()
         self.is_sa2 = ('SA2' in wg_name)
+        self.is_ran = bool(re.search(r'\bRAN\d?\b', wg_name) or wg_name.startswith("RAN"))
         is_electronic = bool(self.mtg_info.get('is_electronic', 0))
         self.is_sa2_electronic = self.is_sa2 and is_electronic
 
@@ -183,7 +184,11 @@ class TDocsWindow(QWidget):
 
         self.refresh_btn = QPushButton("🔄 Refresh")
         self.refresh_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.refresh_btn.setToolTip("Reload TDocs or fetch the latest revisions from the FTP.")
+        self.refresh_btn.setToolTip(make_rich_tooltip(
+            title="🔄 Refresh Meeting Data",
+            description="Reload official TDoc list, download Agenda CSV, cache documents offline, or scan notes.",
+            tip="Click arrow ▾ to view options including offline caching and notes scanning."
+        ))
 
         refresh_menu = QMenu(self)
         refresh_menu.setToolTipsVisible(True)
@@ -193,12 +198,13 @@ class TDocsWindow(QWidget):
         act.setToolTip("Download agenda.csv and refresh Agenda Item names/acronyms used by the TDoc view.")
         act = refresh_menu.addAction("📥 Cache All TDocs (Docs/)", self._cache_all_tdocs)
         act.setToolTip("Download and cache all meeting TDocs (.zip) from the 3GPP Docs directory locally using parallel downloads.")
-        act = refresh_menu.addAction("📥 Download Chairman's Notes", self._download_chair_notes)
-        act.setToolTip("Automatically locate /Inbox/Chairs_Notes (or /Inbox/Chair_Notes), download the Final/EOM Chairman's Notes, and extract agreements.")
-        act = refresh_menu.addAction("🔍 Scan Existing Chairman's Notes for Agreements", self._scan_existing_chair_notes)
-        act.setToolTip("Scan local Chairman's Notes files (.docx) in Agenda/ChairNotes, extract current agreements, and merge into the meeting table.")
-        act = refresh_menu.addAction("📝 Import Chairman's Notes / Agenda (.docx / .doc / .zip)...", self._import_word_agenda_dialog)
-        act.setToolTip("Import one or more local Word, ZIP, or HTML agenda/chairman's notes files and merge their TDoc remarks and agreements.")
+        if self.is_ran:
+            act = refresh_menu.addAction("📥 Download Chairman's Notes", self._download_chair_notes)
+            act.setToolTip("Automatically locate /Inbox/Chairs_Notes (or /Inbox/Chair_Notes), download the Final/EOM Chairman's Notes, and extract agreements.")
+            act = refresh_menu.addAction("🔍 Scan Existing Chairman's Notes for Agreements", self._scan_existing_chair_notes)
+            act.setToolTip("Scan local Chairman's Notes files (.docx) in Agenda/ChairNotes, extract current agreements, and merge into the meeting table.")
+            act = refresh_menu.addAction("📝 Import Chairman's Notes / Agenda (.docx / .doc / .zip)...", self._import_word_agenda_dialog)
+            act.setToolTip("Import one or more local Word, ZIP, or HTML agenda/chairman's notes files and merge their TDoc remarks and agreements.")
         act = refresh_menu.addAction("⚖️ Track Study Item && Meeting Agreements...", self._open_agreement_tracker)
         act.setToolTip("Open the Cross-Meeting Study Item & Topic Agreement Tracker pre-filtered to this meeting's Working Group.")
         if self.is_sa2:
@@ -213,7 +219,11 @@ class TDocsWindow(QWidget):
 
         self.folder_btn = QPushButton("🗂️ Resources")
         self.folder_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.folder_btn.setToolTip("Access local cache folders, on-site server pages, export reports, and remote FTP directories.")
+        self.folder_btn.setToolTip(make_rich_tooltip(
+            title="🗂️ Resources & Directories",
+            description="Quick access to local cache directories (Docs, Agenda, ChairNotes, SessionPlans) and remote 3GPP FTP folders.",
+            tip="You can also open a Windows Terminal directly inside the local meeting cache folder."
+        ))
 
         self.folder_menu = QMenu(self)
         self.folder_menu.setToolTipsVisible(True)
@@ -222,18 +232,29 @@ class TDocsWindow(QWidget):
 
         self.excel_btn = QPushButton("📗 Original Excel")
         self.excel_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.excel_btn.setToolTip("Open the raw, underlying 3GPP Excel TDocs list.")
+        self.excel_btn.setToolTip(make_rich_tooltip(
+            title="📗 Open Original Excel",
+            description="Launch Microsoft Excel with the raw, official 3GPP TDoc list spreadsheet for this meeting.",
+            tip="Use this to view unedited official committee columns or run external Excel formulas."
+        ))
         self.excel_btn.clicked.connect(self._open_excel)
 
         self.export_btn = QPushButton("📤 Export ▾")
         self.export_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.export_btn.setToolTip(
-            "Export meeting TDoc metadata, document packages, LLM-ready content, or Markdown reports."
-        )
+        self.export_btn.setToolTip(make_rich_tooltip(
+            title="📤 Export Reports & Dossiers",
+            shortcut="Ctrl+Shift+E",
+            description="Export meeting TDoc metadata, document packages, LLM-ready content, or Markdown reports.",
+            tip="Press Ctrl+Shift+E anytime to reveal the export folder in Windows File Explorer."
+        ))
 
         self.session_plan_btn = QPushButton("🗓️ Session Plan")
         self.session_plan_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.session_plan_btn.setToolTip("Open the interactive Meeting Session Plan (Time allocation, rooms, drafting radar, mobile view).")
+        self.session_plan_btn.setToolTip(make_rich_tooltip(
+            title="🗓️ Session Plan & Timetable",
+            description="Interactive visual schedule viewer parsing session plan documents. Displays parallel tracks, room locations, and timings.",
+            tip="Automatically refreshes when new session plan documents are uploaded during the meeting."
+        ))
         self.session_plan_btn.clicked.connect(self._open_session_plan_window)
 
         export_menu = QMenu(self)
@@ -316,28 +337,60 @@ class TDocsWindow(QWidget):
 
         self.btn_meeting_agreements = QPushButton("⚖️ Agreements")
         self.btn_meeting_agreements.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_meeting_agreements.setToolTip("View, search, and export all Chairman's Notes agreements and working assumptions for this meeting.")
+        self.btn_meeting_agreements.setToolTip(make_rich_tooltip(
+            title="⚖️ Chairman's Notes Agreements (RAN)",
+            description="View, search, and export all Chairman's Notes agreements and working assumptions for this meeting.",
+            tip="Double-clicking an agreement cell in the table will open this viewer focused on that agreement."
+        ))
         self.btn_meeting_agreements.clicked.connect(lambda: self._open_meeting_agreements_dialog())
 
         self.draft_cr_btn = QPushButton("📝 Draft CR / pCR")
         self.draft_cr_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.draft_cr_btn.setToolTip("Compose a Change Request (CR) or Pseudo-CR (pCR) contribution for this meeting.")
+        self.draft_cr_btn.setToolTip(make_rich_tooltip(
+            title="📝 Draft CR / pCR Contribution",
+            description="Compose an official Change Request (CR) or Pseudo-CR (pCR) contribution adhering strictly to MCC formatting rules.",
+            tip="Select a baseline spec or TDoc in the table to pre-populate revision headers and clauses."
+        ))
         self.draft_cr_btn.clicked.connect(lambda: self._open_draft_cr_dialog())
 
         self.stats_btn = QPushButton("📊 Statistics")
         self.stats_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.stats_btn.setToolTip("Generate an interactive HTML statistics dashboard for this meeting.")
+        self.stats_btn.setToolTip(make_rich_tooltip(
+            title="📊 Meeting Statistics & Analytics",
+            description="Generate an interactive HTML analytics dashboard showing company contribution volumes, document types, and agenda distributions.",
+            tip="Click ⚙️ to configure custom company groupings or export parameters."
+        ))
         self.stats_btn.clicked.connect(self._generate_statistics)
 
         self.stats_cfg_btn = QPushButton("⚙️")
         self.stats_cfg_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.stats_cfg_btn.setFixedWidth(34)
-        self.stats_cfg_btn.setToolTip("Configure Statistics Parameters")
+        self.stats_cfg_btn.setToolTip(make_rich_tooltip(
+            title="⚙️ Configure Statistics",
+            description="Customize company alias unification, contribution categorization, and output charts."
+        ))
         self.stats_cfg_btn.clicked.connect(self._open_stats_config)
 
         self.email_btn = QPushButton("📧 Emails ▾")
         self.email_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.email_btn.setToolTip("Sync and inspect Outlook emails linked to TDocs and revisions.")
+        self.email_btn.setToolTip(make_rich_tooltip(
+            title="📧 Email Discussions & Reflector Sync",
+            description="Sync and inspect Outlook emails linked to TDocs and revisions, strip quotes, and categorize stances.",
+            tip="Discussion counts are displayed in the 'Emails' table column with stance breakdown badges."
+        ))
+
+        self.btn_help = QPushButton("❓ Help")
+        self.btn_help.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_help.setToolTip(make_rich_tooltip(
+            title="❓ Help & Shortcuts Guide",
+            shortcut="F1",
+            description="Open the comprehensive interactive user guide, table double-click cheatsheet, search syntax, and keyboard shortcuts.",
+            tip="Press F1 anywhere in the TDocs window to open instantly."
+        ))
+        self.btn_help.clicked.connect(self._open_help_dialog)
+
+        self.help_shortcut = QShortcut(QKeySequence("F1"), self)
+        self.help_shortcut.activated.connect(self._open_help_dialog)
 
         email_menu = QMenu(self)
         email_menu.setToolTipsVisible(True)
@@ -361,7 +414,12 @@ class TDocsWindow(QWidget):
 
         self.instant_fetch_input = QLineEdit()
         self.instant_fetch_input.setPlaceholderText("Instant Fetch...")
-        self.instant_fetch_input.setToolTip("Instantly fetch a TDoc, bypassing the table entirely. Press Enter to launch.")
+        self.instant_fetch_input.setToolTip(make_rich_tooltip(
+            title="⚡ Instant TDoc Fetch",
+            shortcut="Enter",
+            description="Type any TDoc number (e.g. R2-2601234 or S2-2605678) and press Enter to download, unpack, and launch it immediately.",
+            tip="Bypasses table scrolling completely when documents are called up live in the meeting room."
+        ))
         self.instant_fetch_input.setText(self._get_tdoc_prefix())
         self.instant_fetch_input.setFixedWidth(120)
         self.instant_fetch_input.returnPressed.connect(self._on_instant_fetch)
@@ -371,9 +429,11 @@ class TDocsWindow(QWidget):
         self.instant_cmp_btn = QPushButton("⚖️ vs Word")
         self.instant_cmp_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.instant_cmp_btn.setCursor(Qt.PointingHandCursor)
-        self.instant_cmp_btn.setToolTip(
-            "Download the TDoc entered in Instant Fetch and immediately compare it with your currently active Microsoft Word document."
-        )
+        self.instant_cmp_btn.setToolTip(make_rich_tooltip(
+            title="⚖️ Compare with Active Word",
+            description="Download the TDoc entered in Instant Fetch and immediately run a Track Changes Word comparison against your active Word draft.",
+            tip="Perfect for reviewing a newly posted revision against your local edits in seconds."
+        ))
         self.instant_cmp_btn.clicked.connect(self._on_instant_compare_active_word)
 
         header_layout.addWidget(title_lbl)
@@ -391,11 +451,15 @@ class TDocsWindow(QWidget):
         header_layout.addWidget(self.excel_btn)
         header_layout.addWidget(self.export_btn)
         header_layout.addWidget(self.session_plan_btn)
-        header_layout.addWidget(self.btn_meeting_agreements)
+        if self.is_ran:
+            header_layout.addWidget(self.btn_meeting_agreements)
+        else:
+            self.btn_meeting_agreements.setVisible(False)
         header_layout.addWidget(self.draft_cr_btn)
         header_layout.addWidget(self.stats_btn)
         header_layout.addWidget(self.stats_cfg_btn)
         header_layout.addWidget(self.email_btn)
+        header_layout.addWidget(self.btn_help)
         header_layout.addSpacing(10)
         header_layout.addWidget(self.count_lbl)
         layout.addLayout(header_layout)
@@ -419,9 +483,10 @@ class TDocsWindow(QWidget):
         session_plans_dir = self.meeting_dir / "Agenda" / "SessionPlans"
         if session_plans_dir.is_dir():
             self.folder_menu.addAction("🗓️ Local: Session Plans Folder", lambda: _open_folder(session_plans_dir))
-        chair_notes_dir = self.meeting_dir / "Agenda" / "ChairNotes"
-        if chair_notes_dir.is_dir():
-            self.folder_menu.addAction("📝 Local: ChairNotes Folder", self._open_chair_notes_folder)
+        if getattr(self, "is_ran", False):
+            chair_notes_dir = self.meeting_dir / "Agenda" / "ChairNotes"
+            if chair_notes_dir.is_dir():
+                self.folder_menu.addAction("📝 Local: ChairNotes Folder", self._open_chair_notes_folder)
         if self.is_sa2:
             self.folder_menu.addAction("📄 Local: TdocsByAgenda.htm", self._open_agenda_file)
 
@@ -559,7 +624,11 @@ class TDocsWindow(QWidget):
         self.btn_followed_wis.setFixedSize(30, 28)
         self.btn_followed_wis.setContextMenuPolicy(Qt.CustomContextMenu)
         self.btn_followed_wis.customContextMenuRequested.connect(self._show_tracked_wi_context_menu)
-        self.btn_followed_wis.setToolTip("Filter to TDocs associated with Work Items you are following (assigned responsibility).\nRight-click to toggle including unassigned Incoming LS.")
+        self.btn_followed_wis.setToolTip(make_rich_tooltip(
+            title="🎯 Followed Work Items Filter",
+            description="Filter to TDocs associated with Work Items you have selected to follow.",
+            tip="Right-click to manage your Followed Work Items watchlist."
+        ))
         self.btn_followed_wis.clicked.connect(self._toggle_followed_wis_filter)
         filter_layout.addWidget(self.btn_followed_wis)
 
@@ -569,7 +638,11 @@ class TDocsWindow(QWidget):
         self.btn_starred_wis.setFixedSize(30, 28)
         self.btn_starred_wis.setContextMenuPolicy(Qt.CustomContextMenu)
         self.btn_starred_wis.customContextMenuRequested.connect(self._show_tracked_wi_context_menu)
-        self.btn_starred_wis.setToolTip("Filter to TDocs associated with Work Items you have starred (personal watchlist).\nRight-click to toggle including unassigned Incoming LS.")
+        self.btn_starred_wis.setToolTip(make_rich_tooltip(
+            title="⭐ Starred Work Items Filter",
+            description="Filter to TDocs associated with Work Items you have starred (personal priority watchlist).",
+            tip="Right-click to toggle including unassigned incoming Liaison Statements (LS)."
+        ))
         self.btn_starred_wis.clicked.connect(self._toggle_starred_wis_filter)
         filter_layout.addWidget(self.btn_starred_wis)
 
@@ -577,9 +650,16 @@ class TDocsWindow(QWidget):
         self.btn_agreements_filter.setCheckable(True)
         self.btn_agreements_filter.setCursor(Qt.PointingHandCursor)
         self.btn_agreements_filter.setFixedSize(30, 28)
-        self.btn_agreements_filter.setToolTip("Filter to TDocs with Chairman's Notes Agreements / Working Assumptions.")
+        self.btn_agreements_filter.setToolTip(make_rich_tooltip(
+            title="⚖️ Chairman's Notes Agreements Filter (RAN)",
+            description="Filter table to only TDocs with Chairman's Notes text agreements or working assumptions.",
+            tip="Agreements are highlighted in soft green and working assumptions in warm amber."
+        ))
         self.btn_agreements_filter.clicked.connect(self._toggle_agreements_filter)
-        filter_layout.addWidget(self.btn_agreements_filter)
+        if self.is_ran:
+            filter_layout.addWidget(self.btn_agreements_filter)
+        else:
+            self.btn_agreements_filter.setVisible(False)
 
         self._update_tracked_wi_button_styles()
 
@@ -806,15 +886,21 @@ class TDocsWindow(QWidget):
                     self.model.merge_agenda_data(agenda_data)
                     self._refresh_comboboxes()
 
-        from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
-        cached_chair_agenda, cached_agreements = ChairNotesAgreementsParser.load_cached_chair_notes_data(self.meeting_dir)
-        if cached_chair_agenda:
-            self.model.merge_agenda_data(cached_chair_agenda)
-            self._refresh_comboboxes()
-        if cached_agreements:
-            self.chair_agreements = cached_agreements
-            self.model.set_chair_agreements(cached_agreements)
-        self._update_agreements_counter()
+        if getattr(self, "is_ran", False):
+            from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
+            cached_chair_agenda, cached_agreements = ChairNotesAgreementsParser.load_cached_chair_notes_data(self.meeting_dir)
+            if cached_chair_agenda:
+                self.model.merge_agenda_data(cached_chair_agenda)
+                self._refresh_comboboxes()
+            if cached_agreements:
+                self.chair_agreements = cached_agreements
+                self.model.set_chair_agreements(cached_agreements)
+            self._update_agreements_counter()
+        else:
+            if hasattr(self, "btn_meeting_agreements"):
+                self.btn_meeting_agreements.setVisible(False)
+            if hasattr(self, "btn_agreements_filter"):
+                self.btn_agreements_filter.setVisible(False)
 
         if self.is_sa2_electronic:
             local_revs = agenda_dir / "revisions.json"
@@ -944,6 +1030,9 @@ class TDocsWindow(QWidget):
         """Updates the ⚖️ Agreements toolbar button counter badge and active styling."""
         if not hasattr(self, "btn_meeting_agreements"):
             return
+        if not getattr(self, "is_ran", False):
+            self.btn_meeting_agreements.setVisible(False)
+            return
         ag_list = getattr(self, "chair_agreements", [])
         non_recap = [a for a in ag_list if not a.get("is_previous_meeting_recap")]
         cnt = len(non_recap)
@@ -973,6 +1062,14 @@ class TDocsWindow(QWidget):
 
     def _open_meeting_agreements_dialog(self, target_tdoc: str = None):
         """Opens the dedicated Meeting Agreements Viewer & Management Console."""
+        if not getattr(self, "is_ran", False):
+            QMessageBox.information(
+                self,
+                "RAN-Specific Feature",
+                "Chairman's Notes agreements scanning and viewing are specific to RAN working groups (RAN1, RAN2, RAN3, etc.).\n\n"
+                "In SA/CT working groups, contribution agreements are formally tracked via TDoc Status (agreed/approved) in the meeting table."
+            )
+            return
         from modules.meetings.ui.meeting_agreements_dialog import MeetingAgreementsDialog
 
         ag_list = getattr(self, "chair_agreements", [])
@@ -2441,6 +2538,12 @@ class TDocsWindow(QWidget):
         self._triage_dialogs[tdoc_clean] = dialog
         dialog.finished.connect(lambda _, t=tdoc_clean: self._triage_dialogs.pop(t, None))
         dialog.show()
+
+    def _open_help_dialog(self):
+        """Opens the comprehensive TDocs Cockpit Quick Guide & Shortcuts dialog."""
+        from modules.meetings.ui.tdocs_help_dialog import TDocsHelpDialog
+        dlg = TDocsHelpDialog(self, is_ran=getattr(self, "is_ran", False))
+        dlg.exec_()
 
     def closeEvent(self, event):
         if hasattr(self, 'routing_timer'):

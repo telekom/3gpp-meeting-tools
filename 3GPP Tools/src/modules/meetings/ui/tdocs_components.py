@@ -719,3 +719,21 @@ class ComparisonCartWidget(QFrame):
     def _on_comparison_finished(self):
         self.btn_compare.setText("⚖️ Compare in Word")
         self.btn_compare.setEnabled(bool(self.mgr.slot_a and self.mgr.slot_b))
+
+
+def make_rich_tooltip(title: str, description: str, tip: str = "", shortcut: str = "") -> str:
+    """Creates a beautifully styled, structured multi-line HTML card for widget tooltips."""
+    import html
+    shortcut_html = f' <span style="color: #64748B; font-size: 11px; font-weight: normal;">({html.escape(shortcut)})</span>' if shortcut else ''
+    tip_html = f'''
+  <div style="margin-top: 6px; padding-top: 4px; border-top: 1px solid #E2E8F0; font-size: 11px; color: #475569;">
+    💡 <b>Tip:</b> {html.escape(tip)}
+  </div>''' if tip else ''
+
+    return f'''<div style="font-family: -apple-system, Segoe UI, sans-serif; font-size: 12px; line-height: 1.4; color: #1E293B; max-width: 330px;">
+  <div style="font-weight: bold; font-size: 13px; color: #0F172A; margin-bottom: 3px;">
+    {title}{shortcut_html}
+  </div>
+  <div style="color: #334155;">{html.escape(description)}</div>{tip_html}
+</div>'''
+

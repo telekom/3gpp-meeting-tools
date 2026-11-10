@@ -484,23 +484,7 @@ class TDocsTableModel(QAbstractTableModel):
                 elif str(row.get("Type", "")).lower() == "chair notes agreement" or (tdoc.startswith("AI-") and "AGREEMENT" in tdoc):
                     row['_has_agreement'] = True
                     row['_agreement_kind'] = "Agreement"
-                else:
-                    # SA / CT / General 3GPP agreed and approved contributions (pCR, CR, LS out)
-                    status_clean = str(row.get('TDoc Status') or '').strip().lower()
-                    is_neg = any(neg in status_clean for neg in ['not agreed', 'not approved', 'rejected', 'postponed', 'withdrawn', 'revised', 'not handled', 'not treated'])
-                    is_agreed_status = (not is_neg) and any(status_clean.startswith(pos) or f" {pos}" in status_clean for pos in ['agreed', 'approved'])
 
-                    if is_agreed_status:
-                        row['_has_agreement'] = True
-                        doc_type = str(row.get('Type') or '').strip().lower()
-                        if 'pcr' in doc_type or 'p-cr' in doc_type:
-                            row['_agreement_kind'] = 'Agreed pCR'
-                        elif 'cr' in doc_type:
-                            row['_agreement_kind'] = 'Approved CR'
-                        elif 'ls' in doc_type:
-                            row['_agreement_kind'] = 'Approved LS'
-                        else:
-                            row['_agreement_kind'] = 'Agreed Contribution'
 
             if row.get('_has_agreement'):
                 status = str(row.get('TDoc Status') or '').strip()
