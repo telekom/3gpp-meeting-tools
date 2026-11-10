@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import datetime
 import logging
 import os
+import posixpath
 import re
 import shutil
 import urllib.parse
@@ -930,6 +931,12 @@ class PostMeetingExporterThread(QThread):
                                 f"> [!NOTE]\n"
                                 f"> **Incremental Addition:** Added to this dossier on {self.session_plan.session_timestamp} ({update_lbl})."
                             )
+                        elif hasattr(self, "session_plan") and self.session_plan.is_incremental and tdoc_id in self.session_plan.tdocs_to_update:
+                            update_lbl = f"Incremental Update #{self.session_plan.session_id - 1}"
+                            header_notices.append(
+                                f"> [!NOTE]\n"
+                                f"> **Incremental Revision:** Updated and refreshed in this dossier on {self.session_plan.session_timestamp} ({update_lbl})."
+                            )
 
                         # Inject cross-WI notification header if this TDoc overlaps with other WIs
                         if doc.get("cross_wis"):
@@ -1018,19 +1025,52 @@ class PostMeetingExporterThread(QThread):
                                 with open(to_extended_path(target_md_file), "w", encoding="utf-8") as f:
                                     f.write(md_content)
 
-                                # Copy media files with guaranteed collision-free prefix
+                                # Copy media files with guaranteed collision-free resolution
+                                os.makedirs(to_extended_path(type_media_dir), exist_ok=True)
+                                # 1. Copy all images explicitly referenced in Markdown content
+                                all_ref_imgs = re.findall(r'!\[[^\]]*\]\(([^)]+)\)', md_content)
+                                for img_ref in all_ref_imgs:
+                                    img_ref = img_ref.strip().replace("\\", "/")
+                                    if img_ref.startswith(("http://", "https://", "data:")):
+                                        continue
+                                    img_name = posixpath.basename(img_ref)
+                                    dst_img = type_media_dir / img_name
+                                    if not dst_img.exists():
+                                        candidates = []
+                                        if local_media_dir and local_media_dir.is_dir():
+                                            candidates.append(local_media_dir / img_name)
+                                        if local_md_file:
+                                            candidates.append(local_md_file.parent / img_name)
+                                            candidates.append(local_md_file.parent / "media" / img_name)
+                                            candidates.append(local_md_file.parent / f"{local_md_file.stem}_media" / img_name)
+                                        for cand in candidates:
+                                            if cand.is_file():
+                                                try:
+                                                    shutil.copy2(to_extended_path(cand), to_extended_path(dst_img))
+                                                except Exception:
+                                                    pass
+                                                break
+
+                                # 2. Copy companion media files by TDoc prefix or slide pattern
                                 if local_media_dir and local_media_dir.is_dir():
-                                    media_files = list(local_media_dir.glob(f"{tdoc_id}_*"))
-                                    if not media_files:
-                                        media_files = list(local_media_dir.glob(f"{sanitize_filename(tdoc_id)}_*"))
-                                    if not media_files:
-                                        media_files = list(local_media_dir.glob("slide_*.png"))
-                                    if media_files:
-                                        os.makedirs(to_extended_path(type_media_dir), exist_ok=True)
-                                        for mf in media_files:
-                                            dst_img = type_media_dir / mf.name
-                                            if not dst_img.exists():
-                                                shutil.copy2(to_extended_path(mf), to_extended_path(dst_img))
+                                    clean_tid = re.sub(r'[^\w\-]', '_', str(tdoc_id).strip())
+                                    patterns = [
+                                        f"{tdoc_id}_*",
+                                        f"{sanitize_filename(tdoc_id)}_*",
+                                        f"{clean_tid}_*",
+                                        "slide_*.png",
+                                    ]
+                                    copied_names = set()
+                                    for pat in patterns:
+                                        for mf in local_media_dir.glob(pat):
+                                            if mf.name not in copied_names:
+                                                copied_names.add(mf.name)
+                                                dst_img = type_media_dir / mf.name
+                                                if not dst_img.exists():
+                                                    try:
+                                                        shutil.copy2(to_extended_path(mf), to_extended_path(dst_img))
+                                                    except Exception:
+                                                        pass
                             except Exception as err:
                                 logger.error(f"[PostMeetingExporter] Error writing dossier for {tdoc_id}: {err}")
                         else:
@@ -1425,7 +1465,7 @@ class PostMeetingExporterThread(QThread):
                     for cat_name, cat_docs in wi_data["categories"].items():
                         for d in cat_docs:
                             tid = str(d.get("tdoc_id", "")).strip().upper()
-                            if tid in self.session_plan.new_tdocs:
+                            if tid in self.session_plan.new_tdocs or tid in self.session_plan.tdocs_to_update:
                                 entry_copy = dict(d)
                                 entry_copy["release"] = rel_name
                                 entry_copy["wi"] = wi_name

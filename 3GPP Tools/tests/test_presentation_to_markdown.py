@@ -15,6 +15,8 @@ from modules.meetings.core.exporters.export_manifest import (
     is_export_complete,
     plan_incremental_session,
     ExportManifest,
+    save_manifest,
+    load_manifest,
     reconstruct_manifest_from_directory,
 )
 from modules.meetings.core.tdocs.tdoc_markdown_converter import is_conversion_stale, CONVERTER_VERSION
@@ -23,6 +25,7 @@ from modules.word_tools.core.presentation_to_markdown import (
     ExtractedSlide,
     _format_markdown_table,
     _extract_via_openxml,
+    _clean_tdoc_prefix,
     convert_presentation_to_markdown,
 )
 from modules.word_tools.ui.document_selector_pane import DocumentSelectorPane
@@ -428,6 +431,64 @@ class TestPresentationToMarkdown(unittest.TestCase):
         found = thread._find_word_doc(folder, "S2-260123")
         self.assertIsNotNone(found)
         self.assertEqual(found.name, "S2-260123_Discussion.pptx")
+
+    def test_clean_tdoc_prefix(self):
+        """Verify _clean_tdoc_prefix generates valid non-mangled prefix."""
+        self.assertEqual(_clean_tdoc_prefix("S2-2611872"), "S2-2611872_")
+        self.assertEqual(_clean_tdoc_prefix("S2-2611872r1"), "S2-2611872r1_")
+        self.assertEqual(_clean_tdoc_prefix(""), "")
+        self.assertEqual(_clean_tdoc_prefix(None), "")
+        self.assertNotIn("__-________", _clean_tdoc_prefix("S2-2611872"))
+
+    def test_manifest_serializes_sets_and_tuples(self):
+        """Verify save_manifest serializes rows containing sets without JSON serialization error."""
+        exp_dir = self.temp_dir / "manifest_set_test"
+        m = ExportManifest(meeting="SA2 #178", export_type="pre_meeting")
+        m.record_session(
+            session_id=1,
+            timestamp="2026-11-10 10:00:00",
+            scope_mode="followed",
+            added_tdocs=["S2-2611872"],
+            updated_tdocs=[],
+            added_entries=[{
+                "tdoc_id": "S2-2611872",
+                "title": "6G NF Service",
+                "row_data": {
+                    "_wi_tokens": {"FS_6G_ARC", "20.6.2"},
+                    "_tuple_key": ("sort", 1),
+                },
+            }]
+        )
+        saved = save_manifest(exp_dir, m)
+        self.assertTrue(saved, "save_manifest failed on row with sets")
+        loaded = load_manifest(exp_dir)
+        self.assertIsNotNone(loaded)
+        self.assertIn("S2-2611872", loaded.tdocs)
+        self.assertIsInstance(loaded.tdocs["S2-2611872"]["row_data"]["_wi_tokens"], list)
+
+    def test_is_export_complete_rejects_unavailable_stub_and_corruptions(self):
+        """Verify is_export_complete rejects stubs, mangled filenames, and missing referenced images."""
+        test_file = self.temp_dir / "stub_test.md"
+        test_file.write_text(
+            "# S2-2611872: Test\n\n> ⚠️ *Note: Document conversion was not available in local cache.*\n",
+            encoding="utf-8",
+        )
+        self.assertFalse(is_export_complete(test_file))
+
+        mangled_file = self.temp_dir / "mangled_test.md"
+        mangled_file.write_text(
+            "# S2-2611872: Test\n\n![Slide 1](media/__-________slide_01.png)\n",
+            encoding="utf-8",
+        )
+        self.assertFalse(is_export_complete(mangled_file))
+
+        missing_img_file = self.temp_dir / "missing_img_test.md"
+        missing_img_file.write_text(
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; type=presentation; mode=presentation --->\n"
+            "# S2-2611872: Test\n\n## Slide 1: Introduction\n\n![Slide 1](media/non_existent_slide_01.png)\n",
+            encoding="utf-8",
+        )
+        self.assertFalse(is_export_complete(missing_img_file))
 
 
 if __name__ == "__main__":

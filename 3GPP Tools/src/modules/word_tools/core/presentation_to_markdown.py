@@ -45,6 +45,15 @@ OPENXML_NS = {
 }
 
 
+def _clean_tdoc_prefix(tdoc_id: Optional[str]) -> str:
+    """Produces a clean, filesystem-safe prefix from a TDoc ID."""
+    if not tdoc_id:
+        return ""
+    clean = re.sub(r'[^\w\-]', '_', str(tdoc_id).strip())
+    clean = re.sub(r'_+', '_', clean).strip("._ ")
+    return f"{clean}_" if clean else ""
+
+
 @dataclass
 class ExtractedSlide:
     """Representation of an extracted PowerPoint slide."""
@@ -127,6 +136,16 @@ def _extract_via_powerpoint_com(
     media_dir = Path(strip_extended_path(str(media_dir)))
     media_dir.mkdir(parents=True, exist_ok=True)
 
+    # Clean up any leftover corrupted image files from previous regex bug
+    try:
+        for bad_f in media_dir.glob("__-________*"):
+            try:
+                bad_f.unlink()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     pythoncom.CoInitialize()
     ppt_app = None
     pres = None
@@ -165,7 +184,7 @@ def _extract_via_powerpoint_com(
             slide_item = ExtractedSlide(index=i)
 
             # 1. Slide Screenshot
-            clean_prefix = f"{re.sub(r'[^\\w\\-]', '_', tdoc_id)}_" if tdoc_id else ""
+            clean_prefix = _clean_tdoc_prefix(tdoc_id)
             img_name = f"{clean_prefix}slide_{i:02d}.png"
             img_dest = media_dir / img_name
             img_dest_str = strip_extended_path(str(img_dest.resolve()))
@@ -319,11 +338,15 @@ def _extract_via_openxml(
     with zipfile.ZipFile(pptx_path_ext, "r") as z:
         # 1. Extract all embedded media from ppt/media/ into media_dir
         extracted_media_count = 0
+        clean_prefix = _clean_tdoc_prefix(tdoc_id)
         for name in z.namelist():
             if name.startswith("ppt/media/") and not name.endswith("/"):
                 base_name = posixpath.basename(name)
                 dest = media_dir / base_name
-                dest.write_bytes(z.read(name))
+                media_bytes = z.read(name)
+                dest.write_bytes(media_bytes)
+                if clean_prefix:
+                    (media_dir / f"{clean_prefix}{base_name}").write_bytes(media_bytes)
                 extracted_media_count += 1
 
         if extracted_media_count > 0:
@@ -413,12 +436,26 @@ def _extract_via_openxml(
 
                 slide_item.title = title_text
 
-                # Extract Speaker Notes
+                # Extract Slide Media & Speaker Notes
                 slide_rel_path = f"ppt/slides/_rels/{posixpath.basename(slide_path)}.rels"
                 if slide_rel_path in z.namelist():
                     try:
                         s_rels_xml = z.read(slide_rel_path)
                         s_rels = ET.fromstring(s_rels_xml)
+
+                        # Check for slide embedded image
+                        for rel in s_rels.findall("pr:Relationship", OPENXML_NS):
+                            rel_type = rel.get("Type", "")
+                            rel_target = rel.get("Target", "")
+                            if "image" in rel_type.lower() or "media" in rel_target.lower():
+                                img_base = posixpath.basename(rel_target)
+                                if clean_prefix and (media_dir / f"{clean_prefix}{img_base}").is_file():
+                                    slide_item.image_filename = f"{clean_prefix}{img_base}"
+                                    break
+                                elif (media_dir / img_base).is_file():
+                                    slide_item.image_filename = img_base
+                                    break
+
                         for rel in s_rels.findall("pr:Relationship", OPENXML_NS):
                             if "notesSlide" in rel.get("Type", "") or "notesSlide" in rel.get("Target", ""):
                                 raw_target = rel.get("Target", "")

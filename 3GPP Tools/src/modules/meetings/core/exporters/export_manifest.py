@@ -12,10 +12,11 @@ import datetime
 import json
 import logging
 import os
+import posixpath
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from core.utils.paths import to_extended_path
 from modules.meetings.core.tdocs.tdoc_markdown_converter import sanitize_filename
@@ -24,6 +25,36 @@ logger = logging.getLogger(__name__)
 
 MANIFEST_FILENAME = ".export_manifest.json"
 MANIFEST_VERSION = 1
+
+
+def _clean_for_json(obj: Any) -> Any:
+    """Recursively converts sets, tuples, and Paths into JSON-serializable types."""
+    if isinstance(obj, (set, frozenset)):
+        return sorted([_clean_for_json(x) for x in obj], key=lambda x: str(x))
+    if isinstance(obj, (list, tuple)):
+        return [_clean_for_json(x) for x in obj]
+    if isinstance(obj, dict):
+        return {str(k): _clean_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, (datetime.datetime, datetime.date)):
+        return obj.isoformat()
+    return obj
+
+
+def _json_fallback(obj: Any) -> Any:
+    """Fallback handler for json.dump default parameter."""
+    if isinstance(obj, (set, frozenset)):
+        return sorted(list(obj), key=lambda x: str(x))
+    if isinstance(obj, tuple):
+        return list(obj)
+    if isinstance(obj, Path):
+        return str(obj)
+    if hasattr(obj, "to_dict"):
+        return obj.to_dict()
+    if hasattr(obj, "__dict__"):
+        return obj.__dict__
+    return str(obj)
 
 
 def sanitize_folder_name(name: str) -> str:
@@ -65,10 +96,7 @@ def is_export_complete(
 
         # Placeholder stub created when source was missing
         if "Document conversion was not available" in head:
-            if source_path and Path(to_extended_path(source_path)).is_file():
-                return False
-            if doc_info and (doc_info.get("source_file") or doc_info.get("original_file")):
-                return False
+            return False
 
         # Placeholder stub created when document was reserved / not uploaded
         if (
@@ -76,6 +104,10 @@ def is_export_complete(
             or "allocated or reserved on the meeting agenda but has not yet been uploaded" in head
             or "⏳ **Status: Reserved" in head
         ):
+            return False
+
+        # Corrupted image prefix from previous bug
+        if "__-________" in head:
             return False
 
         # Detect presentation export
@@ -98,23 +130,30 @@ def is_export_complete(
             elif "- **Slides:**" in head:
                 is_pres = True
 
-        if is_pres:
-            # Presentation must contain slide headings
-            with open(p, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read(16384)
-            if "## Slide " not in content:
-                return False
+        # Read content to validate completeness and image presence
+        with open(p, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read(65536)
 
-            # Check if referenced slide image exists
-            img_match = re.search(r"!\[Slide [^\]]*\]\(([^)]+)\)", content)
-            if img_match:
-                img_rel = img_match.group(1).strip()
-                img_path = (p.parent / img_rel).resolve()
-                if not img_path.is_file():
-                    stem_media_path = (p.parent / f"{p.stem}_media" / Path(img_rel).name).resolve()
-                    sub_media_path = (p.parent / "media" / Path(img_rel).name).resolve()
-                    if not stem_media_path.is_file() and not sub_media_path.is_file():
-                        return False
+        if "__-________" in content:
+            return False
+
+        if is_pres and "## Slide " not in content:
+            return False
+
+        # Check all referenced images exist on disk
+        all_imgs = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", content)
+        for img_rel in all_imgs:
+            img_rel = img_rel.strip().replace("\\", "/")
+            if img_rel.startswith(("http://", "https://", "data:")):
+                continue
+            img_path = (p.parent / img_rel).resolve()
+            if not img_path.is_file():
+                # Check fallback locations: {stem}_media/ and media/
+                img_name = posixpath.basename(img_rel)
+                stem_media = (p.parent / f"{p.stem}_media" / img_name).resolve()
+                sub_media = (p.parent / "media" / img_name).resolve()
+                if not stem_media.is_file() and not sub_media.is_file():
+                    return False
 
         return True
     except Exception:
@@ -162,8 +201,8 @@ class ExportManifest:
             "meeting": self.meeting,
             "created_at": self.created_at,
             "last_updated_at": self.last_updated_at,
-            "sessions": self.sessions,
-            "tdocs": self.tdocs,
+            "sessions": _clean_for_json(self.sessions),
+            "tdocs": _clean_for_json(self.tdocs),
         }
 
     @classmethod
@@ -266,7 +305,7 @@ def save_manifest(export_dir: Path, manifest: ExportManifest) -> bool:
     try:
         os.makedirs(to_extended_path(export_dir), exist_ok=True)
         with open(temp_path, "w", encoding="utf-8") as f:
-            json.dump(manifest.to_dict(), f, indent=2, ensure_ascii=False)
+            json.dump(manifest.to_dict(), f, indent=2, ensure_ascii=False, default=_json_fallback)
         os.replace(temp_path, ext_path)
         logger.info(f"[ExportManifest] Successfully saved manifest ({len(manifest.tdocs)} TDocs) to {m_path}")
         return True
