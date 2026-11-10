@@ -146,7 +146,7 @@ class DragDropUI(QMainWindow):
         self.code_tab.copy_path_requested.connect(self.copy_out_path)
         self.code_tab.open_folder_requested.connect(self.open_export_folder)
         self.code_tab.export_requested.connect(self._save_and_queue_pasted_text)
-        self.code_tab.file_dropped.connect(self.extract_code_from_visio)
+        self.code_tab.file_dropped.connect(self._on_editor_file_dropped)
 
         logging.info("🏁 [STARTUP:UI:TAB] 2/8 Initializing BatchConvertTab...")
         self.batch_tab = BatchConvertTab()
@@ -605,14 +605,16 @@ class DragDropUI(QMainWindow):
         self.log_message(f"🧩 Inserted '{label}' into PlantUML editor.", logging.INFO)
 
     def _set_editor_text(self, text):
-        cursor = self.code_tab.text_input.textCursor()
-        cursor.beginEditBlock()
-        cursor.select(QTextCursor.Document)
-        cursor.insertText(text)
-        cursor.endEditBlock()
-
-        cursor.setPosition(0)
-        self.code_tab.text_input.setTextCursor(cursor)
+        if hasattr(self.code_tab, "set_text"):
+            self.code_tab.set_text(text)
+        else:
+            cursor = self.code_tab.text_input.textCursor()
+            cursor.beginEditBlock()
+            cursor.select(QTextCursor.Document)
+            cursor.insertText(text)
+            cursor.endEditBlock()
+            cursor.setPosition(0)
+            self.code_tab.text_input.setTextCursor(cursor)
         self.live_preview.update_now()
 
     def insert_template(self, selected_template):
@@ -635,6 +637,8 @@ class DragDropUI(QMainWindow):
 
     def clear_editor(self):
         self._set_editor_text("")
+        if hasattr(self.code_tab, "_current_file_path"):
+            self.code_tab._current_file_path = None
         self.log_message("🗑️ Editor cleared.", logging.INFO)
 
     def copy_editor_code(self):
@@ -684,6 +688,36 @@ class DragDropUI(QMainWindow):
         self.tabs.setEnabled(False)
         self._launch_init_thread(check_updates=True)
 
+    def _on_editor_file_dropped(self, file_path: str):
+        """Dispatches files dropped onto the PlantUML editor to the appropriate loader."""
+        path = Path(file_path)
+        ext = path.suffix.lower()
+        if ext in (".vsdx", ".vsdm"):
+            self.extract_code_from_visio(file_path)
+        else:
+            self.load_puml_file(file_path)
+
+    def load_puml_file(self, file_path):
+        """Loads a PlantUML file into the editor, updates live preview, and logs details."""
+        path = Path(file_path)
+        if not path.is_file():
+            self.log_message(f"❌ File not found: {file_path}", logging.ERROR)
+            return
+
+        try:
+            success = self.code_tab.load_file(path)
+            if success:
+                self.live_preview.update_now()
+                from core.ui.drop_zone import format_file_size
+                size_str = format_file_size(path.stat().st_size)
+                self.log_message(f"📂 Loaded PlantUML diagram from: {path.name} ({size_str})", logging.INFO)
+                self.status_bar.showMessage(f"Loaded {path.name}", 4000)
+            else:
+                self.log_message(f"❌ Could not load PlantUML file: {path.name}", logging.ERROR)
+        except Exception as e:
+            self.log_message(f"❌ Failed to load PlantUML file '{path.name}': {e}", logging.ERROR)
+            QMessageBox.warning(self, "Load Error", f"Failed to load PlantUML file:\n{e}")
+
     def extract_code_from_visio(self, file_path):
         self.code_tab.text_input.clear()
         self.code_tab.text_input.setPlaceholderText(
@@ -704,7 +738,7 @@ class DragDropUI(QMainWindow):
     def on_visio_code_error(self, error_msg):
         self.code_tab.text_input.setEnabled(True)
         self.code_tab.text_input.setPlaceholderText(
-            "Paste PlantUML code OR drop a generated .vsdx file here to extract its source..."
+            "Paste PlantUML code OR drag & drop a .puml or .vsdx file here to load..."
         )
         self.log_message(f"❌ {error_msg}")
 

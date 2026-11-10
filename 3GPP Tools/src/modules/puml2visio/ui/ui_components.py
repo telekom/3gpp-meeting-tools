@@ -7,7 +7,8 @@
 - FindReplaceBar: Inline non-intrusive find and replace toolbar
 """
 
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 import re
 
 from PyQt5.QtCore import QPoint, QRect, QRegularExpression, QSize, Qt, pyqtSignal
@@ -49,6 +50,11 @@ class LineNumberArea(QWidget):
         self.code_editor.lineNumberAreaPaintEvent(event)
 
 
+PUML_EXTENSIONS = ('.puml', '.plantuml', '.pu', '.iuml', '.wsd', '.txt')
+VISIO_EXTENSIONS = ('.vsdx', '.vsdm')
+SUPPORTED_EDITOR_EXTENSIONS = PUML_EXTENSIONS + VISIO_EXTENSIONS
+
+
 class CodeDropTextEdit(QPlainTextEdit):
     """Enhanced PlantUML code editor with syntax highlighting, smart indentation,
 
@@ -56,6 +62,28 @@ class CodeDropTextEdit(QPlainTextEdit):
     """
     file_dropped = pyqtSignal(str)
     find_requested = pyqtSignal()
+
+    PUML_EXTENSIONS = PUML_EXTENSIONS
+    VISIO_EXTENSIONS = VISIO_EXTENSIONS
+    SUPPORTED_EXTENSIONS = SUPPORTED_EDITOR_EXTENSIONS
+
+    @classmethod
+    def is_supported_file(cls, file_path: str) -> bool:
+        if not file_path:
+            return False
+        return Path(file_path).suffix.lower() in cls.SUPPORTED_EXTENSIONS
+
+    @classmethod
+    def is_puml_file(cls, file_path: str) -> bool:
+        if not file_path:
+            return False
+        return Path(file_path).suffix.lower() in cls.PUML_EXTENSIONS
+
+    @classmethod
+    def is_visio_file(cls, file_path: str) -> bool:
+        if not file_path:
+            return False
+        return Path(file_path).suffix.lower() in cls.VISIO_EXTENSIONS
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -461,16 +489,55 @@ class CodeDropTextEdit(QPlainTextEdit):
         from modules.puml2visio.templates.plantuml_snippets import reload_snippets
         reload_snippets()
 
-    # Drag & Drop for .vsdx file extraction
+    def load_file(self, file_path: Union[str, Path]) -> bool:
+        """Loads a PlantUML or text file from disk into the editor with robust encoding detection."""
+        path = Path(file_path)
+        if not path.is_file():
+            return False
+        content = None
+        for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+            try:
+                content = path.read_text(encoding=enc)
+                break
+            except (UnicodeDecodeError, LookupError):
+                continue
+        if content is None:
+            content = path.read_text(encoding="utf-8", errors="replace")
+
+        cursor = self.textCursor()
+        cursor.beginEditBlock()
+        cursor.select(QTextCursor.Document)
+        cursor.insertText(content)
+        cursor.endEditBlock()
+        cursor.setPosition(0)
+        self.setTextCursor(cursor)
+        self.set_error_line(None)
+        return True
+
+    # -------------------------------------------------------------------------
+    # Drag & Drop for PlantUML (.puml, .plantuml, .pu, .txt) & Visio (.vsdx) files
+    # -------------------------------------------------------------------------
     # -------------------------------------------------------------------------
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
-            if any(url.toLocalFile().lower().endswith('.vsdx') for url in urls):
+            if any(self.is_supported_file(url.toLocalFile()) for url in urls):
                 self.setStyleSheet(self.hover_style)
                 event.acceptProposedAction()
                 return
+            event.ignore()
+            return
         super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if any(self.is_supported_file(url.toLocalFile()) for url in urls):
+                event.acceptProposedAction()
+                return
+            event.ignore()
+            return
+        super().dragMoveEvent(event)
 
     def dragLeaveEvent(self, event):
         self.setStyleSheet(self.default_style)
@@ -481,10 +548,12 @@ class CodeDropTextEdit(QPlainTextEdit):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 file_path = url.toLocalFile()
-                if file_path.lower().endswith('.vsdx'):
+                if self.is_supported_file(file_path):
                     self.file_dropped.emit(file_path)
                     event.acceptProposedAction()
                     return
+            event.ignore()
+            return
         super().dropEvent(event)
 
 

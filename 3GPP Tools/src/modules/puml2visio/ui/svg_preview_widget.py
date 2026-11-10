@@ -39,6 +39,7 @@ class SvgGraphicsView(QGraphicsView):
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setAcceptDrops(False)
         self.setStyleSheet("border: none; background-color: #ECECEC;")
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
@@ -57,6 +58,7 @@ class EmbeddedSvgPreview(QFrame):
     """Side-by-side live SVG diagram viewer panel with zoom and pan controls."""
     browser_requested = pyqtSignal()
     close_requested = pyqtSignal()
+    file_dropped = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -72,6 +74,7 @@ class EmbeddedSvgPreview(QFrame):
         self.svg_item: Optional[QGraphicsSvgItem] = None
         self.current_svg_path: Optional[str] = None
         self._first_load = True
+        self.setAcceptDrops(True)
 
         self._setup_ui()
 
@@ -192,3 +195,41 @@ class EmbeddedSvgPreview(QFrame):
         if self.svg_item and not self.scene.sceneRect().isEmpty():
             self.view.resetTransform()
             self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
+
+    # -------------------------------------------------------------------------
+    # Drag & Drop forwarding to Editor
+    # -------------------------------------------------------------------------
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            from modules.puml2visio.ui.ui_components import CodeDropTextEdit
+            if any(CodeDropTextEdit.is_supported_file(url.toLocalFile()) for url in urls):
+                event.acceptProposedAction()
+                return
+            event.ignore()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            from modules.puml2visio.ui.ui_components import CodeDropTextEdit
+            if any(CodeDropTextEdit.is_supported_file(url.toLocalFile()) for url in urls):
+                event.acceptProposedAction()
+                return
+            event.ignore()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            from modules.puml2visio.ui.ui_components import CodeDropTextEdit
+            for url in event.mimeData().urls():
+                file_path = url.toLocalFile()
+                if CodeDropTextEdit.is_supported_file(file_path):
+                    self.file_dropped.emit(file_path)
+                    event.acceptProposedAction()
+                    return
+            event.ignore()
+            return
+        super().dropEvent(event)

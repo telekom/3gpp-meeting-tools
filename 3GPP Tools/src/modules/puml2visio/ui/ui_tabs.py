@@ -6,7 +6,11 @@
 - BatchConvertTab: Drag-and-drop batch conversion queue tab
 """
 
+from pathlib import Path
+from typing import Optional, Union
+
 from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QTextCursor
 from PyQt5.QtWidgets import (
     QAction,
     QComboBox,
@@ -63,6 +67,8 @@ class CodeEditorTab(QWidget):
     def __init__(self):
         super().__init__()
         self._ai_dialog = None
+        self._current_file_path: Optional[Path] = None
+        self.setAcceptDrops(True)
         self._setup_ui()
         register_snippets_reloaded_callback(self._build_insert_element_menu)
 
@@ -147,11 +153,11 @@ class CodeEditorTab(QWidget):
         # ---------------------------------------------------------------------
         self.text_input = CodeDropTextEdit()
         self.text_input.setPlaceholderText(
-            "Paste PlantUML code OR drop a generated .vsdx file here to extract its source..."
+            "Paste PlantUML code OR drag & drop a .puml or .vsdx file here to load..."
         )
         self.text_input.file_dropped.connect(self.file_dropped.emit)
         self.text_input.setToolTip(
-            "Type or paste PlantUML code here. Drag & drop a generated .vsdx file to retrieve its source code."
+            "Type or paste PlantUML code here. Drag & drop a PlantUML diagram (.puml, .plantuml, .pu, .txt) to load it, or a .vsdx file to extract its source code."
         )
 
         self.find_bar = FindReplaceBar(self.text_input)
@@ -186,6 +192,7 @@ class CodeEditorTab(QWidget):
         self.svg_preview = EmbeddedSvgPreview()
         self.svg_preview.close_requested.connect(lambda: self.preview_dock_btn.setChecked(False))
         self.svg_preview.browser_requested.connect(self.browser_preview_requested.emit)
+        self.svg_preview.file_dropped.connect(self.file_dropped.emit)
         self.svg_preview.hide()
         self.work_splitter.addWidget(self.svg_preview)
 
@@ -379,6 +386,64 @@ class CodeEditorTab(QWidget):
     # -------------------------------------------------------------------------
     # Public Accessors & Controls
     # -------------------------------------------------------------------------
+    def set_text(self, text: str):
+        """Sets the editor text within a single undoable edit block and resets cursor."""
+        cursor = self.text_input.textCursor()
+        cursor.beginEditBlock()
+        cursor.select(QTextCursor.Document)
+        cursor.insertText(text)
+        cursor.endEditBlock()
+        cursor.setPosition(0)
+        self.text_input.setTextCursor(cursor)
+        self.text_input.set_error_line(None)
+
+    def load_file(self, file_path: Union[str, Path]) -> bool:
+        """Loads a PlantUML or text file from disk into the editor."""
+        path = Path(file_path)
+        ok = self.text_input.load_file(path)
+        if ok:
+            self._current_file_path = path
+        return ok
+
+    def get_current_file_path(self) -> Optional[Path]:
+        """Returns the path of the currently loaded PlantUML file, if any."""
+        return self._current_file_path
+
+    # -------------------------------------------------------------------------
+    # Drag & Drop Handlers for Tab
+    # -------------------------------------------------------------------------
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if any(CodeDropTextEdit.is_supported_file(url.toLocalFile()) for url in urls):
+                event.acceptProposedAction()
+                return
+            event.ignore()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if any(CodeDropTextEdit.is_supported_file(url.toLocalFile()) for url in urls):
+                event.acceptProposedAction()
+                return
+            event.ignore()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                file_path = url.toLocalFile()
+                if CodeDropTextEdit.is_supported_file(file_path):
+                    self.file_dropped.emit(file_path)
+                    event.acceptProposedAction()
+                    return
+            event.ignore()
+            return
+        super().dropEvent(event)
+
     def get_text(self):
         return self.text_input.toPlainText().strip()
 
