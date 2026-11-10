@@ -1515,6 +1515,36 @@ class PostMeetingExporterThread(QThread):
         except Exception as e:
             logger.error(f"[PostMeetingExporter] Error writing master index.md: {e}", exc_info=True)
 
+        # Generate standalone Agreements.md in export root if agreements were included
+        if self.include_chair_agreements:
+            all_ags = []
+            seen_ag_keys = set()
+            for rel, wis in filtered_entries.items():
+                for wi_name, wi_data in wis.items():
+                    for ag in wi_data.get("agreements", []):
+                        ag_key = (ag.get("ai", ""), ag.get("kind", ""), ag.get("text", "")[:120])
+                        if ag_key not in seen_ag_keys:
+                            seen_ag_keys.add(ag_key)
+                            all_ags.append(ag)
+            if all_ags:
+                ag_file = self.export_dir / "Agreements.md"
+                try:
+                    with open(to_extended_path(ag_file), "w", encoding="utf-8") as f:
+                        wg = str(self.mtg_info.get("wg_name", "WG")).strip()
+                        mtg = str(self.mtg_info.get("meeting_number", "")).strip()
+                        f.write(f"# {wg}#{mtg} — Chairman's Notes Agreements & Working Assumptions\n\n")
+                        total = len(all_ags)
+                        wa_cnt = sum(1 for a in all_ags if "working assumption" in str(a.get("kind", "")).lower())
+                        ffs_cnt = sum(1 for a in all_ags if "ffs" in str(a.get("kind", "")).lower() or "open issue" in str(a.get("kind", "")).lower())
+                        ag_cnt = total - wa_cnt - ffs_cnt
+                        f.write(
+                            f"> **Summary:** **{total}** items captured in Chairman's Notes "
+                            f"(🟢 **{ag_cnt}** Agreements, 🟡 **{wa_cnt}** Working Assumptions, 🔵 **{ffs_cnt}** FFS / Open Issues).\n\n---\n\n"
+                        )
+                        f.write(self._render_agreements_markdown(all_ags))
+                except Exception as e_ag:
+                    logger.warning(f"[PostMeetingExporter] Failed to write Agreements.md: {e_ag}")
+
     def _render_markdown_table(self, docs: List[dict], is_local_wi: bool = False, base_dir: Optional[Path] = None) -> str:
         """Renders a standard markdown table for a list of TDoc entries."""
         if not docs:
@@ -1614,23 +1644,9 @@ class PostMeetingExporterThread(QThread):
         """Loads cached Chairman's Notes agreements and attaches matching items to `tree[release][wi]['agreements']`."""
         from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
 
-        _, raw_agreements = ChairNotesAgreementsParser.load_cached_chair_notes_data(self.meeting_dir)
-        if not raw_agreements:
-            # Also check if there are any .docx files in Agenda/ChairNotes/ not yet cached
-            cn_dir = self.meeting_dir / "Agenda" / "ChairNotes"
-            if cn_dir.is_dir():
-                merged_ag = {}
-                merged_list = []
-                for f in cn_dir.glob("*.docx"):
-                    if not f.name.startswith("~$"):
-                        ad, al = ChairNotesAgreementsParser.parse_docx_with_agreements(
-                            str(f), mtg_info=self.mtg_info, agenda_map=self.agenda_map
-                        )
-                        merged_ag.update(ad)
-                        merged_list.extend(al)
-                if merged_ag or merged_list:
-                    ChairNotesAgreementsParser.save_cached_chair_notes_data(self.meeting_dir, merged_ag, merged_list)
-                    raw_agreements = merged_list
+        _, raw_agreements, _ = ChairNotesAgreementsParser.scan_and_cache_chair_notes(
+            self.meeting_dir, mtg_info=self.mtg_info, agenda_map=self.agenda_map
+        )
 
         if not raw_agreements:
             return
@@ -1652,15 +1668,34 @@ class PostMeetingExporterThread(QThread):
                         associated_wis.append(can)
             if not associated_wis and t_row:
                 associated_wis = self._resolve_tdoc_wis(t_row, wi_db_info)
+            if not associated_wis and ai_num:
+                # In RAN/3GPP meetings, agreements under AI headings inherit WIs associated with that AI
+                if hasattr(self, "ai_to_wis") and ai_num in self.ai_to_wis:
+                    for w in self.ai_to_wis[ai_num]:
+                        can = self._canonicalize_wi_name(w, wi_db_info)
+                        if can and can != "General" and can not in associated_wis:
+                            associated_wis.append(can)
+                elif self.agenda_map and ai_num in self.agenda_map:
+                    item = self.agenda_map[ai_num]
+                    acronym = getattr(item, "acronym", None)
+                    if acronym:
+                        can = self._canonicalize_wi_name(acronym, wi_db_info)
+                        if can and can not in associated_wis:
+                            associated_wis.append(can)
             if not associated_wis:
                 associated_wis = ["General"]
 
             matching_wis = []
             for wi in associated_wis:
                 if wi == "General":
+                    wg_name = str(self.mtg_info.get("wg_name", "")).strip().upper()
+                    is_ran = wg_name.startswith("RAN") or "RAN" in wg_name
                     if self.scope_mode in ("whole", "visible"):
                         matching_wis.append(wi)
                     elif self.scope_mode == "custom" and ("general" in self.custom_wis or ai_num in self.custom_ais):
+                        matching_wis.append(wi)
+                    elif getattr(self, "include_general_ls", False) or is_ran:
+                        # Include general non-WI agreements for RAN meetings
                         matching_wis.append(wi)
                     continue
                 wi_tokens = TDocsTableModel._extract_base_tokens(wi)

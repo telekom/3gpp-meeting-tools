@@ -28,5 +28,11 @@
         "auto_open": true,
         "company_attribution_enabled": true,
         "company_name": "Deutsche Telekom"
-    }
+    },
+    "markdown_export": {
+        "include_chair_agreements": true,
+        "include_agreements_summary": true
+    },
+    "include_chair_agreements": true,
+    "include_agreements_summary": true
 }

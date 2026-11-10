@@ -4,6 +4,7 @@ Agenda and Chairman's Notes import/download controller for TDocsWindow.
 Manages batch Word document agenda importing, CSV agenda synchronization,
 and Chairman's Notes retrieval threads.
 """
+import logging
 import re
 from pathlib import Path
 
@@ -16,6 +17,8 @@ from modules.meetings.core.agenda_manager import AgendaDownloaderThread, AgendaM
 from modules.meetings.core.chair_notes_downloader import ChairNotesDownloaderThread
 from modules.meetings.core.tdocs.tdocs_threads import WordAgendaImporterThread
 from modules.meetings.core.url_router import URLRouter
+
+logger = logging.getLogger(__name__)
 
 
 def import_word_agenda_dialog(window):
@@ -274,6 +277,79 @@ def on_chair_notes_finished(window, success: bool, count: int, files: list, msg:
 def open_chair_notes_folder(window):
     """Opens the local folder containing Chairman's Notes."""
     _open_folder(window.meeting_dir / "Agenda" / "ChairNotes")
+
+
+def scan_existing_chair_notes(window):
+    """
+    Scans existing Chairman's Notes files (.docx, .doc, .zip) on disk,
+    extracts current agreements and TDoc remarks, merges them into the table,
+    and reports results to the user.
+    """
+    from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
+
+    window.refresh_btn.setEnabled(False)
+    window.refresh_btn.setText("⏳ Scanning Notes...")
+
+    try:
+        agenda_data, agreements, files_scanned = ChairNotesAgreementsParser.scan_and_cache_chair_notes(
+            window.meeting_dir,
+            mtg_info=getattr(window, "mtg_info", None),
+            agenda_map=getattr(window, "agenda_map", None),
+            force_rescan=True,
+        )
+
+        non_recap_agreements = [a for a in (agreements or []) if not a.get("is_previous_meeting_recap")]
+        ag_count = len(non_recap_agreements)
+        tdoc_count = len(agenda_data)
+
+        if agenda_data:
+            window.model.merge_agenda_data(agenda_data)
+            window._refresh_comboboxes()
+
+        window.refresh_btn.setEnabled(True)
+        window.refresh_btn.setText("🔄 Refresh")
+
+        if files_scanned > 0:
+            window.refresh_btn.setText(f"✅ {ag_count} Agreements")
+            QTimer.singleShot(4000, lambda: window.refresh_btn.setText("🔄 Refresh"))
+
+            wa_cnt = sum(1 for a in non_recap_agreements if "working assumption" in str(a.get("kind", "")).lower())
+            ffs_cnt = sum(1 for a in non_recap_agreements if "ffs" in str(a.get("kind", "")).lower() or "open issue" in str(a.get("kind", "")).lower())
+            pure_ag = ag_count - wa_cnt - ffs_cnt
+
+            ais_covered = len({str(a.get("ai", "")).strip() for a in non_recap_agreements if a.get("ai")})
+            wis_covered = len({str(a.get("wi", "")).strip() for a in non_recap_agreements if a.get("wi") and a.get("wi") != "General"})
+
+            msg = (
+                f"Successfully scanned {files_scanned} Chairman's Notes file(s) in:\n"
+                f"{window.meeting_dir / 'Agenda' / 'ChairNotes'}\n\n"
+                f"• Agreements & Decisions Extracted: {ag_count}\n"
+                f"  - 🟢 Technical Agreements: {pure_ag}\n"
+                f"  - 🟡 Working Assumptions: {wa_cnt}\n"
+                f"  - 🔵 FFS / Open Issues: {ffs_cnt}\n"
+                f"• Agenda Items Covered: {ais_covered}\n"
+                f"• Work Items Covered: {wis_covered}\n"
+                f"• Meeting Table Rows Updated: {tdoc_count}\n\n"
+                f"All agreements are cached and ready for post-meeting and Markdown reports."
+            )
+            QMessageBox.information(window, "Chairman's Notes Scanned", msg)
+        else:
+            chair_notes_dir = window.meeting_dir / "Agenda" / "ChairNotes"
+            reply = QMessageBox.question(
+                window,
+                "No Local Chairman's Notes Found",
+                f"No Chairman's Notes files (.docx, .doc, .zip) were found in:\n{chair_notes_dir}\n\n"
+                "Would you like to check the 3GPP server and download Chairman's Notes now?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            if reply == QMessageBox.Yes:
+                download_chair_notes(window)
+    except Exception as e:
+        window.refresh_btn.setEnabled(True)
+        window.refresh_btn.setText("🔄 Refresh")
+        logger.error(f"[scan_existing_chair_notes] Error: {e}", exc_info=True)
+        QMessageBox.warning(window, "Scan Failed", f"Failed to scan Chairman's Notes:\n{e}")
 
 
 def start_window_tdocs_caching(window):

@@ -1,18 +1,21 @@
 # --- File: src/modules/meetings/ui/post_meeting_export_dialog.py ---
 import datetime
+import logging
 import re
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple, Any
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QGroupBox,
+    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QGroupBox,
     QRadioButton, QCheckBox, QPushButton, QLineEdit, QFileDialog,
     QTreeWidget, QTreeWidgetItem, QStackedWidget, QFrame, QScrollArea,
     QWidget, QButtonGroup, QMessageBox, QSizePolicy, QMenu
 )
 
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
+
+logger = logging.getLogger(__name__)
 from modules.meetings.core.agenda_manager import AgendaItem
 from modules.meetings.ui.tdocs_models import TDocsTableModel
 
@@ -241,6 +244,10 @@ class PostMeetingExportDialog(QDialog):
         # Also load cached Chairman's Notes agreements so WIs/AIs with agreements (RAN2/RAN3) are counted
         from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
         _, cached_ags = ChairNotesAgreementsParser.load_cached_chair_notes_data(self.meeting_dir)
+        if not cached_ags:
+            _, cached_ags, _ = ChairNotesAgreementsParser.scan_and_cache_chair_notes(
+                self.meeting_dir, self.mtg_info, self.agenda_map
+            )
         self.chair_agreements = [a for a in (cached_ags or []) if not a.get("is_previous_meeting_recap")]
         for ag in self.chair_agreements:
             ai_num = str(ag.get("ai", "")).strip() or "Unassigned"
@@ -490,20 +497,55 @@ class PostMeetingExportDialog(QDialog):
         )
         self.chk_general_ls.stateChanged.connect(self._update_estimates)
 
-        self.chk_chair_agreements = QCheckBox("⚖️ Chairman's Notes Agreements && Working Assumptions")
+        wg_name = str(self.mtg_info.get("wg_name", "")).strip().upper()
+        self.is_ran = wg_name.startswith("RAN") or "RAN" in wg_name
+
+        chair_label = "⚖️ Chairman's Notes Agreements && Working Assumptions"
+        if self.is_ran:
+            chair_label = "⚖️ Chairman's Notes Agreements (RAN Text Agreements)"
+        self.chk_chair_agreements = QCheckBox(chair_label)
         self.chk_chair_agreements.setChecked(True)
         self.chk_chair_agreements.setToolTip(
             "Include extracted Agreements, Working Assumptions, Conclusions, and FFS items from Chairman's Notes "
-            "inside each Work Item's dossier and master report (essential for RAN2/RAN3/RAN1 Study Items)."
+            "inside each Work Item's dossier and master report (essential for RAN1/RAN2/RAN3)."
         )
         self.chk_chair_agreements.stateChanged.connect(self._update_estimates)
+
+        chair_row = QHBoxLayout()
+        chair_row.setContentsMargins(0, 0, 0, 0)
+        chair_row.addWidget(self.chk_chair_agreements)
+        chair_row.addStretch()
+
+        ag_cnt = len(self.chair_agreements)
+        self.lbl_chair_notes_status = QLabel(f"({ag_cnt} loaded)" if ag_cnt > 0 else "(0 loaded)")
+        if ag_cnt > 0:
+            self.lbl_chair_notes_status.setStyleSheet("color: #2E7D32; font-weight: bold; font-size: 11px;")
+        else:
+            self.lbl_chair_notes_status.setStyleSheet("color: #757575; font-size: 11px;")
+        chair_row.addWidget(self.lbl_chair_notes_status)
+
+        self.btn_scan_chair_notes = QPushButton("🔍 Scan Notes")
+        self.btn_scan_chair_notes.setToolTip("Scan local Chairman's Notes files (.docx) in Agenda/ChairNotes and extract current agreements.")
+        self.btn_scan_chair_notes.setStyleSheet(STYLE_COMPACT_BTN)
+        self.btn_scan_chair_notes.clicked.connect(self._on_scan_chair_notes_clicked)
+        chair_row.addWidget(self.btn_scan_chair_notes)
 
         docs_layout.addWidget(self.chk_ls_in)
         docs_layout.addWidget(self.chk_pcr)
         docs_layout.addWidget(self.chk_cr)
         docs_layout.addWidget(self.chk_ls_out)
         docs_layout.addWidget(self.chk_disc)
-        docs_layout.addWidget(self.chk_chair_agreements)
+        docs_layout.addLayout(chair_row)
+
+        self.ran_tip_widget = QWidget()
+        tip_layout = QHBoxLayout(self.ran_tip_widget)
+        tip_layout.setContentsMargins(4, 2, 4, 2)
+        self.lbl_ran_tip = QLabel("💡 Tip for RAN: Decisions are captured in Chairman's Notes. Click [🔍 Scan Notes] to extract them.")
+        self.lbl_ran_tip.setStyleSheet("color: #0D47A1; font-size: 11px; font-style: italic;")
+        tip_layout.addWidget(self.lbl_ran_tip)
+        docs_layout.addWidget(self.ran_tip_widget)
+        self.ran_tip_widget.setVisible(self.is_ran and ag_cnt == 0)
+
         docs_layout.addWidget(self.chk_general_ls)
 
         right_column.addWidget(docs_group)
@@ -1123,6 +1165,61 @@ class PostMeetingExportDialog(QDialog):
             action.triggered.connect(lambda checked=False, p=folder: self._select_recent_export(p))
 
         menu.exec_(self.btn_recent.mapToGlobal(self.btn_recent.rect().bottomLeft()))
+
+    def _on_scan_chair_notes_clicked(self):
+        """Scans local Chairman's Notes files in Agenda/ChairNotes and refreshes agreements."""
+        from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
+        self.btn_scan_chair_notes.setEnabled(False)
+        self.btn_scan_chair_notes.setText("⏳ Scanning...")
+        QApplication.processEvents()
+
+        try:
+            _, raw_ags, file_cnt = ChairNotesAgreementsParser.scan_and_cache_chair_notes(
+                self.meeting_dir, self.mtg_info, self.agenda_map, force_rescan=True
+            )
+            self.chair_agreements = [a for a in (raw_ags or []) if not a.get("is_previous_meeting_recap")]
+            count = len(self.chair_agreements)
+            self.lbl_chair_notes_status.setText(f"({count} loaded)")
+            if count > 0:
+                self.lbl_chair_notes_status.setStyleSheet("color: #2E7D32; font-weight: bold; font-size: 11px;")
+                if hasattr(self, "ran_tip_widget"):
+                    self.ran_tip_widget.setVisible(False)
+            else:
+                self.lbl_chair_notes_status.setStyleSheet("color: #757575; font-size: 11px;")
+                if hasattr(self, "ran_tip_widget"):
+                    self.ran_tip_widget.setVisible(self.is_ran)
+
+            # Re-initialize data and refresh tree & estimates
+            self._analyze_meeting_contributions()
+            self._populate_tree_wi()
+            self._populate_tree_ai()
+            self._update_estimates()
+
+            if count > 0:
+                QMessageBox.information(
+                    self,
+                    "Chairman's Notes Scanned",
+                    f"Successfully scanned {file_cnt} file(s) and extracted {count} agreement(s) & working assumption(s).",
+                )
+            elif file_cnt > 0:
+                QMessageBox.information(
+                    self,
+                    "No Agreements Found",
+                    f"Scanned {file_cnt} file(s) in Agenda/ChairNotes, but no structured agreements were found.",
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    "No Notes Found",
+                    f"No Chairman's Notes files (.docx) found in:\n{self.meeting_dir / 'Agenda' / 'ChairNotes'}\n\n"
+                    "Use 'Download Chairman's Notes' from the main window refresh menu to fetch them from 3GPP servers.",
+                )
+        except Exception as e:
+            logger.error(f"[PostMeetingExportDialog] Error scanning chair notes: {e}", exc_info=True)
+            QMessageBox.warning(self, "Scan Error", f"An error occurred while scanning Chairman's Notes:\n{e}")
+        finally:
+            self.btn_scan_chair_notes.setEnabled(True)
+            self.btn_scan_chair_notes.setText("🔍 Scan Notes")
 
     def _select_recent_export(self, folder: Path):
         self.dest_edit.setText(str(folder))

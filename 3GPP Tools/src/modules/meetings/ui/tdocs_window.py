@@ -85,6 +85,7 @@ from modules.meetings.ui.tdocs_agenda_controller import (
     download_agenda_csv,
     on_agenda_download_finished,
     download_chair_notes,
+    scan_existing_chair_notes,
     on_chair_notes_finished,
     open_chair_notes_folder,
     start_window_tdocs_caching,
@@ -193,6 +194,8 @@ class TDocsWindow(QWidget):
         act.setToolTip("Download and cache all meeting TDocs (.zip) from the 3GPP Docs directory locally using parallel downloads.")
         act = refresh_menu.addAction("📥 Download Chairman's Notes", self._download_chair_notes)
         act.setToolTip("Automatically locate /Inbox/Chairs_Notes (or /Inbox/Chair_Notes), download the Final/EOM Chairman's Notes, and extract agreements.")
+        act = refresh_menu.addAction("🔍 Scan Existing Chairman's Notes for Agreements", self._scan_existing_chair_notes)
+        act.setToolTip("Scan local Chairman's Notes files (.docx) in Agenda/ChairNotes, extract current agreements, and merge into the meeting table.")
         act = refresh_menu.addAction("📝 Import Chairman's Notes / Agenda (.docx / .doc / .zip)...", self._import_word_agenda_dialog)
         act.setToolTip("Import one or more local Word, ZIP, or HTML agenda/chairman's notes files and merge their TDoc remarks and agreements.")
         act = refresh_menu.addAction("⚖️ Track Study Item && Meeting Agreements...", self._open_agreement_tracker)
@@ -1426,8 +1429,13 @@ class TDocsWindow(QWidget):
         self._refresh_comboboxes()
 
     def _export_reports(self):
-        self.export_thread = MarkdownExporterThread(self.meeting_dir, self.model._data, self.docs_ftp_url,
-                                                    self.mtg_info)
+        self.export_thread = MarkdownExporterThread(
+            self.meeting_dir,
+            self.model._data,
+            self.docs_ftp_url,
+            self.mtg_info,
+            agenda_map=getattr(self, "agenda_map", None),
+        )
         self.export_thread.finished.connect(lambda s, m: self._on_export_finished(s, m, False))
         self.export_thread.start()
 
@@ -2055,6 +2063,9 @@ class TDocsWindow(QWidget):
 
     def _download_chair_notes(self):
         download_chair_notes(self)
+
+    def _scan_existing_chair_notes(self):
+        scan_existing_chair_notes(self)
 
     def _on_chair_notes_finished(self, success: bool, count: int, files: list, msg: str):
         on_chair_notes_finished(self, success, count, files, msg)
