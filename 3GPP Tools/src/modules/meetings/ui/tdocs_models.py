@@ -484,6 +484,23 @@ class TDocsTableModel(QAbstractTableModel):
                 elif str(row.get("Type", "")).lower() == "chair notes agreement" or (tdoc.startswith("AI-") and "AGREEMENT" in tdoc):
                     row['_has_agreement'] = True
                     row['_agreement_kind'] = "Agreement"
+                else:
+                    # SA / CT / General 3GPP agreed and approved contributions (pCR, CR, LS out)
+                    status_clean = str(row.get('TDoc Status') or '').strip().lower()
+                    is_neg = any(neg in status_clean for neg in ['not agreed', 'not approved', 'rejected', 'postponed', 'withdrawn', 'revised', 'not handled', 'not treated'])
+                    is_agreed_status = (not is_neg) and any(status_clean.startswith(pos) or f" {pos}" in status_clean for pos in ['agreed', 'approved'])
+
+                    if is_agreed_status:
+                        row['_has_agreement'] = True
+                        doc_type = str(row.get('Type') or '').strip().lower()
+                        if 'pcr' in doc_type or 'p-cr' in doc_type:
+                            row['_agreement_kind'] = 'Agreed pCR'
+                        elif 'cr' in doc_type:
+                            row['_agreement_kind'] = 'Approved CR'
+                        elif 'ls' in doc_type:
+                            row['_agreement_kind'] = 'Approved LS'
+                        else:
+                            row['_agreement_kind'] = 'Agreed Contribution'
 
             if row.get('_has_agreement'):
                 status = str(row.get('TDoc Status') or '').strip()
@@ -491,15 +508,17 @@ class TDocsTableModel(QAbstractTableModel):
                 icon = "🟡" if "working assumption" in kind.lower() else ("🔵" if "ffs" in kind.lower() else "🟢")
                 if not status or status.lower() in ('unknown', '', '-', 'not handled'):
                     row['TDoc Status'] = f"{icon} {kind}"
-                elif 'agreement' not in status.lower() and 'working assumption' not in status.lower():
-                    if status.lower() in ('noted', 'available'):
-                        row['TDoc Status'] = f"{status} ({icon} {kind})"
+                elif status.lower() in ('noted', 'available'):
+                    row['TDoc Status'] = f"{status} ({icon} {kind})"
 
     def _format_agreement_remarks_html(self, val_str: str, row: dict) -> str:
         """Formats executive pill badge and clean 2-line preview for agreement rows in Secretary Remarks."""
         kind = str(row.get('_agreement_kind', 'Agreement') or 'Agreement').strip()
         is_wa = "working assumption" in kind.lower()
         is_ffs = "ffs" in kind.lower() or "open issue" in kind.lower()
+        is_pcr = "pcr" in kind.lower() or "p-cr" in kind.lower()
+        is_cr = "cr" in kind.lower() and not is_pcr
+        is_ls = "ls" in kind.lower()
 
         if is_wa:
             badge_html = '<span style="background-color: #FEF3C7; color: #92400E; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #FCD34D;">⚖️ WORKING ASSUMPTION</span>'
@@ -507,6 +526,15 @@ class TDocsTableModel(QAbstractTableModel):
         elif is_ffs:
             badge_html = '<span style="background-color: #DBEAFE; color: #1E40AF; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #93C5FD;">⚖️ FFS / OPEN ISSUE</span>'
             title_col = "#1E40AF"
+        elif is_pcr:
+            badge_html = '<span style="background-color: #DCFCE7; color: #166534; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #86EFAC;">📝 AGREED pCR</span>'
+            title_col = "#166534"
+        elif is_cr:
+            badge_html = '<span style="background-color: #DCFCE7; color: #166534; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #86EFAC;">📄 APPROVED CR</span>'
+            title_col = "#166534"
+        elif is_ls:
+            badge_html = '<span style="background-color: #E0E7FF; color: #3730A3; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #A5B4FC;">📤 APPROVED LS</span>'
+            title_col = "#3730A3"
         else:
             badge_html = '<span style="background-color: #DCFCE7; color: #166534; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #86EFAC;">⚖️ AGREEMENT</span>'
             title_col = "#166534"
@@ -514,13 +542,23 @@ class TDocsTableModel(QAbstractTableModel):
         txt = val_str
         if row.get('_agreements'):
             txt = row['_agreements'][0].get("text", "") or val_str
+        if not txt.strip():
+            txt = str(row.get("Title", "") or "")
 
         t = re.sub(r'^(?:🟢|🟡|🔵)?\s*\[\s*(?:AGREEMENT|WORKING ASSUMPTION|CONCLUSION|DECISION|FFS)\s*\]\s*:?', '', txt, flags=re.IGNORECASE)
-        t = re.sub(r'^\\s*(?:Agreements?|Working\\s+Assumptions?)\\s*[:\\n]?', '', t, flags=re.IGNORECASE)
+        t = re.sub(r'^\s*(?:Agreements?|Working\s+Assumptions?)\s*[:\n]?', '', t, flags=re.IGNORECASE)
 
         raw_lines = [l.strip() for l in t.splitlines() if l.strip()]
-        line1 = raw_lines[0] if raw_lines else "Agreement reached in Chairman Notes"
+        line1 = raw_lines[0] if raw_lines else str(row.get("Title", "") or "Agreed contribution")
         line2 = raw_lines[1] if len(raw_lines) > 1 else ""
+
+        # For SA contributions without separate remarks, show title and source/WI
+        if is_pcr or is_cr or is_ls:
+            title_txt = str(row.get("Title", "") or "")
+            src_txt = str(row.get("Source", "") or "")
+            wi_txt = str(row.get("Related WIs", "") or "")
+            line1 = title_txt if title_txt else line1
+            line2 = f"Source: {src_txt}" if src_txt else (f"WI: {wi_txt}" if wi_txt else "")
 
         esc1 = html.escape(line1[:110] + ('...' if len(line1) > 110 else ''))
         if line2:

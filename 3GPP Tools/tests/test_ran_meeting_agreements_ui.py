@@ -254,5 +254,134 @@ class TestRanMeetingAgreementsUI(unittest.TestCase):
         self.assertEqual(selected_row["tdoc"], "R2-2607999")
 
 
+    def test_sa_agreed_pcr_and_cr_detection(self):
+        """Verifies SA2/SA/CT agreed pCRs, CRs, and LS out are recognized as agreements."""
+        sa_rows = [
+            {
+                'TDoc': 'S2-2601234',
+                'Title': 'Solution 1 for KI #3 on Ambient IoT',
+                'Source': 'Deutsche Telekom',
+                'Type': 'pCR',
+                'For': 'Agreement',
+                'Agenda Item': '6.3',
+                'TDoc Status': 'agreed',
+                'Secretary Remarks': 'Agreed off-line in drafting group 2',
+            },
+            {
+                'TDoc': 'S2-2601235',
+                'Title': 'CR on 23.501 AMF selection',
+                'Source': 'Orange',
+                'Type': 'CR',
+                'For': 'Agreement',
+                'Agenda Item': '7.1',
+                'TDoc Status': 'approved',
+                'Secretary Remarks': '',
+            },
+            {
+                'TDoc': 'S2-2601236',
+                'Title': 'Reply LS to RAN2 on 6G Architecture',
+                'Source': 'Qualcomm',
+                'Type': 'LS out',
+                'For': 'Approval',
+                'Agenda Item': '8.2',
+                'TDoc Status': 'approved',
+                'Secretary Remarks': 'Approved as revised',
+            },
+            {
+                'TDoc': 'S2-2601237',
+                'Title': 'Discussion on Edge Computing issues',
+                'Source': 'Nokia',
+                'Type': 'discussion',
+                'For': 'Discussion',
+                'Agenda Item': '9.1',
+                'TDoc Status': 'noted',
+                'Secretary Remarks': 'Noted without conclusion',
+            },
+            {
+                'TDoc': 'S2-2601238',
+                'Title': 'Competing Solution 2 for KI #3',
+                'Source': 'Huawei',
+                'Type': 'pCR',
+                'For': 'Agreement',
+                'Agenda Item': '6.3',
+                'TDoc Status': 'not agreed',
+                'Secretary Remarks': 'Not agreed, superseded by S2-2601234',
+            },
+        ]
+
+        model = TDocsTableModel(data=sa_rows)
+
+        # Row 0: Agreed pCR -> agreement
+        self.assertTrue(model._data[0].get('_has_agreement'))
+        self.assertEqual(model._data[0].get('_agreement_kind'), 'Agreed pCR')
+        bg0 = model.data(model.index(0, model._headers.index('Secretary Remarks')), Qt.BackgroundRole)
+        self.assertEqual(bg0.name().upper(), '#F0FDF4')
+        disp0 = model.data(model.index(0, model._headers.index('Secretary Remarks')), Qt.DisplayRole)
+        self.assertIn('📝 AGREED pCR', disp0)
+        self.assertIn('Solution 1 for KI #3', disp0)
+
+        # Row 1: Approved CR -> agreement
+        self.assertTrue(model._data[1].get('_has_agreement'))
+        self.assertEqual(model._data[1].get('_agreement_kind'), 'Approved CR')
+        disp1 = model.data(model.index(1, model._headers.index('Secretary Remarks')), Qt.DisplayRole)
+        self.assertIn('📄 APPROVED CR', disp1)
+        self.assertIn('CR on 23.501 AMF selection', disp1)
+
+        # Row 2: Approved LS out -> agreement
+        self.assertTrue(model._data[2].get('_has_agreement'))
+        self.assertEqual(model._data[2].get('_agreement_kind'), 'Approved LS')
+
+        # Row 3: Noted discussion paper -> NOT agreement
+        self.assertFalse(model._data[3].get('_has_agreement', False))
+        bg3 = model.data(model.index(3, model._headers.index('Secretary Remarks')), Qt.BackgroundRole)
+        self.assertIsNone(bg3)
+
+        # Row 4: Not agreed pCR -> NOT agreement
+        self.assertFalse(model._data[4].get('_has_agreement', False))
+        bg4 = model.data(model.index(4, model._headers.index('Secretary Remarks')), Qt.BackgroundRole)
+        self.assertIsNone(bg4)
+
+    def test_sa_agreements_dialog_chips_and_filtering(self):
+        """Verifies MeetingAgreementsDialog presents SA pCRs and CRs with dedicated badges and filters."""
+        sa_agreements = [
+            {
+                'id': 'SA-1',
+                'ai': '6.3',
+                'wi': 'FS_Ambient_IoT',
+                'kind': 'Agreed pCR',
+                'tdoc': 'S2-2601234',
+                'title': 'Solution 1 for KI #3 on Ambient IoT',
+                'company': 'Deutsche Telekom',
+                'text': 'Agreed off-line in drafting group 2',
+            },
+            {
+                'id': 'SA-2',
+                'ai': '7.1',
+                'wi': '5G_Core_Enh',
+                'kind': 'Approved CR',
+                'tdoc': 'S2-2601235',
+                'title': 'CR on 23.501 AMF selection',
+                'company': 'Orange',
+                'text': 'Approved with technical consensus',
+            },
+        ]
+
+        dlg = MeetingAgreementsDialog(agreements=sa_agreements, meeting_name='SA2 160')
+        self.assertEqual(dlg.model.rowCount(), 2)
+
+        # Check pCR display
+        pcr_kind_disp = dlg.model.data(dlg.model.index(0, 0), Qt.DisplayRole)
+        self.assertEqual(pcr_kind_disp, '📝 Agreed pCR')
+
+        # Check CR display
+        cr_kind_disp = dlg.model.data(dlg.model.index(1, 0), Qt.DisplayRole)
+        self.assertEqual(cr_kind_disp, '📄 Approved CR')
+
+        # Filter by PCR
+        dlg.model.apply_filter(kind_filter='PCR')
+        self.assertEqual(dlg.model.rowCount(), 1)
+        self.assertEqual(dlg.model.get_row(0)['tdoc'], 'S2-2601234')
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -90,10 +90,19 @@ class AgreementsTableModel(QAbstractTableModel):
         kind = str(ag.get("kind", "Agreement") or "Agreement").strip()
         is_wa = "working assumption" in kind.lower()
         is_ffs = "ffs" in kind.lower() or "open issue" in kind.lower()
+        is_pcr = "pcr" in kind.lower() or "p-cr" in kind.lower()
+        is_cr = kind.lower().endswith("cr") and not is_pcr
+        is_ls = "ls" in kind.lower()
 
         if role == Qt.DisplayRole:
             if col == 0:
-                if is_wa:
+                if is_pcr:
+                    return "📝 Agreed pCR"
+                elif is_cr:
+                    return "📄 Approved CR"
+                elif is_ls:
+                    return "📤 Approved LS"
+                elif is_wa:
                     return "🟡 Working Assumption"
                 elif is_ffs:
                     return "🔵 FFS / Open Issue"
@@ -107,7 +116,10 @@ class AgreementsTableModel(QAbstractTableModel):
                 wi = str(ag.get("wi") or "").strip()
                 return wi if wi and wi.lower() != "general" else "-"
             elif col == 4:
-                return _clean_agreement_preview(ag.get("text", ""))
+                txt = ag.get("text", "")
+                if not txt.strip() or txt.strip().lower() in ("agreed", "approved", "noted"):
+                    txt = ag.get("title", "")
+                return _clean_agreement_preview(txt)
 
         elif role == Qt.BackgroundRole:
             if is_wa:
@@ -148,7 +160,13 @@ class AgreementsTableModel(QAbstractTableModel):
         for ag in self._all_agreements:
             # 1. Kind filter
             k = str(ag.get("kind", "")).lower()
-            if kind_req == "AGREEMENT" and ("working assumption" in k or "ffs" in k):
+            if kind_req == "AGREEMENT" and ("working assumption" in k or "ffs" in k or "pcr" in k or "cr" in k or "ls" in k):
+                continue
+            elif kind_req == "PCR" and ("pcr" not in k and "p-cr" not in k):
+                continue
+            elif kind_req == "CR" and ("cr" not in k or "pcr" in k or "p-cr" in k):
+                continue
+            elif kind_req == "LS" and "ls" not in k:
                 continue
             elif kind_req == "WA" and "working assumption" not in k:
                 continue
@@ -256,7 +274,17 @@ class MeetingAgreementsDialog(QDialog):
         # Kind Filter Pills
         self.combo_kind = QComboBox()
         self.combo_kind.addItem("All Kinds", "ALL")
-        self.combo_kind.addItem("🟢 Agreements Only", "AGREEMENT")
+        has_pcr = any("pcr" in str(a.get("kind", "")).lower() for a in self.raw_agreements)
+        has_cr = any(str(a.get("kind", "")).lower().endswith("cr") and "pcr" not in str(a.get("kind", "")).lower() for a in self.raw_agreements)
+        has_ls = any("ls" in str(a.get("kind", "")).lower() for a in self.raw_agreements)
+
+        self.combo_kind.addItem("🟢 Technical Agreements", "AGREEMENT")
+        if has_pcr:
+            self.combo_kind.addItem("📝 Agreed pCRs Only", "PCR")
+        if has_cr:
+            self.combo_kind.addItem("📄 Approved CRs Only", "CR")
+        if has_ls:
+            self.combo_kind.addItem("📤 Approved LS Only", "LS")
         self.combo_kind.addItem("🟡 Working Assumptions Only", "WA")
         self.combo_kind.addItem("🔵 FFS / Open Issues Only", "FFS")
         self.combo_kind.setStyleSheet("""
@@ -417,9 +445,12 @@ class MeetingAgreementsDialog(QDialog):
                 item.widget().deleteLater()
 
         tot = len(self.raw_agreements)
-        ag_cnt = sum(1 for a in self.raw_agreements if "working assumption" not in str(a.get("kind", "")).lower() and "ffs" not in str(a.get("kind", "")).lower())
+        pcr_cnt = sum(1 for a in self.raw_agreements if "pcr" in str(a.get("kind", "")).lower() or "p-cr" in str(a.get("kind", "")).lower())
+        cr_cnt = sum(1 for a in self.raw_agreements if str(a.get("kind", "")).lower().endswith("cr") and "pcr" not in str(a.get("kind", "")).lower())
+        ls_cnt = sum(1 for a in self.raw_agreements if "ls" in str(a.get("kind", "")).lower())
         wa_cnt = sum(1 for a in self.raw_agreements if "working assumption" in str(a.get("kind", "")).lower())
         ffs_cnt = sum(1 for a in self.raw_agreements if "ffs" in str(a.get("kind", "")).lower() or "open issue" in str(a.get("kind", "")).lower())
+        ag_cnt = max(0, tot - pcr_cnt - cr_cnt - ls_cnt - wa_cnt - ffs_cnt)
         ai_cnt = len({str(a.get("ai", "")).strip() for a in self.raw_agreements if a.get("ai")})
 
         def _make_chip(label: str, count: int, bg: str, fg: str, border: str) -> QLabel:
@@ -439,6 +470,12 @@ class MeetingAgreementsDialog(QDialog):
         self.kpi_layout.addWidget(_make_chip("Total", tot, "#F1F5F9", "#334155", "#CBD5E1"))
         if ag_cnt > 0:
             self.kpi_layout.addWidget(_make_chip("Agreements", ag_cnt, "#DCFCE7", "#166534", "#86EFAC"))
+        if pcr_cnt > 0:
+            self.kpi_layout.addWidget(_make_chip("Agreed pCRs", pcr_cnt, "#DCFCE7", "#166534", "#86EFAC"))
+        if cr_cnt > 0:
+            self.kpi_layout.addWidget(_make_chip("Approved CRs", cr_cnt, "#DCFCE7", "#166534", "#86EFAC"))
+        if ls_cnt > 0:
+            self.kpi_layout.addWidget(_make_chip("Approved LS", ls_cnt, "#E0E7FF", "#3730A3", "#A5B4FC"))
         if wa_cnt > 0:
             self.kpi_layout.addWidget(_make_chip("Working Assumptions", wa_cnt, "#FEF3C7", "#92400E", "#FCD34D"))
         if ffs_cnt > 0:
@@ -485,7 +522,20 @@ class MeetingAgreementsDialog(QDialog):
         is_wa = "working assumption" in kind.lower()
         is_ffs = "ffs" in kind.lower() or "open issue" in kind.lower()
 
-        if is_wa:
+        is_pcr = "pcr" in kind.lower() or "p-cr" in kind.lower()
+        is_cr = kind.lower().endswith("cr") and not is_pcr
+        is_ls = "ls" in kind.lower()
+
+        if is_pcr:
+            tag_bg, tag_fg, tag_border = "#DCFCE7", "#166534", "#86EFAC"
+            tag_label = "📝 3GPP AGREED PSEUDO-CR (pCR)"
+        elif is_cr:
+            tag_bg, tag_fg, tag_border = "#DCFCE7", "#166534", "#86EFAC"
+            tag_label = "📄 3GPP APPROVED CHANGE REQUEST (CR)"
+        elif is_ls:
+            tag_bg, tag_fg, tag_border = "#E0E7FF", "#3730A3", "#A5B4FC"
+            tag_label = "📤 3GPP APPROVED OUTGOING LS"
+        elif is_wa:
             tag_bg, tag_fg, tag_border = "#FEF3C7", "#92400E", "#FCD34D"
             tag_label = "🟡 WORKING ASSUMPTION"
         elif is_ffs:

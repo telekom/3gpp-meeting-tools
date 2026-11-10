@@ -347,13 +347,31 @@ def scan_existing_chair_notes(window):
             QMessageBox.information(window, "Chairman's Notes Scanned", msg)
         else:
             chair_notes_dir = window.meeting_dir / "Agenda" / "ChairNotes"
+            wg_name = str(getattr(window, "mtg_info", {}).get("wg_name", "")).strip().upper()
+            is_sa_or_ct = wg_name.startswith("SA") or wg_name.startswith("CT")
+            agreed_tdocs_count = sum(1 for r in getattr(window.model, "_data", []) if r.get("_has_agreement"))
+
+            if is_sa_or_ct and agreed_tdocs_count > 0:
+                msg = (
+                    f"In {wg_name}, formal meeting agreements are established through Agreed Pseudo-CRs (pCRs) "
+                    f"and Approved Change Requests (CRs) tracked directly in the meeting agenda/TDocs list.\n\n"
+                    f"• {agreed_tdocs_count} Agreed / Approved contributions are currently indexed and highlighted in your table.\n"
+                    f"• You can filter to them instantly with the '⚖️' filter toggle or inspect them via the '⚖️ Agreements ({agreed_tdocs_count})' button.\n\n"
+                    f"No separate Chairman's Notes text files (.docx) were found in:\n{chair_notes_dir}\n\n"
+                    f"Would you still like to check the 3GPP server for Chairman's Notes archives?"
+                )
+            else:
+                msg = (
+                    f"No Chairman's Notes files (.docx, .doc, .zip) were found in:\n{chair_notes_dir}\n\n"
+                    "Would you like to check the 3GPP server and download Chairman's Notes now?"
+                )
+
             reply = QMessageBox.question(
                 window,
                 "No Local Chairman's Notes Found",
-                f"No Chairman's Notes files (.docx, .doc, .zip) were found in:\n{chair_notes_dir}\n\n"
-                "Would you like to check the 3GPP server and download Chairman's Notes now?",
+                msg,
                 QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes,
+                QMessageBox.Yes if not (is_sa_or_ct and agreed_tdocs_count > 0) else QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
                 download_chair_notes(window)
