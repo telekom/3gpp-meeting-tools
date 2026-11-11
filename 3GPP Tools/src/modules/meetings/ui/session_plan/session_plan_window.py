@@ -2734,7 +2734,7 @@ class SessionPlanWindow(QWidget):
         laptop_str = laptop_dt.strftime("%H:%M")
 
         if self.tz_offset_min == laptop_offset:
-            self.clock_lbl.setText(f"🕒 <b>{venue_str}</b> (Venue & Austrian Time)")
+            self.clock_lbl.setText(f"🕒 <b>{venue_str}</b> (Venue &amp; Austrian Time)")
         else:
             self.clock_lbl.setText(f"🏛️ Venue: <b>{venue_str}</b>  |  💻 Vienna: <b>{laptop_str}</b>")
 

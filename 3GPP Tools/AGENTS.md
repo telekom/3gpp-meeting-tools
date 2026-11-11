@@ -532,6 +532,29 @@ The project intentionally separates domain data into distinct SQLite databases l
 - **Base TDoc Extraction:** Use `extract_base_tdoc(tdoc_id)` or `get_portal_tdoc_url(tdoc_id, base_only=True)` to cleanly strip revision suffixes (e.g. `r01`, `rev2`) before querying the 3GPP contribution portal.
 - **One-Click Launchers:** Prefer `open_portal_tdoc()`, `open_portal_meeting()`, `open_portal_create_tdoc()`, and `open_portal_work_item()` to cleanly launch official portal pages in the delegate's default browser with uniform logging.
 
+### 5.12. Qt UI Label & Mnemonic Ampersand Escaping (`core.ui.ui_components.escape_qt_mnemonic`)
+- **The Qt Mnemonic Collision Pitfall:** In PyQt5 / Qt on desktop platforms (Windows and Linux), a single ampersand (`&`) in string arguments passed to `QAction`, `menu.addAction(...)`, `QPushButton(...)`, `QCheckBox(...)`, `QRadioButton(...)`, `QGroupBox(...)`, `QTabWidget.addTab(...)`, `setTabText(...)`, or `addMenu(...)` is interpreted as a keyboard accelerator mnemonic prefix. Qt suppresses the ampersand and underlines the subsequent character (e.g. `"Check & Ingest"` renders as `"Check _Ingest"`).
+- **Mandatory `&&` Escaping:** To display a literal ampersand in any Qt action, menu item, button, or checkable widget, developers and AI agents MUST escape it as a double ampersand (`&&`) or pass dynamic strings through `escape_qt_mnemonic()`:
+  ```python
+  from core.ui.ui_components import escape_qt_mnemonic
+
+  # Mnemonic widgets (buttons, actions, menus, checkboxes, tabs): MUST use '&&'
+  menu.addAction(f"🔄 Check && Ingest Latest Releases for TS {spec}...")
+  btn = QPushButton("⚡ Updates && New Only")
+  act = menu.addAction(escape_qt_mnemonic(f"Sync {group_a} & {group_b}"))
+  ```
+- **Strict Distinction for Non-Mnemonic Widgets:** Controls that do NOT parse mnemonics (`QLabel`, `setWindowTitle`, `setToolTip`, `setPlaceholderText`, line edits) will literally display double ampersands (`&&`) if passed. These must ALWAYS use a single `&` (or `&amp;` for HTML text):
+  ```python
+  # Non-mnemonic widgets (labels, window titles, tooltips): NEVER use '&&'
+  lbl = QLabel("Drag & Drop file here")
+  dlg.setWindowTitle("Edit Tags & Notes")
+  btn.setToolTip("Select only releases that have updates & new versions")
+  html_lbl.setText("<b>Venue &amp; Austrian Time</b>")
+  ```
+- **Mandatory Automated AST Regression Linter (`tests/test_ui_ampersand_escaping.py`):**
+  - All changes touching UI widgets, menus, actions, or dialogs MUST be verified against `tests/test_ui_ampersand_escaping.py`.
+  - The AST test suite continuously scans the entire `src/` codebase to assert zero single ampersands in mnemonic widgets AND zero double ampersands in non-mnemonic widgets.
+
 
 ---
 
