@@ -442,7 +442,7 @@ class SpecCardWidget(QFrame):
 
     def _show_options_menu(self):
         menu = QMenu(self)
-        act_smart = menu.addAction(f"🔄 Check & Ingest Latest Releases for TS {self.spec_number}...")
+        act_smart = menu.addAction(f"🔄 Check && Ingest Latest Releases for TS {self.spec_number}...")
         act_smart.triggered.connect(lambda: self.smart_import_requested.emit(self.spec_number))
         menu.addSeparator()
         act_sel_all = menu.addAction("Select All Releases")

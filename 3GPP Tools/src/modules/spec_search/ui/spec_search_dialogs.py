@@ -859,7 +859,7 @@ class SpecSmartImportDialog(QDialog):
         lbl_select.setStyleSheet("font-size: 11px; font-weight: bold; color: #475569;")
         chips_layout.addWidget(lbl_select)
 
-        self.btn_chip_updates = QPushButton("⚡ Updates & New Only")
+        self.btn_chip_updates = QPushButton("⚡ Updates && New Only")
         self.btn_chip_updates.setToolTip("Select only releases that have updates or are not yet indexed")
         self.btn_chip_updates.setCursor(Qt.PointingHandCursor)
         self.btn_chip_updates.setStyleSheet("""

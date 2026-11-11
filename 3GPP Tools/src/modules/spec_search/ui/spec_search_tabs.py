@@ -262,7 +262,7 @@ class SpecSearchTab(QWidget):
         act_import_smart = import_menu.addAction("⭐ Smart Import Specification (Latest per Release)...")
         act_import_smart.triggered.connect(lambda: self._open_smart_import_dialog())
         import_menu.addSeparator()
-        act_import_db = import_menu.addAction("📥 Browse All Specs & Releases...")
+        act_import_db = import_menu.addAction("📥 Browse All Specs && Releases...")
         act_import_db.triggered.connect(self._on_fetch_clicked)
         act_import_docx = import_menu.addAction("📁 Import Local Word Document (.docx)...")
         act_import_docx.triggered.connect(self._on_import_local_clicked)
