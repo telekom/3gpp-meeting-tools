@@ -263,29 +263,136 @@ def test_chair_notes_cache_persistence_and_worker_filtering(tmp_path: Path):
     assert worker_mismatch._matches_filter(record) is False
 
 
+def test_ran2_multi_paragraph_agreements_with_blank_lines_and_boxed_guidance(tmp_path: Path):
+    """
+    Verifies that RAN2 multi-paragraph agreements with blank lines (empty paragraphs)
+    between clauses are not prematurely truncated, and that 1-column boxed guidance/terminology
+    tables are captured as substantive agreements/consensus.
+    """
+    doc = docx.Document()
+    doc.add_heading("10.3.3.1\tData transfer and model transfer", level=3)
+    doc.add_paragraph("(FS_6G_Radio, leading WG: RAN2; REL-20; SID: RP-253876)")
+
+    # TDoc 1
+    doc.add_paragraph("R2-2601018\tFramework for the transfer of operational data\tInterDigital\tdiscussion\tRel-20\tFS_6G_Radio")
+    doc.add_paragraph("Agreements")
+    doc.add_paragraph("Definitions/categories when we talk about use cases")
+    doc.add_paragraph("Latency:\nrelaxed (e.g., minutes, hours, days)\nless relaxed (e.g. several tens of msecs)")
+    doc.add_paragraph("")  # Blank line in Word separating sub-clauses
+    doc.add_paragraph("Total data size per UE (accumulated data that the UE has to store):\n- Large: Larger than minimum UE AS buffer\n- Small: Smaller than minimum UE AS buffer")
+    doc.add_paragraph("")  # Another blank line in Word
+    doc.add_paragraph("Data transfer framework should support at least the use cases with the following requirements:\n- large total data size with relaxed latency\n- small total data size with relaxed latency requirement")
+    doc.add_paragraph("")
+    doc.add_paragraph("")
+    doc.add_paragraph("Consumer/end points")  # Normal style subheader
+
+    # TDoc 2
+    doc.add_paragraph("R2-2600616\tDiscussions on data transfer\tNTT DOCOMO\tdiscussion\tRel-20")
+    doc.add_paragraph("Noted")
+
+    # 1-column boxed guidance table
+    tbl = doc.add_table(rows=1, cols=1)
+    tbl.cell(0, 0).text = (
+        "Terminology and guidance\n"
+        "Terminology to consider to use for now from RAN2 point of view\n"
+        "- ‘Data consumer’ is an entity that can consume the collected data.\n"
+        "- ‘Termination point’ is the network entity of E2E data transfer transport protocol stack between UE and NW.\n"
+        "The data transfer framework will support at least the following data consumers:\n"
+        "RAN: NW-sided data collection, SON, immediate MDT\n"
+        "OAM: NW-sided data collection, SON/MDT\n"
+        "UE server: UE sided data collection"
+    )
+
+    docx_file = tmp_path / "R2_133_Notes_DataTransfer.docx"
+    doc.save(str(docx_file))
+
+    agenda_data, agreements = ChairNotesAgreementsParser.parse_docx_with_agreements(
+        str(docx_file),
+        mtg_info={"wg_name": "RAN2", "meeting_number": "133", "start_date": "2026-02-09"},
+    )
+
+    assert len(agreements) == 2, f"Expected 2 agreements, got {len(agreements)}"
+
+    ag1 = agreements[0]
+    assert ag1["ai"] == "10.3.3.1"
+    assert ag1["tdoc_id"] == "R2-2601018"
+    assert "Definitions/categories when we talk about use cases" in ag1["text"]
+    assert "Total data size per UE" in ag1["text"], "Failed to preserve text after first blank line"
+    assert "Data transfer framework should support at least" in ag1["text"], "Failed to preserve text after second blank line"
+
+    ag2 = agreements[1]
+    assert ag2["ai"] == "10.3.3.1"
+    assert "Terminology and guidance" in ag2["text"]
+    assert "Data consumer" in ag2["text"]
+    assert "Termination point" in ag2["text"]
+
+
+def test_chair_notes_cache_version_auto_invalidation(tmp_path: Path):
+    """
+    Verifies that an outdated v1 chair_notes_cache.json is detected and invalidated
+    so the v2 parser refreshes complete agreements.
+    """
+    import json
+    from modules.meetings.core.tdocs.chair_notes_agreements_parser import CHAIR_NOTES_CACHE_VERSION
+
+    mtg_dir = tmp_path / "TSGR2_133"
+    agenda_dir = mtg_dir / "Agenda"
+    agenda_dir.mkdir(parents=True)
+
+    # Write old v1 cache (truncated text)
+    v1_payload = {
+        "version": 1,
+        "agenda_data": {"R2-2601018": {"Title": "Data transfer"}},
+        "agreements": [{"ai": "10.3.3.1", "tdoc_id": "R2-2601018", "text": "Agreements\nDefinitions only (truncated)"}],
+    }
+    with open(agenda_dir / "chair_notes_cache.json", "w", encoding="utf-8") as f:
+        json.dump(v1_payload, f)
+
+    # load_cached_chair_notes_data with min_version=CHAIR_NOTES_CACHE_VERSION should reject v1
+    ag_data, ag_list = ChairNotesAgreementsParser.load_cached_chair_notes_data(mtg_dir, min_version=CHAIR_NOTES_CACHE_VERSION)
+    assert ag_list == [], "Outdated v1 cache should be rejected when min_version=2 requested"
+
+    # Saving with v2 persists version and overwrites cleanly
+    v2_agreements = [{"ai": "10.3.3.1", "tdoc_id": "R2-2601018", "text": "Agreements\nComplete full multi-paragraph text"}]
+    ChairNotesAgreementsParser.save_cached_chair_notes_data(mtg_dir, ag_data, v2_agreements, overwrite=True)
+
+    loaded_data, loaded_ag = ChairNotesAgreementsParser.load_cached_chair_notes_data(mtg_dir, min_version=CHAIR_NOTES_CACHE_VERSION)
+    assert len(loaded_ag) == 1
+    assert "Complete full multi-paragraph text" in loaded_ag[0]["text"]
+
+
+import tempfile
+import unittest
+
+class TestChairNotesAgreementsSuite(unittest.TestCase):
+    def test_filename_selection(self):
+        test_chair_notes_filename_filtering_and_smart_selection()
+
+    def test_zip_extraction(self):
+        with tempfile.TemporaryDirectory() as td:
+            test_ran2_zip_extraction_prefers_clean_docx(Path(td))
+
+    def test_ran2_parsing(self):
+        with tempfile.TemporaryDirectory() as td:
+            test_ran2_block_based_chair_notes_parsing(Path(td))
+
+    def test_ran3_parsing(self):
+        with tempfile.TemporaryDirectory() as td:
+            test_ran3_table_based_color_and_banner_parsing(Path(td))
+
+    def test_cache_and_worker(self):
+        with tempfile.TemporaryDirectory() as td:
+            test_chair_notes_cache_persistence_and_worker_filtering(Path(td))
+
+    def test_multi_para_and_boxed_guidance(self):
+        with tempfile.TemporaryDirectory() as td:
+            test_ran2_multi_paragraph_agreements_with_blank_lines_and_boxed_guidance(Path(td))
+
+    def test_cache_version_invalidation(self):
+        with tempfile.TemporaryDirectory() as td:
+            test_chair_notes_cache_version_auto_invalidation(Path(td))
+
+
 if __name__ == "__main__":
-    import tempfile
-    import unittest
-
-    class TestChairNotesAgreementsSuite(unittest.TestCase):
-        def test_filename_selection(self):
-            test_chair_notes_filename_filtering_and_smart_selection()
-
-        def test_zip_extraction(self):
-            with tempfile.TemporaryDirectory() as td:
-                test_ran2_zip_extraction_prefers_clean_docx(Path(td))
-
-        def test_ran2_parsing(self):
-            with tempfile.TemporaryDirectory() as td:
-                test_ran2_block_based_chair_notes_parsing(Path(td))
-
-        def test_ran3_parsing(self):
-            with tempfile.TemporaryDirectory() as td:
-                test_ran3_table_based_color_and_banner_parsing(Path(td))
-
-        def test_cache_and_worker(self):
-            with tempfile.TemporaryDirectory() as td:
-                test_chair_notes_cache_persistence_and_worker_filtering(Path(td))
-
     unittest.main()
 

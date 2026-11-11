@@ -228,7 +228,12 @@ src/modules/meetings/
   - **Mode 2: Document-Order Block Parser (RAN1, RAN2):**
     - Walks paragraphs and 1x1/2x1 boxed tables in true document order (`iter_block_items`).
     - Maps headings (`Heading 1..4`) to `Agenda Item`, extracts parenthetical WI tags (`(FS_6G_Radio, ...)`), 5th/6th tab columns on `Doc-title` lines (`Rel-20\tFS_6G_Radio`), and `6GR` / `Study on 6G Radio` heading indicators.
-    - Captures 1-column `Agreements` tables, multi-paragraph `Agreements` blocks, and substantive `style == 'Agreement'` paragraphs while filtering out procedural dispositions (`"The CR is postponed"`, `"Noted"`, etc.).
+    - Captures 1-column boxed consensus/guidance/terminology tables (Pattern A, e.g. Table 7 in RAN2#133 with *"Terminology and guidance"*, defining Data consumers and Termination points) as well as explicitly titled agreement boxes, while filtering out antitrust and IPR boilerplate.
+    - Captures multi-paragraph `Agreements` blocks (Pattern B) with blank-line resilience: maintains agreement blocks across empty paragraphs in Word documents without premature flushing, using consecutive empty line tracking and section breaker detection (such as new Agenda Item headings, new TDoc lines, or substantive offline discussion / proposal headers).
+    - Substantive `style == 'Agreement'` paragraphs are captured while filtering out procedural dispositions (`"The CR is postponed"`, `"Noted"`, etc.).
+  - **Cache Versioning & Auto-Invalidation (`CHAIR_NOTES_CACHE_VERSION = 2`):**
+    - `chair_notes_cache.json` stores an explicit `"version": 2` tag.
+    - When `TopicDossierExporter` or `ChairNotesAgreementsParser.load_cached_chair_notes_data` detects older caches (`version < 2` or missing), it automatically triggers a background re-scan and cache update, ensuring enriched multi-paragraph agreements and boxed guidance tables are surfaced seamlessly without requiring manual cache wipes.
 - **Live Model Synchronization & Post-Meeting Export Integration:**
   - `TDocsTableModel.merge_agenda_data` populates in-room discussions and `[⚖️ AGREEMENT]: ...` blocks directly into the `Secretary Remarks` column, updates `TDoc Status`, and synthesizes `[AI X.Y Agreement]` rows for agenda-level agreements not tied to a single TDoc.
   - `PostMeetingExporterThread` & `PostMeetingExportDialog` include a `⚖️ Chairman's Notes Agreements & Working Assumptions` option (enabled by default) that renders dedicated per-WI and master index agreement tables alongside TDoc dossiers.

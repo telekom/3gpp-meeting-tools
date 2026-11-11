@@ -85,6 +85,10 @@ _GREEN_HEX_PREFIXES = ("008000", "00B050", "538135", "385723", "006600", "009900
 # Blue hex colors used in RAN3 Chair Notes for FFS / To be continued
 _BLUE_HEX_PREFIXES = ("0000FF", "3333FF", "0070C0", "002060", "2F5597")
 
+# Cache format version for chair_notes_cache.json; bump when parser semantics change to force automatic re-scanning
+CHAIR_NOTES_CACHE_VERSION = 2
+
+
 
 def clean_chair_notes_text(text: str, preserve_newlines: bool = True) -> str:
     """Strips Wingdings Private Use Area bullets and normalizes whitespace."""
@@ -342,12 +346,15 @@ class ChairNotesAgreementsParser:
         para_block_lines: List[str] = []
         para_block_tdoc: Optional[str] = None
         para_block_ai: str = "N/A"
+        consecutive_empty_lines = 0
 
         def _flush_para_agreement_block():
-            nonlocal in_para_agreement_block, para_block_header, para_block_lines, para_block_tdoc, para_block_ai
+            nonlocal in_para_agreement_block, para_block_header, para_block_lines, para_block_tdoc, para_block_ai, consecutive_empty_lines
             if not in_para_agreement_block:
                 return
             if para_block_lines:
+                while para_block_lines and not para_block_lines[-1].strip():
+                    para_block_lines.pop()
                 full_text = "\n".join(para_block_lines).strip()
                 if full_text:
                     header_prefix = f"{para_block_header}\n" if para_block_header else ""
@@ -363,6 +370,7 @@ class ChairNotesAgreementsParser:
             para_block_header = ""
             para_block_lines = []
             para_block_tdoc = None
+            consecutive_empty_lines = 0
 
         def _record_agreement(ai_num: str, text: str, kind: str, tdoc_id: str = ""):
             clean_txt = clean_chair_notes_text(text, preserve_newlines=True)
@@ -459,10 +467,18 @@ class ChairNotesAgreementsParser:
                 if not full_box:
                     continue
                 first_line = full_box.split("\n", 1)[0].strip()
-                if (
+                first_low = first_line.lower()
+                full_low = full_box.lower()
+
+                # Recognize 1-column boxed consensus/guidance/agreements tables (excluding IPR / antitrust boilerplate)
+                is_boilerplate = any(w in full_low for w in ("ipr declarations", "essential patent", "antitrust", "consensus principles reminder"))
+                is_agreement_box = not is_boilerplate and (
                     agreement_header_re.match(first_line)
-                    or full_box.lower().startswith(("agreement", "working assumption", "conclusion"))
-                ):
+                    or any(w in first_low for w in ("agreement", "working assumption", "conclusion", "guidance", "terminology", "decision", "outcome", "way forward", "recommendation"))
+                    or any(w in full_low for w in ("agreements", "working assumptions", "from ran2 point of view", "terminology to consider"))
+                    or first_low.endswith("agreements")
+                )
+                if is_agreement_box:
                     kind = _classify_agreement_kind(first_line, "Agreement")
                     _record_agreement(
                         ai_num=current_ai,
@@ -476,7 +492,9 @@ class ChairNotesAgreementsParser:
             p = block
             text = clean_chair_notes_text(p.text, preserve_newlines=False)
             if not text:
-                _flush_para_agreement_block()
+                if in_para_agreement_block:
+                    consecutive_empty_lines += 1
+                    para_block_lines.append("")
                 continue
 
             style = (p.style.name.lower() if p.style and p.style.name else "")
@@ -585,6 +603,24 @@ class ChairNotesAgreementsParser:
                 last_tdoc_in_ai = tdoc_id
                 continue
 
+            low_t = text.lower()
+
+            # Subheadings and section breakers in RAN2 notes that delimit agreement blocks
+            is_section_breaker = (
+                low_t.startswith(("discussion", "discussion on", "discussion:", "offline discussion", "not treated"))
+                or low_t.startswith(("proposal ", "proposal:", "proposals:", "observation ", "observation:"))
+                or "emaildiscussion" in style
+                or (consecutive_empty_lines >= 1 and (
+                    low_t in _TRIVIAL_STATUS_SET
+                    or low_t in ("consumer/end points", "ran decodability", "transport protocol", "model transfer", "enhancements for data transfer", "ue-side data collection", "cn vs. oam decodability")
+                    or low_t.startswith(("ran awareness for standardized data collection", "transport protocol", "cp (non-ip) vs. up", "not treated"))
+                ))
+                or (consecutive_empty_lines >= 2 and len(text) < 60 and not any(text.startswith(b) for b in ("-", "\uf0d8", "\uf06e", "*", "•", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a)", "b)", "c)", "d)")))
+            )
+
+            if in_para_agreement_block and is_section_breaker:
+                _flush_para_agreement_block()
+
             # 4. Check if we are currently accumulating a multi-paragraph `Agreements` block (Pattern B)
             if in_para_agreement_block:
                 # Does this line continue the agreement block?
@@ -599,9 +635,11 @@ class ChairNotesAgreementsParser:
                     para_block_lines = []
                     para_block_tdoc = current_tdoc or last_tdoc_in_ai
                     para_block_ai = current_ai
+                    consecutive_empty_lines = 0
                     continue
                 else:
                     para_block_lines.append(text)
+                    consecutive_empty_lines = 0
                     continue
 
             # 5. Check if this paragraph starts a new `Agreements` / `Agreements on ...` / `Working Assumption` block (Pattern B)
@@ -611,6 +649,7 @@ class ChairNotesAgreementsParser:
                 para_block_lines = []
                 para_block_tdoc = current_tdoc or last_tdoc_in_ai
                 para_block_ai = current_ai
+                consecutive_empty_lines = 0
                 continue
 
             # 6. Check if this paragraph has `style == 'Agreement'` (Pattern C in RAN2)
@@ -1186,11 +1225,13 @@ class ChairNotesAgreementsParser:
     # 3. Persistence & Cache Helpers (`Agenda/chair_notes_agreements.json`)
     # =========================================================================
 
-    @staticmethod
+    @classmethod
     def save_cached_chair_notes_data(
+        cls,
         meeting_dir: Path,
         agenda_data: Dict[str, dict],
         agreements: List[dict],
+        overwrite: bool = False,
     ):
         """
         Persists merged `agenda_data` and `agreements` into `Agenda/chair_notes_cache.json`
@@ -1206,12 +1247,14 @@ class ChairNotesAgreementsParser:
 
             existing_agenda = {}
             existing_agreements = []
-            if os.path.exists(to_extended_path(cache_path)):
+            if not overwrite and os.path.exists(to_extended_path(cache_path)):
                 try:
                     with open(to_extended_path(cache_path), "r", encoding="utf-8") as f:
                         loaded = json.load(f)
-                        existing_agenda = loaded.get("agenda_data", {})
-                        existing_agreements = loaded.get("agreements", [])
+                        # Invalidate older cache versions so upgraded parsing replaces truncated records
+                        if loaded.get("version", 1) >= CHAIR_NOTES_CACHE_VERSION:
+                            existing_agenda = loaded.get("agenda_data", {})
+                            existing_agreements = loaded.get("agreements", [])
                 except Exception:
                     pass
 
@@ -1237,6 +1280,7 @@ class ChairNotesAgreementsParser:
                     existing_agreements.append(ag)
 
             payload = {
+                "version": CHAIR_NOTES_CACHE_VERSION,
                 "agenda_data": existing_agenda,
                 "agreements": existing_agreements,
             }
@@ -1246,7 +1290,7 @@ class ChairNotesAgreementsParser:
             logger.warning(f"[ChairNotesAgreementsParser] Failed to save chair notes cache: {e}")
 
     @staticmethod
-    def load_cached_chair_notes_data(meeting_dir: Path) -> Tuple[Dict[str, dict], List[dict]]:
+    def load_cached_chair_notes_data(meeting_dir: Path, min_version: int = 1) -> Tuple[Dict[str, dict], List[dict]]:
         """Loads cached `(agenda_data, agreements)` from `Agenda/chair_notes_cache.json` if available."""
         if not meeting_dir:
             return {}, []
@@ -1256,6 +1300,8 @@ class ChairNotesAgreementsParser:
         try:
             with open(to_extended_path(cache_path), "r", encoding="utf-8") as f:
                 loaded = json.load(f)
+                if min_version > 1 and loaded.get("version", 1) < min_version:
+                    return {}, []
                 return loaded.get("agenda_data", {}), loaded.get("agreements", [])
         except Exception as e:
             logger.warning(f"[ChairNotesAgreementsParser] Failed to load chair notes cache: {e}")
@@ -1357,8 +1403,11 @@ class ChairNotesAgreementsParser:
             try:
                 cache_mtime = os.path.getmtime(to_extended_path(cache_path))
                 latest_mtime = max(os.path.getmtime(to_extended_path(p)) for p in all_files)
-                if cache_mtime >= latest_mtime:
-                    cached_ag, cached_list = cls.load_cached_chair_notes_data(meeting_dir)
+                with open(to_extended_path(cache_path), "r", encoding="utf-8") as f:
+                    loaded_meta = json.load(f)
+                cache_ver = loaded_meta.get("version", 1) if isinstance(loaded_meta, dict) else 1
+                if cache_ver >= CHAIR_NOTES_CACHE_VERSION and cache_mtime >= latest_mtime:
+                    cached_ag, cached_list = cls.load_cached_chair_notes_data(meeting_dir, min_version=CHAIR_NOTES_CACHE_VERSION)
                     if cached_ag or cached_list:
                         return cached_ag, cached_list, len(all_files)
             except Exception:
@@ -1413,6 +1462,6 @@ class ChairNotesAgreementsParser:
 
         # 5. Persist merged cache if anything was extracted
         if merged_agenda or merged_agreements:
-            cls.save_cached_chair_notes_data(meeting_dir, merged_agenda, merged_agreements)
+            cls.save_cached_chair_notes_data(meeting_dir, merged_agenda, merged_agreements, overwrite=True)
 
         return merged_agenda, merged_agreements, scanned_count

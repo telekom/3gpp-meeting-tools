@@ -768,15 +768,32 @@ class TopicDossierExporterThread(QThread):
         if not mtg_dir:
             return []
 
+        from modules.meetings.core.tdocs.chair_notes_agreements_parser import (
+            ChairNotesAgreementsParser, CHAIR_NOTES_CACHE_VERSION
+        )
+
         agenda_dir = mtg_dir / "Agenda"
         cn_cache = agenda_dir / "chair_notes_cache.json"
         if cn_cache.is_file():
             try:
                 with open(cn_cache, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                return data.get("agreements", [])
+                if data.get("version", 1) >= CHAIR_NOTES_CACHE_VERSION:
+                    return data.get("agreements", [])
             except Exception:
                 pass
+
+        # If cache missing or outdated version, run scan_and_cache_chair_notes
+        try:
+            _, agreements, _ = ChairNotesAgreementsParser.scan_and_cache_chair_notes(
+                meeting_dir=mtg_dir,
+                mtg_info=mtg,
+                force_rescan=True,
+            )
+            if agreements:
+                return agreements
+        except Exception as e:
+            logger.debug(f"[TopicDossierExporter] scan_and_cache_chair_notes error: {e}")
 
         # Fallback: check ChairNotes subdirectory for docx
         cn_dir = agenda_dir / "ChairNotes"
