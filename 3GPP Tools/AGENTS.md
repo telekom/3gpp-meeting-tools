@@ -19,7 +19,8 @@ This document is the authoritative technical reference for human developers and 
 
 ### Prerequisites
 - **Operating System:** Windows (primary environment, using Win32 COM APIs and Windows shell hooks).
-- **Python:** `>= 3.8` (typically executed with Python 3.10 to 3.14 64-bit).
+- **Python:** `>= 3.8` (typically executed with Python 3.10 to 3.14 64-bit; Python 3.14 user-space installation without administrator rights is recommended, see `README.md`).
+- **Zero-Admin Architecture:** 100% user-space execution. No administrator rights or UAC elevation are required to install or run the application.
 - **Java JRE / JDK:** 64-bit Java 11+ recommended (or legacy Java 8) for PlantUML JAR rendering. Portable JREs are supported via zero-admin configuration.
 - **Microsoft Office (Optional but required for Visio/Word features):** Microsoft Visio and Word desktop installations for COM automation. PlantUML editing and specification tools function without Office installed.
 - **Local Ollama Daemon (Optional for AI features):** Running locally at `http://127.0.0.1:11434`.

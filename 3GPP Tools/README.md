@@ -10,8 +10,11 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 1. [✨ Features](#features)
 2. [🏛️ Architectural Evolution & Deprecated Legacy Features](#deprecated-features)
 3. [🏗️ Architecture & Data Flow](#architecture)
-4. [⚙️ Prerequisites](#prerequisites)
-5. [🚀 Installation](#installation)
+4. [⚙️ Prerequisites & Zero-Admin Architecture](#prerequisites)
+5. [🚀 Installation & Setup](#installation)
+   - [Zero-Admin Python 3.14+ Installation Guide](#zero-admin-python)
+   - [Clone & Dependencies](#clone-and-dependencies)
+   - [Launching the Application](#launching)
 6. [📖 How to Use the GUI](#usage)
 7. [🛠️ Known Quirks / Troubleshooting](#troubleshooting)
 
@@ -548,43 +551,132 @@ This application strictly adheres to the **Model-View-Controller (MVC)** and **E
 
 ---
 
-## <a id="prerequisites"></a>⚙️ Prerequisites
+## <a id="prerequisites"></a>⚙️ Prerequisites & Zero-Admin Architecture
+
+> [!NOTE]
+> ### 🛡️ Zero Administrator Rights Required (100% User-Space Architecture)
+> **3GPP Tools does NOT require administrator or elevated (UAC) permissions.**
+>
+> The entire application suite is engineered specifically for corporate laptops and delegate workstations:
+> - **User-Space Storage:** All SQLite databases (`db/*.db`), configurations (`src/config/*.json`), document caches, and exported files (`output/`) reside entirely within standard user-accessible directories.
+> - **Zero-Admin Dependencies:** Auxiliary components (Python 3.14, Java JRE for PlantUML, LibreOffice for legacy `.doc` conversions) fully support zero-admin, non-elevated user-space installations and portable distributions.
+> - **COM Integrity Matching:** Running the tool as Administrator is actually discouraged—Windows User Interface Privilege Isolation (UIPI) blocks COM automation from interacting with standard (non-elevated) Microsoft Word and Microsoft Outlook instances.
 
 To run this application natively or build it from source, you must have the following installed on your Windows machine:
 
-1. **Python 3.10+**
-2. **Microsoft Word (Desktop App)** (Required for native COM Automation Splitter, Converter, Diff Engine, and TDoc text extraction)
-3. **Microsoft Outlook (Desktop App)** (Required for the eMeeting and General Email Managers)
-4. **Java Runtime Environment (JRE) 11+ or 21 (LTS)** (Required for modern PlantUML rendering and automatic updates. Recommended: [Eclipse Temurin](https://adoptium.net/temurin/releases/?version=21). Both standard `.msi` installers and zero-admin `.zip` portable archives are fully supported)
-5. *(Optional but Recommended for Local AI)* **Ollama** (Install from [ollama.ai](https://ollama.ai) to enable private, offline document summaries, AI technical triage, call-flow to sequence conversion, and AI assistants).
-6. *(Optional but Recommended)* **LibreOffice (Installed or Portable)** (Required for safe, macro-free conversion of legacy Word 97–2003 `.doc` files, including SA2 Chairman's Notes and older specifications. If using portable LibreOffice, link `LibreOfficePortable.exe` using the **📂 Locate Executable** button in the Word Tools tab.)
-7. *(Optional)* **Microsoft Visio** (To view and edit generated `.vsdx` files)
-8. *(Optional)* **Microsoft PowerPoint** (For `.pptx` to `.vsdx` conversions)
+1. **Python 3.10+ (Python 3.14 64-bit Recommended):** Can be installed completely without administrator rights (see the [Zero-Admin Python Guide](#zero-admin-python) below).
+2. **Microsoft Word (Desktop App):** (Required for native COM Automation Splitter, Converter, Diff Engine, and TDoc text extraction).
+3. **Microsoft Outlook (Desktop App):** (Required for the eMeeting and General Email Managers).
+4. **Java Runtime Environment (JRE) 11+ or 21 (LTS):** (Required for modern PlantUML rendering and automatic updates. Recommended: [Eclipse Temurin](https://adoptium.net/temurin/releases/?version=21). Both standard `.msi` installers and zero-admin `.zip` portable archives are fully supported).
+5. *(Optional but Recommended for Local AI)* **Ollama:** (Install from [ollama.ai](https://ollama.ai) to enable private, offline document summaries, AI technical triage, call-flow to sequence conversion, and AI assistants).
+6. *(Optional but Recommended)* **LibreOffice (Installed or Portable):** (Required for safe, macro-free conversion of legacy Word 97–2003 `.doc` files, including SA2 Chairman's Notes and older specifications. If using portable LibreOffice, link `LibreOfficePortable.exe` using the **📂 Locate Executable** button in the Word Tools tab).
+7. *(Optional)* **Microsoft Visio:** (To view and edit generated `.vsdx` files).
+8. *(Optional)* **Microsoft PowerPoint:** (For `.pptx` to `.vsdx` conversions).
 
 ---
 
-## <a id="installation"></a>🚀 Installation
+## <a id="installation"></a>🚀 Installation & Setup
 
-### 1. Clone the Repository
+### <a id="zero-admin-python"></a>🐍 Installing Python 3.14+ Without Administrator Rights (Zero-Admin Guide)
+
+If your corporate IT workstation has an older IT-managed Python (e.g., Python 3.10) or lacks administrator privileges, you can install official Python 3.14 alongside your IT installation **without triggering a Windows User Account Control (UAC) admin prompt**.
+
+Follow these step-by-step instructions using the official Python Software Foundation Windows installer:
+
+#### Step 1: Download the Official Installer
+1. Navigate to the official Python downloads page: [python.org/downloads](https://www.python.org/downloads/).
+2. Locate **Python 3.14** (or latest 64-bit release) and download the **Windows installer (64-bit)** (e.g., `python-3.14.x-amd64.exe`).
+
+#### Step 2: Configure the First Screen (Avoid UAC Elevation)
+1. Double-click the downloaded `.exe` file to launch it.
+2. At the bottom of the first setup window:
+   * ❌ **Uncheck "Use admin privileges when installing py.exe"** *(CRITICAL: This checkbox is what triggers the UAC admin prompt if left checked. Unchecking it allows user-level installation).*
+   * ❌ **Uncheck "Add python.exe to PATH"** *(Leaving this unchecked ensures your existing IT Python 3.10 remains untouched in standard command lines; you will use the Windows Python Launcher `py` instead).*
+3. Click **Customize installation** (do **not** click "Install Now").
+
+#### Step 3: Choose Features
+1. On the **Optional Features** screen, leave the standard defaults checked:
+   * ✅ **Documentation**
+   * ✅ **pip**
+   * ✅ **tcl/tk and IDLE**
+   * ✅ **Python test suite**
+   * ✅ **py launcher**
+2. Click **Next**.
+
+#### Step 4: Set User-Level Destination (Advanced Options)
+1. On the **Advanced Options** screen:
+   * ❌ **Uncheck "Install Python 3.14 for all users"** *(CRITICAL: Keeping this checked attempts to write to `C:\Program Files\Python314`, which demands administrator rights).*
+2. Under **Customize install location**, verify or adjust the path so it points inside your user profile:
+   ```text
+   C:\Users\<YourUsername>\AppData\Local\Programs\Python\Python314
+   ```
+   *(or `%LocalAppData%\Programs\Python\Python314`)*
+3. Click **Install**. The installation proceeds directly into your user space without asking for administrator credentials.
+4. Click **Close** once finished.
+
+#### Step 5: Verify Both Versions with Windows Python Launcher
+Open Command Prompt or PowerShell and verify that the Windows Python Launcher (`py`) manages both versions cleanly:
+
+```powershell
+# Check all detected Python versions:
+py --list
+
+# Verify IT's Python 3.10:
+py -3.10 --version
+
+# Verify your new user-space Python 3.14:
+py -3.14 --version
+```
+
+#### Step 6: Install Dependencies Safely (Two Options)
+Because Python 3.14 was not forced into the global system PATH, your corporate IT setup is completely unaffected. Choose either of the following non-admin options:
+
+* **Option A: Install directly into Python 3.14 (Simplest for 3GPP Tools):**
+  ```powershell
+  py -3.14 -m pip install --upgrade pip
+  py -3.14 -m pip install -r requirements.txt
+  ```
+  *Packages are installed safely inside your user profile without needing admin permissions.*
+
+* **Option B: Use an isolated virtual environment (`.venv`):**
+  ```powershell
+  # In your project root directory:
+  py -3.14 -m venv .venv
+
+  # Activate the environment in PowerShell:
+  .\.venv\Scripts\Activate.ps1
+  # (Or in standard Command Prompt: .\.venv\Scripts\activate.bat)
+
+  # Install requirements inside .venv:
+  pip install --upgrade pip
+  pip install -r requirements.txt
+  ```
+  > [!TIP]
+  > **PowerShell Script Execution Restriction:** If PowerShell blocks script activation (`PSSecurityException` or `running scripts is disabled`), you can bypass it safely for the current terminal session without administrator rights:
+  > ```powershell
+  > Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+  > .\.venv\Scripts\Activate.ps1
+  > ```
+  > Alternatively, use **Option A** (`py -3.14 -m pip ...`) or activate from standard Windows Command Prompt (`cmd.exe`).
+
+---
+
+### <a id="clone-and-dependencies"></a>1. Clone the Repository
 ```bash
-git clone [https://github.com/telekom/3gpp-meeting-tools.git](https://github.com/telekom/3gpp-meeting-tools.git)
+git clone https://github.com/telekom/3gpp-meeting-tools.git
 cd 3gpp-meeting-tools/3GPP\ Tools
 ```
 
-### 2. Install Python Dependencies
-```bash
-pip install -r requirements.txt
-```
-*Note: This installs `PyQt5`, `requests`, `python-docx`, `beautifulsoup4`, `openpyxl`, `pandas`, `plotly`, `networkx`, `lxml`, `Pillow`, and `pywin32`.*
+### <a id="launching"></a>2. Launch the Application
+The repository's launch scripts are pre-configured to automatically run via `py -3.14`:
 
-### 3. Launch the Application
 ```bash
-# Using the Windows batch launcher (recommended):
+# Using the Windows batch launcher (recommended — invokes py -3.14 automatically):
 .\src\Launch.cmd
 
-# Or directly via Python with proper PYTHONPATH:
+# Or directly via PowerShell with proper PYTHONPATH:
 $env:PYTHONPATH = ".;.\src;$env:PYTHONPATH"
-python -m main_tools
+py -3.14 -m main_tools
 ```
 *Upon first launch, the app will automatically download the latest `plantuml.jar` from GitHub if it is not present in your assets folder.*
 
