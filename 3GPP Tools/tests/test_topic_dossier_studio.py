@@ -488,6 +488,75 @@ class TestAgendaItemSuggester(unittest.TestCase):
             # 20.6.12 (Voice Services) has 0 keyword matches and should NOT be suggested
             self.assertNotIn("20.6.12", ai_nums)
 
+    def test_infer_topic_from_known_ais(self):
+        from unittest.mock import patch
+        from modules.meetings.core.ai_suggester import AgendaItemSuggester
+
+        mock_db = unittest.mock.MagicMock()
+        suggester = AgendaItemSuggester(mock_db)
+
+        fake_meetings = [{"folder_name": "TSGS2_178", "meeting_number": "178", "wg_name": "SA2"}]
+        fake_tdocs = [
+            {
+                "Agenda Item": "20.6.21",
+                "Agenda item description": "Study on Architecture for 6G System (FS_6G_ARC) - 6G data framework in SA WG2",
+                "Title": "Discussion on 6G data transfer mechanisms",
+                "Related WIs": "FS_6G_ARC",
+            },
+            {
+                "Agenda Item": "20.6.21",
+                "Agenda item description": "Study on Architecture for 6G System (FS_6G_ARC) - 6G data framework in SA WG2",
+                "Title": "Update on data framework architecture",
+                "Related WIs": "FS_6G_ARC",
+            },
+        ]
+
+        with patch.object(suggester, "_resolve_recent_meetings", return_value=fake_meetings), \
+             patch.object(suggester, "_load_meeting_tdocs", return_value=fake_tdocs):
+
+            inferred = suggester.infer_topic_from_known_ais({"SA2": ["20.6.21"]})
+            kws = [k.lower() for k in inferred.get("keywords", [])]
+            wis = inferred.get("wi_tokens", [])
+
+            self.assertIn("6g data framework", kws)
+            self.assertIn("data framework", kws)
+            self.assertIn("data transfer", kws)
+            self.assertIn("fs_6g_arc", wis)
+            self.assertTrue("SA2 20.6.21" in inferred.get("source_summary", ""))
+
+    def test_generic_ai_downgrade(self):
+        from unittest.mock import patch
+        from modules.meetings.core.ai_suggester import AgendaItemSuggester
+
+        mock_db = unittest.mock.MagicMock()
+        suggester = AgendaItemSuggester(mock_db)
+
+        fake_meetings = [{"folder_name": "TSGR2_135", "meeting_number": "135", "wg_name": "RAN2"}]
+        fake_tdocs = [
+            # Generic AI (Corrections) with 4 matching titles
+            {"Agenda Item": "7.2.2", "Agenda item description": "Corrections", "Title": "Data transfer correction 1", "Related WIs": ""},
+            {"Agenda Item": "7.2.2", "Agenda item description": "Corrections", "Title": "Data transfer correction 2", "Related WIs": ""},
+            {"Agenda Item": "7.2.2", "Agenda item description": "Corrections", "Title": "Data transfer correction 3", "Related WIs": ""},
+            {"Agenda Item": "7.2.2", "Agenda item description": "Corrections", "Title": "Data transfer correction 4", "Related WIs": ""},
+            # Real topic AI
+            {"Agenda Item": "9.3.3.1", "Agenda item description": "Data transfer", "Title": "Discussion on Data transfer", "Related WIs": ""},
+        ]
+
+        with patch.object(suggester, "_resolve_recent_meetings", return_value=fake_meetings), \
+             patch.object(suggester, "_load_meeting_tdocs", return_value=fake_tdocs):
+
+            results = suggester.suggest_ais_for_topic(
+                target_wgs=["RAN2"],
+                keywords=["data transfer"],
+            )
+
+            r2_ais = {a.ai_number: a for a in results.get("RAN2", [])}
+            # 9.3.3.1 is High confidence
+            self.assertEqual(r2_ais["9.3.3.1"].confidence, "High")
+            # 7.2.2 (Corrections) must NOT be High confidence despite 4 title matches
+            self.assertNotEqual(r2_ais["7.2.2"].confidence, "High")
+            self.assertIn("Caution: Generic/administrative", r2_ais["7.2.2"].matching_reason)
+
 
 if __name__ == "__main__":
     unittest.main()

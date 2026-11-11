@@ -523,19 +523,24 @@ src/modules/meetings/
 ### 3.18. Cross-WG Agenda Item (AI) Auto-Discovery & Suggestion Engine (`ai_suggester.py`, `ai_suggestion_dialog.py`, `topic_dossier_dialog.py`)
 - **Problem Solved:** When creating cross-WG topic dossiers (e.g. for "Data Framework & Data Transfer"), delegates frequently know the relevant Agenda Item for their primary Working Group (e.g. SA2 `20.6.21`), but have no visibility into how other Working Groups (RAN2, RAN3, SA5, CT4) structure their agendas for the same topic.
 - **Scanning & Ranking Engine (`AgendaItemSuggester` in `ai_suggester.py`):**
+  - **Single-AI Seeding & Topic Inference (`infer_topic_from_known_ais`):** If a delegate enters an AI for just one Working Group (e.g. `SA2: 20.6.21`), the engine automatically queries cached agendas, resolves the official 3GPP procedure/sub-topic description (`Study on Architecture for 6G System (FS_6G_ARC) - 6G data framework in SA WG2`), extracts Work Item tokens (`fs_6g_arc`), and identifies recurring technical keywords (`data framework`, `data transfer`), seamlessly propagating these across target WGs (RAN2, RAN3, SA5, CT4) without requiring manual keyword typing.
   - Analyzes recent meeting agendas across target WGs by loading pre-parsed JSON caches (`Agenda/*.xlsx.json`) or Excel workbooks.
   - Automatically correlates topic keywords (`clean_kws`) and Work Item tokens (`clean_wis`) against Agenda Item descriptions, TDoc titles, and related WI fields.
   - **Umbrella Noise Suppression:** Broad parent study items (e.g. `FS_6G_ARC`, `FS_6G_Radio`) touch thousands of documents across dozens of sub-topics. If keywords are provided, candidate AIs must have keyword relevance in either the AI description or in TDoc titles, preventing generic Release-20 items (voice, charging, emergency) from polluting topic suggestions.
+  - **Generic AI Protection (`GENERIC_AI_CATEGORIES`):** Protects administrative and miscellaneous Agenda Items (e.g., `Corrections`, `Review of incoming LS`, `Drafting`, `Miscellaneous`, `AOB`) from receiving "High" confidence even if papers mention topic keywords, preventing dangerous wildcard contamination (`7.2.2*`, `5.3*`) in topic rules.
   - **Confidence Classification:**
-    - `🟢 High`: AI description directly matches keywords (`desc_match`), or high concentration of matching TDoc titles (`title_matches >= 3`) with Work Item correlation.
-    - `🟡 Medium`: Secondary correlations where contribution titles contain topic keywords.
+    - `🟢 High`: AI description directly matches keywords (`desc_match`), or high concentration of matching TDoc titles (`title_matches >= 3`) with Work Item correlation on non-generic AIs.
+    - `🟡 Medium`: Secondary correlations where contribution titles contain topic keywords, or generic categories with title hits.
+    - `⚪ Low`: Low-frequency matches or administrative items.
 - **Interactive Multi-WG Suggestion Dialog (`AiSuggestionDialog` in `ai_suggestion_dialog.py`):**
+  - **Non-Freezing Background Scanner (`AiSuggestionScanWorker`):** Asynchronous background scanning (`QThread`) with progress bar and real-time status reporting (`Scanning recent RAN2 agendas (2/5)...`), keeping the UI responsive and movable.
   - Multi-tabbed layout per Working Group showing candidate Agenda Items, confidence badges, hit counts (`X/Y TDocs across Z mtgs`), reasons, and sample contribution titles on hover tooltips.
+  - Inferred metadata banner: Surfaces discovered procedural context (e.g. `💡 Inferred from known AI: SA2 20.6.21 ('Study on Architecture for 6G System - 6G data framework')`).
   - Quick action shortcuts: `✅ Select High Confidence`, `Select All`, `Clear Selection`.
   - Live preview bar generating canonical rule strings (e.g. `SA2: 20.6.21*; RAN2: 9.3.3.1*, 10.3.3.1*; RAN3: 10.2.3*; SA5: 6.20.6.3*; CT4: 21.5*`).
 - **Topic Editor Integration (`TopicEditorDialog` in `topic_dossier_dialog.py`):**
   - Features dedicated **`🔍 Auto-Suggest AIs...`** action button next to the Agenda Item pattern field.
-  - Seamlessly passes target WGs, topic keywords, and WI tokens into `AiSuggestionDialog` and non-destructively merges accepted recommendations into existing rules.
+  - Automatically detects known AI patterns from `edit_ai`, infers topic keywords and Work Item codes, passes them to `AiSuggestionDialog`, and non-destructively merges accepted recommendations into existing rules while auto-populating empty keyword and Work Item fields.
 
 
 

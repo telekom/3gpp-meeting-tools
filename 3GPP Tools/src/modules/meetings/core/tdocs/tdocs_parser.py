@@ -31,6 +31,15 @@ class TDocsParser:
         data = []
         try:
             with open(filepath, "rb") as f:
+                header = f.read(50)
+                if not header.startswith(b"PK\x03\x04"):
+                    # Fast check: skip HTML error responses or non-zip files without raising BadZipFile
+                    if b"<html" in header.lower() or b"<!doctype" in header.lower():
+                        logger.debug(f"[TDocsParser] Skipping portal HTML error page saved as Excel: {filepath}")
+                    else:
+                        logger.debug(f"[TDocsParser] Skipping non-zip Excel file: {filepath}")
+                    return []
+                f.seek(0)
                 in_mem_file = io.BytesIO(f.read())
 
             wb = openpyxl.load_workbook(in_mem_file, data_only=True, read_only=True)
@@ -113,7 +122,7 @@ class TDocsParser:
             return data
 
         except Exception as e:
-            logger.exception(f"Failed to parse Excel file {filepath}: {e}")
+            logger.warning(f"Failed to parse Excel file {filepath}: {e}")
             return []
 
     @classmethod

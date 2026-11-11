@@ -211,6 +211,7 @@ class TopicEditorDialog(QDialog):
 
     def _on_suggest_ais(self):
         """Opens AiSuggestionDialog and applies recommended AIs."""
+        from modules.meetings.core.ai_suggester import AgendaItemSuggester
         from modules.meetings.ui.dialogs.ai_suggestion_dialog import AiSuggestionDialog
 
         selected_wgs = [wg for wg, cb in self.wg_checks.items() if cb.isChecked()]
@@ -218,8 +219,46 @@ class TopicEditorDialog(QDialog):
             QMessageBox.warning(self, "No Working Groups", "Please select at least one Target Working Group first.")
             return
 
+        if not self.meetings_db:
+            from core.utils.paths import get_project_root
+            db_path = get_project_root() / "db" / "3gpp_data.db"
+            self.meetings_db = MeetingsDatabase(db_path)
+
+        suggester = AgendaItemSuggester(self.meetings_db)
+
+        # 1. Parse any existing AI patterns entered by the user (e.g. SA2: 20.6.21)
+        known_patterns: Dict[str, List[str]] = {}
+        cur_ai_text = self.edit_ai.text().strip()
+        if cur_ai_text:
+            for chunk in cur_ai_text.split(";"):
+                chunk = chunk.strip()
+                if ":" in chunk:
+                    wg_k, pats = chunk.split(":", 1)
+                    wg_k = wg_k.strip().upper()
+                    p_list = [p.strip() for p in pats.split(",") if p.strip()]
+                    if p_list:
+                        known_patterns[wg_k] = p_list
+
+        # 2. If known AI patterns exist, infer topic metadata (descriptions, keywords, WI tokens)
+        inferred_summary = None
+        inferred_kws: List[str] = []
+        inferred_wis: List[str] = []
+        if known_patterns:
+            inferred = suggester.infer_topic_from_known_ais(known_patterns)
+            inferred_summary = inferred.get("source_summary")
+            inferred_kws = inferred.get("keywords", [])
+            inferred_wis = inferred.get("wi_tokens", [])
+
+        # 3. Gather user-specified keywords and WI tokens, supplementing with inferred ones
         kws = [k.strip() for k in self.edit_kw.text().split(",") if k.strip()]
         wis = [w.strip() for w in self.edit_wi.text().split(",") if w.strip()]
+
+        for ik in inferred_kws:
+            if ik.lower() not in [k.lower() for k in kws]:
+                kws.append(ik)
+        for iw in inferred_wis:
+            if iw.lower() not in [w.lower() for w in wis]:
+                wis.append(iw)
 
         if not kws and not wis:
             name = self.edit_name.text().strip()
@@ -231,20 +270,16 @@ class TopicEditorDialog(QDialog):
             QMessageBox.information(
                 self,
                 "Keywords Needed",
-                "Please enter keywords in 'Keywords in Title / Abstract' or 'Topic Name' to search for Agenda Items.",
+                "Please enter keywords in 'Keywords in Title / Abstract', 'Topic Name', or specify an AI for at least one WG (e.g. SA2: 20.6.21).",
             )
             return
-
-        if not self.meetings_db:
-            from core.utils.paths import get_project_root
-            db_path = get_project_root() / "db" / "3gpp_data.db"
-            self.meetings_db = MeetingsDatabase(db_path)
 
         dlg = AiSuggestionDialog(
             meetings_db=self.meetings_db,
             target_wgs=selected_wgs,
             initial_keywords=kws,
             initial_wis=wis,
+            inferred_summary=inferred_summary,
             parent=self,
         )
 
@@ -252,6 +287,13 @@ class TopicEditorDialog(QDialog):
             new_rule = dlg.get_formatted_rule_string()
             if new_rule:
                 self._merge_ai_rules(new_rule)
+            # Auto-populate empty keyword / WI fields with discovered terms
+            active_kws = dlg.get_active_keywords()
+            if not self.edit_kw.text().strip() and active_kws:
+                self.edit_kw.setText(", ".join(active_kws))
+            active_wis = dlg.get_active_wis()
+            if not self.edit_wi.text().strip() and active_wis:
+                self.edit_wi.setText(", ".join(active_wis))
 
     def _merge_ai_rules(self, new_rule_str: str):
         """Merges discovered WG AI rules with existing ones, avoiding duplicates."""
@@ -324,7 +366,14 @@ class TopicEditorDialog(QDialog):
             id=topic_id,
             name=name,
             description=self.edit_desc.text().strip(),
+            color=self.topic.color if self.topic else "#10B981",
             target_wgs=wgs,
+            cycle_mode=self.topic.cycle_mode if self.topic else "past_n_cycles",
+            past_n_cycles=self.topic.past_n_cycles if self.topic else 4,
+            from_cycle=self.topic.from_cycle if self.topic else "2025-Q1",
+            to_cycle=self.topic.to_cycle if self.topic else "2026-Q1",
+            date_from=self.topic.date_from if self.topic else "",
+            date_to=self.topic.date_to if self.topic else "",
             rules=rules,
         )
         self.accept()

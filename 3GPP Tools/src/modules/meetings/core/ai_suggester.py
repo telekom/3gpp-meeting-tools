@@ -7,18 +7,51 @@ Scans cached meeting workbooks and database records across 3GPP Working Groups
 topic keywords, Work Item tokens, and title correlations.
 """
 
+from collections import Counter
+from dataclasses import dataclass, field
 import json
 import logging
-import re
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+import re
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.settings import MeetingsSettings
 from modules.meetings.core.tdocs.tdocs_parser import TDocsParser
 
 logger = logging.getLogger(__name__)
+
+# Common administrative/generic Agenda Items that should never be auto-classified as "High" confidence
+GENERIC_AI_CATEGORIES = {
+    "corrections", "correction", "drafting", "drafting session", "drafting sessions",
+    "miscellaneous", "approval of the agenda", "approval of agenda", "review of contributions",
+    "incoming ls", "outgoing ls", "liaison statements", "liaison statement",
+    "liaisons", "administrative", "work item management", "any other business",
+    "aob", "opening of the meeting", "wrap-up", "closure of the meeting",
+    "status report", "session report", "allocation of documents", "meeting schedule",
+    "minutes", "approval of minutes", "review of actions",
+}
+
+# Working Group folder prefix patterns in 3GPP Delegate Helper cache
+WG_FOLDER_PREFIXES = {
+    "SA1": ["TSGS1", "TSGS1_", "SA1"],
+    "SA2": ["TSGS2", "TSGS2_", "SA2"],
+    "SA3": ["TSGS3", "TSGS3_", "SA3"],
+    "SA4": ["TSGS4", "TSGS4_", "SA4"],
+    "SA5": ["TSGS5", "TSGS5_", "SA5"],
+    "SA6": ["TSGS6", "TSGS6_", "SA6"],
+    "RAN1": ["TSGR1", "TSGR1_", "RAN1"],
+    "RAN2": ["TSGR2", "TSGR2_", "RAN2"],
+    "RAN3": ["TSGR3", "TSGR3_", "RAN3"],
+    "RAN4": ["TSGR4", "TSGR4_", "RAN4"],
+    "CT1": ["TSGC1", "TSGC1_", "CT1"],
+    "CT3": ["TSGC3", "TSGC3_", "CT3"],
+    "CT4": ["CT4", "CT4_", "TSGC4", "TSGC4_"],
+    "CT6": ["TSGC6", "TSGC6_", "CT6"],
+    "SA": ["TSG_SA", "TSGSA", "SP_"],
+    "RAN": ["TSG_RAN", "TSGRAN", "RP_"],
+    "CT": ["TSG_CT", "TSGCT", "CP_"],
+}
 
 
 @dataclass
@@ -58,12 +91,116 @@ class AgendaItemSuggester:
         from core.utils.paths import get_cache_root
         return Path(get_cache_root())
 
+    def infer_topic_from_known_ais(
+        self,
+        known_ai_patterns: Dict[str, List[str]],
+        max_meetings: int = 6,
+    ) -> Dict[str, Any]:
+        """
+        Inspects known Working Group Agenda Items to discover topic descriptions,
+        salient keywords, and Work Item tokens.
+
+        Example: {'SA2': ['20.6.21']} discovers:
+        - Description: "Study on Architecture for 6G System (FS_6G_ARC) - 6G data framework in SA WG2"
+        - Keywords: ['data framework', '6G data framework', 'data transfer']
+        - WI Tokens: ['fs_6g_arc']
+        """
+        cache_dir = self._get_cache_dir()
+        discovered_kws: List[str] = []
+        discovered_wis: List[str] = []
+        descriptions: List[str] = []
+        collected_titles: List[str] = []
+        source_summaries: List[str] = []
+
+        for wg, pats in known_ai_patterns.items():
+            norm_wg = wg.strip().upper()
+            recent_mtgs = self._resolve_recent_meetings(norm_wg, cache_dir, max_meetings)
+            for pat in pats:
+                clean_pat = re.sub(r'[*?]', '', pat).strip().lower()
+                matching_tdocs = []
+                for m in recent_mtgs:
+                    f_name = m.get("folder_name", "")
+                    tdocs = self._load_meeting_tdocs(cache_dir / f_name)
+                    for t in tdocs:
+                        ai = str(t.get("Agenda Item", "") or t.get("AI", "")).strip().lower()
+                        if ai == clean_pat or ai.startswith(clean_pat + "."):
+                            matching_tdocs.append(t)
+                    if len(matching_tdocs) >= 150:
+                        break
+
+                if not matching_tdocs:
+                    continue
+
+                for t in matching_tdocs:
+                    desc = str(t.get("Agenda item description", "") or t.get("AI Description", "")).strip()
+                    if desc and desc not in descriptions:
+                        descriptions.append(desc)
+                    wi = str(t.get("Related WIs", "") or t.get("wi", "")).strip()
+                    if wi:
+                        for w in re.split(r'[,; ]+', wi):
+                            w_clean = re.sub(r'[^a-zA-Z0-9_]', '', w).lower()
+                            if len(w_clean) >= 3 and w_clean not in discovered_wis:
+                                discovered_wis.append(w_clean)
+                    title = str(t.get("Title", "") or "").strip()
+                    if title:
+                        collected_titles.append(title)
+
+                top_desc = descriptions[0] if descriptions else f"AI {pat}"
+                source_summaries.append(f"{norm_wg} {pat} ('{top_desc}')")
+
+        # Extract subtopics and WI tokens from descriptions
+        for desc in descriptions:
+            # WI from parentheses, e.g. "(FS_6G_ARC)"
+            for pw in re.findall(r'\(([A-Za-z0-9_]+)\)', desc):
+                pw_clean = pw.lower()
+                if pw_clean not in discovered_wis:
+                    discovered_wis.append(pw_clean)
+
+            # Subtopic phrase after hyphen, e.g. " - 6G data framework in SA2"
+            if " - " in desc:
+                after_dash = desc.split(" - ", 1)[1].strip()
+                clean_sub = re.sub(r'\s+in\s+([A-Z]{2,4}\s*(?:WG)?\d*)$', '', after_dash, flags=re.IGNORECASE).strip()
+                if clean_sub and clean_sub.lower() not in [k.lower() for k in discovered_kws]:
+                    discovered_kws.append(clean_sub)
+                    if clean_sub.lower().startswith("6g "):
+                        base_kw = clean_sub[3:].strip()
+                        if base_kw and base_kw.lower() not in [k.lower() for k in discovered_kws]:
+                            discovered_kws.append(base_kw)
+
+        # Extract recurring topic-relevant phrases from collected titles
+        # Only consider phrases that share semantic root tokens with the discovered subtopics
+        subtopic_tokens = set()
+        for kw in discovered_kws:
+            for tok in re.findall(r'[a-zA-Z]{3,}', kw.lower()):
+                subtopic_tokens.add(tok)
+
+        title_text = " ".join(collected_titles).lower()
+        candidate_phrases = [
+            "data framework", "data transfer", "model transfer", "data collection",
+            "ambient iot", "zero energy", "passive iot", "network energy savings",
+            "integrated sensing", "isac", "slicing", "satellite", "non-terrestrial",
+        ]
+        for cand in candidate_phrases:
+            cand_tokens = set(re.findall(r'[a-zA-Z]{3,}', cand.lower()))
+            # Only add if candidate shares at least one significant token with discovered subtopic
+            if subtopic_tokens and cand_tokens.intersection(subtopic_tokens):
+                if cand in title_text and cand not in [k.lower() for k in discovered_kws]:
+                    discovered_kws.append(cand)
+
+        return {
+            "keywords": discovered_kws,
+            "wi_tokens": discovered_wis,
+            "descriptions": descriptions,
+            "source_summary": "; ".join(source_summaries),
+        }
+
     def suggest_ais_for_topic(
         self,
         target_wgs: List[str],
         keywords: List[str],
         wi_tokens: Optional[List[str]] = None,
         max_meetings_per_wg: int = 6,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
     ) -> Dict[str, List[DiscoveredAi]]:
         """
         Scans recent meetings for the target WGs and returns ranked AI recommendations.
@@ -72,6 +209,7 @@ class AgendaItemSuggester:
         :param keywords: Search phrases (e.g. ['data framework', 'data transfer'])
         :param wi_tokens: Optional Work Item tokens (e.g. ['fs_6g_arc', '6g_df'])
         :param max_meetings_per_wg: Max recent meetings to analyze per WG
+        :param progress_callback: Optional callback(current_wg_name, current_idx, total_wgs)
         :return: Dict mapping WG -> List of DiscoveredAi sorted by relevance
         """
         cache_dir = self._get_cache_dir()
@@ -83,9 +221,14 @@ class AgendaItemSuggester:
         if not clean_kws and not clean_wis:
             return {wg: [] for wg in target_wgs}
 
-        for wg in target_wgs:
+        total_wgs = len(target_wgs)
+
+        for w_idx, wg in enumerate(target_wgs, start=1):
             norm_wg = wg.strip().upper()
             results[norm_wg] = []
+
+            if progress_callback:
+                progress_callback(norm_wg, w_idx, total_wgs)
 
             # 1. Resolve candidate meetings for this WG
             candidate_mtgs = self._resolve_recent_meetings(norm_wg, cache_dir, max_meetings_per_wg)
@@ -156,6 +299,7 @@ class AgendaItemSuggester:
                 tot_cnt = d["tdoc_count"]
                 title_cnt = d["title_matches"]
                 wi_cnt = d["wi_matches"]
+                ai_desc_str = d["desc"]
 
                 # If keywords were provided, require keyword relevance (in desc or titles)
                 if clean_kws and not desc_match and title_cnt == 0:
@@ -165,6 +309,9 @@ class AgendaItemSuggester:
                 if not clean_kws and wi_cnt == 0:
                     continue
 
+                desc_norm = ai_desc_str.strip().lower()
+                is_generic_ai = any(gen in desc_norm for gen in GENERIC_AI_CATEGORIES)
+
                 reasons = []
                 if desc_match:
                     reasons.append("AI description matches topic keywords")
@@ -172,9 +319,13 @@ class AgendaItemSuggester:
                     reasons.append(f"TDoc title match ({title_cnt} TDocs)")
                 if wi_cnt > 0:
                     reasons.append(f"Work Item match ({wi_cnt} TDocs)")
+                if is_generic_ai:
+                    reasons.append("Caution: Generic/administrative AI category")
 
                 # Confidence calculation
-                if desc_match:
+                if is_generic_ai:
+                    confidence = "Medium" if title_cnt >= 2 else "Low"
+                elif desc_match:
                     confidence = "High"
                 elif title_cnt >= 3 and (wi_cnt > 0 or not clean_wis):
                     confidence = "High"
@@ -186,7 +337,7 @@ class AgendaItemSuggester:
                 results[norm_wg].append(DiscoveredAi(
                     wg=norm_wg,
                     ai_number=ai,
-                    ai_description=d["desc"],
+                    ai_description=ai_desc_str,
                     confidence=confidence,
                     matching_reason="; ".join(reasons),
                     tdoc_count=tot_cnt,
@@ -196,10 +347,11 @@ class AgendaItemSuggester:
                     sample_wis=sorted(list(d["wis"]))[:3],
                 ))
 
-            # 4. Sort: High confidence first, then description match, then title matches, then total count
+            # 4. Sort: High confidence first, non-generic first, then match count, then total count
             results[norm_wg].sort(
                 key=lambda x: (
                     0 if x.confidence == "High" else 1,
+                    1 if "Generic/administrative" in x.matching_reason else 0,
                     0 if "AI description matches" in x.matching_reason else 1,
                     -x.matching_tdocs,
                     -x.tdoc_count,
@@ -213,7 +365,6 @@ class AgendaItemSuggester:
         # Query database first
         try:
             mtgs = self.meetings_db.search_meetings(wg_name=[wg])
-            # Filter valid start dates and sort reverse
             mtgs_sorted = sorted(
                 [m for m in mtgs if m.get("start_date")],
                 key=lambda x: str(x.get("start_date")),
@@ -231,18 +382,12 @@ class AgendaItemSuggester:
         except Exception as e:
             logger.debug(f"[AiSuggester] DB search failed for {wg}: {e}")
 
-        # Fallback: scan cache_dir directly for matching folders
+        # Fallback: scan cache_dir directly with standard WG folder prefixes
         candidates = []
-        patterns = [
-            f"*{wg}*",
-            f"*TSG{wg}*",
-            f"*TSG{wg[0]}_{wg[1:]}*",
-            f"*TSG{wg[0]}{wg[-1]}*",
-            f"*{wg[0]}{wg[-1]}_*",
-        ]
+        prefixes = WG_FOLDER_PREFIXES.get(wg.upper(), [wg, f"TSG{wg}"])
         found_dirs = set()
-        for p in patterns:
-            for d in cache_dir.glob(p):
+        for pfx in prefixes:
+            for d in cache_dir.glob(f"*{pfx}*"):
                 if d.is_dir():
                     found_dirs.add(d)
 
@@ -262,13 +407,17 @@ class AgendaItemSuggester:
             for jf in agenda_dir.glob("*.xlsx.json"):
                 try:
                     with open(jf, "r", encoding="utf-8") as f:
-                        return json.load(f)
+                        data = json.load(f)
+                        if data:
+                            return data
                 except Exception:
                     pass
             for ef in agenda_dir.glob("*.xlsx"):
                 if not ef.name.startswith("~$"):
                     try:
-                        return TDocsParser.parse_tdocs_excel(str(ef))
+                        data = TDocsParser.parse_tdocs_excel(str(ef))
+                        if data:
+                            return data
                     except Exception:
                         pass
 
@@ -276,7 +425,9 @@ class AgendaItemSuggester:
             for ef in mtg_dir.glob("*.xlsx"):
                 if not ef.name.startswith("~$"):
                     try:
-                        return TDocsParser.parse_tdocs_excel(str(ef))
+                        data = TDocsParser.parse_tdocs_excel(str(ef))
+                        if data:
+                            return data
                     except Exception:
                         pass
 

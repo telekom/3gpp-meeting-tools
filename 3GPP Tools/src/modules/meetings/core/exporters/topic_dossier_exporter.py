@@ -723,7 +723,9 @@ class TopicDossierExporterThread(QThread):
         for ef in excel_candidates:
             if ef.is_file() and not ef.name.startswith("~$"):
                 try:
-                    return TDocsParser.parse_tdocs_excel(str(ef))
+                    res = TDocsParser.parse_tdocs_excel(str(ef))
+                    if res:
+                        return res
                 except Exception as e:
                     logger.debug(f"[TDocsParser] Excel parse failed for {ef}: {e}")
 
@@ -738,7 +740,9 @@ class TopicDossierExporterThread(QThread):
                     if agenda_dir.is_dir():
                         for ef in agenda_dir.glob("*.xlsx"):
                             if not ef.name.startswith("~$"):
-                                return TDocsParser.parse_tdocs_excel(str(ef))
+                                res = TDocsParser.parse_tdocs_excel(str(ef))
+                                if res:
+                                    return res
                 except Exception as e:
                     logger.debug(f"[TDocsDownloader] Auto-download failed: {e}")
 
