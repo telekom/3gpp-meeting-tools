@@ -248,6 +248,7 @@ class DragDropUI(QMainWindow):
         self.specs_tab.search_in_spec_search_requested.connect(self._navigate_from_specs_to_search)
         self.specs_tab.index_in_spec_search_requested.connect(self._index_spec_from_specs_tab)
         self.specs_tab.batch_index_in_spec_search_requested.connect(self._batch_index_specs_from_specs_tab)
+        self.specs_tab.smart_index_in_spec_search_requested.connect(self._smart_index_spec_from_specs_tab)
 
         # Wire deep-linking from Protocols tab to Specifications and Spec Search tabs
         self.nas_tab.navigate_to_specs_tab_requested.connect(self._navigate_from_search_to_specs)
@@ -391,6 +392,11 @@ class DragDropUI(QMainWindow):
         self.tabs.setCurrentWidget(self.nas_tab)
         if message and hasattr(self.nas_tab, "_jump_to_message"):
             self.nas_tab._jump_to_message(message)
+
+    def _smart_index_spec_from_specs_tab(self, spec_number: str):
+        """Switches to Spec Search tab and opens the targeted Smart Import dialog for this spec."""
+        self.tabs.setCurrentWidget(self.spec_search_tab)
+        self.spec_search_tab._open_smart_import_dialog(initial_spec=spec_number)
 
     def _index_spec_from_specs_tab(self, spec_number: str, version: str):
         """Directly indexes a single specification version from Specifications tab into Spec Search."""

@@ -66,6 +66,7 @@ from modules.spec_search.ui.spec_search_components import (
 from modules.spec_search.ui.spec_search_dialogs import (
     SpecClauseDiffDialog,
     SpecSearchVersionSelectDialog,
+    SpecSmartImportDialog,
 )
 from modules.spec_search.ui.spec_search_models import SpecEvolutionMatrixModel
 from modules.specifications.core.database import SpecsDatabase
@@ -258,7 +259,10 @@ class SpecSearchTab(QWidget):
             }
         """)
         import_menu = QMenu(self)
-        act_import_db = import_menu.addAction("📥 Import from Specifications DB...")
+        act_import_smart = import_menu.addAction("⭐ Smart Import Specification (Latest per Release)...")
+        act_import_smart.triggered.connect(lambda: self._open_smart_import_dialog())
+        import_menu.addSeparator()
+        act_import_db = import_menu.addAction("📥 Browse All Specs & Releases...")
         act_import_db.triggered.connect(self._on_fetch_clicked)
         act_import_docx = import_menu.addAction("📁 Import Local Word Document (.docx)...")
         act_import_docx.triggered.connect(self._on_import_local_clicked)
@@ -441,6 +445,7 @@ class SpecSearchTab(QWidget):
         self.version_tree.delete_version_requested.connect(self._delete_single_version)
         self.version_tree.delete_spec_requested.connect(self._delete_spec_group)
         self.version_tree.prune_spec_requested.connect(self._prune_single_spec)
+        self.version_tree.smart_import_requested.connect(self._open_smart_import_dialog)
         self.tree_filter_input.textChanged.connect(self.version_tree.filter_tree)
         btn_all.clicked.connect(self.version_tree.select_all)
         btn_none.clicked.connect(self.version_tree.deselect_all)
@@ -984,6 +989,35 @@ class SpecSearchTab(QWidget):
         self.version_tree.populate(versions, saved_checked=saved_checked, spec_titles=self._spec_titles)
         self.selected_version_ids = self.version_tree.get_selected_version_ids()
         self._update_db_stats()
+
+    def _open_smart_import_dialog(self, initial_spec: Optional[str] = None):
+        """Opens the targeted Smart Import dialog to check and ingest latest versions of all releases."""
+        if not self.specs_db:
+            QMessageBox.warning(self, "Specs DB Unavailable", "The specifications database (3gpp_data.db) is not configured.")
+            return
+
+        if not initial_spec:
+            checked_info = self.version_tree.get_checked_versions_info()
+            if checked_info:
+                initial_spec = checked_info[0].get("spec_number")
+
+        dialog = SpecSmartImportDialog(
+            specs_db=self.specs_db,
+            search_db=self.db,
+            cache_dir=self.cache_dir,
+            initial_spec=initial_spec,
+            parent=self,
+        )
+        if hasattr(dialog, "chk_auto_supersede"):
+            dialog.chk_auto_supersede.setChecked(getattr(self, "auto_replace_older_versions", True))
+
+        if dialog.exec_() == dialog.Accepted and dialog.selected_tasks:
+            if hasattr(dialog, "auto_replace_older"):
+                self.auto_replace_older_versions = dialog.auto_replace_older
+                if hasattr(self, "act_auto_replace"):
+                    self.act_auto_replace.setChecked(self.auto_replace_older_versions)
+                self._save_config()
+            self._start_batch_ingestion(dialog.selected_tasks)
 
     def _on_fetch_clicked(self):
         if not self.specs_db:

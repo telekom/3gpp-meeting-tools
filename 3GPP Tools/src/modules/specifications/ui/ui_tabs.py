@@ -109,6 +109,7 @@ class SpecificationsTab(QWidget):
     search_in_spec_search_requested = pyqtSignal(str, str)  # spec_number, version
     index_in_spec_search_requested = pyqtSignal(str, str)   # spec_number, version
     batch_index_in_spec_search_requested = pyqtSignal(list) # list of (spec_number, version) tuples
+    smart_index_in_spec_search_requested = pyqtSignal(str)  # spec_number
 
     def __init__(self, db_path: Path):
         super().__init__()
@@ -1838,6 +1839,10 @@ class SpecificationsTab(QWidget):
                     idx_lbl = f"🔄 Re-index{ver_tag} in Spec Search DB" if is_idx else f"📥 Index{ver_tag} into Spec Search DB"
                     act_index_search = menu.addAction(idx_lbl)
                     act_index_search.triggered.connect(lambda: self.index_in_spec_search_requested.emit(c_data["spec_num"], c_data.get("version", "")))
+
+                    act_smart_search = menu.addAction("⭐ Index Latest Releases in Spec Search...")
+                    act_smart_search.setToolTip("Check and ingest the newest version of each release for this specification.")
+                    act_smart_search.triggered.connect(lambda _, s=c_data["spec_num"]: self.smart_index_in_spec_search_requested.emit(s))
 
                     menu.addSeparator()
 

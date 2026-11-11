@@ -329,6 +329,7 @@ class SpecCardWidget(QFrame):
     delete_version_requested = pyqtSignal(str, str)
     delete_spec_requested = pyqtSignal(str, int)
     prune_spec_requested = pyqtSignal(str)
+    smart_import_requested = pyqtSignal(str)
 
     def __init__(
         self,
@@ -441,6 +442,9 @@ class SpecCardWidget(QFrame):
 
     def _show_options_menu(self):
         menu = QMenu(self)
+        act_smart = menu.addAction(f"🔄 Check & Ingest Latest Releases for TS {self.spec_number}...")
+        act_smart.triggered.connect(lambda: self.smart_import_requested.emit(self.spec_number))
+        menu.addSeparator()
         act_sel_all = menu.addAction("Select All Releases")
         act_sel_all.triggered.connect(self.select_all)
         act_desel = menu.addAction("Deselect All Releases")
@@ -639,6 +643,7 @@ class SpecSearchVersionCardsWidget(QScrollArea):
     delete_version_requested = pyqtSignal(str, str)
     delete_spec_requested = pyqtSignal(str, int)
     prune_spec_requested = pyqtSignal(str)
+    smart_import_requested = pyqtSignal(str)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -705,6 +710,7 @@ class SpecSearchVersionCardsWidget(QScrollArea):
             card.delete_version_requested.connect(self.delete_version_requested.emit)
             card.delete_spec_requested.connect(self.delete_spec_requested.emit)
             card.prune_spec_requested.connect(self.prune_spec_requested.emit)
+            card.smart_import_requested.connect(self.smart_import_requested.emit)
 
             # Restore checked states
             for pill in card.pills:

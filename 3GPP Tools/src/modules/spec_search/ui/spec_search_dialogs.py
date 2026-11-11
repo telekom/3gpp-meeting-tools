@@ -6,10 +6,11 @@ spec title search, explicit row checkboxes, and reliable batch selection.
 
 import logging
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Optional
 
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -714,6 +715,599 @@ class SpecSearchPruneDialog(QDialog):
         if confirm == QMessageBox.Yes:
             self.pruned_count = self.db.prune_superseded_versions(target_ids)
             self.accept()
+
+
+
+
+class SpecSmartImportDialog(QDialog):
+    """
+    Targeted Intelligent Import Dialog for a single 3GPP Specification.
+    Groups all historical versions by 3GPP Release (Rel-15, Rel-16, Rel-17, Rel-18, etc.),
+    identifies the newest version per release, computes delta status against the local Spec Search DB
+    (Up to Date, Update Available, New Release), and allows 1-click batch ingestion.
+    """
+
+    def __init__(
+        self,
+        specs_db: SpecsDatabase,
+        search_db: SpecSearchDatabase,
+        cache_dir: Path,
+        initial_spec: Optional[str] = None,
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(parent)
+        self.specs_db = specs_db
+        self.search_db = search_db
+        self.cache_dir = cache_dir
+        self.initial_spec = (initial_spec or "").strip()
+        self.logger = logging.getLogger(__name__)
+
+        self.current_spec = ""
+        self.current_spec_title = ""
+        self.current_spec_wg = ""
+        self.releases_data: List[Dict[str, Any]] = []
+        self.selected_tasks: List[Dict[str, Any]] = []
+        self.auto_replace_older: bool = True
+
+        self.setWindowTitle("⭐ Smart Import Specification (Latest per Release)")
+        self.resize(880, 560)
+        self._setup_ui()
+
+        if self.initial_spec:
+            self.spec_input.setText(self.initial_spec)
+            self._on_find_releases()
+        else:
+            self.spec_input.setFocus()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        # Header Frame: Search input & spec info
+        header_frame = QFrame()
+        header_frame.setStyleSheet("""
+            QFrame {
+                background-color: #F8FAFC;
+                border: 1px solid #E2E8F0;
+                border-radius: 6px;
+            }
+        """)
+        h_layout = QVBoxLayout(header_frame)
+        h_layout.setContentsMargins(10, 10, 10, 10)
+        h_layout.setSpacing(8)
+
+        # Search Bar Row
+        search_row = QHBoxLayout()
+        search_row.setSpacing(8)
+        lbl_prompt = QLabel("🔍 Specification:")
+        lbl_prompt.setStyleSheet("font-weight: bold; font-size: 12px; color: #1E293B;")
+        search_row.addWidget(lbl_prompt)
+
+        self.spec_input = QLineEdit()
+        self.spec_input.setPlaceholderText("Enter spec number (e.g. 23.501, 38.300, 24.501, 38.211)...")
+        self.spec_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                padding: 5px 8px;
+                font-size: 12px;
+                font-weight: 500;
+                color: #0F172A;
+            }
+            QLineEdit:focus {
+                border-color: #0284C7;
+            }
+        """)
+        self.spec_input.setClearButtonEnabled(True)
+        self.spec_input.returnPressed.connect(self._on_find_releases)
+        search_row.addWidget(self.spec_input, stretch=1)
+
+        self.btn_find = QPushButton("🔍 Find Releases")
+        self.btn_find.setCursor(Qt.PointingHandCursor)
+        self.btn_find.setStyleSheet("""
+            QPushButton {
+                background-color: #0284C7;
+                color: #FFFFFF;
+                border: 1px solid #0284C7;
+                border-radius: 4px;
+                padding: 6px 14px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #0369A1;
+            }
+        """)
+        self.btn_find.clicked.connect(self._on_find_releases)
+        search_row.addWidget(self.btn_find)
+        h_layout.addLayout(search_row)
+
+        # Spec Metadata Strip
+        self.info_strip = QWidget()
+        info_layout = QHBoxLayout(self.info_strip)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+        info_layout.setSpacing(8)
+
+        self.lbl_spec_title = QLabel("Enter a 3GPP specification number above to load available releases.")
+        self.lbl_spec_title.setStyleSheet("color: #475569; font-size: 11px; font-weight: 500;")
+        self.lbl_spec_title.setWordWrap(True)
+        info_layout.addWidget(self.lbl_spec_title, stretch=1)
+
+        self.lbl_status_badge = QLabel("")
+        self.lbl_status_badge.setStyleSheet("""
+            background-color: #F1F5F9;
+            color: #334155;
+            border: 1px solid #CBD5E1;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 10px;
+            font-weight: bold;
+        """)
+        self.lbl_status_badge.setVisible(False)
+        info_layout.addWidget(self.lbl_status_badge)
+
+        h_layout.addWidget(self.info_strip)
+        layout.addWidget(header_frame)
+
+        # Quick Filter Chips Bar
+        chips_layout = QHBoxLayout()
+        chips_layout.setSpacing(6)
+
+        lbl_select = QLabel("Select:")
+        lbl_select.setStyleSheet("font-size: 11px; font-weight: bold; color: #475569;")
+        chips_layout.addWidget(lbl_select)
+
+        self.btn_chip_updates = QPushButton("⚡ Updates & New Only")
+        self.btn_chip_updates.setToolTip("Select only releases that have updates or are not yet indexed")
+        self.btn_chip_updates.setCursor(Qt.PointingHandCursor)
+        self.btn_chip_updates.setStyleSheet("""
+            QPushButton {
+                font-size: 11px;
+                font-weight: 600;
+                color: #C2410C;
+                background-color: #FFF7ED;
+                border: 1px solid #FDBA74;
+                border-radius: 4px;
+                padding: 3px 8px;
+            }
+            QPushButton:hover {
+                background-color: #FFEDD5;
+                border-color: #FB923C;
+            }
+        """)
+        self.btn_chip_updates.clicked.connect(self._select_updates_and_new)
+        chips_layout.addWidget(self.btn_chip_updates)
+
+        self.btn_chip_all = QPushButton("⭐ All Releases")
+        self.btn_chip_all.setToolTip("Select the latest version of all releases")
+        self.btn_chip_all.setCursor(Qt.PointingHandCursor)
+        self.btn_chip_all.setStyleSheet("""
+            QPushButton {
+                font-size: 11px;
+                font-weight: 600;
+                color: #0369A1;
+                background-color: #F0F9FF;
+                border: 1px solid #BAE6FD;
+                border-radius: 4px;
+                padding: 3px 8px;
+            }
+            QPushButton:hover {
+                background-color: #E0F2FE;
+            }
+        """)
+        self.btn_chip_all.clicked.connect(self._select_all)
+        chips_layout.addWidget(self.btn_chip_all)
+
+        self.btn_chip_r18 = QPushButton("Rel-18+")
+        self.btn_chip_r18.setToolTip("Select Release 18 and newer (5G-Advanced & 6G)")
+        self.btn_chip_r18.setCursor(Qt.PointingHandCursor)
+        self.btn_chip_r18.setStyleSheet("""
+            QPushButton {
+                font-size: 11px;
+                font-weight: 600;
+                color: #4338CA;
+                background-color: #EEF2FF;
+                border: 1px solid #C7D2FE;
+                border-radius: 4px;
+                padding: 3px 8px;
+            }
+            QPushButton:hover {
+                background-color: #E0E7FF;
+            }
+        """)
+        self.btn_chip_r18.clicked.connect(lambda: self._select_min_release(18))
+        chips_layout.addWidget(self.btn_chip_r18)
+
+        self.btn_chip_r17 = QPushButton("Rel-17+")
+        self.btn_chip_r17.setToolTip("Select Release 17 and newer")
+        self.btn_chip_r17.setCursor(Qt.PointingHandCursor)
+        self.btn_chip_r17.setStyleSheet("""
+            QPushButton {
+                font-size: 11px;
+                font-weight: 600;
+                color: #475569;
+                background-color: #F8FAFC;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                padding: 3px 8px;
+            }
+            QPushButton:hover {
+                background-color: #F1F5F9;
+            }
+        """)
+        self.btn_chip_r17.clicked.connect(lambda: self._select_min_release(17))
+        chips_layout.addWidget(self.btn_chip_r17)
+
+        self.btn_chip_clear = QPushButton("◻️ Clear")
+        self.btn_chip_clear.setToolTip("Deselect all releases")
+        self.btn_chip_clear.setCursor(Qt.PointingHandCursor)
+        self.btn_chip_clear.setStyleSheet("""
+            QPushButton {
+                font-size: 11px;
+                font-weight: 500;
+                color: #64748B;
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                padding: 3px 8px;
+            }
+            QPushButton:hover {
+                background-color: #F8FAFC;
+                color: #0F172A;
+            }
+        """)
+        self.btn_chip_clear.clicked.connect(self._clear_selection)
+        chips_layout.addWidget(self.btn_chip_clear)
+
+        chips_layout.addStretch()
+
+        self.lbl_selection_summary = QLabel("Selected: 0 release(s)")
+        self.lbl_selection_summary.setStyleSheet("font-weight: bold; font-size: 11px; color: #0284C7;")
+        chips_layout.addWidget(self.lbl_selection_summary)
+
+        layout.addLayout(chips_layout)
+
+        # Table of Available Releases
+        self.table = QTableWidget()
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels([
+            "Select", "Release", "Latest Version", "Status", "Release Date", "Filename"
+        ])
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                gridline-color: #F1F5F9;
+                font-size: 11px;
+            }
+            QTableWidget::item:selected {
+                background-color: #EBF3FC;
+                color: #0F172A;
+            }
+            QHeaderView::section {
+                background-color: #F8FAFC;
+                border: none;
+                border-bottom: 1px solid #CBD5E1;
+                padding: 4px 6px;
+                font-weight: bold;
+                font-size: 11px;
+                color: #334155;
+            }
+        """)
+        self.table.itemChanged.connect(self._on_table_item_changed)
+        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
+        layout.addWidget(self.table)
+
+        # Options & Ingestion Bar
+        opt_layout = QHBoxLayout()
+        self.chk_auto_supersede = QCheckBox("Auto-supersede older minor versions within the same release (recommended)")
+        self.chk_auto_supersede.setChecked(True)
+        self.chk_auto_supersede.setToolTip(
+            "When checked, ingesting newer versions (e.g. v20.3.0) will automatically remove older\n"
+            "superseded versions (e.g. v20.2.0) of that release from the search index."
+        )
+        self.chk_auto_supersede.setStyleSheet("font-size: 11px; color: #334155; font-weight: 500;")
+        opt_layout.addWidget(self.chk_auto_supersede)
+        opt_layout.addStretch()
+        layout.addLayout(opt_layout)
+
+        # Action Buttons
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(8)
+        btn_box.addStretch()
+
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setCursor(Qt.PointingHandCursor)
+        self.btn_cancel.setStyleSheet("""
+            QPushButton {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 4px;
+                padding: 6px 14px;
+                font-size: 11px;
+                font-weight: 500;
+                color: #334155;
+            }
+            QPushButton:hover {
+                background-color: #F8FAFC;
+            }
+        """)
+        self.btn_cancel.clicked.connect(self.reject)
+        btn_box.addWidget(self.btn_cancel)
+
+        self.btn_ingest = QPushButton("📥 Ingest Selected Releases (0)")
+        self.btn_ingest.setEnabled(False)
+        self.btn_ingest.setCursor(Qt.PointingHandCursor)
+        self.btn_ingest.setStyleSheet("""
+            QPushButton {
+                background-color: #0284C7;
+                color: #FFFFFF;
+                border: 1px solid #0284C7;
+                border-radius: 4px;
+                padding: 6px 16px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #0369A1;
+            }
+            QPushButton:disabled {
+                background-color: #CBD5E1;
+                color: #94A3B8;
+                border-color: #CBD5E1;
+            }
+        """)
+        self.btn_ingest.clicked.connect(self._on_ingest_confirmed)
+        btn_box.addWidget(self.btn_ingest)
+
+        layout.addLayout(btn_box)
+
+    def _on_find_releases(self):
+        raw = self.spec_input.text().strip()
+        if not raw:
+            return
+
+        clean_spec = re.sub(r"^(?:TS|TR)\s*", "", raw, flags=re.IGNORECASE).strip()
+        if re.match(r"^\d{5}$", clean_spec):
+            clean_spec = f"{clean_spec[:2]}.{clean_spec[2:]}"
+        elif re.match(r"^\d{6}$", clean_spec):
+            clean_spec = f"{clean_spec[:2]}.{clean_spec[2:5]}-{clean_spec[5:]}"
+
+        self.current_spec = clean_spec
+
+        # Query metadata
+        spec_details = self.specs_db.get_spec_details(clean_spec) if hasattr(self.specs_db, "get_spec_details") else {}
+        self.current_spec_title = spec_details.get("title", "")
+        self.current_spec_wg = spec_details.get("primary_group", "")
+
+        files = self.specs_db.get_spec_files(clean_spec)
+        if not files:
+            self.table.setRowCount(0)
+            self.lbl_spec_title.setText(f"❌ Specification <b>TS {clean_spec}</b> was not found in 3GPP specifications database.")
+            self.lbl_spec_title.setStyleSheet("color: #DC2626; font-size: 11px;")
+            self.lbl_status_badge.setVisible(False)
+            self._update_selection_count()
+            return
+
+        # Display header
+        title_str = f"<b>TS {clean_spec}</b>"
+        if self.current_spec_title:
+            title_str += f": {self.current_spec_title}"
+        if self.current_spec_wg:
+            title_str += f" — <i>{self.current_spec_wg}</i>"
+        self.lbl_spec_title.setText(title_str)
+        self.lbl_spec_title.setStyleSheet("color: #1E293B; font-size: 11px;")
+
+        # Group files by release
+        rel_files: Dict[str, Dict[str, Any]] = {}
+        for f in files:
+            v_str = str(f.get("version", "")).lstrip("vV").strip()
+            if not v_str:
+                continue
+            rel = extract_major_release(v_str)
+            if rel not in rel_files:
+                rel_files[rel] = f
+
+        # Query currently indexed versions in search_db
+        indexed_rows = self.search_db.get_versions_for_spec(clean_spec)
+        indexed_by_rel: Dict[str, List[str]] = {}
+        for row in indexed_rows:
+            v_str = str(row.get("version", "")).lstrip("vV").strip()
+            rel = extract_major_release(v_str)
+            indexed_by_rel.setdefault(rel, []).append(v_str)
+
+        def _rel_sort_key(rel_str: str) -> int:
+            num = rel_str.replace("Rel-", "").strip()
+            return int(num) if num.isdigit() else -1
+
+        sorted_releases = sorted(rel_files.keys(), key=_rel_sort_key, reverse=True)
+
+        self.releases_data = []
+        updates_count = 0
+        new_count = 0
+        current_count = 0
+
+        for rel in sorted_releases:
+            f = rel_files[rel]
+            avail_ver = str(f.get("version", "")).lstrip("vV").strip()
+            curr_indexed = indexed_by_rel.get(rel, [])
+
+            if not curr_indexed:
+                status = "new"
+                status_text = "🔵 New Release"
+                status_desc = "Not indexed in Spec Search DB yet."
+                new_count += 1
+            elif parse_version_tuple(curr_indexed[0]) < parse_version_tuple(avail_ver):
+                status = "update"
+                status_text = f"🟠 Update (v{curr_indexed[0]} → v{avail_ver})"
+                status_desc = f"Currently indexed v{curr_indexed[0]} is older than available v{avail_ver}."
+                updates_count += 1
+            else:
+                status = "current"
+                status_text = f"🟢 Up to date (v{avail_ver})"
+                status_desc = "Indexed version matches the latest available release."
+                current_count += 1
+
+            self.releases_data.append({
+                "release": rel,
+                "release_num": _rel_sort_key(rel),
+                "version": avail_ver,
+                "status": status,
+                "status_text": status_text,
+                "status_desc": status_desc,
+                "upload_date": f.get("upload_date", ""),
+                "filename": f.get("filename", ""),
+                "url": f.get("url", ""),
+            })
+
+        self.lbl_status_badge.setText(f"{len(self.releases_data)} releases: {updates_count} update(s), {new_count} new, {current_count} current")
+        self.lbl_status_badge.setStyleSheet("""
+            background-color: #F1F5F9;
+            color: #334155;
+            border: 1px solid #CBD5E1;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 10px;
+            font-weight: bold;
+        """)
+        self.lbl_status_badge.setVisible(True)
+
+        self._populate_table()
+        # Default: Select Updates & New
+        self._select_updates_and_new()
+
+    def _populate_table(self):
+        self.table.blockSignals(True)
+        self.table.setRowCount(len(self.releases_data))
+
+        for r, item in enumerate(self.releases_data):
+            chk = QTableWidgetItem()
+            chk.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            chk.setCheckState(Qt.Unchecked)
+            self.table.setItem(r, 0, chk)
+
+            rel_item = QTableWidgetItem(item["release"])
+            rel_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            rel_item.setTextAlignment(Qt.AlignCenter)
+            font_b = QFont()
+            font_b.setBold(True)
+            rel_item.setFont(font_b)
+            self.table.setItem(r, 1, rel_item)
+
+            ver_item = QTableWidgetItem(f"v{item['version']}")
+            ver_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.table.setItem(r, 2, ver_item)
+
+            status_item = QTableWidgetItem(item["status_text"])
+            status_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            status_item.setToolTip(item["status_desc"])
+            if item["status"] == "update":
+                status_item.setForeground(QColor("#C2410C"))
+            elif item["status"] == "new":
+                status_item.setForeground(QColor("#0369A1"))
+            else:
+                status_item.setForeground(QColor("#15803D"))
+            self.table.setItem(r, 3, status_item)
+
+            d_item = QTableWidgetItem(item.get("upload_date", ""))
+            d_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.table.setItem(r, 4, d_item)
+
+            fn_item = QTableWidgetItem(item.get("filename", ""))
+            fn_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.table.setItem(r, 5, fn_item)
+
+        self.table.blockSignals(False)
+
+    def _select_updates_and_new(self):
+        self.table.blockSignals(True)
+        for r, item in enumerate(self.releases_data):
+            chk = self.table.item(r, 0)
+            if chk:
+                chk.setCheckState(Qt.Checked if item["status"] in ("update", "new") else Qt.Unchecked)
+        self.table.blockSignals(False)
+        self._update_selection_count()
+
+    def _select_all(self):
+        self.table.blockSignals(True)
+        for r in range(self.table.rowCount()):
+            chk = self.table.item(r, 0)
+            if chk:
+                chk.setCheckState(Qt.Checked)
+        self.table.blockSignals(False)
+        self._update_selection_count()
+
+    def _select_min_release(self, min_rel: int):
+        self.table.blockSignals(True)
+        for r, item in enumerate(self.releases_data):
+            chk = self.table.item(r, 0)
+            if chk:
+                chk.setCheckState(Qt.Checked if item["release_num"] >= min_rel else Qt.Unchecked)
+        self.table.blockSignals(False)
+        self._update_selection_count()
+
+    def _clear_selection(self):
+        self.table.blockSignals(True)
+        for r in range(self.table.rowCount()):
+            chk = self.table.item(r, 0)
+            if chk:
+                chk.setCheckState(Qt.Unchecked)
+        self.table.blockSignals(False)
+        self._update_selection_count()
+
+    def _on_table_item_changed(self, item: QTableWidgetItem):
+        if item.column() == 0:
+            self._update_selection_count()
+
+    def _on_cell_double_clicked(self, row: int, col: int):
+        chk = self.table.item(row, 0)
+        if chk:
+            new_st = Qt.Unchecked if chk.checkState() == Qt.Checked else Qt.Checked
+            chk.setCheckState(new_st)
+            self._update_selection_count()
+
+    def _update_selection_count(self):
+        selected = 0
+        for r in range(self.table.rowCount()):
+            chk = self.table.item(r, 0)
+            if chk and chk.checkState() == Qt.Checked:
+                selected += 1
+
+        self.lbl_selection_summary.setText(f"Selected: {selected} release(s)")
+        self.btn_ingest.setText(f"📥 Ingest Selected Releases ({selected})")
+        self.btn_ingest.setEnabled(selected > 0)
+
+    def _on_ingest_confirmed(self):
+        self.selected_tasks = []
+        for r, item in enumerate(self.releases_data):
+            chk = self.table.item(r, 0)
+            if chk and chk.checkState() == Qt.Checked:
+                self.selected_tasks.append({
+                    "spec_number": self.current_spec,
+                    "version": item["version"],
+                    "filename": item["filename"],
+                    "file_url": item["url"],
+                    "release_date": item["upload_date"],
+                    "spec_title": self.current_spec_title or "",
+                })
+
+        if not self.selected_tasks:
+            return
+
+        self.auto_replace_older = self.chk_auto_supersede.isChecked()
+        self.accept()
 
 
 # Backward compatibility alias for extracted diff dialog

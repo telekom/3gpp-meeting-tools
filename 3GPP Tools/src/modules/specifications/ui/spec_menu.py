@@ -846,6 +846,12 @@ def show_spec_context_menu(tab, position):
             lambda _, s=spec_num, v=clean_ver: tab.index_in_spec_search_requested.emit(s, v)
         )
 
+        smart_index_action = menu.addAction(f"⭐ Index Latest Releases of TS {spec_num}...")
+        smart_index_action.setToolTip(f"Check and ingest latest versions of all releases for TS {spec_num} into Spec Search DB.")
+        smart_index_action.triggered.connect(
+            lambda _, s=spec_num: tab.smart_index_in_spec_search_requested.emit(s)
+        )
+
         menu.addSeparator()
 
         spec_target_dir = Path(tab.download_dir) / spec_num
