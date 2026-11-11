@@ -13,13 +13,13 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
     QFrame, QMessageBox, QWidget, QAbstractItemView, QProgressBar,
-    QFileDialog, QApplication, QButtonGroup,
+    QFileDialog, QApplication, QButtonGroup, QSplitter, QTextEdit,
 )
 
 from core.utils.company_sanitizer import CompanySanitizer
@@ -305,6 +305,11 @@ class TopicInputsViewerDialog(QDialog):
         self.all_contributions: List[Dict[str, Any]] = []
         self.ls_tracker = CrossWgLiaisonTracker()
 
+        self._displayed_decisions: List[TopicDecision] = []
+        self._displayed_contribs: List[Dict[str, Any]] = []
+        self._displayed_ls: List[Dict[str, Any]] = []
+        self._current_detail_text: str = ""
+
         self._collector_worker: Optional[InputsCollectorThread] = None
 
         self._init_ui()
@@ -551,9 +556,72 @@ class TopicInputsViewerDialog(QDialog):
         self.table_dist.verticalHeader().setVisible(False)
         self.tabs.addTab(self.table_dist, "📊 WG && Round Distribution")
 
-        layout.addWidget(self.tabs, 1)
+        # 5. Collapsible Agreement & Decision Detail Reader Drawer
+        self.drawer_widget = QFrame()
+        self.drawer_widget.setStyleSheet("background-color: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 8px;")
+        drawer_layout = QVBoxLayout(self.drawer_widget)
+        drawer_layout.setContentsMargins(10, 8, 10, 8)
+        drawer_layout.setSpacing(6)
 
-        # 5. Bottom Action Ribbon
+        hdr_layout = QHBoxLayout()
+        self.lbl_drawer_title = QLabel("📖 Decision & Agreement Detail Reader")
+        self.lbl_drawer_title.setStyleSheet("font-weight: bold; font-size: 12px; color: #1E293B;")
+
+        self.lbl_drawer_provenance = QLabel("")
+        self.lbl_drawer_provenance.setStyleSheet("background-color: #DCFCE7; color: #166534; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #BBF7D0;")
+        self.lbl_drawer_provenance.setVisible(False)
+
+        self.btn_copy_agreement_text = QPushButton("📋 Copy Verbatim Text")
+        self.btn_copy_agreement_text.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_copy_agreement_text.setToolTip("Copy the full verbatim agreement text or contribution summary to clipboard")
+        self.btn_copy_agreement_text.clicked.connect(self._on_copy_detail_text)
+
+        self.btn_toggle_drawer = QPushButton("▲ Collapse")
+        self.btn_toggle_drawer.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_toggle_drawer.clicked.connect(self._toggle_drawer)
+
+        hdr_layout.addWidget(self.lbl_drawer_title)
+        hdr_layout.addWidget(self.lbl_drawer_provenance)
+        hdr_layout.addStretch()
+        hdr_layout.addWidget(self.btn_copy_agreement_text)
+        hdr_layout.addWidget(self.btn_toggle_drawer)
+        drawer_layout.addLayout(hdr_layout)
+
+        self.detail_text_edit = QTextEdit()
+        self.detail_text_edit.setReadOnly(True)
+        self.detail_text_edit.setMinimumHeight(90)
+        self.detail_text_edit.setMaximumHeight(220)
+        self.detail_text_edit.setStyleSheet("""
+            QTextEdit {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 6px;
+                padding: 8px;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-size: 11px;
+                color: #1E293B;
+            }
+        """)
+        self.detail_text_edit.setPlaceholderText("Select a decision, contribution, or liaison statement from the table above to read the full text, verbatim agreement wording, and technical provenance.")
+        drawer_layout.addWidget(self.detail_text_edit)
+
+        # Connect table selection change events
+        self.table_decisions.itemSelectionChanged.connect(self._on_decision_selection_changed)
+        self.table_contributions.itemSelectionChanged.connect(self._on_contribution_selection_changed)
+        self.table_ls.itemSelectionChanged.connect(self._on_ls_selection_changed)
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+
+        # Vertical Splitter
+        self.splitter = QSplitter(Qt.Vertical)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.addWidget(self.tabs)
+        self.splitter.addWidget(self.drawer_widget)
+        self.splitter.setStretchFactor(0, 3)
+        self.splitter.setStretchFactor(1, 1)
+
+        layout.addWidget(self.splitter, 1)
+
+        # 6. Bottom Action Ribbon
         action_layout = QHBoxLayout()
 
         self.btn_open_doc = QPushButton("📄 Open Document")
@@ -773,6 +841,7 @@ class TopicInputsViewerDialog(QDialog):
         self._populate_ls_table(filtered_ls)
 
     def _populate_decisions_table(self, decisions: List[TopicDecision]):
+        self._displayed_decisions = list(decisions)
         self.table_decisions.setRowCount(len(decisions))
         self.table_decisions.setColumnCount(8)
         self.table_decisions.setHorizontalHeaderLabels([
@@ -863,7 +932,16 @@ class TopicInputsViewerDialog(QDialog):
             ai_item.setTextAlignment(Qt.AlignCenter)
             self.table_decisions.setItem(row, 7, ai_item)
 
+        if decisions:
+            self.table_decisions.selectRow(0)
+        else:
+            if self.tabs.currentIndex() == 0:
+                self.detail_text_edit.clear()
+                self.lbl_drawer_provenance.setVisible(False)
+                self._current_detail_text = ""
+
     def _populate_contributions_table(self, contribs: List[Dict[str, Any]]):
+        self._displayed_contribs = list(contribs)
         self.table_contributions.setRowCount(len(contribs))
         self.table_contributions.setColumnCount(9)
         self.table_contributions.setHorizontalHeaderLabels([
@@ -933,7 +1011,11 @@ class TopicInputsViewerDialog(QDialog):
             co_item.setToolTip(c.get("source", ""))
             self.table_contributions.setItem(row, 8, co_item)
 
+        if contribs and self.tabs.currentIndex() == 1:
+            self.table_contributions.selectRow(0)
+
     def _populate_ls_table(self, ls_contribs: List[Dict[str, Any]]):
+        self._displayed_ls = list(ls_contribs)
         self.table_ls.setRowCount(len(ls_contribs))
         self.table_ls.setColumnCount(8)
         self.table_ls.setHorizontalHeaderLabels([
@@ -977,6 +1059,164 @@ class TopicInputsViewerDialog(QDialog):
             self.table_ls.setItem(row, 5, QTableWidgetItem(c.get("status", "")))
             self.table_ls.setItem(row, 6, QTableWidgetItem(raw.get("Reply to", "") or raw.get("reply_to", "") or "—"))
             self.table_ls.setItem(row, 7, QTableWidgetItem(raw.get("Reply in", "") or raw.get("reply_in", "") or "—"))
+
+        if ls_contribs and self.tabs.currentIndex() == 2:
+            self.table_ls.selectRow(0)
+
+    def _toggle_drawer(self):
+        is_hidden = self.detail_text_edit.isHidden()
+        self.detail_text_edit.setVisible(is_hidden)
+        self.btn_toggle_drawer.setText("▲ Collapse" if is_hidden else "▼ Expand")
+
+    def _on_copy_detail_text(self):
+        text = self._current_detail_text or self.detail_text_edit.toPlainText().strip()
+        if text:
+            app = QApplication.instance()
+            if app:
+                app.clipboard().setText(text)
+            self.lbl_drawer_title.setText("📖 Decision & Agreement Detail Reader — 📋 Copied!")
+            QTimer.singleShot(2000, lambda: self.lbl_drawer_title.setText("📖 Decision & Agreement Detail Reader"))
+
+    def _on_decision_selection_changed(self):
+        row = self.table_decisions.currentRow()
+        if row < 0 or row >= len(self._displayed_decisions):
+            return
+        d = self._displayed_decisions[row]
+        self._current_detail_text = d.title_or_summary
+
+        if d.decision_type in ("Text Agreement", "Working Assumption"):
+            prov_text = f"🟢 {d.decision_type} (Chairman's Notes)"
+            prov_style = "background-color: #DCFCE7; color: #166534; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #BBF7D0;"
+        elif d.decision_type in ("Approved pCR", "Approved CR"):
+            prov_text = f"🟢 {d.decision_type} (Approved Document)"
+            prov_style = "background-color: #ECFDF5; color: #065F46; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #A7F3D0;"
+        else:
+            prov_text = f"{d.badge_icon} {d.decision_type}"
+            prov_style = "background-color: #F1F5F9; color: #334155; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #CBD5E1;"
+
+        self.lbl_drawer_provenance.setText(prov_text)
+        self.lbl_drawer_provenance.setStyleSheet(prov_style)
+        self.lbl_drawer_provenance.setVisible(True)
+
+        meta_parts = [
+            f"<b>WG:</b> {d.wg}",
+            f"<b>Meeting:</b> #{d.meeting_number} ({d.date or 'N/A'})",
+            f"<b>AI:</b> <code>{d.ai or 'N/A'}</code>",
+        ]
+        if d.target_spec:
+            meta_parts.append(f"<b>Spec:</b> <code>{d.target_spec}</code>")
+        if d.wi:
+            meta_parts.append(f"<b>WI:</b> <code>{d.wi}</code>")
+        if d.tdoc_id:
+            meta_parts.append(f"<b>TDoc / Background Proposal:</b> <b>{d.tdoc_id}</b> ({d.status})")
+
+        html_lines = [
+            f"<p style='margin:0 0 6px 0; font-size:11px;'>{' &nbsp;|&nbsp; '.join(meta_parts)}</p>"
+        ]
+
+        if d.decision_type in ("Text Agreement", "Working Assumption"):
+            html_lines.append(
+                "<div style='background-color:#F0FDF4; border-left:3px solid #16A34A; padding:4px 8px; margin-bottom:8px; font-size:11px; color:#166534;'>"
+                "<b>Binding Consensus:</b> In 3GPP RAN Working Groups, only the verbatim text below recorded in the Chairman's Notes represents formal consensus. Cited background proposal was Noted.</div>"
+            )
+        elif d.decision_type in ("Approved pCR", "Approved CR"):
+            html_lines.append(
+                f"<div style='background-color:#ECFDF5; border-left:3px solid #059669; padding:4px 8px; margin-bottom:8px; font-size:11px; color:#065F46;'>"
+                f"<b>Approved Specification Change:</b> The full document attachment of <b>{d.tdoc_id}</b> was formally approved as a baseline change for <code>{d.target_spec}</code>.</div>"
+            )
+
+        verbatim_html = d.title_or_summary.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
+        html_lines.append(f"<div style='background-color:#FFFFFF; border:1px solid #CBD5E1; border-radius:4px; padding:8px; font-family:Consolas, monospace; font-size:11px; line-height:1.4;'>{verbatim_html}</div>")
+
+        self.detail_text_edit.setHtml("".join(html_lines))
+
+    def _on_contribution_selection_changed(self):
+        row = self.table_contributions.currentRow()
+        if row < 0 or row >= len(self._displayed_contribs):
+            return
+        c = self._displayed_contribs[row]
+        tid = c.get("tdoc_id", "")
+        raw = c.get("raw_row", {})
+        abstract = raw.get("Abstract", "") or raw.get("abstract", "") or raw.get("Secretary Remarks", "")
+
+        text_parts = [f"{tid}: {c.get('title', '')}", f"Source: {c.get('source', '')}", f"Type: {c.get('type', '')} | Status: {c.get('status', '')}"]
+        if abstract:
+            text_parts.append(f"\nAbstract / Remarks:\n{abstract}")
+        self._current_detail_text = "\n".join(text_parts)
+
+        self.lbl_drawer_provenance.setText(f"📄 {c.get('type', 'TDoc')} ({c.get('status', 'N/A')})")
+        self.lbl_drawer_provenance.setStyleSheet("background-color: #F1F5F9; color: #334155; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #CBD5E1;")
+        self.lbl_drawer_provenance.setVisible(True)
+
+        meta_parts = [
+            f"<b>TDoc:</b> <b>{tid}</b>",
+            f"<b>WG:</b> {c.get('wg')} #{c.get('meeting_number')}",
+            f"<b>AI:</b> <code>{c.get('ai')}</code>",
+            f"<b>Source:</b> {c.get('source')}",
+            f"<b>Status:</b> {c.get('status')}",
+        ]
+        if c.get("wi"):
+            meta_parts.append(f"<b>WI:</b> <code>{c.get('wi')}</code>")
+        if c.get("spec"):
+            meta_parts.append(f"<b>Spec:</b> <code>{c.get('spec')}</code>")
+
+        html_lines = [
+            f"<p style='margin:0 0 4px 0; font-size:11px;'>{' &nbsp;|&nbsp; '.join(meta_parts)}</p>",
+            f"<p style='margin:0 0 6px 0; font-size:12px; font-weight:bold; color:#1E293B;'>{c.get('title')}</p>",
+        ]
+        if abstract:
+            abs_html = abstract.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
+            html_lines.append(f"<div style='background-color:#FFFFFF; border:1px solid #CBD5E1; border-radius:4px; padding:8px; font-size:11px;'><b>Abstract / Remarks:</b><br/>{abs_html}</div>")
+
+        self.detail_text_edit.setHtml("".join(html_lines))
+
+    def _on_ls_selection_changed(self):
+        row = self.table_ls.currentRow()
+        if row < 0 or row >= len(self._displayed_ls):
+            return
+        c = self._displayed_ls[row]
+        tid = c.get("tdoc_id", "")
+        raw = c.get("raw_row", {})
+        reply_to = raw.get("Reply to", "") or raw.get("reply_to", "") or "—"
+        reply_in = raw.get("Reply in", "") or raw.get("reply_in", "") or "—"
+
+        self._current_detail_text = (
+            f"Liaison Statement: {tid}\nTitle: {c.get('title')}\nSource: {c.get('source')}\n"
+            f"Reply To: {reply_to}\nReply In: {reply_in}\nStatus: {c.get('status')}"
+        )
+
+        t_type = c.get("type", "")
+        is_in = "in" in t_type.lower()
+        dir_text = "📥 LS IN" if is_in else "📤 LS OUT"
+
+        self.lbl_drawer_provenance.setText(f"{dir_text} ({c.get('status', 'N/A')})")
+        self.lbl_drawer_provenance.setStyleSheet("background-color: #EDE9FE; color: #5B21B6; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #DDD6FE;")
+        self.lbl_drawer_provenance.setVisible(True)
+
+        meta_parts = [
+            f"<b>Liaison Statement:</b> <b>{tid}</b> ({dir_text})",
+            f"<b>WG:</b> {c.get('wg')} #{c.get('meeting_number')}",
+            f"<b>Source:</b> {c.get('source')}",
+            f"<b>Status:</b> {c.get('status')}",
+        ]
+        html_lines = [
+            f"<p style='margin:0 0 4px 0; font-size:11px;'>{' &nbsp;|&nbsp; '.join(meta_parts)}</p>",
+            f"<p style='margin:0 0 6px 0; font-size:12px; font-weight:bold; color:#1E293B;'>{c.get('title')}</p>",
+            f"<p style='margin:0; font-size:11px; color:#475569;'><b>Reply To:</b> <code>{reply_to}</code> &nbsp;|&nbsp; <b>Reply In:</b> <code>{reply_in}</code></p>",
+        ]
+        self.detail_text_edit.setHtml("".join(html_lines))
+
+    def _on_tab_changed(self, idx: int):
+        if idx == 0:
+            self._on_decision_selection_changed()
+        elif idx == 1:
+            self._on_contribution_selection_changed()
+        elif idx == 2:
+            self._on_ls_selection_changed()
+        else:
+            self.detail_text_edit.clear()
+            self.lbl_drawer_provenance.setVisible(False)
+            self._current_detail_text = ""
 
     def _populate_distribution_table(self):
         wgs = sorted(list(self.topic.target_wgs))

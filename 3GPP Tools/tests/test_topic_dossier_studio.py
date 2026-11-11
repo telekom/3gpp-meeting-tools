@@ -868,6 +868,74 @@ class TestTopicPillWidgets(unittest.TestCase):
 
         dlg.close()
 
+    def test_agreement_detail_reader_drawer(self):
+        from PyQt5.QtWidgets import QApplication
+        from unittest.mock import MagicMock
+        from modules.meetings.ui.dialogs.topic_inputs_dialog import TopicInputsViewerDialog
+
+        app = QApplication.instance() or QApplication([])
+        mock_db = MagicMock()
+        topic = MetaTopicDefinition(id="t_drawer", name="Drawer Test", target_wgs=["RAN2"])
+        round_1 = MeetingCohort(
+            key="2026-Q1", year=2026, quarter=1, label="Feb 2026 Meeting Round",
+            meetings=[{"wg_name": "RAN2", "meeting_number": "133", "start_date": "2026-02-09"}],
+            wgs_present={"RAN2"},
+        )
+        dlg = TopicInputsViewerDialog(
+            meetings_db=mock_db,
+            topic=topic,
+            selected_rounds=[round_1],
+        )
+        if dlg._collector_worker:
+            dlg._collector_worker.cancel()
+            dlg._collector_worker.wait(1000)
+
+        dec = TopicDecision(
+            cohort_key="2026-Q1", wg="RAN2", meeting_number="133", date="2026-02-09",
+            decision_type="Text Agreement",
+            title_or_summary="Agreements\n1 Study long-cycle and bursty traffic.",
+            tdoc_id="R2-2600942", ai="10.3.2.1",
+        )
+
+        dlg._populate_decisions_table([dec])
+
+        # Verify drawer populated
+        self.assertIn("Text Agreement (Chairman's Notes)", dlg.lbl_drawer_provenance.text())
+        html = dlg.detail_text_edit.toHtml()
+        self.assertIn("Study long-cycle and bursty traffic.", html)
+        self.assertIn("RAN2", html)
+        self.assertIn("R2-2600942", html)
+
+        # Verify toggle collapse/expand
+        self.assertFalse(dlg.detail_text_edit.isHidden())
+        self.assertEqual(dlg.btn_toggle_drawer.text(), "▲ Collapse")
+        dlg._toggle_drawer()
+        self.assertTrue(dlg.detail_text_edit.isHidden())
+        self.assertEqual(dlg.btn_toggle_drawer.text(), "▼ Expand")
+        dlg._toggle_drawer()
+        self.assertFalse(dlg.detail_text_edit.isHidden())
+        self.assertEqual(dlg.btn_toggle_drawer.text(), "▲ Collapse")
+
+        # Verify copy text
+        dlg._on_copy_detail_text()
+        self.assertEqual(app.clipboard().text(), dec.title_or_summary)
+
+        # Verify contribution selection
+        contrib = {
+            "tdoc_id": "R2-2601999", "wg": "RAN2", "meeting_number": "133",
+            "type": "Discussion", "status": "Noted", "title": "Discussion Paper on 6G",
+            "source": "T-Mobile", "ai": "10.3.2.1",
+            "raw_row": {"Abstract": "Proposal for data transfer."},
+        }
+        dlg._populate_contributions_table([contrib])
+        dlg.tabs.setCurrentIndex(1)
+        dlg.table_contributions.selectRow(0)
+        c_html = dlg.detail_text_edit.toHtml()
+        self.assertIn("Discussion Paper on 6G", c_html)
+        self.assertIn("Proposal for data transfer.", c_html)
+
+        dlg.close()
+
 
 if __name__ == "__main__":
     unittest.main()

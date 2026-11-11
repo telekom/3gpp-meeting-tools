@@ -592,6 +592,18 @@ src/modules/meetings/
     - `🟢 Text Agreement (Notes)`: Tooltip explicitly states: *Binding Consensus Text (Chairman's Notes AI X.Y) — In RAN WGs, only the verbatim text in Chairman's Notes is binding consensus; background proposal was Noted.*
     - `🟢 Approved pCR (Doc)` / `🟢 Approved CR (Doc)`: Tooltip highlights: *Approved Specification Change (TDoc ID) — Full document attachment approved as baseline change for TS/TR X.*
 
+### 3.21. Collapsible Agreement & Decision Detail Reader Drawer (`TopicInputsViewerDialog` in `topic_inputs_dialog.py`)
+- **Problem Solved:** Technical decisions from Chairman's Notes often span multiple complex paragraphs, numbered agreement lists, and conditional scoping statements that are truncated inside compact table rows. Delegates need to read the full text with clear typography, inspect its procedural context, and quickly copy the verbatim wording for drafting contributions or sending meeting reports.
+- **Embedded Vertical Splitter & Ergonomics:**
+  - Integrates a bottom reader drawer (`self.drawer_widget`) coupled to the tabbed tables via `QSplitter(Qt.Vertical)` (`setChildrenCollapsible(False)`), allowing delegates to adjust the vertical boundary smoothly according to content length.
+  - Features a collapsible drawer toggle (`▲ Collapse` $\leftrightarrow$ `▼ Expand`) and 1-click **`📋 Copy Verbatim Text`** action with an ephemeral confirmation badge (`📖 Decision & Agreement Detail Reader — 📋 Copied!`).
+- **Reactive Selection Synchronization:**
+  - **Decisions Table Selection (`_on_decision_selection_changed`):** Renders the decision provenance badge (`🟢 Text Agreement (Chairman's Notes)` or `🟢 Approved pCR (Approved Document)`), metadata attribute line (WG, Meeting, Date, AI, Spec, WI, Background Proposal), consensus nature callout, and the full multi-line verbatim text in a styled monospace container (`Consolas`).
+  - **Contributions Table Selection (`_on_contribution_selection_changed`):** Displays document type/status badges, metadata, contribution title in bold, and formatted abstract / secretary remarks.
+  - **Liaison Statements Table Selection (`_on_ls_selection_changed`):** Displays direction badge (`📥 LS IN` / `📤 LS OUT`), title, source company, status, and full inter-WG reply threading metadata (`Reply To: S2-2601999`, `Reply In: R2-2602100`).
+  - Automatically synchronizes display when switching between tabs (`_on_tab_changed`), or clears when no row is selected.
+
+
 
 
 
