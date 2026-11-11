@@ -671,13 +671,14 @@ cd 3gpp-meeting-tools/3GPP\ Tools
 The repository's launch scripts are pre-configured to automatically run via `py -3.14`:
 
 ```bash
-# Using the Windows batch launcher (recommended — invokes py -3.14 automatically):
+# Using the Windows batch launcher (recommended — auto-detects Python 3.14, 3.x, or system python):
 .\src\Launch.cmd
 
 # Or directly via PowerShell with proper PYTHONPATH:
 $env:PYTHONPATH = ".;.\src;$env:PYTHONPATH"
 py -3.14 -m main_tools
 ```
+*Automatic Startup Dependency Validation:* Upon launch, the application checks whether all required packages in `requirements.txt` are installed. If any packages are missing, it provides 1-click automatic installation on Windows desktop and exact, actionable pip commands in the terminal instead of cryptic crashes.
 *Upon first launch, the app will automatically download the latest `plantuml.jar` from GitHub if it is not present in your assets folder.*
 
 ---

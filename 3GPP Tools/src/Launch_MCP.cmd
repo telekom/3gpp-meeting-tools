@@ -7,10 +7,27 @@ cd /d "%~dp0.."
 :: Ensure both root and src/ are in PYTHONPATH
 set "PYTHONPATH=%CD%;%CD%\src;%PYTHONPATH%"
 
-:: Prefer py -3.14 when available, otherwise fall back to python
-where py >nul 2>nul
+:: Detect available Python interpreter (prefer py -3.14, then py -3, then python)
+set "PY_CMD="
+py -3.14 --version >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
-    py -3.14 -m mcp_server %*
+    set "PY_CMD=py -3.14"
 ) else (
-    python -m mcp_server %*
+    py -3 --version >nul 2>nul
+    if %ERRORLEVEL% EQU 0 (
+        set "PY_CMD=py -3"
+    ) else (
+        where python >nul 2>nul
+        if %ERRORLEVEL% EQU 0 (
+            set "PY_CMD=python"
+        )
+    )
 )
+
+if "%PY_CMD%"=="" (
+    echo [ERROR] No Python interpreter found!
+    echo Please install 64-bit Python 3.10+ from https://www.python.org/
+    exit /b 1
+)
+
+%PY_CMD% -m mcp_server %*

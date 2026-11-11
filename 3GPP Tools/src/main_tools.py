@@ -4,6 +4,18 @@ import logging
 import os
 import sys
 import urllib.request
+from pathlib import Path
+
+# Ensure `src/` and project root are on sys.path even when launched directly
+_SRC_DIR = Path(__file__).resolve().parent
+_ROOT_DIR = _SRC_DIR.parent
+for _p in (str(_ROOT_DIR), str(_SRC_DIR)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+# Verify all required dependencies before importing any third-party modules
+from core.utils.dependency_checker import check_dependencies_or_exit
+check_dependencies_or_exit()
 
 from PyQt5.QtWidgets import QApplication, QDialog
 

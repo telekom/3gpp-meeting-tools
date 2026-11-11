@@ -31,9 +31,16 @@ Dependencies are managed via `requirements.txt`:
 pip install -r requirements.txt
 ```
 
+#### Startup Dependency Validation (`src/core/utils/dependency_checker.py`)
+To prevent cryptic `ModuleNotFoundError` crashes at launch, all entry points (`main_tools.py`, `cli_tools.py`, `mcp_server.py`) perform an instant (<2ms), zero-dependency startup check before evaluating heavy or third-party imports.
+- **Missing Dependency Detection:** Fast module resolution via `importlib.util.find_spec` and version constraint verification against `requirements.txt`.
+- **Actionable Reporting:** Prints a clean ASCII banner indicating the exact active Python interpreter (`sys.executable`), missing package names, and the exact copy-pasteable pip install command.
+- **Clipboard & 1-Click Repair:** On Windows desktop launches, copies the repair command to the clipboard and presents an interactive `MessageBoxW` dialog offering 1-click automatic installation via pip.
+- **Safe Headless/CLI Operation:** Headless environments (MCP stdio, CLI, CI) bypass modal dialogs and log clean diagnostic error messages to `sys.stderr` without corrupting stdout streams.
+
 Launch the application:
 ```powershell
-# Using the Windows batch launcher:
+# Using the Windows batch launcher (auto-detects Python 3.14, 3.x, or system python):
 .\src\Launch.cmd
 
 # Or directly via Python with proper PYTHONPATH:

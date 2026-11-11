@@ -37,6 +37,10 @@ for _p in (str(_ROOT_DIR), str(_SRC_DIR)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+# Verify required dependencies before importing domain modules (strict stdio isolation)
+from core.utils.dependency_checker import check_dependencies_or_exit
+check_dependencies_or_exit(allow_gui=False, interactive=False, stream=sys.stderr)
+
 from core.utils.paths import ensure_app_data_dirs, get_project_root
 from core.ai.mcp_activity import (
     heartbeat_mcp_session,

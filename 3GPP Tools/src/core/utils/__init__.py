@@ -1,3 +1,10 @@
+# --- File: src/core/utils/__init__.py ---
+from core.utils.dependency_checker import (
+    check_dependencies,
+    check_dependencies_or_exit,
+    check_missing_dependencies,
+    format_dependency_report,
+)
 from core.utils.portal_utils import (
     PORTAL_BASE_URL,
     extract_base_tdoc,
