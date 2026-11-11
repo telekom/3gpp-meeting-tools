@@ -147,6 +147,53 @@ class TestMetaTopicManager(unittest.TestCase):
         self.assertTrue(del_ok)
         self.assertIsNone(self.manager.get_topic(cloned.id))
 
+    def test_deletion_persistence_never_reappears(self):
+        """Verify that deleted topics do NOT reappear when manager is reloaded."""
+        # Delete built-in ambient IoT
+        self.assertIsNotNone(self.manager.get_topic("rel19_ambient_iot"))
+        ok = self.manager.delete_topic("rel19_ambient_iot")
+        self.assertTrue(ok)
+        self.assertIsNone(self.manager.get_topic("rel19_ambient_iot"))
+
+        # Re-instantiate manager pointing to same config
+        mgr2 = MetaTopicManager(config_path=self.config_path)
+        self.assertIsNone(mgr2.get_topic("rel19_ambient_iot"), "Deleted topic must NOT reappear on reload")
+
+    def test_empty_topics_persistence(self):
+        """Verify that deleting all topics stays empty and does not recreate defaults."""
+        for t in list(self.manager.list_topics()):
+            self.manager.delete_topic(t.id)
+
+        self.assertEqual(len(self.manager.list_topics()), 0)
+
+        # Reload manager
+        mgr2 = MetaTopicManager(config_path=self.config_path)
+        self.assertEqual(len(mgr2.list_topics()), 0, "Empty topic list must persist without re-seeding defaults")
+
+    def test_restore_default_topics(self):
+        """Verify non-destructive restore of built-in factory topics."""
+        # Add custom topic
+        custom = MetaTopicDefinition(id="my_custom", name="My Custom Topic")
+        self.manager.save_topic(custom)
+
+        # Delete all other topics
+        for t in list(self.manager.list_topics()):
+            if t.id != "my_custom":
+                self.manager.delete_topic(t.id)
+
+        self.assertEqual(len(self.manager.list_topics()), 1)
+        self.assertIsNotNone(self.manager.get_topic("my_custom"))
+
+        # Restore defaults
+        restored_count = self.manager.restore_default_topics(overwrite=False)
+        self.assertGreater(restored_count, 0)
+
+        # Custom topic must still be intact
+        self.assertIsNotNone(self.manager.get_topic("my_custom"))
+        # Factory presets should now be back
+        self.assertIsNotNone(self.manager.get_topic("rel19_ambient_iot"))
+        self.assertIsNotNone(self.manager.get_topic("rel20_data_framework"))
+
 
 class TestMeetingCohortResolver(unittest.TestCase):
     def test_cohort_key_parsing(self):

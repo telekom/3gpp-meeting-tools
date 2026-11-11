@@ -394,26 +394,32 @@ class TopicDossierDialog(QDialog):
         # Toolbar under topics list
         t_btn_layout = QGridLayout()
         t_btn_layout.setSpacing(4)
-        btn_new = QPushButton("➕ New")
-        btn_new.setStyleSheet(STYLE_SECONDARY_BTN)
-        btn_new.clicked.connect(self._on_new_topic)
-        t_btn_layout.addWidget(btn_new, 0, 0)
+        self.btn_new = QPushButton("➕ New")
+        self.btn_new.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_new.clicked.connect(self._on_new_topic)
+        t_btn_layout.addWidget(self.btn_new, 0, 0)
 
-        btn_edit = QPushButton("✏️ Edit")
-        btn_edit.setStyleSheet(STYLE_SECONDARY_BTN)
-        btn_edit.clicked.connect(self._on_edit_topic)
-        t_btn_layout.addWidget(btn_edit, 0, 1)
+        self.btn_edit = QPushButton("✏️ Edit")
+        self.btn_edit.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_edit.clicked.connect(self._on_edit_topic)
+        t_btn_layout.addWidget(self.btn_edit, 0, 1)
 
-        btn_clone = QPushButton("📋 Clone")
-        btn_clone.setStyleSheet(STYLE_SECONDARY_BTN)
-        btn_clone.clicked.connect(self._on_clone_topic)
-        t_btn_layout.addWidget(btn_clone, 1, 0)
+        self.btn_clone = QPushButton("📋 Clone")
+        self.btn_clone.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_clone.clicked.connect(self._on_clone_topic)
+        t_btn_layout.addWidget(self.btn_clone, 1, 0)
 
-        btn_del = QPushButton("🗑️ Delete")
-        btn_del.setStyleSheet(STYLE_SECONDARY_BTN)
-        btn_del.clicked.connect(self._on_delete_topic)
-        t_btn_layout.addWidget(btn_del, 1, 1)
+        self.btn_del = QPushButton("🗑️ Delete")
+        self.btn_del.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_del.clicked.connect(self._on_delete_topic)
+        t_btn_layout.addWidget(self.btn_del, 1, 1)
         left_layout.addLayout(t_btn_layout)
+
+        self.btn_restore = QPushButton("🔄 Restore Built-in Topics...")
+        self.btn_restore.setToolTip("Restore standard 3GPP topics (Ambient IoT, AI/ML Phase 2, 6G Architecture, Network Energy Savings, Data Framework) without overwriting custom topics.")
+        self.btn_restore.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_restore.clicked.connect(self._on_restore_defaults)
+        left_layout.addWidget(self.btn_restore)
 
         root_layout.addWidget(left_frame)
 
@@ -540,16 +546,42 @@ class TopicDossierDialog(QDialog):
 
         self._set_scope_mode("pre_meeting")
 
-    def _load_topics_list(self):
+    def _load_topics_list(self, preferred_id: Optional[str] = None, preferred_index: Optional[int] = None):
+        self.list_topics.blockSignals(True)
         self.list_topics.clear()
         topics = self.topic_manager.list_topics()
-        for t in topics:
+        selected_row = -1
+        for idx, t in enumerate(topics):
             item = QListWidgetItem(f"{t.name}")
             item.setToolTip(f"{t.description}\nWGs: {', '.join(t.target_wgs)}")
             self.list_topics.addItem(item)
+            if preferred_id and t.id == preferred_id:
+                selected_row = idx
+
+        self.list_topics.blockSignals(False)
 
         if topics:
-            self.list_topics.setCurrentRow(0)
+            self.btn_edit.setEnabled(True)
+            self.btn_clone.setEnabled(True)
+            self.btn_del.setEnabled(True)
+            self.btn_export.setEnabled(True)
+            if selected_row >= 0:
+                self.list_topics.setCurrentRow(selected_row)
+            elif preferred_index is not None and 0 <= preferred_index < len(topics):
+                self.list_topics.setCurrentRow(preferred_index)
+            else:
+                self.list_topics.setCurrentRow(0)
+        else:
+            self.active_topic = None
+            self.lbl_topic_title.setText("No Topics Defined")
+            self.lbl_topic_desc.setText("Click '➕ New' or '🔄 Restore Built-in Topics...' to get started.")
+            self.edit_dest_folder.clear()
+            self.selected_cohorts = []
+            self.btn_edit.setEnabled(False)
+            self.btn_clone.setEnabled(False)
+            self.btn_del.setEnabled(False)
+            self.btn_export.setEnabled(False)
+            self.lbl_cohorts_summary.setText("No active topic selected.")
 
     def _on_topic_selected(self, row: int):
         topics = self.topic_manager.list_topics()
@@ -566,6 +598,16 @@ class TopicDossierDialog(QDialog):
 
             self._update_cohorts_preview()
             self._check_incremental_status()
+            self.btn_edit.setEnabled(True)
+            self.btn_clone.setEnabled(True)
+            self.btn_del.setEnabled(True)
+            self.btn_export.setEnabled(True)
+        else:
+            self.active_topic = None
+            self.btn_edit.setEnabled(False)
+            self.btn_clone.setEnabled(False)
+            self.btn_del.setEnabled(False)
+            self.btn_export.setEnabled(False)
 
     def _set_scope_mode(self, mode: str):
         self.scope_mode = mode
@@ -641,7 +683,7 @@ class TopicDossierDialog(QDialog):
         dlg = TopicEditorDialog(meetings_db=self.meetings_db, parent=self)
         if dlg.exec_() == QDialog.Accepted:
             self.topic_manager.save_topic(dlg.result_topic)
-            self._load_topics_list()
+            self._load_topics_list(preferred_id=dlg.result_topic.id)
 
     def _on_edit_topic(self):
         if not self.active_topic:
@@ -649,26 +691,45 @@ class TopicDossierDialog(QDialog):
         dlg = TopicEditorDialog(topic=self.active_topic, meetings_db=self.meetings_db, parent=self)
         if dlg.exec_() == QDialog.Accepted:
             self.topic_manager.save_topic(dlg.result_topic)
-            self._load_topics_list()
+            self._load_topics_list(preferred_id=dlg.result_topic.id)
 
     def _on_clone_topic(self):
         if not self.active_topic:
             return
-        self.topic_manager.clone_topic(self.active_topic.id)
-        self._load_topics_list()
+        new_topic = self.topic_manager.clone_topic(self.active_topic.id)
+        preferred_id = new_topic.id if new_topic else None
+        self._load_topics_list(preferred_id=preferred_id)
 
     def _on_delete_topic(self):
         if not self.active_topic:
             return
+        cur_row = self.list_topics.currentRow()
         ret = QMessageBox.question(
             self,
             "Confirm Delete",
-            f"Are you sure you want to delete topic '{self.active_topic.name}'?",
+            f"Are you sure you want to delete topic '{self.active_topic.name}'?\n\nThis will permanently remove it from your saved topics.",
             QMessageBox.Yes | QMessageBox.No,
         )
         if ret == QMessageBox.Yes:
             self.topic_manager.delete_topic(self.active_topic.id)
+            remaining = self.topic_manager.list_topics()
+            next_idx = max(0, min(cur_row, len(remaining) - 1)) if remaining else None
+            self._load_topics_list(preferred_index=next_idx)
+
+    def _on_restore_defaults(self):
+        ret = QMessageBox.question(
+            self,
+            "Restore Built-in Topics",
+            "Would you like to restore standard built-in 3GPP topics (Ambient IoT, AI/ML Phase 2, 6G Architecture, Network Energy Savings, Data Framework) to your list?\n\nAny custom topics you created will be preserved.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if ret == QMessageBox.Yes:
+            count = self.topic_manager.restore_default_topics(overwrite=False)
             self._load_topics_list()
+            if count > 0:
+                QMessageBox.information(self, "Topics Restored", f"{count} built-in topic(s) were restored to your list.")
+            else:
+                QMessageBox.information(self, "Topics Restored", "All built-in topics are already present in your list.")
 
     def _on_start_export(self):
         if not self.active_topic:

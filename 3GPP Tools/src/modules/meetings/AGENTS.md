@@ -490,7 +490,10 @@ src/modules/meetings/
 
 ### 3.17. Cross-WG, Multi-Meeting Topic Dossier & Briefing Studio (`meta_topics.json`, `topic_manager.py`, `cohort_resolver.py`, `topic_decision.py`, `cross_wg_ls_tracker.py`, `topic_dossier_exporter.py`, `topic_dossier_dialog.py`)
 - **Problem Solved:** Major 3GPP initiatives (Ambient IoT, AI/ML Phase 2, 6G Architecture, Network Energy Savings) span across multiple Working Groups (SA2 architecture, RAN2/RAN3 radio & protocols, CT1 NAS/URSP, SA3 security) and across 6–10 consecutive quarterly meeting cycles. Individual single-meeting exports fail to capture the multi-WG evolution or inter-group dialogue.
-- **Persistent Meta-Topics (`src/config/meta_topics.json`, `topic_manager.py`):**
+- **Persistent Meta-Topics (`src/config/meta_topics.json`, `src/config/meta_topics_user.json`, `topic_manager.py`):**
+  - Architecture cleanly separates factory presets (`src/config/meta_topics.json`, tracked in Git) from active user modifications (`src/config/meta_topics_user.json`, Git-ignored, mirrored to `~/3GPP_Delegate_Helper/meta_topics_user.json`).
+  - Additions, edits, and deletions permanently persist in the user configuration files, completely immune to Git updates, checkouts, or repository wipes.
+  - Built-in factory presets can be restored non-destructively in 1 click (`🔄 Restore Built-in Topics...`), safely preserving any custom topics.
   - User and built-in semantic topic definitions (`MetaTopicDefinition`, `MetaTopicRules`).
   - Correlates contributions using: (1) normalized Work Item / Study Item tokens (`ambientiot`, `fs_ambientiot`), (2) WG-specific Agenda Item wildcard patterns (`SA2: 5.14*`, `RAN2: 8.7*`, `CT1: 6.18*`), (3) title/abstract keywords, and (4) manual pinned/excluded TDoc IDs.
   - Features CRUD operations (`list_topics`, `save_topic`, `clone_topic`, `delete_topic`) with atomic JSON persistence and built-in templates.
@@ -514,7 +517,7 @@ src/modules/meetings/
   - Accessible via **`MeetingsTab` $\rightarrow$ `📊 Reports ▾` $\rightarrow$ `🌐 Cross-WG Topic Dossier && Briefing Studio...`**.
   - Fully independent, modeless top-level window (`Qt.Window`, `Qt.NonModal`) with window-modal sub-dialogs, allowing delegates to freely interact with `MeetingsTab`, open `TDocsWindow`, and inspect documents concurrently.
   - Modeless 2-column studio:
-    - Left: Saved Meta-Topics list with `+ New`, `✏️ Edit`, `📋 Clone`, `🗑️ Delete`.
+    - Left: Saved Meta-Topics list with `+ New`, `✏️ Edit`, `📋 Clone`, `🗑️ Delete`, and `🔄 Restore Built-in Topics...`. Automatically manages action button states when topics list is empty, and preserves selection index across deletes.
     - Right: Topic Runner, Scope Mode segmented buttons (`🧭 Pre-Meeting Briefing`, `📑 Post-Meeting Report`, `📚 Complete Feature Dossier`), Cohort Window picker, Incremental folder status badge (`🟢 Existing Corpus` vs `🆕 New Directory`), live progress bar, and 1-click `📂 Open Output Folder`.
 
 ### 3.18. Cross-WG Agenda Item (AI) Auto-Discovery & Suggestion Engine (`ai_suggester.py`, `ai_suggestion_dialog.py`, `topic_dossier_dialog.py`)
