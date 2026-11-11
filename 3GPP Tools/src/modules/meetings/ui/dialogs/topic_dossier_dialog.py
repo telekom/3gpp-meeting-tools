@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import (
     QDateEdit,
 )
 
+from core.ui.flow_layout import FlowLayout
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 from core.utils.paths import get_project_root, to_extended_path
 from modules.meetings.core.cohort_resolver import (
@@ -39,6 +40,11 @@ from modules.meetings.core.topic_manager import (
     MetaTopicDefinition,
     MetaTopicManager,
     MetaTopicRules,
+)
+from modules.meetings.ui.topic_pills import (
+    WgTogglePill,
+    TagCloudWidget,
+    AgendaItemPillsWidget,
 )
 
 ALL_COMMON_WGS = ["SA2", "RAN2", "RAN3", "CT1", "RAN1", "SA3", "CT3", "CT4", "SA1", "SA4", "SA5", "RAN4"]
@@ -126,7 +132,7 @@ class TopicEditorDialog(QDialog):
         super().__init__(parent)
         self.setWindowModality(Qt.WindowModal)
         self.setWindowTitle("Edit Meta-Topic Definition" if topic else "New Meta-Topic")
-        self.resize(640, 560)
+        self.resize(700, 660)
         self.topic = topic
         self.meetings_db = meetings_db
         self._init_ui()
@@ -148,50 +154,54 @@ class TopicEditorDialog(QDialog):
         grid.addWidget(self.edit_desc, 1, 1)
         layout.addLayout(grid)
 
-        # Target WGs
-        wg_box = QGroupBox("Target Working Groups")
-        wg_layout = QHBoxLayout(wg_box)
+        # Target WGs (Toggle Pills)
+        wg_box = QGroupBox("Target Working Groups (Click to Toggle)")
+        wg_layout = FlowLayout(wg_box, margin=8, h_spacing=6, v_spacing=6)
         self.wg_checks = {}
         target_set = set(self.topic.target_wgs) if self.topic else {"SA2", "RAN2", "CT1"}
         for wg in ALL_COMMON_WGS:
-            cb = QCheckBox(wg)
-            cb.setChecked(wg in target_set)
-            self.wg_checks[wg] = cb
-            wg_layout.addWidget(cb)
+            pill = WgTogglePill(wg, checked=(wg in target_set))
+            pill.toggled.connect(self._on_wg_toggled)
+            self.wg_checks[wg] = pill
+            wg_layout.addWidget(pill)
         layout.addWidget(wg_box)
 
         # Rules Group
         rules_box = QGroupBox("Matching Rules (Auto-Discovery)")
         r_layout = QVBoxLayout(rules_box)
+        r_layout.setSpacing(8)
 
-        r_layout.addWidget(QLabel("Work Item / Study Item Tokens (comma-separated):"))
-        cur_wi = ", ".join(self.topic.rules.wi_tokens) if self.topic else ""
-        self.edit_wi = QLineEdit(cur_wi)
-        self.edit_wi.setPlaceholderText("e.g. ambientiot, ambientiot_ph2, fs_ambientiot")
+        r_layout.addWidget(QLabel("Work Item / Study Item Tokens (Tag Cloud):"))
+        self.edit_wi = TagCloudWidget(placeholder="Type WI/SI token and press Enter or comma (e.g. ambientiot, fs_6g_df)...")
+        if self.topic and self.topic.rules.wi_tokens:
+            self.edit_wi.setText(", ".join(self.topic.rules.wi_tokens))
         r_layout.addWidget(self.edit_wi)
 
-        r_layout.addWidget(QLabel("Agenda Item Patterns per WG (format: WG: patterns, comma-separated):"))
-        ai_layout = QHBoxLayout()
-        ai_lines = []
-        if self.topic and self.topic.rules.ai_patterns:
-            for wg, pats in self.topic.rules.ai_patterns.items():
-                ai_lines.append(f"{wg}: {', '.join(pats)}")
-        self.edit_ai = QLineEdit("; ".join(ai_lines))
-        self.edit_ai.setPlaceholderText("e.g. SA2: 5.14*, 5.12*; RAN2: 8.7*; CT1: 6.18*")
-        ai_layout.addWidget(self.edit_ai, 1)
-
+        ai_header_layout = QHBoxLayout()
+        ai_header_layout.addWidget(QLabel("Agenda Item Patterns per Working Group:"))
+        ai_header_layout.addStretch()
         btn_suggest = QPushButton("🔍 Auto-Suggest AIs...")
         btn_suggest.setToolTip("Auto-discover and recommend matching Agenda Items across target Working Groups")
         btn_suggest.setStyleSheet(STYLE_SECONDARY_BTN)
         btn_suggest.clicked.connect(self._on_suggest_ais)
-        ai_layout.addWidget(btn_suggest)
+        ai_header_layout.addWidget(btn_suggest)
+        r_layout.addLayout(ai_header_layout)
 
-        r_layout.addLayout(ai_layout)
+        self.edit_ai = AgendaItemPillsWidget()
+        active_wgs = [wg for wg, p in self.wg_checks.items() if p.isChecked()]
+        self.edit_ai.set_active_wgs(active_wgs)
 
-        r_layout.addWidget(QLabel("Keywords in Title / Abstract (comma-separated):"))
-        cur_kw = ", ".join(self.topic.rules.keywords) if self.topic else ""
-        self.edit_kw = QLineEdit(cur_kw)
-        self.edit_kw.setPlaceholderText("e.g. ambient iot, zero energy, passive iot")
+        ai_lines = []
+        if self.topic and self.topic.rules.ai_patterns:
+            for wg, pats in self.topic.rules.ai_patterns.items():
+                ai_lines.append(f"{wg}: {', '.join(pats)}")
+        self.edit_ai.setText("; ".join(ai_lines))
+        r_layout.addWidget(self.edit_ai)
+
+        r_layout.addWidget(QLabel("Keywords in Title / Abstract (Tag Cloud):"))
+        self.edit_kw = TagCloudWidget(placeholder="Type keyword and press Enter or comma (e.g. data framework, zero power)...")
+        if self.topic and self.topic.rules.keywords:
+            self.edit_kw.setText(", ".join(self.topic.rules.keywords))
         r_layout.addWidget(self.edit_kw)
 
         layout.addWidget(rules_box)
@@ -209,6 +219,10 @@ class TopicEditorDialog(QDialog):
         btn_save.clicked.connect(self._on_save)
         btn_layout.addWidget(btn_save)
         layout.addLayout(btn_layout)
+
+    def _on_wg_toggled(self, checked: bool):
+        active_wgs = [wg for wg, p in self.wg_checks.items() if p.isChecked()]
+        self.edit_ai.set_active_wgs(active_wgs)
 
     def _on_suggest_ais(self):
         """Opens AiSuggestionDialog and applies recommended AIs."""

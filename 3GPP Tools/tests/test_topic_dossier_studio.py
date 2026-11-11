@@ -628,5 +628,79 @@ class TestConsideredInputsAndMeetingRounds(unittest.TestCase):
         dlg.close()
 
 
+class TestTopicPillWidgets(unittest.TestCase):
+    def test_wg_toggle_pill(self):
+        from PyQt5.QtWidgets import QApplication
+        from modules.meetings.ui.topic_pills import WgTogglePill
+
+        app = QApplication.instance() or QApplication([])
+        pill = WgTogglePill("SA2", checked=False)
+        self.assertFalse(pill.isChecked())
+        self.assertIn("+ SA2", pill.text())
+
+        pill.setChecked(True)
+        self.assertTrue(pill.isChecked())
+        self.assertIn("✓ SA2", pill.text())
+
+    def test_tag_cloud_widget(self):
+        from PyQt5.QtWidgets import QApplication
+        from modules.meetings.ui.topic_pills import TagCloudWidget
+
+        app = QApplication.instance() or QApplication([])
+        cloud = TagCloudWidget()
+        cloud.setText("ambientiot, ambientiot_ph2, fs_ambientiot")
+        self.assertEqual(cloud.tags(), ["ambientiot", "ambientiot_ph2", "fs_ambientiot"])
+        self.assertEqual(cloud.text(), "ambientiot, ambientiot_ph2, fs_ambientiot")
+
+        cloud.add_tag("new_tag")
+        self.assertIn("new_tag", cloud.tags())
+
+        cloud.remove_tag("ambientiot_ph2")
+        self.assertNotIn("ambientiot_ph2", cloud.tags())
+
+    def test_agenda_item_pills_widget(self):
+        from PyQt5.QtWidgets import QApplication
+        from modules.meetings.ui.topic_pills import AgendaItemPillsWidget
+
+        app = QApplication.instance() or QApplication([])
+        ai_widget = AgendaItemPillsWidget()
+        ai_widget.setText("SA2: 20.6.21*, 5.14*; RAN2: 9.3.3.1*")
+        pats = ai_widget.patterns_map()
+        self.assertEqual(pats["SA2"], ["20.6.21*", "5.14*"])
+        self.assertEqual(pats["RAN2"], ["9.3.3.1*"])
+
+        ai_widget.add_pattern("CT4", "21.5*")
+        self.assertIn("21.5*", ai_widget.patterns_map()["CT4"])
+
+        ai_widget.remove_pattern("SA2", "5.14*")
+        self.assertEqual(ai_widget.patterns_map()["SA2"], ["20.6.21*"])
+
+    def test_topic_editor_dialog_pill_integration(self):
+        from PyQt5.QtWidgets import QApplication
+        from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicEditorDialog
+
+        app = QApplication.instance() or QApplication([])
+        topic = MetaTopicDefinition(
+            id="test_ambient",
+            name="Ambient IoT",
+            target_wgs=["SA2", "RAN2"],
+            rules=MetaTopicRules(
+                wi_tokens=["ambientiot"],
+                ai_patterns={"SA2": ["5.14*"], "RAN2": ["8.7*"]},
+                keywords=["ambient iot"],
+            ),
+        )
+        dlg = TopicEditorDialog(topic=topic)
+        self.assertTrue(dlg.wg_checks["SA2"].isChecked())
+        self.assertTrue(dlg.wg_checks["RAN2"].isChecked())
+        self.assertFalse(dlg.wg_checks["CT4"].isChecked())
+
+        self.assertEqual(dlg.edit_wi.text(), "ambientiot")
+        self.assertIn("5.14*", dlg.edit_ai.text())
+        self.assertIn("8.7*", dlg.edit_ai.text())
+        self.assertEqual(dlg.edit_kw.text(), "ambient iot")
+        dlg.close()
+
+
 if __name__ == "__main__":
     unittest.main()

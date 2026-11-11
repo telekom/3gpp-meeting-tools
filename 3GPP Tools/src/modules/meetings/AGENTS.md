@@ -538,9 +538,13 @@ src/modules/meetings/
   - Inferred metadata banner: Surfaces discovered procedural context (e.g. `💡 Inferred from known AI: SA2 20.6.21 ('Study on Architecture for 6G System - 6G data framework')`).
   - Quick action shortcuts: `✅ Select High Confidence`, `Select All`, `Clear Selection`.
   - Live preview bar generating canonical rule strings (e.g. `SA2: 20.6.21*; RAN2: 9.3.3.1*, 10.3.3.1*; RAN3: 10.2.3*; SA5: 6.20.6.3*; CT4: 21.5*`).
-- **Topic Editor Integration (`TopicEditorDialog` in `topic_dossier_dialog.py`):**
+- **Topic Editor Integration (`TopicEditorDialog` in `topic_dossier_dialog.py`, `topic_pills.py`):**
   - Features dedicated **`🔍 Auto-Suggest AIs...`** action button next to the Agenda Item pattern field.
   - Automatically detects known AI patterns from `edit_ai`, infers topic keywords and Work Item codes, passes them to `AiSuggestionDialog`, and non-destructively merges accepted recommendations into existing rules while auto-populating empty keyword and Work Item fields.
+  - **Pill & Tag UI Architecture (`topic_pills.py`):**
+    - `WgTogglePill`: Checkable pill chips for Working Groups with group-specific color palettes (SA blue `#DBEAFE`/`#1E40AF`, RAN purple `#EDE9FE`/`#5B21B6`, CT teal `#CCFBF1`/`#0F766E`), dynamically toggling between `✓ WG` and `+ WG`.
+    - `TagCloudWidget`: Interactive token input displaying Work Items and Keywords as removable pill chips (`[ token ✕ ]`) with inline entry, supporting comma/Enter ingestion, copy-paste parsing, and backspace removal.
+    - `AgendaItemPillsWidget`: Per-WG grouped Agenda Item pattern manager displaying active Working Groups, removable pattern chips (`[ 20.6.21* ✕ ]`), inline `+ Add AI` quick-entry, and dynamic visibility synchronization with Target WG toggles.
 
 ### 3.19. Considered Inputs & Decisions Viewer (`TopicInputsViewerDialog` in `topic_inputs_dialog.py`) & Flexible Meeting Timeframe Scope
 - **Problem Solved:** Delegates need to inspect, filter, verify, and cross-reference all candidate technical decisions (Chairman's Notes text agreements, Approved pCRs, Approved CRs, Endorsed Way Forwards, Working Assumptions), contributions, and Liaison Statements before or instead of running a full Markdown dossier export. Furthermore, 3GPP delegates operate in synchronized **"Meeting Rounds"** / **"Meeting Cycles"** (e.g. Feb 2026, May 2026, Aug 2026, Nov 2026) and specific calendar date ranges rather than artificial calendar quarters or epidemiological "cohorts".
