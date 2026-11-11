@@ -564,7 +564,10 @@ src/modules/meetings/
   - **Modeless Architecture (`Qt.Window`, `Qt.NonModal`):** Runs independently alongside `MeetingsTab` and the main window, allowing delegates to keep the inspector open while browsing other meetings or reading TDocs in parallel.
   - **Asynchronous Data Harvesting (`InputsCollectorThread`):** Scans all target Working Groups across selected meeting rounds in the background with progress reporting, keeping the GUI responsive and buttery smooth.
   - **Executive KPI Strip:** Live metric counters for Total Inputs, Technical Decisions && Agreements, Inter-WG Liaisons, Discussion Papers, and Participating WGs.
-  - **Multi-Faceted Search & Filters:** Instant full-text search across TDoc IDs, titles, companies, agenda items, and decision texts, combined with dropdown filters for Working Group, Category (Decisions Only, Text Agreements, Approved pCRs, Approved CRs, Liaisons, Discussions), and Meeting Round.
+  - **Multi-Faceted Search & Quick-Filter Pill Bar:** Instant full-text search across TDoc IDs, titles, companies, agenda items, and decision texts, combined with an interactive 2-row Quick-Filter Pill Bar (`FilterPillButton`):
+    - *Row 1 (Working Groups):* `[ All WGs ]`, `[ SA2 (N) ]`, `[ RAN2 (N) ]`, `[ RAN3 (N) ]`, `[ CT4 (N) ]`, `[ SA5 (N) ]` with group family color badges and live document count indicators.
+    - *Row 2 (Categories):* `[ All Inputs ]`, `[ 🟢 Decisions (N) ]`, `[ 📝 Agreements (N) ]`, `[ 📑 Approved pCRs (N) ]`, `[ ✅ Approved CRs (N) ]`, `[ 📬 Liaisons (N) ]`, `[ 📄 Discussions (N) ]`.
+    - Single-click toggle immediately refreshes the active tab's table, with `↺ Reset` for 1-click filter clearing.
   - **Tabbed Visualization Panels:**
     - `⚖️ Technical Decisions && Agreements`: Unified chronological register of approved pCRs, CRs, text agreements, and endorsed WFs with status color badges and hover summaries.
     - `📄 All Considered Contributions`: Complete inventory of all scoped TDocs with TDoc ID, WG, Meeting, Date, AI, Type, Status, Title, and normalized Source Company.

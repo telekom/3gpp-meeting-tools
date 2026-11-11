@@ -485,3 +485,71 @@ class AgendaItemPillsWidget(QFrame):
 
     def patterns_map(self) -> Dict[str, List[str]]:
         return {k: list(v) for k, v in self._rules.items()}
+
+
+class FilterPillButton(QPushButton):
+    """
+    Clickable, checkable filter pill with title, count badge, and custom color scheme.
+    Used for 1-click filtering by Working Group and Decision Category.
+    """
+    def __init__(self, key: str, label: str, count: Optional[int] = None, colors: Optional[Dict[str, str]] = None, parent=None):
+        super().__init__(parent)
+        self.key = key
+        self.base_label = label
+        self._count = count
+        self.colors = colors or {
+            "bg_active": "#2563EB",
+            "fg_active": "#FFFFFF",
+            "border_active": "#1D4ED8",
+            "bg_inactive": "#FFFFFF",
+            "fg_inactive": "#475569",
+            "border_inactive": "#CBD5E1",
+            "hover": "#F8FAFC",
+        }
+        self.setCheckable(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self._update_text_and_style()
+        self.toggled.connect(self._on_toggled)
+
+    def set_count(self, count: Optional[int]):
+        self._count = count
+        self._update_text_and_style()
+
+    def _on_toggled(self, checked: bool):
+        self._update_text_and_style()
+
+    def _update_text_and_style(self):
+        c = self.colors
+        cnt_str = f" ({self._count})" if self._count is not None and self._count >= 0 else ""
+        self.setText(f"{self.base_label}{cnt_str}")
+        if self.isChecked():
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {c['bg_active']};
+                    color: {c['fg_active']};
+                    border: 1px solid {c['border_active']};
+                    border-radius: 11px;
+                    padding: 3px 10px;
+                    font-size: 11px;
+                    font-weight: bold;
+                }}
+            """)
+        else:
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {c['bg_inactive']};
+                    color: {c['fg_inactive']};
+                    border: 1px solid {c['border_inactive']};
+                    border-radius: 11px;
+                    padding: 3px 10px;
+                    font-size: 11px;
+                    font-weight: 500;
+                }}
+                QPushButton:hover {{
+                    background-color: {c['hover']};
+                    border-color: #94A3B8;
+                    color: #0F172A;
+                }}
+            """)
+

@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
     QFrame, QMessageBox, QWidget, QAbstractItemView, QProgressBar,
-    QFileDialog, QApplication,
+    QFileDialog, QApplication, QButtonGroup,
 )
 
 from core.utils.company_sanitizer import CompanySanitizer
@@ -34,6 +34,7 @@ from modules.meetings.core.topic_decision import (
     normalize_chair_notes_decision_type,
 )
 from modules.meetings.core.topic_manager import MetaTopicDefinition
+from modules.meetings.ui.topic_pills import FilterPillButton, get_wg_colors
 
 logger = logging.getLogger(__name__)
 
@@ -397,28 +398,45 @@ class TopicInputsViewerDialog(QDialog):
         p_layout.addWidget(self.prog_bar, 1)
         layout.addWidget(self.prog_frame)
 
-        # 3. Interactive Filter Strip
+        # 3. Interactive Filter Strip & Quick-Filter Pill Bars
         filter_frame = QFrame()
-        filter_frame.setStyleSheet("background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px;")
-        f_layout = QHBoxLayout(filter_frame)
-        f_layout.setContentsMargins(8, 6, 8, 6)
-        f_layout.setSpacing(10)
+        filter_frame.setStyleSheet("background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px;")
+        filter_layout = QVBoxLayout(filter_frame)
+        filter_layout.setContentsMargins(10, 8, 10, 8)
+        filter_layout.setSpacing(8)
 
-        f_layout.addWidget(QLabel("<b>Search:</b>"))
+        # Row 1: Search + Meeting Round Selector + Reset
+        search_row = QHBoxLayout()
+        search_row.setSpacing(10)
+
+        search_row.addWidget(QLabel("<b>🔍 Search:</b>"))
         self.edit_filter = QLineEdit()
         self.edit_filter.setPlaceholderText("Filter by TDoc ID, Title, Company, Agenda Item, or Decision text...")
         self.edit_filter.textChanged.connect(self._apply_filters)
-        f_layout.addWidget(self.edit_filter, 3)
+        search_row.addWidget(self.edit_filter, 3)
 
-        f_layout.addWidget(QLabel("<b>WG:</b>"))
+        search_row.addWidget(QLabel("<b>Round:</b>"))
+        self.combo_round_filter = QComboBox()
+        self.combo_round_filter.addItem("All Meeting Rounds")
+        for r in self.rounds:
+            self.combo_round_filter.addItem(r.label)
+        self.combo_round_filter.currentIndexChanged.connect(self._apply_filters)
+        search_row.addWidget(self.combo_round_filter, 2)
+
+        self.btn_reset_filters = QPushButton("↺ Reset")
+        self.btn_reset_filters.setToolTip("Reset all search and filter pills")
+        self.btn_reset_filters.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_reset_filters.clicked.connect(self._reset_filters)
+        search_row.addWidget(self.btn_reset_filters)
+        filter_layout.addLayout(search_row)
+
+        # Dropdown combos maintained for programmatic filtering & backward compatibility
         self.combo_wg_filter = QComboBox()
         self.combo_wg_filter.addItem("All WGs")
         for wg in sorted(self.topic.target_wgs):
             self.combo_wg_filter.addItem(wg)
-        self.combo_wg_filter.currentIndexChanged.connect(self._apply_filters)
-        f_layout.addWidget(self.combo_wg_filter, 1)
+        self.combo_wg_filter.setVisible(False)
 
-        f_layout.addWidget(QLabel("<b>Category:</b>"))
         self.combo_type_filter = QComboBox()
         self.combo_type_filter.addItems([
             "All Inputs",
@@ -429,16 +447,69 @@ class TopicInputsViewerDialog(QDialog):
             "📬 Liaison Statements Only",
             "📄 Discussion Papers Only",
         ])
-        self.combo_type_filter.currentIndexChanged.connect(self._apply_filters)
-        f_layout.addWidget(self.combo_type_filter, 2)
+        self.combo_type_filter.setVisible(False)
 
-        f_layout.addWidget(QLabel("<b>Round:</b>"))
-        self.combo_round_filter = QComboBox()
-        self.combo_round_filter.addItem("All Meeting Rounds")
-        for r in self.rounds:
-            self.combo_round_filter.addItem(r.label)
-        self.combo_round_filter.currentIndexChanged.connect(self._apply_filters)
-        f_layout.addWidget(self.combo_round_filter, 2)
+        # Row 2: Working Group Quick-Filter Pills
+        wg_row = QHBoxLayout()
+        wg_row.setSpacing(6)
+        lbl_wg_title = QLabel("<b>Working Group:</b>")
+        lbl_wg_title.setStyleSheet("font-size: 11px; color: #475569;")
+        lbl_wg_title.setFixedWidth(90)
+        wg_row.addWidget(lbl_wg_title)
+
+        self.wg_pills: Dict[str, FilterPillButton] = {}
+        self.wg_pill_group = QButtonGroup(self)
+        self.wg_pill_group.setExclusive(True)
+
+        pill_all_wg = FilterPillButton("All WGs", "All WGs", count=None)
+        pill_all_wg.setChecked(True)
+        pill_all_wg.toggled.connect(lambda chk: self._on_wg_pill_toggled("All WGs", chk))
+        self.wg_pills["All WGs"] = pill_all_wg
+        self.wg_pill_group.addButton(pill_all_wg)
+        wg_row.addWidget(pill_all_wg)
+
+        for wg in sorted(self.topic.target_wgs):
+            colors = get_wg_colors(wg)
+            pill = FilterPillButton(wg, wg, count=0, colors=colors)
+            pill.toggled.connect(lambda chk, w=wg: self._on_wg_pill_toggled(w, chk))
+            self.wg_pills[wg] = pill
+            self.wg_pill_group.addButton(pill)
+            wg_row.addWidget(pill)
+        wg_row.addStretch()
+        filter_layout.addLayout(wg_row)
+
+        # Row 3: Decision & Input Category Quick-Filter Pills
+        cat_row = QHBoxLayout()
+        cat_row.setSpacing(6)
+        lbl_cat_title = QLabel("<b>Category:</b>")
+        lbl_cat_title.setStyleSheet("font-size: 11px; color: #475569;")
+        lbl_cat_title.setFixedWidth(90)
+        cat_row.addWidget(lbl_cat_title)
+
+        self.cat_pills: Dict[str, FilterPillButton] = {}
+        self.cat_pill_group = QButtonGroup(self)
+        self.cat_pill_group.setExclusive(True)
+
+        cat_defs = [
+            ("All Inputs", "All Inputs", None, None),
+            ("🟢 Decisions Only (Agreements, pCRs, CRs)", "🟢 Decisions", 0, {"bg_active": "#10B981", "fg_active": "#FFFFFF", "border_active": "#059669", "bg_inactive": "#FFFFFF", "fg_inactive": "#047857", "border_inactive": "#A7F3D0", "hover": "#ECFDF5"}),
+            ("Text Agreements Only", "📝 Agreements", 0, {"bg_active": "#10B981", "fg_active": "#FFFFFF", "border_active": "#059669", "bg_inactive": "#FFFFFF", "fg_inactive": "#065F46", "border_inactive": "#A7F3D0", "hover": "#ECFDF5"}),
+            ("Approved pCRs Only", "📑 Approved pCRs", 0, {"bg_active": "#059669", "fg_active": "#FFFFFF", "border_active": "#047857", "bg_inactive": "#FFFFFF", "fg_inactive": "#065F46", "border_inactive": "#6EE7B7", "hover": "#ECFDF5"}),
+            ("Approved CRs Only", "✅ Approved CRs", 0, {"bg_active": "#047857", "fg_active": "#FFFFFF", "border_active": "#065F46", "bg_inactive": "#FFFFFF", "fg_inactive": "#047857", "border_inactive": "#6EE7B7", "hover": "#ECFDF5"}),
+            ("📬 Liaison Statements Only", "📬 Liaisons", 0, {"bg_active": "#7C3AED", "fg_active": "#FFFFFF", "border_active": "#6D28D9", "bg_inactive": "#FFFFFF", "fg_inactive": "#6B21A8", "border_inactive": "#DDD6FE", "hover": "#F5F3FF"}),
+            ("📄 Discussion Papers Only", "📄 Discussions", 0, {"bg_active": "#64748B", "fg_active": "#FFFFFF", "border_active": "#475569", "bg_inactive": "#FFFFFF", "fg_inactive": "#334155", "border_inactive": "#CBD5E1", "hover": "#F8FAFC"}),
+        ]
+
+        for cat_key, cat_label, init_cnt, custom_col in cat_defs:
+            pill = FilterPillButton(cat_key, cat_label, count=init_cnt, colors=custom_col)
+            if cat_key == "All Inputs":
+                pill.setChecked(True)
+            pill.toggled.connect(lambda chk, k=cat_key: self._on_cat_pill_toggled(k, chk))
+            self.cat_pills[cat_key] = pill
+            self.cat_pill_group.addButton(pill)
+            cat_row.addWidget(pill)
+        cat_row.addStretch()
+        filter_layout.addLayout(cat_row)
 
         layout.addWidget(filter_frame)
 
@@ -563,6 +634,33 @@ class TopicInputsViewerDialog(QDialog):
         self.btn_refresh.setEnabled(True)
         QMessageBox.warning(self, "Collection Warning", f"Could not complete scan:\n{error_msg}")
 
+    def _on_wg_pill_toggled(self, wg: str, checked: bool):
+        if checked:
+            idx = self.combo_wg_filter.findText(wg)
+            if idx >= 0:
+                self.combo_wg_filter.blockSignals(True)
+                self.combo_wg_filter.setCurrentIndex(idx)
+                self.combo_wg_filter.blockSignals(False)
+            self._apply_filters()
+
+    def _on_cat_pill_toggled(self, cat_key: str, checked: bool):
+        if checked:
+            idx = self.combo_type_filter.findText(cat_key)
+            if idx >= 0:
+                self.combo_type_filter.blockSignals(True)
+                self.combo_type_filter.setCurrentIndex(idx)
+                self.combo_type_filter.blockSignals(False)
+            self._apply_filters()
+
+    def _reset_filters(self):
+        self.edit_filter.clear()
+        self.combo_round_filter.setCurrentIndex(0)
+        if hasattr(self, "wg_pills") and "All WGs" in self.wg_pills:
+            self.wg_pills["All WGs"].setChecked(True)
+        if hasattr(self, "cat_pills") and "All Inputs" in self.cat_pills:
+            self.cat_pills["All Inputs"].setChecked(True)
+        self._apply_filters()
+
     def _update_kpi_strip(self):
         tot_cnt = len(self.all_contributions)
         dec_cnt = len(self.all_decisions)
@@ -579,6 +677,33 @@ class TopicInputsViewerDialog(QDialog):
         self.tabs.setTabText(0, f"⚖️ Technical Decisions && Agreements ({dec_cnt})")
         self.tabs.setTabText(1, f"📄 All Considered Contributions ({tot_cnt})")
         self.tabs.setTabText(2, f"📬 Inter-WG Liaison Statements ({ls_cnt})")
+
+        # Update WG pill counts
+        if hasattr(self, "wg_pills"):
+            if "All WGs" in self.wg_pills:
+                self.wg_pills["All WGs"].set_count(tot_cnt)
+            for wg, pill in self.wg_pills.items():
+                if wg == "All WGs":
+                    continue
+                cnt = sum(1 for c in self.all_contributions if str(c.get("wg", "")).upper() == wg.upper())
+                pill.set_count(cnt)
+
+        # Update Category pill counts
+        if hasattr(self, "cat_pills"):
+            if "All Inputs" in self.cat_pills:
+                self.cat_pills["All Inputs"].set_count(tot_cnt)
+            if "🟢 Decisions Only (Agreements, pCRs, CRs)" in self.cat_pills:
+                self.cat_pills["🟢 Decisions Only (Agreements, pCRs, CRs)"].set_count(dec_cnt)
+            if "Text Agreements Only" in self.cat_pills:
+                self.cat_pills["Text Agreements Only"].set_count(sum(1 for d in self.all_decisions if d.decision_type == "Text Agreement"))
+            if "Approved pCRs Only" in self.cat_pills:
+                self.cat_pills["Approved pCRs Only"].set_count(sum(1 for d in self.all_decisions if d.decision_type == "Approved pCR"))
+            if "Approved CRs Only" in self.cat_pills:
+                self.cat_pills["Approved CRs Only"].set_count(sum(1 for d in self.all_decisions if d.decision_type == "Approved CR"))
+            if "📬 Liaison Statements Only" in self.cat_pills:
+                self.cat_pills["📬 Liaison Statements Only"].set_count(ls_cnt)
+            if "📄 Discussion Papers Only" in self.cat_pills:
+                self.cat_pills["📄 Discussion Papers Only"].set_count(disc_cnt)
 
     def _apply_filters(self):
         query = self.edit_filter.text().strip().lower()

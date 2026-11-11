@@ -701,6 +701,70 @@ class TestTopicPillWidgets(unittest.TestCase):
         self.assertEqual(dlg.edit_kw.text(), "ambient iot")
         dlg.close()
 
+    def test_filter_pill_button(self):
+        from PyQt5.QtWidgets import QApplication
+        from modules.meetings.ui.topic_pills import FilterPillButton
+
+        app = QApplication.instance() or QApplication([])
+        pill = FilterPillButton("RAN2", "RAN2", count=15)
+        self.assertIn("RAN2 (15)", pill.text())
+        pill.set_count(25)
+        self.assertIn("RAN2 (25)", pill.text())
+        pill.setChecked(True)
+        self.assertTrue(pill.isChecked())
+
+    def test_topic_inputs_viewer_pills_filtering(self):
+        from PyQt5.QtWidgets import QApplication
+        from unittest.mock import MagicMock
+        from modules.meetings.ui.dialogs.topic_inputs_dialog import TopicInputsViewerDialog
+
+        app = QApplication.instance() or QApplication([])
+        mock_db = MagicMock()
+        topic = MetaTopicDefinition(
+            id="test_filter_pills",
+            name="Data Framework & Data Transfer",
+            target_wgs=["SA2", "RAN2"],
+        )
+        round_1 = MeetingCohort(
+            key="2026-Q1",
+            year=2026,
+            quarter=1,
+            label="Feb 2026 Meeting Round",
+            meetings=[{"wg_name": "SA2", "meeting_number": "165", "start_date": "2026-02-16"}],
+            wgs_present={"SA2"},
+        )
+        dlg = TopicInputsViewerDialog(
+            meetings_db=mock_db,
+            topic=topic,
+            selected_rounds=[round_1],
+            scope_mode="full_dossier",
+        )
+        if dlg._collector_worker:
+            dlg._collector_worker.cancel()
+            dlg._collector_worker.wait(1000)
+
+        # Mock sample data
+        dlg.all_contributions = [
+            {"tdoc_id": "S2-2601001", "wg": "SA2", "type": "Discussion", "round_label": "Feb 2026 Meeting Round", "title": "Doc 1"},
+            {"tdoc_id": "R2-2601002", "wg": "RAN2", "type": "Discussion", "round_label": "Feb 2026 Meeting Round", "title": "Doc 2"},
+        ]
+        dlg.all_decisions = [
+            TopicDecision(cohort_key="2026-Q1", wg="SA2", meeting_number="165", date="2026-02-16", decision_type="Approved pCR", title_or_summary="pCR 1", tdoc_id="S2-2601001")
+        ]
+        dlg._update_kpi_strip()
+        self.assertEqual(dlg.wg_pills["SA2"].text(), "SA2 (1)")
+        self.assertEqual(dlg.wg_pills["RAN2"].text(), "RAN2 (1)")
+
+        # Filter by RAN2
+        dlg.wg_pills["RAN2"].setChecked(True)
+        self.assertEqual(dlg.table_contributions.rowCount(), 1)
+        self.assertEqual(dlg.table_contributions.item(0, 0).text(), "R2-2601002")
+
+        # Reset
+        dlg._reset_filters()
+        self.assertEqual(dlg.table_contributions.rowCount(), 2)
+        dlg.close()
+
 
 if __name__ == "__main__":
     unittest.main()
