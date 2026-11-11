@@ -558,5 +558,75 @@ class TestAgendaItemSuggester(unittest.TestCase):
             self.assertIn("Caution: Generic/administrative", r2_ais["7.2.2"].matching_reason)
 
 
+
+class TestConsideredInputsAndMeetingRounds(unittest.TestCase):
+    def test_format_round_label(self):
+        from modules.meetings.core.cohort_resolver import format_round_label, format_cohort_label
+        self.assertEqual(format_round_label("2026-Q1"), "Feb 2026 Meeting Round")
+        self.assertEqual(format_round_label("2026-Q2"), "May 2026 Meeting Round")
+        self.assertEqual(format_round_label("2026-Q3"), "Aug 2026 Meeting Round")
+        self.assertEqual(format_round_label("2026-Q4"), "Nov 2026 Meeting Round")
+        self.assertEqual(format_cohort_label("2026-Q1"), "Feb 2026 Meeting Round")
+
+    def test_date_range_cohort_resolution(self):
+        from unittest.mock import MagicMock
+        mock_db = MagicMock()
+        mock_meetings = [
+            {"wg_name": "SA2", "meeting_number": "160", "start_date": "2024-10-20", "end_date": "2024-10-24"},
+            {"wg_name": "SA2", "meeting_number": "161", "start_date": "2025-02-17", "end_date": "2025-02-21"},
+            {"wg_name": "SA2", "meeting_number": "162", "start_date": "2025-05-19", "end_date": "2025-05-23"},
+            {"wg_name": "SA2", "meeting_number": "163", "start_date": "2025-08-18", "end_date": "2025-08-22"},
+            {"wg_name": "SA2", "meeting_number": "164", "start_date": "2025-10-20", "end_date": "2025-10-24"},
+            {"wg_name": "SA2", "meeting_number": "165", "start_date": "2026-02-16", "end_date": "2026-02-20"},
+        ]
+        mock_db.search_meetings.return_value = mock_meetings
+
+        topic = MetaTopicDefinition(
+            id="test_range",
+            name="Test Range Topic",
+            target_wgs=["SA2"],
+            cycle_mode="date_range",
+            date_from="2025-01-01",
+            date_to="2025-09-30",
+        )
+        resolved = MeetingCohortResolver.resolve_cohorts_for_topic(mock_db, topic)
+        keys = [c.key for c in resolved]
+        self.assertEqual(keys, ["2025-Q1", "2025-Q2", "2025-Q3"])
+
+    def test_topic_inputs_dialog_initialization(self):
+        from PyQt5.QtWidgets import QApplication
+        from unittest.mock import MagicMock
+        from modules.meetings.ui.dialogs.topic_inputs_dialog import TopicInputsViewerDialog
+
+        app = QApplication.instance() or QApplication([])
+
+        mock_db = MagicMock()
+        topic = MetaTopicDefinition(
+            id="test_inputs",
+            name="Data Framework & Data Transfer",
+            target_wgs=["SA2", "RAN2"],
+        )
+        round_1 = MeetingCohort(
+            key="2026-Q1",
+            year=2026,
+            quarter=1,
+            label="Feb 2026 Meeting Round",
+            meetings=[{"wg_name": "SA2", "meeting_number": "165", "start_date": "2026-02-16"}],
+            wgs_present={"SA2"},
+        )
+        dlg = TopicInputsViewerDialog(
+            meetings_db=mock_db,
+            topic=topic,
+            selected_rounds=[round_1],
+            scope_mode="full_dossier",
+            timeframe_label="Feb 2026 Meeting Round",
+        )
+        self.assertIsNotNone(dlg)
+        self.assertEqual(dlg.topic.name, "Data Framework & Data Transfer")
+        self.assertEqual(len(dlg.rounds), 1)
+        self.assertEqual(dlg.tabs.count(), 4)
+        dlg.close()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -57,12 +57,19 @@ def compare_cohort_keys(k1: str, k2: str) -> int:
     return 0
 
 
-def format_cohort_label(key: str) -> str:
-    """Returns a friendly label, e.g. '2025 Q4 Meeting Cycle'."""
+def format_round_label(key: str) -> str:
+    """Returns a natural 3GPP meeting round label, e.g. 'Feb 2026 Meeting Round'."""
     y, q = parse_cohort_key(key)
     if y == 0:
         return key
-    return f"{y} Q{q} Cycle"
+    month_names = {1: "Feb", 2: "May", 3: "Aug", 4: "Nov"}
+    m_name = month_names.get(q, f"Round {q}")
+    return f"{m_name} {y} Meeting Round"
+
+
+def format_cohort_label(key: str) -> str:
+    """Returns a friendly label, e.g. 'Feb 2026 Meeting Round'."""
+    return format_round_label(key)
 
 
 @dataclass
@@ -176,8 +183,8 @@ class MeetingCohortResolver:
             d_to = (topic.date_to or "").strip()
             filtered_meetings = [
                 m for m in raw_meetings
-                if (not d_from or str(m.get("start_date", "")) >= d_from)
-                and (not d_to or str(m.get("end_date", "")) <= d_to)
+                if (not d_from or str(m.get("end_date") or m.get("start_date") or "") >= d_from)
+                and (not d_to or str(m.get("start_date") or m.get("end_date") or "") <= d_to)
             ]
             return cls.cluster_meetings_into_cohorts(filtered_meetings)
 
@@ -189,3 +196,11 @@ class MeetingCohortResolver:
         all_meetings = meetings_db.search_meetings()
         cohorts = cls.cluster_meetings_into_cohorts(all_meetings)
         return [c.key for c in cohorts]
+
+
+# Natural 3GPP Aliases
+MeetingRound = MeetingCohort
+MeetingRoundResolver = MeetingCohortResolver
+get_round_key = get_cohort_key
+parse_round_key = parse_cohort_key
+compare_round_keys = compare_cohort_keys

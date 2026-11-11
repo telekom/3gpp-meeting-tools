@@ -13,12 +13,13 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtCore import Qt, QSize, QDate
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QGroupBox,
     QRadioButton, QCheckBox, QPushButton, QLineEdit, QFileDialog,
     QListWidget, QListWidgetItem, QStackedWidget, QFrame, QScrollArea,
     QWidget, QButtonGroup, QMessageBox, QProgressBar, QComboBox, QTextEdit,
+    QDateEdit,
 )
 
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
@@ -506,24 +507,54 @@ class TopicDossierDialog(QDialog):
         mode_layout.addWidget(self.btn_mode_full)
         right_layout.addWidget(mode_box)
 
-        # 3. Meeting Cohorts / Cycles Picker
-        cycle_box = QGroupBox("Meeting Cycles Scope")
+        # 3. Meeting Scope & Timeframe Picker
+        cycle_box = QGroupBox("Meeting Scope && Timeframe")
         cycle_layout = QGridLayout(cycle_box)
 
-        cycle_layout.addWidget(QLabel("<b>Cohort Window:</b>"), 0, 0)
+        cycle_layout.addWidget(QLabel("<b>Meeting Timeframe:</b>"), 0, 0)
         self.combo_cycle_window = QComboBox()
         self.combo_cycle_window.addItems([
-            "Past 4 Quarters (1 Year)",
-            "Past 8 Quarters (2 Years)",
-            "Release 19 Window (2024–2026)",
-            "All Available Cohorts",
+            "Past 4 Meeting Rounds (~1 Year)",
+            "Past 6 Meeting Rounds (~1.5 Years)",
+            "Past 8 Meeting Rounds (~2 Years)",
+            "Release 20 Timeframe (2025–2027)",
+            "Release 19 Timeframe (2023–2025)",
+            "Release 18 Timeframe (2021–2023)",
+            "📅 Custom Date Range...",
+            "All Available Meetings",
         ])
-        self.combo_cycle_window.currentIndexChanged.connect(self._update_cohorts_preview)
+        self.combo_cycle_window.currentIndexChanged.connect(self._on_timeframe_preset_changed)
         cycle_layout.addWidget(self.combo_cycle_window, 0, 1)
 
-        self.lbl_cohorts_summary = QLabel("Covering: SA2, RAN2, CT1 across 4 meeting cycles")
+        # Date range picker container (shown when "📅 Custom Date Range..." is selected)
+        self.date_range_widget = QWidget()
+        dr_layout = QHBoxLayout(self.date_range_widget)
+        dr_layout.setContentsMargins(0, 2, 0, 2)
+        dr_layout.setSpacing(8)
+
+        dr_layout.addWidget(QLabel("From:"))
+        self.edit_date_from = QDateEdit()
+        self.edit_date_from.setCalendarPopup(True)
+        self.edit_date_from.setDisplayFormat("yyyy-MM-dd")
+        self.edit_date_from.setDate(QDate.currentDate().addYears(-1))
+        self.edit_date_from.dateChanged.connect(self._update_cohorts_preview)
+        dr_layout.addWidget(self.edit_date_from)
+
+        dr_layout.addWidget(QLabel("To:"))
+        self.edit_date_to = QDateEdit()
+        self.edit_date_to.setCalendarPopup(True)
+        self.edit_date_to.setDisplayFormat("yyyy-MM-dd")
+        self.edit_date_to.setDate(QDate.currentDate().addYears(1))
+        self.edit_date_to.dateChanged.connect(self._update_cohorts_preview)
+        dr_layout.addWidget(self.edit_date_to)
+        dr_layout.addStretch()
+
+        self.date_range_widget.setVisible(False)
+        cycle_layout.addWidget(self.date_range_widget, 1, 1)
+
+        self.lbl_cohorts_summary = QLabel("Covering: SA2, RAN2, CT1 across 4 meeting rounds")
         self.lbl_cohorts_summary.setStyleSheet("color: #475569; font-size: 11px;")
-        cycle_layout.addWidget(self.lbl_cohorts_summary, 1, 0, 1, 2)
+        cycle_layout.addWidget(self.lbl_cohorts_summary, 2, 0, 1, 2)
         right_layout.addWidget(cycle_box)
 
         # 4. Target Directory & Incremental State
@@ -579,6 +610,12 @@ class TopicDossierDialog(QDialog):
         action_layout = QHBoxLayout()
         action_layout.addStretch()
 
+        self.btn_view_inputs = QPushButton("👁️ View Considered Inputs...")
+        self.btn_view_inputs.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_view_inputs.setToolTip("Open interactive visual inspector of all candidate decisions, pCRs, CRs, agreements, and liaison statements")
+        self.btn_view_inputs.clicked.connect(self._on_view_considered_inputs)
+        action_layout.addWidget(self.btn_view_inputs)
+
         self.btn_open_folder = QPushButton("📂 Open Output Folder")
         self.btn_open_folder.setStyleSheet(STYLE_SECONDARY_BTN)
         self.btn_open_folder.setEnabled(False)
@@ -614,6 +651,8 @@ class TopicDossierDialog(QDialog):
             self.btn_clone.setEnabled(True)
             self.btn_del.setEnabled(True)
             self.btn_export.setEnabled(True)
+            if hasattr(self, "btn_view_inputs"):
+                self.btn_view_inputs.setEnabled(True)
             if selected_row >= 0:
                 self.list_topics.setCurrentRow(selected_row)
             elif preferred_index is not None and 0 <= preferred_index < len(topics):
@@ -630,6 +669,8 @@ class TopicDossierDialog(QDialog):
             self.btn_clone.setEnabled(False)
             self.btn_del.setEnabled(False)
             self.btn_export.setEnabled(False)
+            if hasattr(self, "btn_view_inputs"):
+                self.btn_view_inputs.setEnabled(False)
             self.lbl_cohorts_summary.setText("No active topic selected.")
 
     def _on_topic_selected(self, row: int):
@@ -651,18 +692,27 @@ class TopicDossierDialog(QDialog):
             self.btn_clone.setEnabled(True)
             self.btn_del.setEnabled(True)
             self.btn_export.setEnabled(True)
+            if hasattr(self, "btn_view_inputs"):
+                self.btn_view_inputs.setEnabled(True)
         else:
             self.active_topic = None
             self.btn_edit.setEnabled(False)
             self.btn_clone.setEnabled(False)
             self.btn_del.setEnabled(False)
             self.btn_export.setEnabled(False)
+            if hasattr(self, "btn_view_inputs"):
+                self.btn_view_inputs.setEnabled(False)
 
     def _set_scope_mode(self, mode: str):
         self.scope_mode = mode
         self.btn_mode_pre.setStyleSheet(STYLE_MODE_ACTIVE if mode == "pre_meeting" else STYLE_MODE_INACTIVE)
         self.btn_mode_post.setStyleSheet(STYLE_MODE_ACTIVE if mode == "post_meeting" else STYLE_MODE_INACTIVE)
         self.btn_mode_full.setStyleSheet(STYLE_MODE_ACTIVE if mode == "full_dossier" else STYLE_MODE_INACTIVE)
+
+    def _on_timeframe_preset_changed(self, idx: int):
+        is_custom = (idx == 6)  # "📅 Custom Date Range..."
+        self.date_range_widget.setVisible(is_custom)
+        self._update_cohorts_preview()
 
     def _update_cohorts_preview(self):
         if not self.active_topic:
@@ -671,25 +721,40 @@ class TopicDossierDialog(QDialog):
         idx = self.combo_cycle_window.currentIndex()
         topic_copy = MetaTopicDefinition.from_dict(self.active_topic.to_dict())
 
-        if idx == 0:  # Past 4 Quarters
+        if idx == 0:  # Past 4 Meeting Rounds (~1 Year)
             topic_copy.cycle_mode = "past_n_cycles"
             topic_copy.past_n_cycles = 4
-        elif idx == 1:  # Past 8 Quarters
+        elif idx == 1:  # Past 6 Meeting Rounds (~1.5 Years)
+            topic_copy.cycle_mode = "past_n_cycles"
+            topic_copy.past_n_cycles = 6
+        elif idx == 2:  # Past 8 Meeting Rounds (~2 Years)
             topic_copy.cycle_mode = "past_n_cycles"
             topic_copy.past_n_cycles = 8
-        elif idx == 2:  # Rel-19 Window
+        elif idx == 3:  # Release 20 Timeframe (2025–2027)
+            topic_copy.cycle_mode = "date_range"
+            topic_copy.date_from = "2025-01-01"
+            topic_copy.date_to = "2027-12-31"
+        elif idx == 4:  # Release 19 Timeframe (2023–2025)
+            topic_copy.cycle_mode = "date_range"
+            topic_copy.date_from = "2023-01-01"
+            topic_copy.date_to = "2025-12-31"
+        elif idx == 5:  # Release 18 Timeframe (2021–2023)
+            topic_copy.cycle_mode = "date_range"
+            topic_copy.date_from = "2021-01-01"
+            topic_copy.date_to = "2023-12-31"
+        elif idx == 6:  # 📅 Custom Date Range...
+            topic_copy.cycle_mode = "date_range"
+            topic_copy.date_from = self.edit_date_from.date().toString("yyyy-MM-dd")
+            topic_copy.date_to = self.edit_date_to.date().toString("yyyy-MM-dd")
+        else:  # All Available Meetings
             topic_copy.cycle_mode = "cycle_range"
-            topic_copy.from_cycle = "2024-Q1"
-            topic_copy.to_cycle = "2026-Q4"
-        else:  # All
-            topic_copy.cycle_mode = "cycle_range"
-            topic_copy.from_cycle = "2020-Q1"
-            topic_copy.to_cycle = "2030-Q4"
+            topic_copy.from_cycle = "2018-Q1"
+            topic_copy.to_cycle = "2035-Q4"
 
         self.selected_cohorts = MeetingCohortResolver.resolve_cohorts_for_topic(self.meetings_db, topic_copy)
         if self.selected_cohorts:
-            first_c = self.selected_cohorts[0].key
-            last_c = self.selected_cohorts[-1].key
+            first_c = self.selected_cohorts[0].label
+            last_c = self.selected_cohorts[-1].label
             total_mtgs = sum(len(c.meetings) for c in self.selected_cohorts)
             mtg_names = []
             for c in self.selected_cohorts[-2:]:
@@ -699,11 +764,11 @@ class TopicDossierDialog(QDialog):
             if len(mtg_names) > 6:
                 preview_str += "..."
             self.lbl_cohorts_summary.setText(
-                f"Resolved: <b>{len(self.selected_cohorts)} Cohort(s)</b> ({first_c} → {last_c}) with <b>{total_mtgs} meetings</b> across {', '.join(sorted(self.active_topic.target_wgs))}.<br/>"
+                f"Resolved: <b>{len(self.selected_cohorts)} Synchronized Meeting Round(s)</b> ({first_c} → {last_c}) with <b>{total_mtgs} meetings</b> across {', '.join(sorted(self.active_topic.target_wgs))}.<br/>"
                 f"<span style='color: #64748B;'>Recent meetings: {preview_str}</span>"
             )
         else:
-            self.lbl_cohorts_summary.setText("No meetings found matching this cohort window and target WGs.")
+            self.lbl_cohorts_summary.setText("No meetings found matching this timeframe and target WGs.")
 
     def _check_incremental_status(self):
         folder_str = self.edit_dest_folder.text().strip()
@@ -780,12 +845,40 @@ class TopicDossierDialog(QDialog):
             else:
                 QMessageBox.information(self, "Topics Restored", "All built-in topics are already present in your list.")
 
+    def _on_view_considered_inputs(self):
+        if not self.active_topic:
+            QMessageBox.warning(self, "No Topic", "Please select a topic.")
+            return
+        if not self.selected_cohorts:
+            QMessageBox.warning(self, "No Meetings", "No meetings found in the selected timeframe.")
+            return
+
+        from modules.meetings.ui.dialogs.topic_inputs_dialog import TopicInputsViewerDialog
+
+        tf_label = self.combo_cycle_window.currentText()
+        if "Custom" in tf_label:
+            tf_label = f"{self.edit_date_from.date().toString('yyyy-MM-dd')} to {self.edit_date_to.date().toString('yyyy-MM-dd')}"
+
+        dlg = TopicInputsViewerDialog(
+            meetings_db=self.meetings_db,
+            topic=self.active_topic,
+            selected_rounds=self.selected_cohorts,
+            scope_mode=self.scope_mode,
+            timeframe_label=tf_label,
+            parent=None,
+        )
+        dlg.export_requested.connect(self._on_start_export)
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+        self._inputs_dlg = dlg
+
     def _on_start_export(self):
         if not self.active_topic:
             QMessageBox.warning(self, "No Topic", "Please select a topic.")
             return
         if not self.selected_cohorts:
-            QMessageBox.warning(self, "No Cohorts", "No meetings found in the selected cohort window.")
+            QMessageBox.warning(self, "No Meetings", "No meetings found in the selected timeframe.")
             return
 
         dest_path = Path(self.edit_dest_folder.text().strip())

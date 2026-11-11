@@ -542,5 +542,32 @@ src/modules/meetings/
   - Features dedicated **`🔍 Auto-Suggest AIs...`** action button next to the Agenda Item pattern field.
   - Automatically detects known AI patterns from `edit_ai`, infers topic keywords and Work Item codes, passes them to `AiSuggestionDialog`, and non-destructively merges accepted recommendations into existing rules while auto-populating empty keyword and Work Item fields.
 
+### 3.19. Considered Inputs & Decisions Viewer (`TopicInputsViewerDialog` in `topic_inputs_dialog.py`) & Flexible Meeting Timeframe Scope
+- **Problem Solved:** Delegates need to inspect, filter, verify, and cross-reference all candidate technical decisions (Chairman's Notes text agreements, Approved pCRs, Approved CRs, Endorsed Way Forwards, Working Assumptions), contributions, and Liaison Statements before or instead of running a full Markdown dossier export. Furthermore, 3GPP delegates operate in synchronized **"Meeting Rounds"** / **"Meeting Cycles"** (e.g. Feb 2026, May 2026, Aug 2026, Nov 2026) and specific calendar date ranges rather than artificial calendar quarters or epidemiological "cohorts".
+- **Natural 3GPP Domain Terminology & Flexible Scope Windowing (`cohort_resolver.py`, `topic_dossier_dialog.py`):**
+  - Replaces "cohort" across all user-facing dialogs, reports, and summaries with natural standards terminology: **"Meeting Scope && Timeframe"**, **"Synchronized Meeting Rounds"**, **"Meeting Cycles"**, and **"Custom Date Range"**.
+  - Provides intuitive preset timeframes:
+    - `Past 4 Meeting Rounds (~1 Year)`
+    - `Past 6 Meeting Rounds (~1.5 Years)`
+    - `Past 8 Meeting Rounds (~2 Years)`
+    - `Release 20 Timeframe (2025–2027)`
+    - `Release 19 Timeframe (2023–2025)`
+    - `Release 18 Timeframe (2021–2023)`
+    - `📅 Custom Date Range...` (revealing inline `From:` and `To:` `QDateEdit` calendar controls)
+    - `All Available Meetings`
+  - `MeetingRoundResolver` (`MeetingCohortResolver`) supports `date_range` filtering against meeting start/end dates.
+- **Modeless Visual Inspector (`TopicInputsViewerDialog` in `topic_inputs_dialog.py`):**
+  - **Modeless Architecture (`Qt.Window`, `Qt.NonModal`):** Runs independently alongside `MeetingsTab` and the main window, allowing delegates to keep the inspector open while browsing other meetings or reading TDocs in parallel.
+  - **Asynchronous Data Harvesting (`InputsCollectorThread`):** Scans all target Working Groups across selected meeting rounds in the background with progress reporting, keeping the GUI responsive and buttery smooth.
+  - **Executive KPI Strip:** Live metric counters for Total Inputs, Technical Decisions && Agreements, Inter-WG Liaisons, Discussion Papers, and Participating WGs.
+  - **Multi-Faceted Search & Filters:** Instant full-text search across TDoc IDs, titles, companies, agenda items, and decision texts, combined with dropdown filters for Working Group, Category (Decisions Only, Text Agreements, Approved pCRs, Approved CRs, Liaisons, Discussions), and Meeting Round.
+  - **Tabbed Visualization Panels:**
+    - `⚖️ Technical Decisions && Agreements`: Unified chronological register of approved pCRs, CRs, text agreements, and endorsed WFs with status color badges and hover summaries.
+    - `📄 All Considered Contributions`: Complete inventory of all scoped TDocs with TDoc ID, WG, Meeting, Date, AI, Type, Status, Title, and normalized Source Company.
+    - `📬 Inter-WG Liaison Statements`: Scoped incoming and outgoing LS tracker with direction badges (`📥 LS IN`, `📤 LS OUT`), reply-to/reply-in correlation.
+    - `📊 WG && Round Distribution`: High-level multi-group matrix comparing document and decision volume across Working Groups and meeting rounds.
+  - **Action Controls:** 1-click `📄 Open Document` (local cache), `🌐 Open on 3GPP Portal`, `📋 Copy Markdown Table` to clipboard, `💾 Export to CSV...`, and `🚀 Proceed to Full Dossier Export...`.
+
+
 
 

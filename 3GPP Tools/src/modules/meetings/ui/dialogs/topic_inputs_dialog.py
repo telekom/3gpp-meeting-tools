@@ -1,0 +1,1041 @@
+# --- File: src/modules/meetings/ui/dialogs/topic_inputs_dialog.py ---
+"""
+Considered Inputs & Decisions Viewer Dialog (`TopicInputsViewerDialog`).
+
+Interactive visual inspector displaying all candidate technical inputs
+(CRs, pCRs, Chairman's Notes text agreements, Working Assumptions, Liaison Statements,
+and discussion papers) correlated with a 3GPP Cross-WG Meta-Topic across meeting rounds.
+"""
+
+import csv
+import logging
+import os
+import re
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtGui import QColor, QFont
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
+    QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
+    QFrame, QMessageBox, QWidget, QAbstractItemView, QProgressBar,
+    QFileDialog, QApplication,
+)
+
+from core.utils.company_sanitizer import CompanySanitizer
+from modules.meetings.core.cohort_resolver import MeetingCohort, format_round_label
+from modules.meetings.core.cross_wg_ls_tracker import CrossWgLiaisonTracker
+from modules.meetings.core.meetings_db import MeetingsDatabase
+from modules.meetings.core.tdocs.chair_notes_agreements_parser import clean_chair_notes_text
+from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
+from modules.meetings.core.topic_decision import (
+    TopicDecision,
+    classify_tdoc_decision_type,
+    normalize_chair_notes_decision_type,
+)
+from modules.meetings.core.topic_manager import MetaTopicDefinition
+
+logger = logging.getLogger(__name__)
+
+STYLE_PRIMARY_BTN = """
+    QPushButton {
+        background-color: #10B981;
+        color: #FFFFFF;
+        font-weight: bold;
+        border: 1px solid #059669;
+        border-radius: 6px;
+        padding: 6px 14px;
+        font-size: 11px;
+    }
+    QPushButton:hover {
+        background-color: #059669;
+    }
+    QPushButton:disabled {
+        background-color: #94A3B8;
+        border-color: #94A3B8;
+    }
+"""
+
+STYLE_SECONDARY_BTN = """
+    QPushButton {
+        background-color: #F8FAFC;
+        color: #1E293B;
+        border: 1px solid #CBD5E1;
+        border-radius: 6px;
+        padding: 5px 12px;
+        font-size: 11px;
+        font-weight: 500;
+    }
+    QPushButton:hover {
+        background-color: #F1F5F9;
+        border-color: #94A3B8;
+    }
+    QPushButton:disabled {
+        color: #94A3B8;
+        background-color: #F8FAFC;
+    }
+"""
+
+STYLE_TABLE = """
+    QTableWidget {
+        background-color: #FFFFFF;
+        border: 1px solid #CBD5E1;
+        border-radius: 6px;
+        gridline-color: #F1F5F9;
+        font-size: 11px;
+    }
+    QHeaderView::section {
+        background-color: #F8FAFC;
+        color: #475569;
+        font-weight: bold;
+        font-size: 11px;
+        border: none;
+        border-bottom: 1px solid #E2E8F0;
+        padding: 6px;
+    }
+    QTableWidget::item {
+        padding: 4px 6px;
+    }
+    QTableWidget::item:selected {
+        background-color: #EFF6FF;
+        color: #1D4ED8;
+    }
+"""
+
+BADGE_COLORS = {
+    "Text Agreement": ("#DCFCE7", "#166534"),
+    "Approved pCR": ("#ECFDF5", "#065F46"),
+    "Approved CR": ("#D1FAE5", "#047857"),
+    "Endorsed WF": ("#DBEAFE", "#1E40AF"),
+    "Working Assumption": ("#FEF3C7", "#92400E"),
+    "Agreed LS": ("#EDE9FE", "#5B21B6"),
+    "LS in": ("#F3E8FF", "#6B21A8"),
+    "LS out": ("#E0E7FF", "#3730A3"),
+    "Discussion": ("#F1F5F9", "#334155"),
+    "Work Plan": ("#FEE2E2", "#991B1B"),
+}
+
+
+class InputsCollectorThread(QThread):
+    """Background worker resolving matching decisions, contributions, and liaison statements."""
+    progress_status = pyqtSignal(str, int, int)
+    collection_finished = pyqtSignal(list, list, object)  # decisions, contributions, ls_tracker
+    collection_failed = pyqtSignal(str)
+
+    def __init__(
+        self,
+        meetings_db: MeetingsDatabase,
+        topic: MetaTopicDefinition,
+        rounds: List[MeetingCohort],
+        scope_mode: str = "full_dossier",
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.meetings_db = meetings_db
+        self.topic = topic
+        self.rounds = list(rounds)
+        self.scope_mode = scope_mode
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
+        self.requestInterruption()
+
+    def run(self):
+        try:
+            from modules.meetings.core.exporters.topic_dossier_exporter import TopicDossierExporterThread
+            helper_thread = TopicDossierExporterThread(
+                meetings_db=self.meetings_db,
+                topic=self.topic,
+                selected_cohorts=self.rounds,
+                export_scope_mode=self.scope_mode,
+            )
+
+            all_decisions: List[TopicDecision] = []
+            all_contributions: List[Dict[str, Any]] = []
+            ls_tracker = CrossWgLiaisonTracker()
+
+            total_rounds = len(self.rounds)
+            for r_idx, m_round in enumerate(self.rounds, start=1):
+                if self._is_cancelled or self.isInterruptionRequested():
+                    return
+
+                self.progress_status.emit(f"Scanning {m_round.label} ({r_idx}/{total_rounds})...", r_idx, total_rounds)
+
+                for mtg in m_round.meetings:
+                    wg_name = str(mtg.get("wg_name", "")).strip().upper()
+                    mtg_num = str(mtg.get("meeting_number", "")).strip()
+                    folder_name = str(mtg.get("folder_name", "")).strip()
+                    mtg_date = str(mtg.get("start_date", "")).strip()
+
+                    # 1. Parse Chairman's Notes text agreements
+                    chair_agreements = helper_thread._load_meeting_agreements(mtg)
+                    for ca in chair_agreements:
+                        wi_str = str(ca.get("wi", "") or ca.get("study_item", "")).strip()
+                        ai_str = str(ca.get("ai", "") or ca.get("agenda_item", "")).strip()
+                        text_str = clean_chair_notes_text(ca.get("text", "") or ca.get("summary", ""))
+
+                        if helper_thread._matches_topic_rule(wg_name, ai_str, text_str, wi_str):
+                            dec_type = normalize_chair_notes_decision_type(ca.get("decision_type", "Agreement"))
+                            all_decisions.append(TopicDecision(
+                                cohort_key=m_round.key,
+                                wg=wg_name,
+                                meeting_number=mtg_num,
+                                date=mtg_date,
+                                decision_type=dec_type,
+                                title_or_summary=text_str,
+                                tdoc_id=ca.get("tdoc_id"),
+                                source=ca.get("source") or f"Chairman's Notes AI {ai_str}",
+                                target_spec=ca.get("spec", ""),
+                                ai=ai_str,
+                                wi=wi_str,
+                                status=ca.get("status", "Agreed"),
+                                notes=ca.get("notes", ""),
+                            ))
+
+                    # 2. Parse Meeting TDocs
+                    tdocs_rows = helper_thread._load_meeting_tdocs(mtg)
+                    for row in tdocs_rows:
+                        tid = str(row.get("TDoc", "") or row.get("tdoc_id", "") or row.get("TD#", "")).strip().upper()
+                        if not tid:
+                            continue
+                        title = str(row.get("Title", "") or row.get("title", "")).strip()
+                        ai_val = str(row.get("Agenda Item", "") or row.get("AI", "") or "").strip()
+                        wi_val = str(row.get("Related WIs", "") or row.get("wi", "") or "").strip()
+                        t_type = str(row.get("Type", "") or row.get("type", "") or "").strip()
+                        status = str(row.get("TDoc Status", "") or row.get("Status", "") or "").strip()
+                        source = str(row.get("Source", "") or row.get("source", "") or "").strip()
+                        ai_desc = str(row.get("Agenda item description", "") or row.get("AI Description", "") or "").strip()
+
+                        if not self.topic.matches_tdoc(tid, wg_name, ai=ai_val, title=title, related_wis=wi_val, ai_description=ai_desc):
+                            continue
+
+                        # Check decision classification
+                        dec_type = classify_tdoc_decision_type(t_type, title, status)
+                        if dec_type:
+                            all_decisions.append(TopicDecision(
+                                cohort_key=m_round.key,
+                                wg=wg_name,
+                                meeting_number=mtg_num,
+                                date=mtg_date,
+                                decision_type=dec_type,
+                                title_or_summary=title,
+                                tdoc_id=tid,
+                                source=source,
+                                target_spec=str(row.get("Spec", "") or row.get("spec", "")).strip(),
+                                ai=ai_val,
+                                wi=wi_val,
+                                status=status,
+                                source_url=resolve_tdoc_download_url(tid, folder_name),
+                            ))
+
+                        is_ls = "ls" in t_type.lower() or "liaison" in t_type.lower()
+                        if is_ls:
+                            ls_tracker.ingest_ls_tdoc(
+                                tdoc_id=tid,
+                                wg=wg_name,
+                                meeting_number=mtg_num,
+                                cycle=m_round.key,
+                                tdoc_type=t_type,
+                                title=title,
+                                source=source,
+                                status=status,
+                                reply_to=row.get("Reply to", ""),
+                                reply_in=row.get("Reply in", ""),
+                            )
+
+                        all_contributions.append({
+                            "tdoc_id": tid,
+                            "wg": wg_name,
+                            "meeting_number": mtg_num,
+                            "folder_name": folder_name,
+                            "round_key": m_round.key,
+                            "round_label": m_round.label,
+                            "date": mtg_date,
+                            "title": title,
+                            "ai": ai_val,
+                            "ai_desc": ai_desc,
+                            "wi": wi_val,
+                            "type": t_type,
+                            "status": status,
+                            "source": source,
+                            "spec": str(row.get("Spec", "") or row.get("spec", "")).strip(),
+                            "is_decision": bool(dec_type),
+                            "decision_type": dec_type or "",
+                            "source_url": resolve_tdoc_download_url(tid, folder_name),
+                            "raw_row": row,
+                        })
+
+            if not self._is_cancelled:
+                self.collection_finished.emit(all_decisions, all_contributions, ls_tracker)
+        except Exception as e:
+            logger.exception(f"[InputsCollectorThread] Collection failed: {e}")
+            if not self._is_cancelled:
+                self.collection_failed.emit(str(e))
+
+
+class TopicInputsViewerDialog(QDialog):
+    """Interactive dialog visualizing considered inputs, agreements, pCRs, CRs, and LSs."""
+    export_requested = pyqtSignal()
+
+    def __init__(
+        self,
+        meetings_db: MeetingsDatabase,
+        topic: MetaTopicDefinition,
+        selected_rounds: List[MeetingCohort],
+        scope_mode: str = "full_dossier",
+        timeframe_label: str = "",
+        parent=None,
+    ):
+        super().__init__(None, Qt.Window | Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint)
+        self.setModal(False)
+        self.setWindowModality(Qt.NonModal)
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.setWindowTitle(f"⚖️ Considered Inputs & Decisions — {topic.name}")
+        self.resize(1140, 720)
+
+        self.meetings_db = meetings_db
+        self.topic = topic
+        self.rounds = list(selected_rounds)
+        self.scope_mode = scope_mode
+        self.timeframe_label = timeframe_label or f"{len(self.rounds)} Synchronized Meeting Rounds"
+
+        self.all_decisions: List[TopicDecision] = []
+        self.all_contributions: List[Dict[str, Any]] = []
+        self.ls_tracker = CrossWgLiaisonTracker()
+
+        self._collector_worker: Optional[InputsCollectorThread] = None
+
+        self._init_ui()
+        self._start_collection()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(14, 14, 14, 14)
+
+        # 1. Header Card with topic overview and timeframe
+        header_card = QFrame()
+        header_card.setStyleSheet("background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px;")
+        h_layout = QVBoxLayout(header_card)
+        h_layout.setContentsMargins(12, 10, 12, 10)
+        h_layout.setSpacing(6)
+
+        top_row = QHBoxLayout()
+        lbl_title = QLabel(f"🌐 <b>Topic:</b> {self.topic.name}")
+        lbl_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #0F172A;")
+        top_row.addWidget(lbl_title)
+
+        top_row.addStretch()
+
+        lbl_timeframe = QLabel(f"🗓️ <b>Scope:</b> {self.timeframe_label}")
+        lbl_timeframe.setStyleSheet("color: #475569; font-size: 11px; background-color: #E2E8F0; border-radius: 4px; padding: 3px 8px;")
+        top_row.addWidget(lbl_timeframe)
+        h_layout.addLayout(top_row)
+
+        desc_text = self.topic.description or "Cross-WG topic correlation"
+        wgs_str = ", ".join(sorted(self.topic.target_wgs))
+        lbl_desc = QLabel(f"<b>Target WGs:</b> <span style='color: #0369A1;'>{wgs_str}</span> | {desc_text}")
+        lbl_desc.setStyleSheet("color: #64748B; font-size: 11px;")
+        lbl_desc.setWordWrap(True)
+        h_layout.addWidget(lbl_desc)
+
+        layout.addWidget(header_card)
+
+        # 2. Metric KPI Cards Strip
+        kpi_frame = QFrame()
+        kpi_frame.setStyleSheet("background-color: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 6px;")
+        kpi_layout = QHBoxLayout(kpi_frame)
+        kpi_layout.setContentsMargins(10, 8, 10, 8)
+        kpi_layout.setSpacing(16)
+
+        self.kpi_total = QLabel("📊 Total Inputs: <b>0</b>")
+        self.kpi_total.setStyleSheet("color: #1E293B; font-size: 12px;")
+        kpi_layout.addWidget(self.kpi_total)
+
+        self.kpi_decisions = QLabel("🟢 Decisions: <b>0</b>")
+        self.kpi_decisions.setStyleSheet("color: #047857; font-size: 12px;")
+        kpi_layout.addWidget(self.kpi_decisions)
+
+        self.kpi_ls = QLabel("📬 Liaisons: <b>0</b>")
+        self.kpi_ls.setStyleSheet("color: #6B21A8; font-size: 12px;")
+        kpi_layout.addWidget(self.kpi_ls)
+
+        self.kpi_disc = QLabel("📄 Discussions: <b>0</b>")
+        self.kpi_disc.setStyleSheet("color: #475569; font-size: 12px;")
+        kpi_layout.addWidget(self.kpi_disc)
+
+        self.kpi_wgs = QLabel("👥 WGs: <b>0</b>")
+        self.kpi_wgs.setStyleSheet("color: #0284C7; font-size: 12px;")
+        kpi_layout.addWidget(self.kpi_wgs)
+
+        kpi_layout.addStretch()
+
+        self.btn_refresh = QPushButton("🔄 Re-Scan")
+        self.btn_refresh.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_refresh.clicked.connect(self._start_collection)
+        kpi_layout.addWidget(self.btn_refresh)
+
+        layout.addWidget(kpi_frame)
+
+        # Progress bar strip (indeterminate/step during collection)
+        self.prog_frame = QFrame()
+        self.prog_frame.setStyleSheet("background-color: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 6px;")
+        p_layout = QHBoxLayout(self.prog_frame)
+        p_layout.setContentsMargins(10, 6, 10, 6)
+        self.lbl_prog_status = QLabel("Scanning meeting records...")
+        self.lbl_prog_status.setStyleSheet("color: #1E40AF; font-size: 11px; font-weight: bold;")
+        p_layout.addWidget(self.lbl_prog_status, 1)
+        self.prog_bar = QProgressBar()
+        self.prog_bar.setFixedHeight(12)
+        self.prog_bar.setRange(0, 100)
+        self.prog_bar.setTextVisible(False)
+        self.prog_bar.setStyleSheet("""
+            QProgressBar { border: 1px solid #93C5FD; border-radius: 3px; background-color: #DBEAFE; }
+            QProgressBar::chunk { background-color: #3B82F6; border-radius: 2px; }
+        """)
+        p_layout.addWidget(self.prog_bar, 1)
+        layout.addWidget(self.prog_frame)
+
+        # 3. Interactive Filter Strip
+        filter_frame = QFrame()
+        filter_frame.setStyleSheet("background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px;")
+        f_layout = QHBoxLayout(filter_frame)
+        f_layout.setContentsMargins(8, 6, 8, 6)
+        f_layout.setSpacing(10)
+
+        f_layout.addWidget(QLabel("<b>Search:</b>"))
+        self.edit_filter = QLineEdit()
+        self.edit_filter.setPlaceholderText("Filter by TDoc ID, Title, Company, Agenda Item, or Decision text...")
+        self.edit_filter.textChanged.connect(self._apply_filters)
+        f_layout.addWidget(self.edit_filter, 3)
+
+        f_layout.addWidget(QLabel("<b>WG:</b>"))
+        self.combo_wg_filter = QComboBox()
+        self.combo_wg_filter.addItem("All WGs")
+        for wg in sorted(self.topic.target_wgs):
+            self.combo_wg_filter.addItem(wg)
+        self.combo_wg_filter.currentIndexChanged.connect(self._apply_filters)
+        f_layout.addWidget(self.combo_wg_filter, 1)
+
+        f_layout.addWidget(QLabel("<b>Category:</b>"))
+        self.combo_type_filter = QComboBox()
+        self.combo_type_filter.addItems([
+            "All Inputs",
+            "🟢 Decisions Only (Agreements, pCRs, CRs)",
+            "Text Agreements Only",
+            "Approved pCRs Only",
+            "Approved CRs Only",
+            "📬 Liaison Statements Only",
+            "📄 Discussion Papers Only",
+        ])
+        self.combo_type_filter.currentIndexChanged.connect(self._apply_filters)
+        f_layout.addWidget(self.combo_type_filter, 2)
+
+        f_layout.addWidget(QLabel("<b>Round:</b>"))
+        self.combo_round_filter = QComboBox()
+        self.combo_round_filter.addItem("All Meeting Rounds")
+        for r in self.rounds:
+            self.combo_round_filter.addItem(r.label)
+        self.combo_round_filter.currentIndexChanged.connect(self._apply_filters)
+        f_layout.addWidget(self.combo_round_filter, 2)
+
+        layout.addWidget(filter_frame)
+
+        # 4. Tabbed Visualizations
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane { border: 1px solid #CBD5E1; border-radius: 6px; background-color: #FFFFFF; }
+            QTabBar::tab { padding: 6px 14px; font-weight: bold; font-size: 11px; }
+            QTabBar::tab:selected { background-color: #FFFFFF; color: #10B981; border-bottom: 2px solid #10B981; }
+        """)
+
+        # Tab 1: Decisions Table
+        self.table_decisions = QTableWidget()
+        self.table_decisions.setStyleSheet(STYLE_TABLE)
+        self.table_decisions.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table_decisions.verticalHeader().setVisible(False)
+        self.table_decisions.itemDoubleClicked.connect(self._on_table_item_double_clicked)
+        self.tabs.addTab(self.table_decisions, "⚖️ Technical Decisions && Agreements (0)")
+
+        # Tab 2: All Contributions Table
+        self.table_contributions = QTableWidget()
+        self.table_contributions.setStyleSheet(STYLE_TABLE)
+        self.table_contributions.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table_contributions.verticalHeader().setVisible(False)
+        self.table_contributions.itemDoubleClicked.connect(self._on_table_item_double_clicked)
+        self.tabs.addTab(self.table_contributions, "📄 All Considered Contributions (0)")
+
+        # Tab 3: Liaison Statements Table
+        self.table_ls = QTableWidget()
+        self.table_ls.setStyleSheet(STYLE_TABLE)
+        self.table_ls.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table_ls.verticalHeader().setVisible(False)
+        self.table_ls.itemDoubleClicked.connect(self._on_table_item_double_clicked)
+        self.tabs.addTab(self.table_ls, "📬 Inter-WG Liaison Statements (0)")
+
+        # Tab 4: WG Distribution Matrix
+        self.table_dist = QTableWidget()
+        self.table_dist.setStyleSheet(STYLE_TABLE)
+        self.table_dist.verticalHeader().setVisible(False)
+        self.tabs.addTab(self.table_dist, "📊 WG && Round Distribution")
+
+        layout.addWidget(self.tabs, 1)
+
+        # 5. Bottom Action Ribbon
+        action_layout = QHBoxLayout()
+
+        self.btn_open_doc = QPushButton("📄 Open Document")
+        self.btn_open_doc.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_open_doc.clicked.connect(self._on_open_selected_document)
+        action_layout.addWidget(self.btn_open_doc)
+
+        self.btn_open_portal = QPushButton("🌐 Open on 3GPP Portal")
+        self.btn_open_portal.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_open_portal.clicked.connect(self._on_open_selected_portal)
+        action_layout.addWidget(self.btn_open_portal)
+
+        self.btn_copy_md = QPushButton("📋 Copy Markdown Table")
+        self.btn_copy_md.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_copy_md.clicked.connect(self._on_copy_markdown_table)
+        action_layout.addWidget(self.btn_copy_md)
+
+        self.btn_export_csv = QPushButton("💾 Export to CSV...")
+        self.btn_export_csv.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_export_csv.clicked.connect(self._on_export_csv)
+        action_layout.addWidget(self.btn_export_csv)
+
+        action_layout.addStretch()
+
+        self.btn_export_dossier = QPushButton("🚀 Proceed to Full Dossier Export...")
+        self.btn_export_dossier.setStyleSheet(STYLE_PRIMARY_BTN)
+        self.btn_export_dossier.clicked.connect(self._on_proceed_to_export)
+        action_layout.addWidget(self.btn_export_dossier)
+
+        btn_close = QPushButton("Close")
+        btn_close.setStyleSheet(STYLE_SECONDARY_BTN)
+        btn_close.clicked.connect(self.close)
+        action_layout.addWidget(btn_close)
+
+        layout.addLayout(action_layout)
+
+    def _start_collection(self):
+        if self._collector_worker and self._collector_worker.isRunning():
+            self._collector_worker.cancel()
+            self._collector_worker.wait(500)
+
+        self.prog_frame.setVisible(True)
+        self.prog_bar.setValue(0)
+        self.lbl_prog_status.setText(f"Scanning meeting records across {len(self.rounds)} rounds...")
+        self.btn_refresh.setEnabled(False)
+
+        self._collector_worker = InputsCollectorThread(
+            meetings_db=self.meetings_db,
+            topic=self.topic,
+            rounds=self.rounds,
+            scope_mode=self.scope_mode,
+            parent=None,
+        )
+        self._collector_worker.progress_status.connect(self._on_scan_progress)
+        self._collector_worker.collection_finished.connect(self._on_scan_finished)
+        self._collector_worker.collection_failed.connect(self._on_scan_failed)
+        self._collector_worker.start()
+
+    def _on_scan_progress(self, msg: str, cur_idx: int, total_count: int):
+        self.lbl_prog_status.setText(msg)
+        pct = int((cur_idx / max(1, total_count)) * 100)
+        self.prog_bar.setValue(pct)
+
+    def _on_scan_finished(self, decisions: List[TopicDecision], contributions: List[Dict[str, Any]], ls_tracker: CrossWgLiaisonTracker):
+        self.all_decisions = decisions
+        self.all_contributions = contributions
+        self.ls_tracker = ls_tracker
+
+        self.prog_frame.setVisible(False)
+        self.btn_refresh.setEnabled(True)
+
+        self._update_kpi_strip()
+        self._apply_filters()
+        self._populate_distribution_table()
+
+    def _on_scan_failed(self, error_msg: str):
+        self.prog_frame.setVisible(False)
+        self.btn_refresh.setEnabled(True)
+        QMessageBox.warning(self, "Collection Warning", f"Could not complete scan:\n{error_msg}")
+
+    def _update_kpi_strip(self):
+        tot_cnt = len(self.all_contributions)
+        dec_cnt = len(self.all_decisions)
+        ls_cnt = sum(1 for c in self.all_contributions if "ls" in c.get("type", "").lower())
+        disc_cnt = sum(1 for c in self.all_contributions if "discussion" in c.get("type", "").lower())
+        wgs_seen = set(c.get("wg") for c in self.all_contributions if c.get("wg"))
+
+        self.kpi_total.setText(f"📊 Total Inputs: <b>{tot_cnt}</b>")
+        self.kpi_decisions.setText(f"🟢 Decisions: <b>{dec_cnt}</b>")
+        self.kpi_ls.setText(f"📬 Liaisons: <b>{ls_cnt}</b>")
+        self.kpi_disc.setText(f"📄 Discussions: <b>{disc_cnt}</b>")
+        self.kpi_wgs.setText(f"👥 WGs: <b>{len(wgs_seen)}</b>")
+
+        self.tabs.setTabText(0, f"⚖️ Technical Decisions && Agreements ({dec_cnt})")
+        self.tabs.setTabText(1, f"📄 All Considered Contributions ({tot_cnt})")
+        self.tabs.setTabText(2, f"📬 Inter-WG Liaison Statements ({ls_cnt})")
+
+    def _apply_filters(self):
+        query = self.edit_filter.text().strip().lower()
+        selected_wg = self.combo_wg_filter.currentText()
+        selected_cat = self.combo_type_filter.currentText()
+        selected_round = self.combo_round_filter.currentText()
+
+        # 1. Filter Decisions
+        filtered_decs = []
+        for d in self.all_decisions:
+            if selected_wg != "All WGs" and d.wg.upper() != selected_wg.upper():
+                continue
+            if selected_round != "All Meeting Rounds":
+                # Check cohort match
+                matching_round = next((r for r in self.rounds if r.key == d.cohort_key), None)
+                if not matching_round or matching_round.label != selected_round:
+                    continue
+            if selected_cat == "Text Agreements Only" and d.decision_type != "Text Agreement":
+                continue
+            if selected_cat == "Approved pCRs Only" and d.decision_type != "Approved pCR":
+                continue
+            if selected_cat == "Approved CRs Only" and d.decision_type != "Approved CR":
+                continue
+            if selected_cat == "📬 Liaison Statements Only" and d.decision_type != "Agreed LS":
+                continue
+            if selected_cat == "📄 Discussion Papers Only":
+                continue
+
+            if query:
+                haystack = f"{d.tdoc_id or ''} {d.title_or_summary} {d.source} {d.ai} {d.target_spec}".lower()
+                if query not in haystack:
+                    continue
+            filtered_decs.append(d)
+
+        self._populate_decisions_table(filtered_decs)
+
+        # 2. Filter Contributions
+        filtered_contribs = []
+        for c in self.all_contributions:
+            if selected_wg != "All WGs" and c.get("wg", "").upper() != selected_wg.upper():
+                continue
+            if selected_round != "All Meeting Rounds" and c.get("round_label") != selected_round:
+                continue
+            if selected_cat == "🟢 Decisions Only (Agreements, pCRs, CRs)" and not c.get("is_decision"):
+                continue
+            if selected_cat == "Approved pCRs Only" and c.get("decision_type") != "Approved pCR":
+                continue
+            if selected_cat == "Approved CRs Only" and c.get("decision_type") != "Approved CR":
+                continue
+            if selected_cat == "Text Agreements Only" and c.get("decision_type") != "Text Agreement":
+                continue
+            if selected_cat == "📬 Liaison Statements Only" and "ls" not in c.get("type", "").lower():
+                continue
+            if selected_cat == "📄 Discussion Papers Only" and "discussion" not in c.get("type", "").lower():
+                continue
+
+            if query:
+                haystack = f"{c.get('tdoc_id', '')} {c.get('title', '')} {c.get('source', '')} {c.get('ai', '')} {c.get('ai_desc', '')}".lower()
+                if query not in haystack:
+                    continue
+            filtered_contribs.append(c)
+
+        self._populate_contributions_table(filtered_contribs)
+
+        # 3. Filter Liaison Statements
+        filtered_ls = [c for c in filtered_contribs if "ls" in c.get("type", "").lower()]
+        self._populate_ls_table(filtered_ls)
+
+    def _populate_decisions_table(self, decisions: List[TopicDecision]):
+        self.table_decisions.setRowCount(len(decisions))
+        self.table_decisions.setColumnCount(8)
+        self.table_decisions.setHorizontalHeaderLabels([
+            "Decision Type", "WG", "Meeting", "Date", "TDoc ID", "Decision / Substantive Scope", "Target Spec", "Agenda Item"
+        ])
+
+        header = self.table_decisions.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.Stretch)
+        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(7, QHeaderView.ResizeToContents)
+
+        for row, d in enumerate(decisions):
+            # 0: Decision Type Badge
+            badge_item = QTableWidgetItem(f"🟢 {d.decision_type}" if "Agre" in d.decision_type or "Approv" in d.decision_type else d.decision_type)
+            badge_item.setTextAlignment(Qt.AlignCenter)
+            bg_color, fg_color = BADGE_COLORS.get(d.decision_type, ("#F1F5F9", "#1E293B"))
+            badge_item.setBackground(QColor(bg_color))
+            badge_item.setForeground(QColor(fg_color))
+            font = badge_item.font()
+            font.setBold(True)
+            badge_item.setFont(font)
+            self.table_decisions.setItem(row, 0, badge_item)
+
+            # 1: WG
+            wg_item = QTableWidgetItem(d.wg)
+            wg_item.setTextAlignment(Qt.AlignCenter)
+            self.table_decisions.setItem(row, 1, wg_item)
+
+            # 2: Meeting #
+            mtg_item = QTableWidgetItem(f"#{d.meeting_number}")
+            mtg_item.setTextAlignment(Qt.AlignCenter)
+            self.table_decisions.setItem(row, 2, mtg_item)
+
+            # 3: Date
+            date_item = QTableWidgetItem(d.date)
+            date_item.setTextAlignment(Qt.AlignCenter)
+            self.table_decisions.setItem(row, 3, date_item)
+
+            # 4: TDoc ID
+            tid_str = d.tdoc_id or "—"
+            tid_item = QTableWidgetItem(tid_str)
+            tid_item.setTextAlignment(Qt.AlignCenter)
+            if d.tdoc_id:
+                tid_item.setForeground(QColor("#0369A1"))
+                f = tid_item.font()
+                f.setBold(True)
+                tid_item.setFont(f)
+            self.table_decisions.setItem(row, 4, tid_item)
+
+            # 5: Decision / Substantive Scope
+            scope_item = QTableWidgetItem(d.title_or_summary)
+            scope_item.setToolTip(f"<b>{d.decision_type} ({d.wg} #{d.meeting_number})</b><br/>{d.title_or_summary}")
+            self.table_decisions.setItem(row, 5, scope_item)
+
+            # 6: Target Spec
+            spec_item = QTableWidgetItem(d.target_spec or "—")
+            spec_item.setTextAlignment(Qt.AlignCenter)
+            self.table_decisions.setItem(row, 6, spec_item)
+
+            # 7: Agenda Item
+            ai_item = QTableWidgetItem(d.ai or "—")
+            ai_item.setTextAlignment(Qt.AlignCenter)
+            self.table_decisions.setItem(row, 7, ai_item)
+
+    def _populate_contributions_table(self, contribs: List[Dict[str, Any]]):
+        self.table_contributions.setRowCount(len(contribs))
+        self.table_contributions.setColumnCount(9)
+        self.table_contributions.setHorizontalHeaderLabels([
+            "TDoc ID", "WG", "Meeting", "Date", "Agenda Item", "Type", "Status", "Title", "Source Company"
+        ])
+
+        header = self.table_contributions.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(7, QHeaderView.Stretch)
+        header.setSectionResizeMode(8, QHeaderView.ResizeToContents)
+
+        for row, c in enumerate(contribs):
+            # 0: TDoc ID
+            tid_item = QTableWidgetItem(c.get("tdoc_id", ""))
+            tid_item.setTextAlignment(Qt.AlignCenter)
+            tid_item.setForeground(QColor("#0369A1"))
+            f = tid_item.font()
+            f.setBold(True)
+            tid_item.setFont(f)
+            self.table_contributions.setItem(row, 0, tid_item)
+
+            # 1: WG
+            self.table_contributions.setItem(row, 1, QTableWidgetItem(c.get("wg", "")))
+            # 2: Meeting #
+            self.table_contributions.setItem(row, 2, QTableWidgetItem(f"#{c.get('meeting_number', '')}"))
+            # 3: Date
+            self.table_contributions.setItem(row, 3, QTableWidgetItem(c.get("date", "")))
+
+            # 4: AI
+            ai_item = QTableWidgetItem(c.get("ai", ""))
+            ai_item.setToolTip(c.get("ai_desc", ""))
+            self.table_contributions.setItem(row, 4, ai_item)
+
+            # 5: Type
+            t_type = c.get("type", "")
+            t_item = QTableWidgetItem(t_type)
+            t_item.setTextAlignment(Qt.AlignCenter)
+            bg, fg = BADGE_COLORS.get(t_type, ("#FFFFFF", "#334155"))
+            t_item.setBackground(QColor(bg))
+            t_item.setForeground(QColor(fg))
+            self.table_contributions.setItem(row, 5, t_item)
+
+            # 6: Status
+            status_item = QTableWidgetItem(c.get("status", ""))
+            status_item.setTextAlignment(Qt.AlignCenter)
+            if any(s in c.get("status", "").lower() for s in ("approved", "agreed", "endorsed")):
+                status_item.setForeground(QColor("#15803D"))
+                f_s = status_item.font()
+                f_s.setBold(True)
+                status_item.setFont(f_s)
+            self.table_contributions.setItem(row, 6, status_item)
+
+            # 7: Title
+            title_item = QTableWidgetItem(c.get("title", ""))
+            title_item.setToolTip(c.get("title", ""))
+            self.table_contributions.setItem(row, 7, title_item)
+
+            # 8: Source Company
+            clean_co = CompanySanitizer.get_confirmed_source_text(c.get("source", "")) or c.get("source", "")
+            co_item = QTableWidgetItem(clean_co)
+            co_item.setToolTip(c.get("source", ""))
+            self.table_contributions.setItem(row, 8, co_item)
+
+    def _populate_ls_table(self, ls_contribs: List[Dict[str, Any]]):
+        self.table_ls.setRowCount(len(ls_contribs))
+        self.table_ls.setColumnCount(8)
+        self.table_ls.setHorizontalHeaderLabels([
+            "Direction", "TDoc ID", "WG", "Meeting", "Title", "Status", "Reply To", "Reply In"
+        ])
+
+        header = self.table_ls.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.Stretch)
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(7, QHeaderView.ResizeToContents)
+
+        for row, c in enumerate(ls_contribs):
+            raw = c.get("raw_row", {})
+            t_type = c.get("type", "")
+            is_in = "in" in t_type.lower()
+            dir_text = "📥 LS IN" if is_in else "📤 LS OUT"
+            dir_item = QTableWidgetItem(dir_text)
+            dir_item.setTextAlignment(Qt.AlignCenter)
+            bg, fg = BADGE_COLORS.get("LS in" if is_in else "LS out", ("#F3E8FF", "#6B21A8"))
+            dir_item.setBackground(QColor(bg))
+            dir_item.setForeground(QColor(fg))
+            f = dir_item.font()
+            f.setBold(True)
+            dir_item.setFont(f)
+            self.table_ls.setItem(row, 0, dir_item)
+
+            # TDoc
+            tid_item = QTableWidgetItem(c.get("tdoc_id", ""))
+            tid_item.setTextAlignment(Qt.AlignCenter)
+            tid_item.setForeground(QColor("#0369A1"))
+            self.table_ls.setItem(row, 1, tid_item)
+
+            self.table_ls.setItem(row, 2, QTableWidgetItem(c.get("wg", "")))
+            self.table_ls.setItem(row, 3, QTableWidgetItem(f"#{c.get('meeting_number', '')}"))
+            self.table_ls.setItem(row, 4, QTableWidgetItem(c.get("title", "")))
+            self.table_ls.setItem(row, 5, QTableWidgetItem(c.get("status", "")))
+            self.table_ls.setItem(row, 6, QTableWidgetItem(raw.get("Reply to", "") or raw.get("reply_to", "") or "—"))
+            self.table_ls.setItem(row, 7, QTableWidgetItem(raw.get("Reply in", "") or raw.get("reply_in", "") or "—"))
+
+    def _populate_distribution_table(self):
+        wgs = sorted(list(self.topic.target_wgs))
+        rounds = self.rounds
+
+        self.table_dist.setRowCount(len(wgs) + 1)
+        self.table_dist.setColumnCount(len(rounds) + 2)
+
+        col_labels = ["Working Group"] + [r.label for r in rounds] + ["Total Across Scope"]
+        self.table_dist.setHorizontalHeaderLabels(col_labels)
+
+        header = self.table_dist.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        for i in range(1, len(rounds) + 1):
+            header.setSectionResizeMode(i, QHeaderView.Stretch)
+        header.setSectionResizeMode(len(rounds) + 1, QHeaderView.ResizeToContents)
+
+        round_totals = {r.key: 0 for r in rounds}
+        grand_total = 0
+
+        for r_idx, wg in enumerate(wgs):
+            wg_item = QTableWidgetItem(f"👥 {wg}")
+            f = wg_item.font()
+            f.setBold(True)
+            wg_item.setFont(f)
+            self.table_dist.setItem(r_idx, 0, wg_item)
+
+            wg_row_total = 0
+            for c_idx, m_round in enumerate(rounds, start=1):
+                count = sum(1 for c in self.all_contributions if c.get("wg") == wg and c.get("round_key") == m_round.key)
+                dec_cnt = sum(1 for d in self.all_decisions if d.wg == wg and d.cohort_key == m_round.key)
+                text = f"{count} docs ({dec_cnt} dec)" if count or dec_cnt else "—"
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(Qt.AlignCenter)
+                self.table_dist.setItem(r_idx, c_idx, item)
+                wg_row_total += count
+                round_totals[m_round.key] += count
+
+            tot_item = QTableWidgetItem(f"<b>{wg_row_total}</b>")
+            tot_item.setTextAlignment(Qt.AlignCenter)
+            self.table_dist.setItem(r_idx, len(rounds) + 1, tot_item)
+            grand_total += wg_row_total
+
+        # Total Summary Row
+        last_row = len(wgs)
+        tot_label = QTableWidgetItem("Total Documents")
+        f_t = tot_label.font()
+        f_t.setBold(True)
+        tot_label.setFont(f_t)
+        self.table_dist.setItem(last_row, 0, tot_label)
+
+        for c_idx, m_round in enumerate(rounds, start=1):
+            r_tot = QTableWidgetItem(str(round_totals[m_round.key]))
+            r_tot.setTextAlignment(Qt.AlignCenter)
+            f_r = r_tot.font()
+            f_r.setBold(True)
+            r_tot.setFont(f_r)
+            self.table_dist.setItem(last_row, c_idx, r_tot)
+
+        grand_item = QTableWidgetItem(str(grand_total))
+        grand_item.setTextAlignment(Qt.AlignCenter)
+        f_g = grand_item.font()
+        f_g.setBold(True)
+        grand_item.setFont(f_g)
+        self.table_dist.setItem(last_row, len(rounds) + 1, grand_item)
+
+    def _get_active_table(self) -> Optional[QTableWidget]:
+        idx = self.tabs.currentIndex()
+        if idx == 0:
+            return self.table_decisions
+        elif idx == 1:
+            return self.table_contributions
+        elif idx == 2:
+            return self.table_ls
+        return None
+
+    def _get_selected_tdoc_id(self) -> Optional[str]:
+        table = self._get_active_table()
+        if not table:
+            return None
+        row = table.currentRow()
+        if row < 0:
+            return None
+        if table == self.table_decisions:
+            val = table.item(row, 4)
+            return val.text().strip() if val and val.text() != "—" else None
+        elif table == self.table_contributions:
+            val = table.item(row, 0)
+            return val.text().strip() if val else None
+        elif table == self.table_ls:
+            val = table.item(row, 1)
+            return val.text().strip() if val else None
+        return None
+
+    def _on_table_item_double_clicked(self, item: QTableWidgetItem):
+        self._on_open_selected_document()
+
+    def _on_open_selected_document(self):
+        tid = self._get_selected_tdoc_id()
+        if not tid:
+            QMessageBox.information(self, "No Document Selected", "Please select a row with a valid TDoc ID.")
+            return
+
+        # Find in candidate contributions
+        contrib = next((c for c in self.all_contributions if c.get("tdoc_id") == tid), None)
+        if not contrib:
+            QMessageBox.information(self, "TDoc Info", f"TDoc ID: {tid}")
+            return
+
+        from modules.meetings.core.settings import MeetingsSettings
+        cache_dir = MeetingsSettings().cache_dir
+        folder_name = contrib.get("folder_name", "")
+        mtg_dir = Path(cache_dir) / folder_name if cache_dir and folder_name else None
+
+        # Check local files
+        if mtg_dir and mtg_dir.is_dir():
+            for p in mtg_dir.rglob(f"{tid}*"):
+                if p.is_file() and not p.name.endswith(".json"):
+                    try:
+                        os.startfile(str(p))
+                        return
+                    except Exception as e:
+                        logger.debug(f"Failed to open {p}: {e}")
+
+        # If not cached locally, offer portal open
+        ret = QMessageBox.question(
+            self,
+            "Document Not Cached",
+            f"TDoc {tid} is not yet downloaded locally in meeting folder '{folder_name}'.\n\nWould you like to open it on the 3GPP Portal?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if ret == QMessageBox.Yes:
+            self._on_open_selected_portal()
+
+    def _on_open_selected_portal(self):
+        tid = self._get_selected_tdoc_id()
+        if not tid:
+            QMessageBox.information(self, "No Document Selected", "Please select a row with a valid TDoc ID.")
+            return
+        contrib = next((c for c in self.all_contributions if c.get("tdoc_id") == tid), None)
+        folder_name = contrib.get("folder_name", "") if contrib else ""
+        url = resolve_tdoc_download_url(tid, folder_name)
+        if url:
+            import webbrowser
+            webbrowser.open(url)
+        else:
+            QMessageBox.warning(self, "URL Error", f"Could not construct 3GPP Portal URL for {tid}.")
+
+    def _on_copy_markdown_table(self):
+        table = self._get_active_table()
+        if not table or table.rowCount() == 0:
+            QMessageBox.information(self, "Empty Table", "No rows available to copy.")
+            return
+
+        cols = table.columnCount()
+        headers = [table.horizontalHeaderItem(c).text() for c in range(cols)]
+        lines = []
+        lines.append("| " + " | ".join(headers) + " |")
+        lines.append("| " + " | ".join([":---"] * cols) + " |")
+
+        for r in range(table.rowCount()):
+            row_vals = []
+            for c in range(cols):
+                it = table.item(r, c)
+                val = it.text().replace("\n", " ").replace("|", "\\|").strip() if it else ""
+                row_vals.append(val)
+            lines.append("| " + " | ".join(row_vals) + " |")
+
+        md_text = "\n".join(lines)
+        QApplication.clipboard().setText(md_text)
+        QMessageBox.information(self, "Copied", f"Copied {table.rowCount()} rows formatted as Markdown to clipboard.")
+
+    def _on_export_csv(self):
+        table = self._get_active_table()
+        if not table or table.rowCount() == 0:
+            QMessageBox.information(self, "Empty Table", "No rows available to export.")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Table to CSV",
+            f"Topic_Inputs_{self.topic.id}.csv",
+            "CSV Files (*.csv);;All Files (*.*)",
+        )
+        if not path:
+            return
+
+        try:
+            with open(path, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.writer(f)
+                headers = [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
+                writer.writerow(headers)
+                for r in range(table.rowCount()):
+                    row_vals = [table.item(r, c).text().strip() if table.item(r, c) else "" for c in range(table.columnCount())]
+                    writer.writerow(row_vals)
+            QMessageBox.information(self, "Export Successful", f"Saved {table.rowCount()} rows to:\n{path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Could not write CSV:\n{e}")
+
+    def _on_proceed_to_export(self):
+        self.export_requested.emit()
+        self.close()
+
+    def closeEvent(self, event):
+        if self._collector_worker and self._collector_worker.isRunning():
+            self._collector_worker.cancel()
+            self._collector_worker.wait(3000)
+        super().closeEvent(event)

@@ -429,7 +429,7 @@ class TopicDossierExporterThread(QThread):
         summary = (
             f"Export completed for '{self.topic.name}'!\n"
             f"• {len(all_decisions)} Unified Decisions (Agreements, WAs, pCRs, CRs)\n"
-            f"• {len(candidate_docs_to_export)} Total Contributions across {len(self.cohorts)} Cohort(s)\n"
+            f"• {len(candidate_docs_to_export)} Total Contributions across {len(self.cohorts)} Meeting Round(s)\n"
             f"• {len(newly_exported_tids)} Documents converted in Session #{session_id} ({already_complete_count} skipped)\n"
             f"• LLM Delta feed written to deltas/delta_session_{session_id}.md"
         )
@@ -790,7 +790,7 @@ class TopicDossierExporterThread(QThread):
             "> - **RAN Working Groups (RAN1/2/3):** Substantive text agreements, working assumptions, and endorsed Way Forwards from Chairman's Notes.",
             "> - **SA & CT Groups (SA2, CT1, etc.):** Approved Pseudo-CRs (pCRs) to TRs and normative Change Requests (CRs) to Technical Specifications.",
             "",
-            "| Date / Cohort | WG | Type | Substantive Decision / Scope | Contribution | Target Spec |",
+            "| Meeting Round / Date | WG | Type | Substantive Decision / Scope | Contribution | Target Spec |",
             "| :--- | :--- | :--- | :--- | :--- | :--- |",
         ]
 
@@ -831,7 +831,7 @@ class TopicDossierExporterThread(QThread):
 
         if new_decisions:
             lines.extend([
-                "| Cohort | WG | Meeting | Decision Type | Summary / Scope | Contribution |",
+                "| Meeting Round | WG | Meeting | Decision Type | Summary / Scope | Contribution |",
                 "| :--- | :--- | :--- | :--- | :--- | :--- |",
             ])
             for d in new_decisions:
@@ -883,7 +883,7 @@ class TopicDossierExporterThread(QThread):
             "## 📊 Executive KPI Strip",
             "",
             f"- **Participating Working Groups:** {', '.join(sorted(self.topic.target_wgs))}",
-            f"- **Analyzed Meeting Cohorts:** {len(self.cohorts)} cycles ({self.cohorts[0].key} → {self.cohorts[-1].key})" if self.cohorts else "- **Analyzed Cohorts:** None",
+            f"- **Analyzed Meeting Scope:** {len(self.cohorts)} synchronized rounds ({self.cohorts[0].key} → {self.cohorts[-1].key})" if self.cohorts else "- **Analyzed Meeting Scope:** None",
             f"- **Unified Technical Decisions:** {len(all_decisions)} (Agreements, WAs, pCRs, CRs, WFs)",
             f"- **Total Scoped Contributions:** {len(all_candidates)} documents",
             "",
@@ -893,7 +893,7 @@ class TopicDossierExporterThread(QThread):
             "- 📬 **[Cross-WG Liaison Statement Dialogue](ls_dialogue.md)** — Inter-group question and reply threads.",
             f"- 🧠 **[Latest LLM Delta Feed](deltas/delta_session_{session_id}.md)** — Incremental diff for feeding into AI prompts.",
             "",
-            "## 🗓️ Quarterly Meeting Cycles Overview",
+            "## 🗓️ Synchronized Meeting Rounds Overview",
             "",
             "| Cycle | Covered WGs | Meetings | Decisions | Dossiers |",
             "| :--- | :--- | :--- | :--- | :--- |",
@@ -937,7 +937,7 @@ class TopicDossierExporterThread(QThread):
             f"# Consolidated Executive Briefing: {self.topic.name}",
             "",
             "## 1. Executive Summary & Baseline",
-            f"This briefing consolidates decisions across {', '.join(sorted(self.topic.target_wgs))} spanning {len(self.cohorts)} quarterly meeting cohorts.",
+            f"This briefing consolidates decisions across {', '.join(sorted(self.topic.target_wgs))} spanning {len(self.cohorts)} synchronized meeting rounds.",
             "",
             "## 2. Chronological Technical Decisions",
             "",
