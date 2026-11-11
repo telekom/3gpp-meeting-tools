@@ -6,11 +6,12 @@ term navigation, one-click citation copying, direct document opening, and persis
 import html
 import re
 from typing import Any, Dict, List, Optional
-from PyQt5.QtCore import QModelIndex, QRect, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen, QTextCursor, QTextDocument
+from PyQt5.QtCore import QModelIndex, QPoint, QRect, Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QBrush, QColor, QCursor, QFont, QFontMetrics, QPainter, QPen, QTextCursor, QTextDocument
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
+    QCheckBox,
     QFrame,
     QGroupBox,
     QHBoxLayout,
@@ -18,10 +19,13 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QMenu,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QTextBrowser,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -29,7 +33,8 @@ from PyQt5.QtWidgets import (
 )
 
 from modules.spec_search.core.spec_clause_exporter import copy_clause_to_clipboard
-from modules.spec_search.core.spec_search_db import parse_version_tuple
+from core.ui.flow_layout import FlowLayout
+from modules.spec_search.core.spec_search_db import extract_major_release, parse_version_tuple
 
 
 # -----------------------------------------------------------------------------
@@ -247,92 +252,416 @@ class SpecEvolutionStatusDelegate(QStyledItemDelegate):
         painter.restore()
 
 
-class SpecSearchVersionTreeWidget(QTreeWidget):
-    """Tri-state checkable tree grouping indexed specification releases with release dates."""
+class ReleasePillWidget(QPushButton):
+    """
+    Compact clickable pill representing a single specification version release.
+    Features distinct active/inactive color-coding and rich tooltip.
+    """
+    def __init__(self, version_data: Dict[str, Any], parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.version_data = version_data
+        self.spec_number = str(version_data.get("spec_number", ""))
+        self.version = str(version_data.get("version", ""))
+        self.version_id = version_data.get("id")
+        self.release_date = str(version_data.get("release_date") or "")
+        self.total_clauses = version_data.get("total_clauses", 0)
 
+        rel = extract_major_release(self.version)
+        short_rel = rel.replace("Rel-", "R") if rel.startswith("Rel-") else rel
+        self.setText(f"{short_rel}: {self.version}")
+        self.setCheckable(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedHeight(22)
+
+        # Build informative tooltip
+        date_str = f"Date: {self.release_date}\n" if self.release_date else ""
+        clauses_str = f"Clauses: {self.total_clauses:,}\n" if self.total_clauses else ""
+        self.setToolTip(
+            f"TS {self.spec_number} v{self.version}\n"
+            f"Release: {rel}\n"
+            f"{date_str}{clauses_str}"
+            f"(Click to toggle search inclusion | Right-click for options)"
+        )
+        self._update_style()
+        self.toggled.connect(lambda _: self._update_style())
+
+    def _update_style(self):
+        if self.isChecked():
+            self.setStyleSheet("""
+                QPushButton {
+                    background-color: #0284C7;
+                    color: #FFFFFF;
+                    border: 1px solid #0284C7;
+                    border-radius: 11px;
+                    padding: 1px 7px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }
+                QPushButton:hover {
+                    background-color: #0369A1;
+                    border-color: #0369A1;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QPushButton {
+                    background-color: #F8FAFC;
+                    color: #64748B;
+                    border: 1px solid #CBD5E1;
+                    border-radius: 11px;
+                    padding: 1px 7px;
+                    font-size: 11px;
+                    font-weight: 500;
+                }
+                QPushButton:hover {
+                    background-color: #F1F5F9;
+                    color: #0F172A;
+                    border-color: #94A3B8;
+                }
+            """)
+
+
+class SpecCardWidget(QFrame):
+    """
+    Compact specification card with header controls and an auto-wrapping flow of release pills.
+    """
     selection_changed = pyqtSignal()
     delete_version_requested = pyqtSignal(str, str)
     delete_spec_requested = pyqtSignal(str, int)
+    prune_spec_requested = pyqtSignal(str)
+
+    def __init__(
+        self,
+        spec_number: str,
+        title: str,
+        versions: List[Dict[str, Any]],
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(parent)
+        self.spec_number = spec_number
+        self.raw_title = title
+        self.versions = versions
+        self.pills: List[ReleasePillWidget] = []
+        self._updating_checks = False
+
+        self.setObjectName("SpecCard")
+        self.setStyleSheet("""
+            QFrame#SpecCard {
+                background-color: #FFFFFF;
+                border: 1px solid #E2E8F0;
+                border-radius: 6px;
+            }
+            QFrame#SpecCard:hover {
+                border-color: #CBD5E1;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(4)
+
+        # Header Row
+        hdr = QHBoxLayout()
+        hdr.setContentsMargins(0, 0, 0, 0)
+        hdr.setSpacing(6)
+
+        self.chk_all = QCheckBox()
+        self.chk_all.setCursor(Qt.PointingHandCursor)
+        self.chk_all.clicked.connect(self._on_header_checkbox_clicked)
+        hdr.addWidget(self.chk_all)
+
+        lbl_spec = QLabel(f"TS {spec_number}")
+        font_spec = QFont()
+        font_spec.setBold(True)
+        font_spec.setPointSize(9)
+        lbl_spec.setFont(font_spec)
+        lbl_spec.setStyleSheet("color: #0F172A;")
+        hdr.addWidget(lbl_spec)
+
+        clean_title = re.sub(r'^(NR;\s*|LTE;\s*|Universal Mobile Telecommunications System \(UMTS\);\s*)', '', title, flags=re.IGNORECASE).strip()
+        parts = [p.strip() for p in clean_title.split(';') if p.strip()]
+        display_title = parts[0] if parts else clean_title
+        if len(display_title) > 36:
+            display_title = display_title[:35].rstrip() + "…"
+
+        self.lbl_title = QLabel(display_title)
+        self.lbl_title.setStyleSheet("color: #64748B; font-size: 11px;")
+        if title:
+            self.lbl_title.setToolTip(f"TS {spec_number}: {title}\n{len(versions)} indexed release(s)")
+        hdr.addWidget(self.lbl_title, stretch=1)
+
+        self.badge = QLabel(str(len(versions)))
+        self.badge.setStyleSheet("""
+            background-color: #F1F5F9;
+            color: #475569;
+            border: 1px solid #E2E8F0;
+            border-radius: 8px;
+            padding: 1px 6px;
+            font-size: 10px;
+            font-weight: bold;
+        """)
+        hdr.addWidget(self.badge)
+
+        self.btn_opt = QToolButton()
+        self.btn_opt.setText("⋮")
+        self.btn_opt.setCursor(Qt.PointingHandCursor)
+        self.btn_opt.setStyleSheet("""
+            QToolButton {
+                border: none;
+                background: transparent;
+                color: #64748B;
+                font-weight: bold;
+                font-size: 12px;
+                padding: 0px 2px;
+            }
+            QToolButton:hover {
+                color: #0F172A;
+                background-color: #F1F5F9;
+                border-radius: 3px;
+            }
+        """)
+        self.btn_opt.clicked.connect(self._show_options_menu)
+        hdr.addWidget(self.btn_opt)
+
+        layout.addLayout(hdr)
+
+        # Flow Layout of Pills
+        self.pills_container = QWidget()
+        self.flow = FlowLayout(self.pills_container, margin=0, h_spacing=4, v_spacing=4)
+
+        for v in sorted(versions, key=lambda x: parse_version_tuple(x["version"]), reverse=True):
+            pill = ReleasePillWidget(v, self)
+            pill.toggled.connect(self._on_pill_toggled)
+            pill.setContextMenuPolicy(Qt.CustomContextMenu)
+            pill.customContextMenuRequested.connect(lambda pos, p=pill: self._show_pill_menu(p, pos))
+            self.pills.append(pill)
+            self.flow.addWidget(pill)
+
+        layout.addWidget(self.pills_container)
+
+    def _show_options_menu(self):
+        menu = QMenu(self)
+        act_sel_all = menu.addAction("Select All Releases")
+        act_sel_all.triggered.connect(self.select_all)
+        act_desel = menu.addAction("Deselect All Releases")
+        act_desel.triggered.connect(self.deselect_all)
+        menu.addSeparator()
+
+        # Check if multiple versions in any release exist
+        rels = [extract_major_release(v["version"]) for v in self.versions]
+        has_duplicates = len(rels) > len(set(rels))
+        if has_duplicates:
+            act_prune = menu.addAction(f"🧹 Prune Older Versions in TS {self.spec_number}")
+            act_prune.triggered.connect(lambda: self.prune_spec_requested.emit(self.spec_number))
+
+        act_del = menu.addAction(f"🗑️ Delete TS {self.spec_number} ({len(self.versions)} versions)")
+        act_del.triggered.connect(lambda: self.delete_spec_requested.emit(self.spec_number, len(self.versions)))
+        menu.exec_(QCursor.pos())
+
+    def _show_pill_menu(self, pill: ReleasePillWidget, pos: QPoint):
+        menu = QMenu(self)
+        act_del = menu.addAction(f"🗑️ Delete TS {pill.spec_number} v{pill.version}")
+        act_del.triggered.connect(lambda: self.delete_version_requested.emit(pill.spec_number, pill.version))
+        menu.exec_(pill.mapToGlobal(pos))
+
+    def _on_header_checkbox_clicked(self):
+        if self._updating_checks:
+            return
+        all_checked = all(p.isChecked() for p in self.pills)
+        new_state = not all_checked
+        self._updating_checks = True
+        for p in self.pills:
+            p.setChecked(new_state)
+        self._updating_checks = False
+        self._update_header_state()
+        self.selection_changed.emit()
+
+    def _on_pill_toggled(self):
+        if self._updating_checks:
+            return
+        self._update_header_state()
+        self.selection_changed.emit()
+
+    def _update_header_state(self):
+        self._updating_checks = True
+        checked_count = sum(1 for p in self.pills if p.isChecked())
+        if checked_count == len(self.pills):
+            self.chk_all.setCheckState(Qt.Checked)
+        elif checked_count == 0:
+            self.chk_all.setCheckState(Qt.Unchecked)
+        else:
+            self.chk_all.setCheckState(Qt.PartiallyChecked)
+        self._updating_checks = False
+
+    def select_all(self):
+        self._updating_checks = True
+        for p in self.pills:
+            p.setChecked(True)
+        self._updating_checks = False
+        self._update_header_state()
+        self.selection_changed.emit()
+
+    def deselect_all(self):
+        self._updating_checks = True
+        for p in self.pills:
+            p.setChecked(False)
+        self._updating_checks = False
+        self._update_header_state()
+        self.selection_changed.emit()
+
+    def set_pill_state(self, version: str, checked: bool):
+        for p in self.pills:
+            if p.version == version:
+                p.setChecked(checked)
+                break
+        self._update_header_state()
+
+
+class _TreeCompatChildItem:
+    def __init__(self, pill: ReleasePillWidget):
+        self.pill = pill
+
+    def text(self, col: int = 0) -> str:
+        date_lbl = f" ({self.pill.release_date})" if self.pill.release_date else ""
+        return f"v{self.pill.version}{date_lbl}"
+
+    def toolTip(self, col: int = 0) -> str:
+        return self.pill.toolTip()
+
+    def data(self, col: int, role: int = Qt.UserRole) -> Any:
+        return {
+            "type": "version",
+            "id": self.pill.version_id,
+            "spec_number": self.pill.spec_number,
+            "version": self.pill.version,
+            "release_date": self.pill.release_date,
+        }
+
+    def checkState(self, col: int = 0) -> Qt.CheckState:
+        return Qt.Checked if self.pill.isChecked() else Qt.Unchecked
+
+    def setCheckState(self, col: int, state: Qt.CheckState):
+        self.pill.setChecked(state == Qt.Checked)
+
+
+class _TreeCompatSpecItem:
+    def __init__(self, card: SpecCardWidget):
+        self.card = card
+
+    def text(self, col: int = 0) -> str:
+        t = self.card.raw_title
+        if t:
+            clean = re.sub(r'^(NR;\s*|LTE;\s*|Universal Mobile Telecommunications System \(UMTS\);\s*)', '', t, flags=re.IGNORECASE).strip()
+            parts = [p.strip() for p in clean.split(';') if p.strip()]
+            display_title = parts[0] if parts else clean
+            if len(display_title) > 40:
+                display_title = display_title[:39].rstrip() + "…"
+            return f"TS {self.card.spec_number}: {display_title}  ({len(self.card.pills)})"
+        return f"TS {self.card.spec_number}  ({len(self.card.pills)})"
+
+    def toolTip(self, col: int = 0) -> str:
+        if self.card.raw_title:
+            return f"TS {self.card.spec_number}: {self.card.raw_title}\n{len(self.card.pills)} indexed release(s)"
+        return f"TS {self.card.spec_number}\n{len(self.card.pills)} indexed release(s)"
+
+    def data(self, col: int, role: int = Qt.UserRole) -> Any:
+        return {
+            "type": "spec",
+            "spec_number": self.card.spec_number,
+            "title": self.card.raw_title,
+        }
+
+    def isHidden(self) -> bool:
+        return self.card.isHidden()
+
+    def setHidden(self, val: bool):
+        self.card.setHidden(val)
+
+    def setExpanded(self, val: bool):
+        pass
+
+    def childCount(self) -> int:
+        return len(self.card.pills)
+
+    def child(self, idx: int) -> _TreeCompatChildItem:
+        return _TreeCompatChildItem(self.card.pills[idx])
+
+    def checkState(self, col: int = 0) -> Qt.CheckState:
+        return self.card.chk_all.checkState()
+
+    def setCheckState(self, col: int, state: Qt.CheckState):
+        if state == Qt.Checked:
+            self.card.select_all()
+        else:
+            self.card.deselect_all()
+
+
+class _TreeCompatRootItem:
+    def __init__(self, widget: "SpecSearchVersionCardsWidget"):
+        self.widget = widget
+
+    def text(self, col: int = 0) -> str:
+        return "All Indexed Specifications"
+
+    def data(self, col: int, role: int = Qt.UserRole) -> Any:
+        return {"type": "all"}
+
+    def isHidden(self) -> bool:
+        return False
+
+    def setHidden(self, val: bool):
+        pass
+
+    def checkState(self, col: int = 0) -> Qt.CheckState:
+        total = sum(len(c.pills) for c in self.widget._cards.values())
+        checked = len(self.widget.get_selected_version_ids())
+        if checked == total and total > 0:
+            return Qt.Checked
+        elif checked == 0:
+            return Qt.Unchecked
+        return Qt.PartiallyChecked
+
+    def setCheckState(self, col: int, state: Qt.CheckState):
+        if state == Qt.Checked:
+            self.widget.select_all()
+        else:
+            self.widget.deselect_all()
+
+
+class SpecSearchVersionCardsWidget(QScrollArea):
+    """
+    Modern Concept B: Release Pills Flow Widget.
+    Replaces the deep vertical tree with clean, compact specification cards featuring
+    interactive release pills, 1-click status badges, and quick-filtering.
+    Includes full backward-compatibility adapters for legacy tree tests and callers.
+    """
+    selection_changed = pyqtSignal()
+    delete_version_requested = pyqtSignal(str, str)
+    delete_spec_requested = pyqtSignal(str, int)
+    prune_spec_requested = pyqtSignal(str)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self._updating_checks = False
-        self.setHeaderHidden(True)
-        self.setAlternatingRowColors(True)
-        self.setIndentation(14)
-        self.setUniformRowHeights(True)
-        self.header().setStretchLastSection(True)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.NoFrame)
         self.setStyleSheet("""
-            QTreeWidget {
+            QScrollArea {
                 border: 1px solid #CBD5E1;
                 border-radius: 4px;
-                background-color: #FFFFFF;
-                alternate-background-color: #F8FAFC;
-                padding: 2px;
-                font-size: 12px;
-                outline: none;
-            }
-            QTreeWidget::item {
-                min-height: 24px;
-                padding: 2px 4px;
-                border-bottom: 1px solid #F1F5F9;
-            }
-            QTreeWidget::item:hover {
                 background-color: #F8FAFC;
             }
-            QTreeWidget::item:selected {
-                background-color: #EBF3FC;
-                color: #0F172A;
-            }
         """)
-        self.itemChanged.connect(self._on_item_changed)
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.customContextMenuRequested.connect(self._on_context_menu)
 
-    def filter_tree(self, query: str):
-        """Filters specifications and releases in the tree based on search query."""
-        query = query.strip().lower()
-        if not query:
-            for s_idx in range(self.topLevelItemCount()):
-                item = self.topLevelItem(s_idx)
-                item.setHidden(False)
-                for c_idx in range(item.childCount()):
-                    item.child(c_idx).setHidden(False)
-            return
+        self.container = QWidget()
+        self.container.setStyleSheet("background-color: #F8FAFC;")
+        self.cards_layout = QVBoxLayout(self.container)
+        self.cards_layout.setContentsMargins(4, 4, 4, 4)
+        self.cards_layout.setSpacing(6)
+        self.cards_layout.addStretch()
+        self.setWidget(self.container)
 
-        # Hide root "All" item during filtering
-        if self.topLevelItemCount() > 0:
-            self.topLevelItem(0).setHidden(True)
-
-        for s_idx in range(1, self.topLevelItemCount()):
-            spec_item = self.topLevelItem(s_idx)
-            s_data = spec_item.data(0, Qt.UserRole) or {}
-            spec_title = (s_data.get("title") or "").lower()
-            spec_text = spec_item.text(0).lower()
-            spec_matches = (query in spec_text) or (query in spec_title)
-
-            any_child_matches = False
-            for c_idx in range(spec_item.childCount()):
-                child = spec_item.child(c_idx)
-                child_text = child.text(0).lower()
-                child_matches = spec_matches or (query in child_text)
-                child.setHidden(not child_matches)
-                if child_matches:
-                    any_child_matches = True
-
-            spec_item.setHidden(not (spec_matches or any_child_matches))
-            if any_child_matches or spec_matches:
-                spec_item.setExpanded(True)
-
-    def select_all(self):
-        """Checks all indexed specifications and releases."""
-        if self.topLevelItemCount() > 0:
-            self.topLevelItem(0).setCheckState(0, Qt.Checked)
-
-    def deselect_all(self):
-        """Unchecks all indexed specifications and releases."""
-        if self.topLevelItemCount() > 0:
-            self.topLevelItem(0).setCheckState(0, Qt.Unchecked)
+        self._cards: Dict[str, SpecCardWidget] = {}
+        self._all_item_compat = _TreeCompatRootItem(self)
 
     def populate(
         self,
@@ -340,16 +669,8 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
         saved_checked: Optional[List[Dict[str, Any]]] = None,
         spec_titles: Optional[Dict[str, str]] = None,
     ):
-        """
-        Populates the tree with indexed specifications and releases.
-        Restores check states from saved_checked (if provided), or defaults to all checked.
-        Accepts optional spec_titles dictionary to show concise descriptive specification names.
-        """
-        self._updating_checks = True
         self.clear()
-
         if not versions:
-            self._updating_checks = False
             self.selection_changed.emit()
             return
 
@@ -359,25 +680,18 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
             else None
         )
 
-        base_font = self.font()
-        bold_font = QFont(base_font)
-        bold_font.setBold(True)
-
-        all_item = QTreeWidgetItem(self)
-        all_item.setText(0, "All Indexed Specifications")
-        all_item.setData(0, Qt.UserRole, {"type": "all"})
-        all_item.setFlags(all_item.flags() | Qt.ItemIsUserCheckable)
-        all_item.setFont(0, bold_font)
-
         specs_map: Dict[str, List[Dict[str, Any]]] = {}
         for v in versions:
             specs_map.setdefault(v["spec_number"], []).append(v)
 
-        for spec_num in sorted(specs_map.keys()):
-            sorted_vers = sorted(specs_map[spec_num], key=lambda x: parse_version_tuple(x["version"]), reverse=True)
-            spec_item = QTreeWidgetItem(self)
+        # Remove stretch before adding cards
+        count = self.cards_layout.count()
+        if count > 0:
+            last = self.cards_layout.itemAt(count - 1)
+            if last.spacerItem():
+                self.cards_layout.removeItem(last)
 
-            # Resolve specification title if available
+        for spec_num in sorted(specs_map.keys()):
             title = ""
             if spec_titles:
                 clean_num = re.sub(r'^(TS|TR)\s*', '', spec_num.strip(), flags=re.IGNORECASE)
@@ -386,166 +700,156 @@ class SpecSearchVersionTreeWidget(QTreeWidget):
                     base_num = clean_num.split('-')[0]
                     title = spec_titles.get(base_num, "")
 
-            if title:
-                # Format short title for tree display (e.g. up to 40 chars)
-                clean_title = re.sub(r'^(NR;\s*|LTE;\s*|Universal Mobile Telecommunications System \(UMTS\);\s*)', '', title, flags=re.IGNORECASE)
-                parts = [p.strip() for p in clean_title.split(';') if p.strip()]
-                display_title = parts[0] if parts else clean_title
-                if len(display_title) > 40:
-                    display_title = display_title[:39].rstrip() + "…"
-                spec_item.setText(0, f"TS {spec_num}: {display_title}  ({len(sorted_vers)})")
-                spec_item.setToolTip(0, f"TS {spec_num}: {title}\n{len(sorted_vers)} indexed release(s)")
-            else:
-                spec_item.setText(0, f"TS {spec_num}  ({len(sorted_vers)})")
-                spec_item.setToolTip(0, f"TS {spec_num}\n{len(sorted_vers)} indexed release(s)")
+            card = SpecCardWidget(spec_num, title, specs_map[spec_num], self.container)
+            card.selection_changed.connect(self.selection_changed.emit)
+            card.delete_version_requested.connect(self.delete_version_requested.emit)
+            card.delete_spec_requested.connect(self.delete_spec_requested.emit)
+            card.prune_spec_requested.connect(self.prune_spec_requested.emit)
 
-            spec_item.setData(0, Qt.UserRole, {"type": "spec", "spec_number": spec_num, "title": title})
-            spec_item.setFlags(spec_item.flags() | Qt.ItemIsUserCheckable)
-            spec_item.setFont(0, bold_font)
-
-            for v in sorted_vers:
-                child = QTreeWidgetItem(spec_item)
-                date_label = f" ({v['release_date']})" if v.get("release_date") else ""
-                child.setText(0, f"v{v['version']}{date_label}")
-                child.setData(0, Qt.UserRole, {
-                    "type": "version",
-                    "id": v["id"],
-                    "spec_number": spec_num,
-                    "version": v["version"],
-                    "release_date": v.get("release_date", ""),
-                })
-                child.setFlags(child.flags() | Qt.ItemIsUserCheckable)
-                child.setFont(0, base_font)
-
-                # If saved_checked was provided, restore exact check state; otherwise default to Checked
+            # Restore checked states
+            for pill in card.pills:
                 if saved_tuples is not None:
-                    is_checked = (str(spec_num), str(v["version"])) in saved_tuples
+                    is_chk = (str(spec_num), str(pill.version)) in saved_tuples
                 else:
-                    is_checked = True
+                    is_chk = True
+                pill.setChecked(is_chk)
+            card._update_header_state()
 
-                child.setCheckState(0, Qt.Checked if is_checked else Qt.Unchecked)
+            self._cards[spec_num] = card
+            self.cards_layout.addWidget(card)
 
-            spec_item.setExpanded(True)
+        self.cards_layout.addStretch()
+        self.selection_changed.emit()
 
-        self._update_parent_states()
-        self._updating_checks = False
+    def clear(self):
+        while self.cards_layout.count():
+            item = self.cards_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        self._cards.clear()
+        self.cards_layout.addStretch()
+
+    def filter_tree(self, query: str):
+        query = query.strip().lower()
+        if not query:
+            for card in self._cards.values():
+                card.setVisible(True)
+            return
+
+        for spec_num, card in self._cards.items():
+            num_match = query in spec_num.lower()
+            title_match = query in card.raw_title.lower()
+            pill_match = any(query in p.version.lower() or query in p.text().lower() for p in card.pills)
+            card.setVisible(num_match or title_match or pill_match)
+
+    def select_all(self):
+        for card in self._cards.values():
+            card._updating_checks = True
+            for p in card.pills:
+                p.setChecked(True)
+            card._updating_checks = False
+            card._update_header_state()
+        self.selection_changed.emit()
+
+    def deselect_all(self):
+        for card in self._cards.values():
+            card._updating_checks = True
+            for p in card.pills:
+                p.setChecked(False)
+            card._updating_checks = False
+            card._update_header_state()
+        self.selection_changed.emit()
+
+    def select_latest_per_release(self):
+        """Checks the newest version of each major Release for each specification."""
+        for card in self._cards.values():
+            card._updating_checks = True
+            seen_releases = set()
+            for pill in card.pills:
+                rel = extract_major_release(pill.version)
+                if rel not in seen_releases:
+                    seen_releases.add(rel)
+                    pill.setChecked(True)
+                else:
+                    pill.setChecked(False)
+            card._updating_checks = False
+            card._update_header_state()
+        self.selection_changed.emit()
+
+    def select_releases_min(self, min_rel_num: int):
+        """Checks only releases with major release number >= min_rel_num (e.g. 18 for Rel-18+)."""
+        for card in self._cards.values():
+            card._updating_checks = True
+            for pill in card.pills:
+                rel = extract_major_release(pill.version)
+                match = re.search(r'\d+', rel)
+                if match and int(match.group()) >= min_rel_num:
+                    pill.setChecked(True)
+                else:
+                    pill.setChecked(False)
+            card._updating_checks = False
+            card._update_header_state()
         self.selection_changed.emit()
 
     def get_selected_version_ids(self) -> List[int]:
-        selected_ids = []
-        for s_idx in range(1, self.topLevelItemCount()):
-            spec_item = self.topLevelItem(s_idx)
-            for c_idx in range(spec_item.childCount()):
-                child = spec_item.child(c_idx)
-                if child.checkState(0) == Qt.Checked:
-                    d = child.data(0, Qt.UserRole)
-                    if d and "id" in d:
-                        selected_ids.append(d["id"])
-        return selected_ids
+        ids = []
+        for card in self._cards.values():
+            for p in card.pills:
+                if p.isChecked() and p.version_id:
+                    ids.append(p.version_id)
+        return ids
 
     def get_checked_versions_info(self) -> List[Dict[str, Any]]:
-        """Returns list of all checked specification versions for state persistence."""
-        checked = []
-        for s_idx in range(1, self.topLevelItemCount()):
-            spec_item = self.topLevelItem(s_idx)
-            for c_idx in range(spec_item.childCount()):
-                child = spec_item.child(c_idx)
-                if child.checkState(0) == Qt.Checked:
-                    d = child.data(0, Qt.UserRole) or {}
-                    checked.append({
-                        "spec_number": str(d.get("spec_number", "")),
-                        "version": str(d.get("version", "")),
+        info = []
+        for card in self._cards.values():
+            for p in card.pills:
+                if p.isChecked():
+                    info.append({
+                        "spec_number": card.spec_number,
+                        "version": p.version,
                     })
-        return checked
+        return info
 
     def get_all_versions_for_spec(self, spec_number: str) -> List[Dict[str, Any]]:
-        """Returns all versions (regardless of check state) under the given spec_number."""
-        results = []
-        for s_idx in range(1, self.topLevelItemCount()):
-            spec_item = self.topLevelItem(s_idx)
-            s_data = spec_item.data(0, Qt.UserRole) or {}
-            if s_data.get("spec_number") == spec_number:
-                for c_idx in range(spec_item.childCount()):
-                    child = spec_item.child(c_idx)
-                    d = child.data(0, Qt.UserRole) or {}
-                    results.append({
-                        "spec_number": str(d.get("spec_number", "")),
-                        "version": str(d.get("version", "")),
-                    })
-        return results
+        card = self._cards.get(spec_number)
+        if not card:
+            return []
+        return [{"spec_number": card.spec_number, "version": p.version} for p in card.pills]
 
-    def _on_item_changed(self, item: QTreeWidgetItem, column: int):
-        if self._updating_checks:
-            return
-        self._updating_checks = True
-        state = item.checkState(0)
-        data = item.data(0, Qt.UserRole) or {}
-        item_type = data.get("type")
+    def focus_spec(self, spec_number: str, version: Optional[str] = None) -> bool:
+        """Scrolls to and highlights a specific specification card and version."""
+        card = self._cards.get(spec_number)
+        if not card:
+            return False
+        card.setVisible(True)
+        if version:
+            card.set_pill_state(version, True)
+        self.ensureWidgetVisible(card)
+        return True
 
-        if item_type == "all":
-            target = Qt.Checked if state == Qt.Checked else Qt.Unchecked
-            for s_idx in range(1, self.topLevelItemCount()):
-                s_item = self.topLevelItem(s_idx)
-                s_item.setCheckState(0, target)
-                for c_idx in range(s_item.childCount()):
-                    s_item.child(c_idx).setCheckState(0, target)
-        elif item_type == "spec":
-            target = Qt.Checked if state == Qt.Checked else Qt.Unchecked
-            for c_idx in range(item.childCount()):
-                item.child(c_idx).setCheckState(0, target)
-            self._update_parent_states()
-        elif item_type == "version":
-            self._update_parent_states()
+    # --- Tree Compatibility Adapters ---
+    def topLevelItemCount(self) -> int:
+        return 1 + len(self._cards)
 
-        self._updating_checks = False
-        self.selection_changed.emit()
+    def topLevelItem(self, idx: int):
+        if idx == 0:
+            return self._all_item_compat
+        spec_keys = sorted(self._cards.keys())
+        card_idx = idx - 1
+        if 0 <= card_idx < len(spec_keys):
+            return _TreeCompatSpecItem(self._cards[spec_keys[card_idx]])
+        return None
 
-    def _update_parent_states(self):
-        total_children = 0
-        total_checked = 0
+    def setCurrentItem(self, item):
+        pass
 
-        for s_idx in range(1, self.topLevelItemCount()):
-            spec_item = self.topLevelItem(s_idx)
-            c_cnt = spec_item.childCount()
-            if c_cnt == 0:
-                continue
-            checked = sum(1 for i in range(c_cnt) if spec_item.child(i).checkState(0) == Qt.Checked)
-            total_children += c_cnt
-            total_checked += checked
-            spec_item.setCheckState(
-                0, Qt.Checked if checked == c_cnt else (Qt.Unchecked if checked == 0 else Qt.PartiallyChecked)
-            )
+    def scrollToItem(self, item):
+        pass
 
-        # Update root "All Indexed Specifications" item
-        if self.topLevelItemCount() > 0:
-            all_item = self.topLevelItem(0)
-            if total_children > 0:
-                all_item.setCheckState(
-                    0, Qt.Checked if total_checked == total_children else (Qt.Unchecked if total_checked == 0 else Qt.PartiallyChecked)
-                )
 
-    def _on_context_menu(self, pos):
-        item = self.itemAt(pos)
-        if not item:
-            return
-        data = item.data(0, Qt.UserRole) or {}
-        item_type = data.get("type")
-
-        menu = QMenu(self)
-        if item_type == "version":
-            s_num = data.get("spec_number", "")
-            ver = data.get("version", "")
-            act = QAction(f"🗑️ Delete TS {s_num} v{ver}", self)
-            act.triggered.connect(lambda: self.delete_version_requested.emit(s_num, ver))
-            menu.addAction(act)
-            menu.exec_(self.viewport().mapToGlobal(pos))
-        elif item_type == "spec":
-            s_num = data.get("spec_number", "")
-            c_cnt = item.childCount()
-            act = QAction(f"🗑️ Delete all {c_cnt} version(s) of TS {s_num}", self)
-            act.triggered.connect(lambda: self.delete_spec_requested.emit(s_num, c_cnt))
-            menu.addAction(act)
-            menu.exec_(self.viewport().mapToGlobal(pos))
+# Backward compatibility alias
+SpecSearchVersionTreeWidget = SpecSearchVersionCardsWidget
 
 
 class SpecClauseInspector(QGroupBox):

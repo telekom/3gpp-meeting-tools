@@ -63,11 +63,13 @@ class SpecSearchImportThread(QThread):
         search_db_path: Path,
         tasks: List[Dict[str, Any]],
         cache_dir: Path,
+        auto_replace_older: bool = True,
     ):
         super().__init__()
         self.db = SpecSearchDatabase(search_db_path)
         self.tasks = tasks
         self.cache_dir = Path(cache_dir)
+        self.auto_replace_older = auto_replace_older
 
     def run(self):
         total_tasks = len(self.tasks)
@@ -189,7 +191,13 @@ class SpecSearchImportThread(QThread):
 
                 # Index in SQLite with release date
                 emit_task_progress(f"Indexing {len(clauses)} clauses into Trigram DB...", 90)
-                success = self.db.insert_parsed_spec(spec_number, version, clauses, release_date=release_date)
+                success = self.db.insert_parsed_spec(
+                    spec_number,
+                    version,
+                    clauses,
+                    release_date=release_date,
+                    auto_replace_older=self.auto_replace_older,
+                )
                 if success:
                     successful_specs += 1
                     total_clauses_indexed += len(clauses)

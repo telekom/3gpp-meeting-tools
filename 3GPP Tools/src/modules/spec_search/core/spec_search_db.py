@@ -26,6 +26,34 @@ def parse_version_tuple(version_str: str) -> tuple:
     return tuple(parts)
 
 
+def extract_major_release(ver_str: str) -> str:
+    """
+    Extracts the major 3GPP release identifier from a version string.
+    Handles dot notation ('18.4.0' -> 'Rel-18') and lettered codes ('i40' -> 'Rel-18', 'g30' -> 'Rel-16').
+    """
+    clean = str(ver_str).lstrip("vV").strip()
+    if not clean:
+        return "Unknown"
+
+    # Standard dot notation (e.g., '18.4.0', '15.1.0')
+    if "." in clean:
+        first_part = clean.split(".")[0]
+        if first_part.isdigit():
+            return f"Rel-{first_part}"
+        return first_part
+
+    # 3GPP lettered 3-digit versions (e.g., 'g40' where 'g' is the 7th letter after 9 -> Rel-16)
+    if len(clean) == 3:
+        c0 = clean[0].lower()
+        if c0.isdigit():
+            return f"Rel-{c0}"
+        if "a" <= c0 <= "z":
+            rel_num = ord(c0) - ord("a") + 10
+            return f"Rel-{rel_num}"
+
+    return clean
+
+
 class SpecSearchDatabase:
     """SQLite database manager for 3GPP Specification Full-Text and Substring Indexing with Release Date tracking."""
 
@@ -124,6 +152,7 @@ class SpecSearchDatabase:
         version: str,
         clauses: List[Dict[str, Any]],
         release_date: Optional[str] = None,
+        auto_replace_older: bool = False,
     ) -> bool:
         """Batch inserts clauses, release date, and populates the FTS5 trigram index atomically."""
         if not clauses:
@@ -143,6 +172,23 @@ class SpecSearchDatabase:
                     v_id = existing[0]
                     cursor.execute("DELETE FROM spec_fts WHERE version_id = ?", (v_id,))
                     cursor.execute("DELETE FROM indexed_versions WHERE id = ?", (v_id,))
+
+                # 1b. If auto_replace_older is active, clean older versions within the same major release
+                if auto_replace_older:
+                    new_rel = extract_major_release(version)
+                    cursor.execute(
+                        "SELECT id, version FROM indexed_versions WHERE spec_number = ?",
+                        (spec_number,),
+                    )
+                    for row in cursor.fetchall():
+                        ex_id, ex_ver = row[0], row[1]
+                        if ex_ver == version:
+                            continue
+                        if extract_major_release(ex_ver) == new_rel:
+                            if parse_version_tuple(version) >= parse_version_tuple(ex_ver):
+                                self.logger.info(f"Auto-superseding TS {spec_number} v{ex_ver} with v{version}")
+                                cursor.execute("DELETE FROM spec_fts WHERE version_id = ?", (ex_id,))
+                                cursor.execute("DELETE FROM indexed_versions WHERE id = ?", (ex_id,))
 
                 # 2. Insert into indexed_versions
                 total_chars = sum(len(c.get("content", "")) for c in clauses)
@@ -347,6 +393,63 @@ class SpecSearchDatabase:
         except Exception as e:
             self.logger.error(f"Failed to delete TS {spec_number} v{version}: {e}")
             return False
+
+    def get_superseded_versions(self) -> List[Dict[str, Any]]:
+        """
+        Identifies all indexed specification versions that are superseded by a newer version
+        within the same major 3GPP Release (e.g. v15.16.0 superseded by v15.17.0).
+        Returns list of dicts with keys: id, spec_number, version, release, release_date, total_clauses, superseded_by.
+        """
+        query = "SELECT id, spec_number, version, release_date, total_clauses FROM indexed_versions ORDER BY spec_number ASC"
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query)
+            rows = [dict(r) for r in cursor.fetchall()]
+
+        # Group by (spec_number, major_release)
+        groups: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+        for r in rows:
+            rel = extract_major_release(r["version"])
+            groups.setdefault((r["spec_number"], rel), []).append(r)
+
+        superseded: List[Dict[str, Any]] = []
+        for (spec_num, rel), ver_list in groups.items():
+            if len(ver_list) > 1:
+                sorted_vers = sorted(ver_list, key=lambda x: parse_version_tuple(x["version"]), reverse=True)
+                newest_ver = sorted_vers[0]["version"]
+                for older in sorted_vers[1:]:
+                    older_copy = dict(older)
+                    older_copy["release"] = rel
+                    older_copy["superseded_by"] = newest_ver
+                    superseded.append(older_copy)
+
+        return sorted(superseded, key=lambda x: (x["spec_number"], parse_version_tuple(x["version"])), reverse=True)
+
+    def prune_superseded_versions(self, target_version_ids: Optional[List[int]] = None) -> int:
+        """
+        Deletes superseded versions from the search database and full-text index.
+        If target_version_ids is provided, prunes only those specific IDs.
+        Otherwise, prunes all superseded versions.
+        Returns the count of deleted versions.
+        """
+        if target_version_ids is None:
+            superseded = self.get_superseded_versions()
+            target_version_ids = [s["id"] for s in superseded]
+
+        if not target_version_ids:
+            return 0
+
+        count = 0
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            for v_id in target_version_ids:
+                cursor.execute("DELETE FROM spec_fts WHERE version_id = ?", (v_id,))
+                cursor.execute("DELETE FROM indexed_versions WHERE id = ?", (v_id,))
+                count += 1
+            conn.commit()
+
+        self.logger.info(f"Pruned {count} superseded specification version(s).")
+        return count
 
     def wipe_database(self) -> bool:
         """Wipes all indexed specifications and resets the database schema."""

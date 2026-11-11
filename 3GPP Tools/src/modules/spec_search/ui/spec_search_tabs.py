@@ -60,6 +60,7 @@ from modules.spec_search.core.spec_search_threads import (
 from modules.spec_search.ui.spec_search_components import (
     SpecClauseInspector,
     SpecEvolutionStatusDelegate,
+    SpecSearchVersionCardsWidget,
     SpecSearchVersionTreeWidget,
 )
 from modules.spec_search.ui.spec_search_dialogs import (
@@ -99,6 +100,7 @@ class SpecSearchTab(QWidget):
         self._active_query_workers: Dict[int, SpecSearchQueryWorker] = {}
         self._current_req_id: int = 0
         self.selected_version_ids: List[int] = []
+        self.auto_replace_older_versions: bool = True
         self.thread: Optional[SpecSearchImportThread] = None
         self._import_thread: Optional[SpecSearchImportThread] = None
 
@@ -287,6 +289,13 @@ class SpecSearchTab(QWidget):
             }
         """)
         db_menu = QMenu(self)
+        self.act_auto_replace = db_menu.addAction("Auto-supersede Older Versions on Import")
+        self.act_auto_replace.setCheckable(True)
+        self.act_auto_replace.setChecked(getattr(self, "auto_replace_older_versions", True))
+        self.act_auto_replace.toggled.connect(self._on_toggle_auto_replace)
+        db_menu.addSeparator()
+        self.act_prune = db_menu.addAction("🧹 Prune Superseded Versions...")
+        self.act_prune.triggered.connect(self._on_prune_superseded_clicked)
         self.act_clear_ver = db_menu.addAction("🗑️ Clear Specific Version...")
         self.act_clear_ver.triggered.connect(self._on_clear_version_clicked)
         db_menu.addSeparator()
@@ -322,15 +331,13 @@ class SpecSearchTab(QWidget):
         self.progress_bar.setVisible(False)
         card_layout.addWidget(self.progress_bar)
 
-        # Quick Filter + Select All / None Actions
-        tree_actions_layout = QHBoxLayout()
-        tree_actions_layout.setSpacing(4)
+        # Quick Filter Input
         self.tree_filter_input = QLineEdit()
-        self.tree_filter_input.setPlaceholderText("Filter specs (e.g. 23.501)...")
+        self.tree_filter_input.setPlaceholderText("Filter specs (e.g. 23.501, slicing)...")
         self.tree_filter_input.setClearButtonEnabled(True)
         self.tree_filter_input.setStyleSheet("""
             QLineEdit {
-                padding: 2px 6px;
+                padding: 3px 6px;
                 border: 1px solid #CBD5E1;
                 border-radius: 4px;
                 font-size: 11px;
@@ -341,10 +348,14 @@ class SpecSearchTab(QWidget):
                 background-color: #FFFFFF;
             }
         """)
-        tree_actions_layout.addWidget(self.tree_filter_input, stretch=1)
+        card_layout.addWidget(self.tree_filter_input)
+
+        # Quick Filter Action Chips
+        chips_layout = QHBoxLayout()
+        chips_layout.setSpacing(4)
 
         btn_all = QPushButton("All")
-        btn_all.setToolTip("Select all indexed releases")
+        btn_all.setToolTip("Select all indexed releases across all specs")
         btn_all.setCursor(Qt.PointingHandCursor)
         btn_all.setStyleSheet("""
             QPushButton {
@@ -361,7 +372,7 @@ class SpecSearchTab(QWidget):
                 color: #0F172A;
             }
         """)
-        tree_actions_layout.addWidget(btn_all)
+        chips_layout.addWidget(btn_all)
 
         btn_none = QPushButton("None")
         btn_none.setToolTip("Deselect all indexed releases")
@@ -381,16 +392,60 @@ class SpecSearchTab(QWidget):
                 color: #0F172A;
             }
         """)
-        tree_actions_layout.addWidget(btn_none)
-        card_layout.addLayout(tree_actions_layout)
+        chips_layout.addWidget(btn_none)
 
-        self.version_tree = SpecSearchVersionTreeWidget()
+        btn_latest = QPushButton("⭐ Latest/Rel")
+        btn_latest.setToolTip("Check only the newest version of each Release per specification")
+        btn_latest.setCursor(Qt.PointingHandCursor)
+        btn_latest.setStyleSheet("""
+            QPushButton {
+                font-size: 10px;
+                font-weight: 600;
+                color: #0369A1;
+                background-color: #F0F9FF;
+                border: 1px solid #BAE6FD;
+                border-radius: 3px;
+                padding: 2px 6px;
+            }
+            QPushButton:hover {
+                background-color: #E0F2FE;
+                color: #0284C7;
+            }
+        """)
+        chips_layout.addWidget(btn_latest)
+
+        btn_r18 = QPushButton("Rel-18+")
+        btn_r18.setToolTip("Select only Release 18, 19, and 20 (5G-Advanced & 6G)")
+        btn_r18.setCursor(Qt.PointingHandCursor)
+        btn_r18.setStyleSheet("""
+            QPushButton {
+                font-size: 10px;
+                font-weight: 600;
+                color: #4338CA;
+                background-color: #EEF2FF;
+                border: 1px solid #C7D2FE;
+                border-radius: 3px;
+                padding: 2px 6px;
+            }
+            QPushButton:hover {
+                background-color: #E0E7FF;
+                color: #3730A3;
+            }
+        """)
+        chips_layout.addWidget(btn_r18)
+        chips_layout.addStretch()
+        card_layout.addLayout(chips_layout)
+
+        self.version_tree = SpecSearchVersionCardsWidget()
         self.version_tree.selection_changed.connect(self._on_version_selection_changed)
         self.version_tree.delete_version_requested.connect(self._delete_single_version)
         self.version_tree.delete_spec_requested.connect(self._delete_spec_group)
+        self.version_tree.prune_spec_requested.connect(self._prune_single_spec)
         self.tree_filter_input.textChanged.connect(self.version_tree.filter_tree)
         btn_all.clicked.connect(self.version_tree.select_all)
         btn_none.clicked.connect(self.version_tree.deselect_all)
+        btn_latest.clicked.connect(self.version_tree.select_latest_per_release)
+        btn_r18.clicked.connect(lambda: self.version_tree.select_releases_min(18))
         card_layout.addWidget(self.version_tree)
 
         left_layout.addWidget(left_card)
@@ -589,6 +644,7 @@ class SpecSearchTab(QWidget):
                 "enable_cutoff": self.chk_filing_date.isChecked(),
                 "cutoff_date": self.cutoff_date_edit.date().toString("yyyy-MM-dd"),
                 "only_post_cutoff": self.chk_post_date_only.isChecked(),
+                "auto_replace_older_versions": getattr(self, "auto_replace_older_versions", True),
                 "checked_versions": checked_versions,
                 "inspector_side_by_side": (self.right_splitter.orientation() == Qt.Horizontal),
             }
@@ -610,6 +666,9 @@ class SpecSearchTab(QWidget):
     def _load_config_and_refresh(self):
         """Restores UI filter inputs, populates the tree with saved checkboxes, and runs search."""
         config = self._load_config()
+        self.auto_replace_older_versions = config.get("auto_replace_older_versions", True) if config else True
+        if hasattr(self, "act_auto_replace"):
+            self.act_auto_replace.setChecked(self.auto_replace_older_versions)
         versions = self.db.get_imported_versions()
 
         saved_checked = config.get("checked_versions", None) if config else None
@@ -932,7 +991,14 @@ class SpecSearchTab(QWidget):
             return
 
         dialog = SpecSearchVersionSelectDialog(self.specs_db, self.db, self.cache_dir, self)
+        if hasattr(dialog, "chk_auto_supersede"):
+            dialog.chk_auto_supersede.setChecked(getattr(self, "auto_replace_older_versions", True))
         if dialog.exec_() == dialog.Accepted and dialog.selected_files_info:
+            if hasattr(dialog, "auto_replace_older"):
+                self.auto_replace_older_versions = dialog.auto_replace_older
+                if hasattr(self, "act_auto_replace"):
+                    self.act_auto_replace.setChecked(self.auto_replace_older_versions)
+                self._save_config()
             self._start_batch_ingestion(dialog.selected_files_info)
 
     def _on_import_local_clicked(self):
@@ -990,6 +1056,7 @@ class SpecSearchTab(QWidget):
             search_db_path=self.search_db_path,
             tasks=tasks,
             cache_dir=self.cache_dir,
+            auto_replace_older=getattr(self, "auto_replace_older_versions", True),
         )
         self._import_thread = self.thread
         self.thread.progress.connect(self._on_import_progress)
@@ -1039,6 +1106,51 @@ class SpecSearchTab(QWidget):
         self.import_local_btn.setEnabled(True)
         QMessageBox.critical(self, "Indexing Error", err)
         logger.log(logging.ERROR, f"❌ Indexing error: {err}")
+
+
+    def _on_toggle_auto_replace(self, checked: bool):
+        self.auto_replace_older_versions = checked
+        self._save_config()
+        logger.log(logging.INFO, f"Auto-supersede older versions on import set to: {checked}")
+
+    def _on_prune_superseded_clicked(self):
+        superseded = self.db.get_superseded_versions()
+        if not superseded:
+            QMessageBox.information(
+                self,
+                "No Superseded Versions",
+                "No superseded versions found. All indexed specifications are already at their latest version per release.",
+            )
+            return
+
+        from modules.spec_search.ui.spec_search_dialogs import SpecSearchPruneDialog
+        dialog = SpecSearchPruneDialog(self.db, superseded, self)
+        if dialog.exec_() == QDialog.Accepted and dialog.pruned_count > 0:
+            self.refresh_versions()
+            self._save_config()
+            self._execute_search()
+            logger.log(logging.INFO, f"🧹 Pruned {dialog.pruned_count} superseded version(s) from search index.")
+
+    def _prune_single_spec(self, spec_number: str):
+        superseded = [
+            v for v in self.db.get_superseded_versions()
+            if v["spec_number"] == spec_number
+        ]
+        if not superseded:
+            QMessageBox.information(
+                self,
+                "No Superseded Versions",
+                f"All indexed versions of TS {spec_number} are already the latest version for each release.",
+            )
+            return
+
+        from modules.spec_search.ui.spec_search_dialogs import SpecSearchPruneDialog
+        dialog = SpecSearchPruneDialog(self.db, superseded, self)
+        if dialog.exec_() == QDialog.Accepted and dialog.pruned_count > 0:
+            self.refresh_versions()
+            self._save_config()
+            self._execute_search()
+            logger.log(logging.INFO, f"🧹 Pruned {dialog.pruned_count} superseded version(s) of TS {spec_number}.")
 
     def _delete_single_version(self, spec_number: str, version: str):
         if QMessageBox.question(self, "Confirm Delete", f"Delete TS {spec_number} v{version}?", QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:

@@ -9,9 +9,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QCheckBox,
+    QFrame,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -34,36 +37,12 @@ from PyQt5.QtWidgets import (
 
 from modules.nas.core.nas_threads import find_cached_spec_file
 from modules.spec_search.core.spec_clause_diff import build_llm_clause_prompt, generate_unified_diff
-from modules.spec_search.core.spec_search_db import SpecSearchDatabase, parse_version_tuple
+from modules.spec_search.core.spec_search_db import (
+    SpecSearchDatabase,
+    extract_major_release,
+    parse_version_tuple,
+)
 from modules.specifications.core.database import SpecsDatabase
-
-
-def extract_major_release(ver_str: str) -> str:
-    """
-    Extracts the major 3GPP release identifier from a version string.
-    Handles dot notation ('18.4.0' -> 'Rel-18') and lettered codes ('i40' -> 'Rel-18', 'g30' -> 'Rel-16').
-    """
-    clean = str(ver_str).lstrip("vV").strip()
-    if not clean:
-        return "Unknown"
-
-    # Standard dot notation (e.g., '18.4.0', '15.1.0')
-    if "." in clean:
-        first_part = clean.split(".")[0]
-        if first_part.isdigit():
-            return f"Rel-{first_part}"
-        return first_part
-
-    # 3GPP lettered 3-digit versions (e.g., 'g40' where 'g' is the 7th letter after 9 -> Rel-16)
-    if len(clean) == 3:
-        c0 = clean[0].lower()
-        if c0.isdigit():
-            return f"Rel-{c0}"
-        if "a" <= c0 <= "z":
-            rel_num = ord(c0) - ord("a") + 10
-            return f"Rel-{rel_num}"
-
-    return clean
 
 
 class SpecSearchVersionSelectDialog(QDialog):
@@ -206,6 +185,11 @@ class SpecSearchVersionSelectDialog(QDialog):
         # ---------------------------------------------------------------------
         # Dialog Action Buttons
         # ---------------------------------------------------------------------
+        self.chk_auto_supersede = QCheckBox("Auto-supersede older minor versions within the same release (recommended)")
+        self.chk_auto_supersede.setChecked(True)
+        self.chk_auto_supersede.setToolTip("When checked, ingesting a newer release (e.g. 15.17.0) will automatically remove any older indexed version of that release (e.g. 15.16.0).")
+        layout.addWidget(self.chk_auto_supersede)
+
         btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.ok_btn = btn_box.button(QDialogButtonBox.Ok)
         self.ok_btn.setText("📥 Ingest Selected Releases")
@@ -525,9 +509,211 @@ class SpecSearchVersionSelectDialog(QDialog):
             QMessageBox.warning(self, "Selection Required", "Please check at least one specification version to index.")
             return
 
+        self.auto_replace_older = self.chk_auto_supersede.isChecked()
         self.selected_files_info = selected_tasks
         self.accept()
 
+
+
+
+
+class SpecSearchPruneDialog(QDialog):
+    """
+    Dialog to review and prune older specification versions superseded by newer releases
+    within the same 3GPP major release.
+    """
+
+    def __init__(
+        self,
+        db: SpecSearchDatabase,
+        superseded_versions: List[Dict[str, Any]],
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(parent)
+        self.db = db
+        self.superseded_versions = superseded_versions
+        self.pruned_count = 0
+        self.setWindowTitle("🧹 Prune Superseded Specification Versions")
+        self.resize(780, 500)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        # Header Info Banner
+        info_banner = QFrame()
+        info_banner.setStyleSheet("""
+            QFrame {
+                background-color: #EFF6FF;
+                border: 1px solid #BFDBFE;
+                border-radius: 6px;
+                padding: 8px;
+            }
+        """)
+        ib_layout = QVBoxLayout(info_banner)
+        ib_layout.setContentsMargins(6, 6, 6, 6)
+        ib_layout.setSpacing(3)
+
+        title_lbl = QLabel(f"<b>Found {len(self.superseded_versions)} Superseded Specification Version(s)</b>")
+        title_lbl.setStyleSheet("color: #1E3A8A; font-size: 12px;")
+        desc_lbl = QLabel(
+            "These older minor releases belong to the same 3GPP Release as a newer indexed version.\n"
+            "Pruning them will remove their clause records and FTS indices, freeing database space and cleaning the evolution matrix."
+        )
+        desc_lbl.setStyleSheet("color: #1E40AF; font-size: 11px;")
+        desc_lbl.setWordWrap(True)
+        ib_layout.addWidget(title_lbl)
+        ib_layout.addWidget(desc_lbl)
+        layout.addWidget(info_banner)
+
+        # Quick selection bar
+        sel_bar = QHBoxLayout()
+        btn_sel_all = QPushButton("Select All")
+        btn_sel_all.clicked.connect(self._select_all)
+        sel_bar.addWidget(btn_sel_all)
+
+        btn_desel_all = QPushButton("Deselect All")
+        btn_desel_all.clicked.connect(self._deselect_all)
+        sel_bar.addWidget(btn_desel_all)
+
+        sel_bar.addStretch()
+        self.lbl_selected = QLabel(f"Selected: {len(self.superseded_versions)} version(s)")
+        self.lbl_selected.setStyleSheet("font-weight: bold; color: #0284C7; font-size: 11px;")
+        sel_bar.addWidget(self.lbl_selected)
+        layout.addLayout(sel_bar)
+
+        # Table of superseded versions
+        self.table = QTableWidget()
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels([
+            "Prune", "Specification", "Superseded Version", "Release", "Active Replacement", "Clauses"
+        ])
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.Stretch)
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setAlternatingRowColors(True)
+
+        self._populate_table()
+        layout.addWidget(self.table)
+
+        # Action Buttons
+        btn_box = QHBoxLayout()
+        btn_box.addStretch()
+
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+        btn_box.addWidget(btn_cancel)
+
+        self.btn_prune = QPushButton(f"🧹 Prune Selected ({len(self.superseded_versions)})")
+        self.btn_prune.setStyleSheet("""
+            QPushButton {
+                background-color: #DC2626;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 14px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #B91C1C;
+            }
+            QPushButton:disabled {
+                background-color: #CBD5E1;
+                color: #94A3B8;
+            }
+        """)
+        self.btn_prune.clicked.connect(self._on_prune_confirmed)
+        btn_box.addWidget(self.btn_prune)
+        layout.addLayout(btn_box)
+
+    def _populate_table(self):
+        self.table.setRowCount(len(self.superseded_versions))
+        for r, item in enumerate(self.superseded_versions):
+            chk = QTableWidgetItem()
+            chk.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            chk.setCheckState(Qt.Checked)
+            self.table.setItem(r, 0, chk)
+
+            s_item = QTableWidgetItem(f"TS {item['spec_number']}")
+            s_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.table.setItem(r, 1, s_item)
+
+            v_item = QTableWidgetItem(f"v{item['version']}")
+            v_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.table.setItem(r, 2, v_item)
+
+            rel_item = QTableWidgetItem(str(item.get("release", "")))
+            rel_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.table.setItem(r, 3, rel_item)
+
+            sup_item = QTableWidgetItem(f"v{item.get('superseded_by', '')} (Newer)")
+            sup_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            sup_item.setForeground(QColor("#15803D"))
+            self.table.setItem(r, 4, sup_item)
+
+            c_item = QTableWidgetItem(f"{item.get('total_clauses', 0):,}")
+            c_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            c_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.table.setItem(r, 5, c_item)
+
+        self.table.itemChanged.connect(self._update_selected_count)
+
+    def _update_selected_count(self):
+        selected = 0
+        for r in range(self.table.rowCount()):
+            item = self.table.item(r, 0)
+            if item and item.checkState() == Qt.Checked:
+                selected += 1
+        self.lbl_selected.setText(f"Selected: {selected} version(s)")
+        self.btn_prune.setText(f"🧹 Prune Selected ({selected})")
+        self.btn_prune.setEnabled(selected > 0)
+
+    def _select_all(self):
+        self.table.blockSignals(True)
+        for r in range(self.table.rowCount()):
+            item = self.table.item(r, 0)
+            if item:
+                item.setCheckState(Qt.Checked)
+        self.table.blockSignals(False)
+        self._update_selected_count()
+
+    def _deselect_all(self):
+        self.table.blockSignals(True)
+        for r in range(self.table.rowCount()):
+            item = self.table.item(r, 0)
+            if item:
+                item.setCheckState(Qt.Unchecked)
+        self.table.blockSignals(False)
+        self._update_selected_count()
+
+    def _on_prune_confirmed(self):
+        target_ids = []
+        for r in range(self.table.rowCount()):
+            item = self.table.item(r, 0)
+            if item and item.checkState() == Qt.Checked:
+                target_ids.append(self.superseded_versions[r]["id"])
+
+        if not target_ids:
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "Confirm Pruning",
+            f"Are you sure you want to permanently delete {len(target_ids)} superseded version(s) from the search index?\nThis action cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm == QMessageBox.Yes:
+            self.pruned_count = self.db.prune_superseded_versions(target_ids)
+            self.accept()
 
 
 # Backward compatibility alias for extracted diff dialog
