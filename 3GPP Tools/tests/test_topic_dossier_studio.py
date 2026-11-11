@@ -936,6 +936,60 @@ class TestTopicPillWidgets(unittest.TestCase):
 
         dlg.close()
 
+    def test_category_pill_auto_tab_switching_and_fast_filter(self):
+        from PyQt5.QtWidgets import QApplication
+        from unittest.mock import MagicMock
+        from modules.meetings.ui.dialogs.topic_inputs_dialog import TopicInputsViewerDialog
+
+        app = QApplication.instance() or QApplication([])
+        mock_db = MagicMock()
+        topic = MetaTopicDefinition(id="t_tab_switch", name="Tab Switch Test", target_wgs=["RAN2"])
+        round_1 = MeetingCohort(
+            key="2026-Q1", year=2026, quarter=1, label="Feb 2026 Meeting Round",
+            meetings=[{"wg_name": "RAN2", "meeting_number": "133", "start_date": "2026-02-09"}],
+            wgs_present={"RAN2"},
+        )
+        dlg = TopicInputsViewerDialog(
+            meetings_db=mock_db,
+            topic=topic,
+            selected_rounds=[round_1],
+        )
+        if dlg._collector_worker:
+            dlg._collector_worker.cancel()
+            dlg._collector_worker.wait(1000)
+
+        dec = TopicDecision(
+            cohort_key="2026-Q1", wg="RAN2", meeting_number="133", date="2026-02-09",
+            decision_type="Text Agreement",
+            title_or_summary="Agreements\n1 Study long-cycle traffic.",
+            tdoc_id="R2-2600942", ai="10.3.2.1",
+        )
+        dlg.all_decisions = [dec]
+        dlg.all_contributions = [
+            {"tdoc_id": "R2-2600942", "wg": "RAN2", "meeting_number": "133", "type": "Discussion", "status": "Noted", "title": "Doc", "ai": "10.3.2.1", "is_decision": True, "decision_type": "Text Agreement"},
+            {"tdoc_id": "R2-2600943", "wg": "RAN2", "meeting_number": "133", "type": "LS out", "status": "Approved", "title": "LS", "ai": "10.3.2.1", "is_decision": False},
+        ]
+        dlg._update_kpi_strip()
+
+        # Switch to tab 1
+        dlg.tabs.setCurrentIndex(1)
+        self.assertEqual(dlg.tabs.currentIndex(), 1)
+
+        # Toggle Decisions pill -> auto-switches to Decisions tab 0
+        dlg.cat_pills["🟢 Decisions Only (Agreements, pCRs, CRs)"].setChecked(True)
+        self.assertEqual(dlg.tabs.currentIndex(), 0)
+        self.assertEqual(dlg.table_decisions.rowCount(), 1)
+
+        # Toggle Liaisons pill -> auto-switches to Liaisons tab 2
+        dlg.cat_pills["📬 Liaison Statements Only"].setChecked(True)
+        self.assertEqual(dlg.tabs.currentIndex(), 2)
+
+        # Toggle Discussions pill -> auto-switches to Contributions tab 1
+        dlg.cat_pills["📄 Discussion Papers Only"].setChecked(True)
+        self.assertEqual(dlg.tabs.currentIndex(), 1)
+
+        dlg.close()
+
 
 if __name__ == "__main__":
     unittest.main()

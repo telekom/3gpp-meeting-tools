@@ -245,6 +245,7 @@ class InputsCollectorThread(QThread):
                                 reply_in=row.get("Reply in", ""),
                             )
 
+                        clean_src = CompanySanitizer.get_confirmed_source_text(source) or source
                         all_contributions.append({
                             "tdoc_id": tid,
                             "wg": wg_name,
@@ -260,6 +261,7 @@ class InputsCollectorThread(QThread):
                             "type": t_type,
                             "status": status,
                             "source": source,
+                            "clean_source": clean_src,
                             "spec": str(row.get("Spec", "") or row.get("spec", "")).strip(),
                             "is_decision": bool(dec_type),
                             "decision_type": dec_type or "",
@@ -718,6 +720,18 @@ class TopicInputsViewerDialog(QDialog):
                 self.combo_type_filter.blockSignals(True)
                 self.combo_type_filter.setCurrentIndex(idx)
                 self.combo_type_filter.blockSignals(False)
+
+            # Auto-switch to matching view for fast navigation
+            if cat_key in ("🟢 Decisions Only (Agreements, pCRs, CRs)", "Text Agreements Only", "Approved pCRs Only", "Approved CRs Only"):
+                if self.tabs.currentIndex() != 0:
+                    self.tabs.setCurrentIndex(0)
+            elif cat_key == "📬 Liaison Statements Only":
+                if self.tabs.currentIndex() != 2:
+                    self.tabs.setCurrentIndex(2)
+            elif cat_key == "📄 Discussion Papers Only":
+                if self.tabs.currentIndex() != 1:
+                    self.tabs.setCurrentIndex(1)
+
             self._apply_filters()
 
     def _reset_filters(self):
@@ -841,96 +855,99 @@ class TopicInputsViewerDialog(QDialog):
         self._populate_ls_table(filtered_ls)
 
     def _populate_decisions_table(self, decisions: List[TopicDecision]):
-        self._displayed_decisions = list(decisions)
-        self.table_decisions.setRowCount(len(decisions))
-        self.table_decisions.setColumnCount(8)
-        self.table_decisions.setHorizontalHeaderLabels([
-            "Decision Type", "WG", "Meeting", "Date", "TDoc ID", "Decision / Substantive Scope", "Target Spec", "Agenda Item"
-        ])
+        self.table_decisions.setUpdatesEnabled(False)
+        self.table_decisions.blockSignals(True)
+        try:
+            self._displayed_decisions = list(decisions)
+            self.table_decisions.setRowCount(len(decisions))
+            self.table_decisions.setColumnCount(8)
+            self.table_decisions.setHorizontalHeaderLabels([
+                "Decision Type", "WG", "Meeting", "Date", "TDoc ID", "Decision / Substantive Scope", "Target Spec", "Agenda Item"
+            ])
 
-        header = self.table_decisions.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.Stretch)
-        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(7, QHeaderView.ResizeToContents)
+            header = self.table_decisions.horizontalHeader()
+            for i in range(8):
+                header.setSectionResizeMode(i, QHeaderView.Interactive)
 
-        for row, d in enumerate(decisions):
-            # 0: Decision Type Badge & Provenance
-            if d.decision_type in ("Text Agreement", "Working Assumption"):
-                badge_text = f"🟢 {d.decision_type} (Notes)"
-                tip_text = (
-                    f"<b>Binding Consensus Text</b> (Chairman's Notes AI {d.ai or 'N/A'})<br/>"
-                    f"<b>Meeting:</b> {d.wg} #{d.meeting_number} ({d.date or 'N/A'})<br/>"
-                    f"<b>Background Proposal:</b> {d.tdoc_id or 'None'} (Noted/Discussed)<br/>"
-                    f"<i>In RAN WGs, only the verbatim text in Chairman's Notes is binding consensus.</i>"
-                )
-            elif d.decision_type in ("Approved pCR", "Approved CR"):
-                badge_text = f"🟢 {d.decision_type} (Doc)"
-                tip_text = (
-                    f"<b>Approved Specification Change</b> ({d.tdoc_id or 'N/A'})<br/>"
-                    f"<b>Meeting:</b> {d.wg} #{d.meeting_number} ({d.date or 'N/A'})<br/>"
-                    f"<b>Target Specification:</b> {d.target_spec or 'N/A'}<br/>"
-                    f"<i>Full document attachment approved as baseline change.</i>"
-                )
-            else:
-                badge_text = f"{d.badge_icon} {d.decision_type}"
-                tip_text = f"<b>{d.decision_type}</b> ({d.wg} #{d.meeting_number})<br/><b>AI:</b> {d.ai or 'N/A'}"
+            for row, d in enumerate(decisions):
+                # 0: Decision Type Badge & Provenance
+                if d.decision_type in ("Text Agreement", "Working Assumption"):
+                    badge_text = f"🟢 {d.decision_type} (Notes)"
+                    tip_text = (
+                        f"<b>Binding Consensus Text</b> (Chairman's Notes AI {d.ai or 'N/A'})<br/>"
+                        f"<b>Meeting:</b> {d.wg} #{d.meeting_number} ({d.date or 'N/A'})<br/>"
+                        f"<b>Background Proposal:</b> {d.tdoc_id or 'None'} (Noted/Discussed)<br/>"
+                        f"<i>In RAN WGs, only the verbatim text in Chairman's Notes is binding consensus.</i>"
+                    )
+                elif d.decision_type in ("Approved pCR", "Approved CR"):
+                    badge_text = f"🟢 {d.decision_type} (Doc)"
+                    tip_text = (
+                        f"<b>Approved Specification Change</b> ({d.tdoc_id or 'N/A'})<br/>"
+                        f"<b>Meeting:</b> {d.wg} #{d.meeting_number} ({d.date or 'N/A'})<br/>"
+                        f"<b>Target Specification:</b> {d.target_spec or 'N/A'}<br/>"
+                        f"<i>Full document attachment approved as baseline change.</i>"
+                    )
+                else:
+                    badge_text = f"{d.badge_icon} {d.decision_type}"
+                    tip_text = f"<b>{d.decision_type}</b> ({d.wg} #{d.meeting_number})<br/><b>AI:</b> {d.ai or 'N/A'}"
 
-            badge_item = QTableWidgetItem(badge_text)
-            badge_item.setTextAlignment(Qt.AlignCenter)
-            badge_item.setToolTip(tip_text)
-            bg_color, fg_color = BADGE_COLORS.get(d.decision_type, ("#F1F5F9", "#1E293B"))
-            badge_item.setBackground(QColor(bg_color))
-            badge_item.setForeground(QColor(fg_color))
-            font = badge_item.font()
-            font.setBold(True)
-            badge_item.setFont(font)
-            self.table_decisions.setItem(row, 0, badge_item)
+                badge_item = QTableWidgetItem(badge_text)
+                badge_item.setTextAlignment(Qt.AlignCenter)
+                badge_item.setToolTip(tip_text)
+                bg_color, fg_color = BADGE_COLORS.get(d.decision_type, ("#F1F5F9", "#1E293B"))
+                badge_item.setBackground(QColor(bg_color))
+                badge_item.setForeground(QColor(fg_color))
+                font = badge_item.font()
+                font.setBold(True)
+                badge_item.setFont(font)
+                self.table_decisions.setItem(row, 0, badge_item)
 
-            # 1: WG
-            wg_item = QTableWidgetItem(d.wg)
-            wg_item.setTextAlignment(Qt.AlignCenter)
-            self.table_decisions.setItem(row, 1, wg_item)
+                # 1: WG
+                wg_item = QTableWidgetItem(d.wg)
+                wg_item.setTextAlignment(Qt.AlignCenter)
+                self.table_decisions.setItem(row, 1, wg_item)
 
-            # 2: Meeting #
-            mtg_item = QTableWidgetItem(f"#{d.meeting_number}")
-            mtg_item.setTextAlignment(Qt.AlignCenter)
-            self.table_decisions.setItem(row, 2, mtg_item)
+                # 2: Meeting #
+                mtg_item = QTableWidgetItem(f"#{d.meeting_number}")
+                mtg_item.setTextAlignment(Qt.AlignCenter)
+                self.table_decisions.setItem(row, 2, mtg_item)
 
-            # 3: Date
-            date_item = QTableWidgetItem(d.date)
-            date_item.setTextAlignment(Qt.AlignCenter)
-            self.table_decisions.setItem(row, 3, date_item)
+                # 3: Date
+                date_item = QTableWidgetItem(d.date)
+                date_item.setTextAlignment(Qt.AlignCenter)
+                self.table_decisions.setItem(row, 3, date_item)
 
-            # 4: TDoc ID
-            tid_str = d.tdoc_id or "—"
-            tid_item = QTableWidgetItem(tid_str)
-            tid_item.setTextAlignment(Qt.AlignCenter)
-            if d.tdoc_id:
-                tid_item.setForeground(QColor("#0369A1"))
-                f = tid_item.font()
-                f.setBold(True)
-                tid_item.setFont(f)
-            self.table_decisions.setItem(row, 4, tid_item)
+                # 4: TDoc ID
+                tid_str = d.tdoc_id or "—"
+                tid_item = QTableWidgetItem(tid_str)
+                tid_item.setTextAlignment(Qt.AlignCenter)
+                if d.tdoc_id:
+                    tid_item.setForeground(QColor("#0369A1"))
+                    f = tid_item.font()
+                    f.setBold(True)
+                    tid_item.setFont(f)
+                self.table_decisions.setItem(row, 4, tid_item)
 
-            # 5: Decision / Substantive Scope
-            scope_item = QTableWidgetItem(d.title_or_summary)
-            scope_item.setToolTip(f"<b>{d.decision_type} ({d.wg} #{d.meeting_number})</b><br/>{d.title_or_summary}")
-            self.table_decisions.setItem(row, 5, scope_item)
+                # 5: Decision / Substantive Scope
+                scope_item = QTableWidgetItem(d.title_or_summary)
+                scope_item.setToolTip(f"<b>{d.decision_type} ({d.wg} #{d.meeting_number})</b><br/>{d.title_or_summary}")
+                self.table_decisions.setItem(row, 5, scope_item)
 
-            # 6: Target Spec
-            spec_item = QTableWidgetItem(d.target_spec or "—")
-            spec_item.setTextAlignment(Qt.AlignCenter)
-            self.table_decisions.setItem(row, 6, spec_item)
+                # 6: Target Spec
+                spec_item = QTableWidgetItem(d.target_spec or "—")
+                spec_item.setTextAlignment(Qt.AlignCenter)
+                self.table_decisions.setItem(row, 6, spec_item)
 
-            # 7: Agenda Item
-            ai_item = QTableWidgetItem(d.ai or "—")
-            ai_item.setTextAlignment(Qt.AlignCenter)
-            self.table_decisions.setItem(row, 7, ai_item)
+                # 7: Agenda Item
+                ai_item = QTableWidgetItem(d.ai or "—")
+                ai_item.setTextAlignment(Qt.AlignCenter)
+                self.table_decisions.setItem(row, 7, ai_item)
+
+            self.table_decisions.resizeColumnsToContents()
+            header.setSectionResizeMode(5, QHeaderView.Stretch)
+        finally:
+            self.table_decisions.blockSignals(False)
+            self.table_decisions.setUpdatesEnabled(True)
 
         if decisions:
             self.table_decisions.selectRow(0)
@@ -941,124 +958,129 @@ class TopicInputsViewerDialog(QDialog):
                 self._current_detail_text = ""
 
     def _populate_contributions_table(self, contribs: List[Dict[str, Any]]):
-        self._displayed_contribs = list(contribs)
-        self.table_contributions.setRowCount(len(contribs))
-        self.table_contributions.setColumnCount(9)
-        self.table_contributions.setHorizontalHeaderLabels([
-            "TDoc ID", "WG", "Meeting", "Date", "Agenda Item", "Type", "Status", "Title", "Source Company"
-        ])
+        self.table_contributions.setUpdatesEnabled(False)
+        self.table_contributions.blockSignals(True)
+        try:
+            self._displayed_contribs = list(contribs)
+            self.table_contributions.setRowCount(len(contribs))
+            self.table_contributions.setColumnCount(9)
+            self.table_contributions.setHorizontalHeaderLabels([
+                "TDoc ID", "WG", "Meeting", "Date", "Agenda Item", "Type", "Status", "Title", "Source Company"
+            ])
 
-        header = self.table_contributions.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(7, QHeaderView.Stretch)
-        header.setSectionResizeMode(8, QHeaderView.ResizeToContents)
+            header = self.table_contributions.horizontalHeader()
+            for i in range(9):
+                header.setSectionResizeMode(i, QHeaderView.Interactive)
 
-        for row, c in enumerate(contribs):
-            # 0: TDoc ID
-            tid_item = QTableWidgetItem(c.get("tdoc_id", ""))
-            tid_item.setTextAlignment(Qt.AlignCenter)
-            tid_item.setForeground(QColor("#0369A1"))
-            f = tid_item.font()
-            f.setBold(True)
-            tid_item.setFont(f)
-            self.table_contributions.setItem(row, 0, tid_item)
+            for row, c in enumerate(contribs):
+                # 0: TDoc ID
+                tid_item = QTableWidgetItem(c.get("tdoc_id", ""))
+                tid_item.setTextAlignment(Qt.AlignCenter)
+                tid_item.setForeground(QColor("#0369A1"))
+                f = tid_item.font()
+                f.setBold(True)
+                tid_item.setFont(f)
+                self.table_contributions.setItem(row, 0, tid_item)
 
-            # 1: WG
-            self.table_contributions.setItem(row, 1, QTableWidgetItem(c.get("wg", "")))
-            # 2: Meeting #
-            self.table_contributions.setItem(row, 2, QTableWidgetItem(f"#{c.get('meeting_number', '')}"))
-            # 3: Date
-            self.table_contributions.setItem(row, 3, QTableWidgetItem(c.get("date", "")))
+                # 1: WG
+                self.table_contributions.setItem(row, 1, QTableWidgetItem(c.get("wg", "")))
+                # 2: Meeting #
+                self.table_contributions.setItem(row, 2, QTableWidgetItem(f"#{c.get('meeting_number', '')}"))
+                # 3: Date
+                self.table_contributions.setItem(row, 3, QTableWidgetItem(c.get("date", "")))
 
-            # 4: AI
-            ai_item = QTableWidgetItem(c.get("ai", ""))
-            ai_item.setToolTip(c.get("ai_desc", ""))
-            self.table_contributions.setItem(row, 4, ai_item)
+                # 4: AI
+                ai_item = QTableWidgetItem(c.get("ai", ""))
+                ai_item.setToolTip(c.get("ai_desc", ""))
+                self.table_contributions.setItem(row, 4, ai_item)
 
-            # 5: Type
-            t_type = c.get("type", "")
-            t_item = QTableWidgetItem(t_type)
-            t_item.setTextAlignment(Qt.AlignCenter)
-            bg, fg = BADGE_COLORS.get(t_type, ("#FFFFFF", "#334155"))
-            t_item.setBackground(QColor(bg))
-            t_item.setForeground(QColor(fg))
-            self.table_contributions.setItem(row, 5, t_item)
+                # 5: Type
+                t_type = c.get("type", "")
+                t_item = QTableWidgetItem(t_type)
+                t_item.setTextAlignment(Qt.AlignCenter)
+                bg, fg = BADGE_COLORS.get(t_type, ("#FFFFFF", "#334155"))
+                t_item.setBackground(QColor(bg))
+                t_item.setForeground(QColor(fg))
+                self.table_contributions.setItem(row, 5, t_item)
 
-            # 6: Status
-            status_item = QTableWidgetItem(c.get("status", ""))
-            status_item.setTextAlignment(Qt.AlignCenter)
-            if any(s in c.get("status", "").lower() for s in ("approved", "agreed", "endorsed")):
-                status_item.setForeground(QColor("#15803D"))
-                f_s = status_item.font()
-                f_s.setBold(True)
-                status_item.setFont(f_s)
-            self.table_contributions.setItem(row, 6, status_item)
+                # 6: Status
+                status_item = QTableWidgetItem(c.get("status", ""))
+                status_item.setTextAlignment(Qt.AlignCenter)
+                if any(s in c.get("status", "").lower() for s in ("approved", "agreed", "endorsed")):
+                    status_item.setForeground(QColor("#15803D"))
+                    f_s = status_item.font()
+                    f_s.setBold(True)
+                    status_item.setFont(f_s)
+                self.table_contributions.setItem(row, 6, status_item)
 
-            # 7: Title
-            title_item = QTableWidgetItem(c.get("title", ""))
-            title_item.setToolTip(c.get("title", ""))
-            self.table_contributions.setItem(row, 7, title_item)
+                # 7: Title
+                title_item = QTableWidgetItem(c.get("title", ""))
+                title_item.setToolTip(c.get("title", ""))
+                self.table_contributions.setItem(row, 7, title_item)
 
-            # 8: Source Company
-            clean_co = CompanySanitizer.get_confirmed_source_text(c.get("source", "")) or c.get("source", "")
-            co_item = QTableWidgetItem(clean_co)
-            co_item.setToolTip(c.get("source", ""))
-            self.table_contributions.setItem(row, 8, co_item)
+                # 8: Source Company
+                clean_co = c.get("clean_source") or CompanySanitizer.get_confirmed_source_text(c.get("source", "")) or c.get("source", "")
+                co_item = QTableWidgetItem(clean_co)
+                co_item.setToolTip(c.get("source", ""))
+                self.table_contributions.setItem(row, 8, co_item)
+
+            self.table_contributions.resizeColumnsToContents()
+            header.setSectionResizeMode(7, QHeaderView.Stretch)
+        finally:
+            self.table_contributions.blockSignals(False)
+            self.table_contributions.setUpdatesEnabled(True)
 
         if contribs and self.tabs.currentIndex() == 1:
             self.table_contributions.selectRow(0)
 
     def _populate_ls_table(self, ls_contribs: List[Dict[str, Any]]):
-        self._displayed_ls = list(ls_contribs)
-        self.table_ls.setRowCount(len(ls_contribs))
-        self.table_ls.setColumnCount(8)
-        self.table_ls.setHorizontalHeaderLabels([
-            "Direction", "TDoc ID", "WG", "Meeting", "Title", "Status", "Reply To", "Reply In"
-        ])
+        self.table_ls.setUpdatesEnabled(False)
+        self.table_ls.blockSignals(True)
+        try:
+            self._displayed_ls = list(ls_contribs)
+            self.table_ls.setRowCount(len(ls_contribs))
+            self.table_ls.setColumnCount(8)
+            self.table_ls.setHorizontalHeaderLabels([
+                "Direction", "TDoc ID", "WG", "Meeting", "Title", "Status", "Reply To", "Reply In"
+            ])
 
-        header = self.table_ls.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.Stretch)
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(7, QHeaderView.ResizeToContents)
+            header = self.table_ls.horizontalHeader()
+            for i in range(8):
+                header.setSectionResizeMode(i, QHeaderView.Interactive)
 
-        for row, c in enumerate(ls_contribs):
-            raw = c.get("raw_row", {})
-            t_type = c.get("type", "")
-            is_in = "in" in t_type.lower()
-            dir_text = "📥 LS IN" if is_in else "📤 LS OUT"
-            dir_item = QTableWidgetItem(dir_text)
-            dir_item.setTextAlignment(Qt.AlignCenter)
-            bg, fg = BADGE_COLORS.get("LS in" if is_in else "LS out", ("#F3E8FF", "#6B21A8"))
-            dir_item.setBackground(QColor(bg))
-            dir_item.setForeground(QColor(fg))
-            f = dir_item.font()
-            f.setBold(True)
-            dir_item.setFont(f)
-            self.table_ls.setItem(row, 0, dir_item)
+            for row, c in enumerate(ls_contribs):
+                raw = c.get("raw_row", {})
+                t_type = c.get("type", "")
+                is_in = "in" in t_type.lower()
+                dir_text = "📥 LS IN" if is_in else "📤 LS OUT"
+                dir_item = QTableWidgetItem(dir_text)
+                dir_item.setTextAlignment(Qt.AlignCenter)
+                bg, fg = BADGE_COLORS.get("LS in" if is_in else "LS out", ("#F3E8FF", "#6B21A8"))
+                dir_item.setBackground(QColor(bg))
+                dir_item.setForeground(QColor(fg))
+                f = dir_item.font()
+                f.setBold(True)
+                dir_item.setFont(f)
+                self.table_ls.setItem(row, 0, dir_item)
 
-            # TDoc
-            tid_item = QTableWidgetItem(c.get("tdoc_id", ""))
-            tid_item.setTextAlignment(Qt.AlignCenter)
-            tid_item.setForeground(QColor("#0369A1"))
-            self.table_ls.setItem(row, 1, tid_item)
+                # TDoc
+                tid_item = QTableWidgetItem(c.get("tdoc_id", ""))
+                tid_item.setTextAlignment(Qt.AlignCenter)
+                tid_item.setForeground(QColor("#0369A1"))
+                self.table_ls.setItem(row, 1, tid_item)
 
-            self.table_ls.setItem(row, 2, QTableWidgetItem(c.get("wg", "")))
-            self.table_ls.setItem(row, 3, QTableWidgetItem(f"#{c.get('meeting_number', '')}"))
-            self.table_ls.setItem(row, 4, QTableWidgetItem(c.get("title", "")))
-            self.table_ls.setItem(row, 5, QTableWidgetItem(c.get("status", "")))
-            self.table_ls.setItem(row, 6, QTableWidgetItem(raw.get("Reply to", "") or raw.get("reply_to", "") or "—"))
-            self.table_ls.setItem(row, 7, QTableWidgetItem(raw.get("Reply in", "") or raw.get("reply_in", "") or "—"))
+                self.table_ls.setItem(row, 2, QTableWidgetItem(c.get("wg", "")))
+                self.table_ls.setItem(row, 3, QTableWidgetItem(f"#{c.get('meeting_number', '')}"))
+                self.table_ls.setItem(row, 4, QTableWidgetItem(c.get("title", "")))
+                self.table_ls.setItem(row, 5, QTableWidgetItem(c.get("status", "")))
+                self.table_ls.setItem(row, 6, QTableWidgetItem(raw.get("Reply to", "") or raw.get("reply_to", "") or "—"))
+                self.table_ls.setItem(row, 7, QTableWidgetItem(raw.get("Reply in", "") or raw.get("reply_in", "") or "—"))
+
+            self.table_ls.resizeColumnsToContents()
+            header.setSectionResizeMode(4, QHeaderView.Stretch)
+        finally:
+            self.table_ls.blockSignals(False)
+            self.table_ls.setUpdatesEnabled(True)
 
         if ls_contribs and self.tabs.currentIndex() == 2:
             self.table_ls.selectRow(0)
