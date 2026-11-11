@@ -765,6 +765,109 @@ class TestTopicPillWidgets(unittest.TestCase):
         self.assertEqual(dlg.table_contributions.rowCount(), 2)
         dlg.close()
 
+    def test_standalone_agreement_markdown_export(self):
+        import tempfile
+        from modules.meetings.core.exporters.topic_dossier_exporter import TopicDossierExporterThread
+        from unittest.mock import MagicMock
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mock_db = MagicMock()
+            topic = MetaTopicDefinition(
+                id="test_standalone_agreements",
+                name="Data Framework & Data Transfer",
+                target_wgs=["RAN2"],
+            )
+            exporter = TopicDossierExporterThread(
+                meetings_db=mock_db,
+                topic=topic,
+                selected_cohorts=[],
+                output_base_dir=Path(temp_dir),
+                target_folder_name="AgreementExportTest",
+            )
+
+            target_dir = Path(temp_dir) / "AgreementExportTest"
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            candidate_docs = [
+                {
+                    "tdoc_id": "R2-2600942",
+                    "rel_path": "2026-Q1/RAN2_133/Discussion/R2-2600942.md",
+                    "abs_path": target_dir / "2026-Q1/RAN2_133/Discussion/R2-2600942.md",
+                }
+            ]
+
+            dec = TopicDecision(
+                cohort_key="2026-Q1",
+                wg="RAN2",
+                meeting_number="133",
+                date="2026-02-09",
+                decision_type="Text Agreement",
+                title_or_summary="Agreements\n1 For data transfer, study both long-cycle and bursty traffic.",
+                tdoc_id="R2-2600942",
+                ai="10.3.2.1",
+            )
+
+            rel_path = exporter._write_agreement_markdown(target_dir, dec, candidate_docs, seq=1)
+            expected_file = target_dir / "2026-Q1" / "RAN2_133" / "Agreements" / "Agreement_R2-2600942.md"
+            self.assertTrue(expected_file.is_file())
+            self.assertEqual(rel_path, "2026-Q1/RAN2_133/Agreements/Agreement_R2-2600942.md")
+
+            content = expected_file.read_text(encoding="utf-8")
+            self.assertIn("# 📜 3GPP Text Agreement: RAN2 #133 (AI 10.3.2.1)", content)
+            self.assertIn("1 For data transfer, study both long-cycle and bursty traffic.", content)
+            self.assertIn("[R2-2600942]", content)
+            self.assertIn("Discussion/R2-2600942.md", content)
+
+    def test_decision_provenance_badges_and_tooltips(self):
+        from PyQt5.QtWidgets import QApplication
+        from unittest.mock import MagicMock
+        from modules.meetings.ui.dialogs.topic_inputs_dialog import TopicInputsViewerDialog
+
+        app = QApplication.instance() or QApplication([])
+        mock_db = MagicMock()
+        topic = MetaTopicDefinition(id="t_prov", name="Topic Provenance Test", target_wgs=["RAN2", "SA2"])
+        round_1 = MeetingCohort(
+            key="2026-Q1", year=2026, quarter=1, label="Feb 2026 Meeting Round",
+            meetings=[{"wg_name": "RAN2", "meeting_number": "133", "start_date": "2026-02-09"}],
+            wgs_present={"RAN2"},
+        )
+        dlg = TopicInputsViewerDialog(
+            meetings_db=mock_db,
+            topic=topic,
+            selected_rounds=[round_1],
+        )
+        if dlg._collector_worker:
+            dlg._collector_worker.cancel()
+            dlg._collector_worker.wait(1000)
+
+        dec_text = TopicDecision(
+            cohort_key="2026-Q1", wg="RAN2", meeting_number="133", date="2026-02-09",
+            decision_type="Text Agreement", title_or_summary="Agreement on sensing",
+            tdoc_id="R2-2602804", ai="9.3.3.1",
+        )
+        dec_pcr = TopicDecision(
+            cohort_key="2026-Q1", wg="SA2", meeting_number="173", date="2026-02-09",
+            decision_type="Approved pCR", title_or_summary="Conclusions for KI#2",
+            tdoc_id="S2-2601558", ai="20.5.1", target_spec="23.700-30",
+        )
+
+        dlg._populate_decisions_table([dec_text, dec_pcr])
+        self.assertEqual(dlg.table_decisions.rowCount(), 2)
+
+        # Row 0: Text Agreement
+        item_text = dlg.table_decisions.item(0, 0)
+        self.assertIn("Text Agreement (Notes)", item_text.text())
+        self.assertIn("Binding Consensus Text", item_text.toolTip())
+        self.assertIn("Chairman's Notes", item_text.toolTip())
+
+        # Row 1: Approved pCR
+        item_pcr = dlg.table_decisions.item(1, 0)
+        self.assertIn("Approved pCR (Doc)", item_pcr.text())
+        self.assertIn("Approved Specification Change", item_pcr.toolTip())
+        self.assertIn("23.700-30", item_pcr.toolTip())
+
+        dlg.close()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -790,9 +790,30 @@ class TopicInputsViewerDialog(QDialog):
         header.setSectionResizeMode(7, QHeaderView.ResizeToContents)
 
         for row, d in enumerate(decisions):
-            # 0: Decision Type Badge
-            badge_item = QTableWidgetItem(f"🟢 {d.decision_type}" if "Agre" in d.decision_type or "Approv" in d.decision_type else d.decision_type)
+            # 0: Decision Type Badge & Provenance
+            if d.decision_type in ("Text Agreement", "Working Assumption"):
+                badge_text = f"🟢 {d.decision_type} (Notes)"
+                tip_text = (
+                    f"<b>Binding Consensus Text</b> (Chairman's Notes AI {d.ai or 'N/A'})<br/>"
+                    f"<b>Meeting:</b> {d.wg} #{d.meeting_number} ({d.date or 'N/A'})<br/>"
+                    f"<b>Background Proposal:</b> {d.tdoc_id or 'None'} (Noted/Discussed)<br/>"
+                    f"<i>In RAN WGs, only the verbatim text in Chairman's Notes is binding consensus.</i>"
+                )
+            elif d.decision_type in ("Approved pCR", "Approved CR"):
+                badge_text = f"🟢 {d.decision_type} (Doc)"
+                tip_text = (
+                    f"<b>Approved Specification Change</b> ({d.tdoc_id or 'N/A'})<br/>"
+                    f"<b>Meeting:</b> {d.wg} #{d.meeting_number} ({d.date or 'N/A'})<br/>"
+                    f"<b>Target Specification:</b> {d.target_spec or 'N/A'}<br/>"
+                    f"<i>Full document attachment approved as baseline change.</i>"
+                )
+            else:
+                badge_text = f"{d.badge_icon} {d.decision_type}"
+                tip_text = f"<b>{d.decision_type}</b> ({d.wg} #{d.meeting_number})<br/><b>AI:</b> {d.ai or 'N/A'}"
+
+            badge_item = QTableWidgetItem(badge_text)
             badge_item.setTextAlignment(Qt.AlignCenter)
+            badge_item.setToolTip(tip_text)
             bg_color, fg_color = BADGE_COLORS.get(d.decision_type, ("#F1F5F9", "#1E293B"))
             badge_item.setBackground(QColor(bg_color))
             badge_item.setForeground(QColor(fg_color))

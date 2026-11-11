@@ -59,7 +59,11 @@ class TopicDecision:
 
     def to_markdown_row(self) -> str:
         """Formats the decision as a clean, standardized Markdown table row."""
-        doc_cell = f"[{self.tdoc_id}]({self.dossier_rel_path})" if (self.tdoc_id and self.dossier_rel_path) else (self.tdoc_id or "—")
+        if self.dossier_rel_path:
+            label = self.tdoc_id or "Agreement"
+            doc_cell = f"[{label}]({self.dossier_rel_path})"
+        else:
+            doc_cell = self.tdoc_id or "—"
         spec_cell = self.target_spec or "—"
         summary_clean = re.sub(r'[\r\n\t]+', ' ', self.title_or_summary).replace("|", "\\|").strip()
         if len(summary_clean) > 200:

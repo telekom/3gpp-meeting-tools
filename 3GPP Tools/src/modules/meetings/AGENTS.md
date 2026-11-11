@@ -575,6 +575,24 @@ src/modules/meetings/
     - `📊 WG && Round Distribution`: High-level multi-group matrix comparing document and decision volume across Working Groups and meeting rounds.
   - **Action Controls:** 1-click `📄 Open Document` (local cache), `🌐 Open on 3GPP Portal`, `📋 Copy Markdown Table` to clipboard, `💾 Export to CSV...`, and `🚀 Proceed to Full Dossier Export...`.
 
+### 3.20. Standalone RAN Agreement Markdown Exporter & Decision Provenance Engine (`topic_dossier_exporter.py`, `topic_decision.py`, `topic_inputs_dialog.py`)
+- **Standards Architecture Context (RAN vs SA/CT Decision Models):**
+  - **SA & CT Working Groups:** Decisions are formal Change Requests (CRs) or Pseudo-CRs (pCRs) where the *full document attachment* is approved into a baseline specification or Technical Report.
+  - **RAN Working Groups (RAN1, RAN2, RAN3):** Working group decisions are text agreements hammered out live in the meeting room or offline drafting sessions. *Only the verbatim text recorded in the Chairman's Notes represents formal, binding consensus.* The cited discussion paper is merely marked "Noted" in the meeting report and serves as technical provenance and context.
+- **Standalone RAN Agreement Markdown Exporter (`_write_agreement_markdown` in `topic_dossier_exporter.py`):**
+  - Synthesizes dedicated, standalone Markdown documents for each Chairman's Notes text agreement or working assumption, located under `{round_cycle}/{wg}_{mtg}/Agreements/Agreement_{tdoc_or_ai}.md`.
+  - Structured for both human delegates and LLM digestion:
+    - **Metadata Frontmatter Table:** Working Group, Meeting, Date, Agenda Item, Decision Type badge, Status, Target Spec, Work Item, and Chairman's Notes source.
+    - **Background Contribution Link:** Relative bidirectional hyperlink to the background discussion paper in `{round_cycle}/{wg}_{mtg}/Discussion/{tdoc}.md` (`[R2-2600942](../Discussion/R2-2600942.md) *(Noted Proposal)*`), accompanied by direct 3GPP Portal download URLs.
+    - **Verbatim Consensus Text:** Formatted blockquotes and raw code fences isolating the exact agreed wording from the meeting record.
+    - **Topic & Context Traceability:** Traceability section connecting the decision back to the overarching meta-topic and meeting cycle.
+  - Master tables (`agreements_timeline.md`, `index.md`, `delta_session_N.md`) and `TopicDecision.to_markdown_row()` automatically link to the standalone agreement document.
+- **Decision Provenance Badges & Tooltips (`TopicInputsViewerDialog`):**
+  - Visual badges in the Decisions table distinguish between:
+    - `🟢 Text Agreement (Notes)`: Tooltip explicitly states: *Binding Consensus Text (Chairman's Notes AI X.Y) — In RAN WGs, only the verbatim text in Chairman's Notes is binding consensus; background proposal was Noted.*
+    - `🟢 Approved pCR (Doc)` / `🟢 Approved CR (Doc)`: Tooltip highlights: *Approved Specification Change (TDoc ID) — Full document attachment approved as baseline change for TS/TR X.*
+
+
 
 
 

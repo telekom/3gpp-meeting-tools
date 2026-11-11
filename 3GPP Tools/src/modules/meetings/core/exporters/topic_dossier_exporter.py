@@ -353,9 +353,9 @@ class TopicDossierExporterThread(QThread):
             abs_p = doc["abs_path"]
             if manifest.is_tdoc_exported(tid) and is_export_complete(abs_p, doc_info=doc):
                 already_complete_count += 1
-                # Attach dossier path to matching decisions
+                # Attach dossier path to matching decisions (for formal doc decisions)
                 for d in all_decisions:
-                    if d.tdoc_id == tid:
+                    if d.tdoc_id == tid and d.decision_type in ("Approved pCR", "Approved CR"):
                         d.dossier_rel_path = doc["rel_path"]
             else:
                 docs_to_convert.append(doc)
@@ -368,13 +368,27 @@ class TopicDossierExporterThread(QThread):
         if docs_to_convert:
             self._convert_docs_pipeline(docs_to_convert, target_dir)
 
-        # Ensure all decisions have valid dossier links if converted
+        # Ensure all formal document decisions (pCR / CR) have valid dossier links if converted
         for d in all_decisions:
-            if d.tdoc_id and not d.dossier_rel_path:
+            if d.tdoc_id and not d.dossier_rel_path and d.decision_type in ("Approved pCR", "Approved CR"):
                 for doc in candidate_docs_to_export:
                     if doc["tdoc_id"] == d.tdoc_id and doc["abs_path"].is_file():
                         d.dossier_rel_path = doc["rel_path"]
                         break
+
+        # 5b. Export Dedicated Standalone Markdown Files for Text Agreements (Chairman's Notes)
+        self.progress_msg.emit("Exporting standalone agreements to Markdown...")
+        seq_counters: Dict[str, int] = {}
+        for dec in all_decisions:
+            if not dec.dossier_rel_path:
+                key = f"{dec.cohort_key}_{dec.wg}_{dec.meeting_number}_{dec.ai}"
+                seq_counters[key] = seq_counters.get(key, 0) + 1
+                dec.dossier_rel_path = self._write_agreement_markdown(
+                    target_dir=target_dir,
+                    dec=dec,
+                    candidate_docs=candidate_docs_to_export,
+                    seq=seq_counters[key],
+                )
 
         # 6. Synthesize Reports
         self.progress_msg.emit("Synthesizing Master Indices and LLM Delta Feed...")
@@ -779,6 +793,109 @@ class TopicDossierExporterThread(QThread):
                     except Exception:
                         pass
         return []
+
+    def _write_agreement_markdown(
+        self,
+        target_dir: Path,
+        dec: TopicDecision,
+        candidate_docs: List[Dict[str, Any]],
+        seq: int = 1,
+    ) -> str:
+        """Exports a standalone Markdown document for a text agreement or working assumption from Chairman's Notes."""
+        wg_clean = sanitize_folder_name(dec.wg)
+        mtg_clean = sanitize_folder_name(dec.meeting_number)
+        cohort_clean = sanitize_folder_name(dec.cohort_key)
+
+        agreements_dir = target_dir / cohort_clean / f"{wg_clean}_{mtg_clean}" / "Agreements"
+        agreements_dir.mkdir(parents=True, exist_ok=True)
+
+        if dec.tdoc_id:
+            tid_clean = sanitize_folder_name(dec.tdoc_id)
+            if seq > 1:
+                filename = f"Agreement_{tid_clean}_{seq}.md"
+            else:
+                filename = f"Agreement_{tid_clean}.md"
+        else:
+            ai_clean = sanitize_folder_name(dec.ai or "General")
+            filename = f"Agreement_AI_{ai_clean}_{seq:02d}.md"
+
+        out_file = agreements_dir / filename
+        rel_path = f"{cohort_clean}/{wg_clean}_{mtg_clean}/Agreements/{filename}"
+
+        # Resolve background discussion TDoc link if present in candidate_docs
+        bg_link = "—"
+        if dec.tdoc_id:
+            bg_doc = next((doc for doc in candidate_docs if doc.get("tdoc_id") == dec.tdoc_id), None)
+            if bg_doc and bg_doc.get("rel_path"):
+                doc_rel = bg_doc["rel_path"]
+                try:
+                    rel_to_doc = os.path.relpath(target_dir / doc_rel, agreements_dir).replace("\\", "/")
+                    bg_link = f"[{dec.tdoc_id}]({rel_to_doc}) *(Noted Proposal)*"
+                except Exception:
+                    bg_link = f"[{dec.tdoc_id}](../../{doc_rel}) *(Noted Proposal)*"
+            else:
+                bg_link = f"`{dec.tdoc_id}` *(Noted / Discussed)*"
+
+        portal_url = dec.source_url or (resolve_tdoc_download_url(dec.tdoc_id, "") if dec.tdoc_id else "")
+        portal_link = f"[{dec.tdoc_id}]({portal_url})" if portal_url else "—"
+
+        lines = [
+            f"# 📜 3GPP Text Agreement: {dec.wg} #{dec.meeting_number} (AI {dec.ai or 'N/A'})",
+            "",
+            "| Metadata Attribute | Value |",
+            "| :--- | :--- |",
+            f"| **Working Group** | **{dec.wg}** |",
+            f"| **Meeting** | #{dec.meeting_number} ({dec.date or 'N/A'}) |",
+            f"| **Agenda Item (AI)** | `{dec.ai or 'N/A'}` |",
+            f"| **Decision Type** | **{dec.badge_icon} {dec.decision_type}** |",
+            f"| **Status** | {dec.status or 'Agreed'} |",
+            f"| **Target Specification** | {dec.target_spec or '—'} |",
+            f"| **Related Work Item** | {dec.wi or '—'} |",
+            f"| **Chairman's Notes Source** | {dec.source or 'Chairman Notes'} |",
+            f"| **Background Contribution** | {bg_link} |",
+            f"| **Official 3GPP Portal** | {portal_link} |",
+            "",
+            "---",
+            "",
+            "## 📝 Verbatim Consensus Text (Chairman's Notes)",
+            "",
+            "> [!NOTE] 3GPP RAN Decision Nature",
+            "> In 3GPP RAN working groups (RAN1, RAN2, RAN3), the **verbatim text below represents the formal, binding consensus** reached by the delegation.",
+            "> The cited contribution was \"Noted\" in the meeting report and serves as technical provenance/context.",
+            "",
+            "```text",
+            dec.title_or_summary.strip(),
+            "```",
+            "",
+            "### Formatted Excerpt",
+            "",
+        ]
+
+        for paragraph in dec.title_or_summary.strip().split("\n"):
+            p_clean = paragraph.strip()
+            if p_clean:
+                lines.append(f"> {p_clean}")
+            else:
+                lines.append(">")
+
+        lines.extend([
+            "",
+            "---",
+            "",
+            "## 🔍 Context & Topic Traceability",
+            f"- **Meta-Topic:** {self.topic.name}",
+            f"- **Meeting Cycle:** {dec.cohort_key}",
+            f"- **Meeting Record:** Documented under Agenda Item **{dec.ai or 'N/A'}** in the Chairman's Notes of 3GPP **{dec.wg}** Meeting **#{dec.meeting_number}**.",
+            "",
+        ])
+
+        try:
+            with open(out_file, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+        except Exception as e:
+            logger.warning(f"Failed to write agreement markdown {out_file}: {e}")
+
+        return rel_path
 
     def _write_agreements_timeline(self, target_dir: Path, decisions: List[TopicDecision]):
         """Generates agreements_timeline.md unifying RAN text agreements and SA/CT pCRs."""
