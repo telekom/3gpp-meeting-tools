@@ -334,6 +334,7 @@ class TestTopicDossierExporterIncremental(unittest.TestCase):
 
     def test_incremental_export_and_deltas(self):
         from unittest.mock import MagicMock, patch
+        from PyQt5.QtWidgets import QApplication
         from modules.meetings.core.exporters.topic_dossier_exporter import TopicDossierExporterThread
 
         topic = MetaTopicDefinition(
@@ -989,6 +990,57 @@ class TestTopicPillWidgets(unittest.TestCase):
         self.assertEqual(dlg.tabs.currentIndex(), 1)
 
         dlg.close()
+
+    def test_always_download_missing_documents_from_ftp_defaults(self):
+        """
+        Verifies that:
+        1. TopicDossierExporterThread has allow_network_download=True by default.
+        2. TopicDossierDialog has chk_download checked (True) by default.
+        3. InputsCollectorThread creates exporter with allow_network_download=True.
+        """
+        from unittest.mock import MagicMock, patch
+        from PyQt5.QtWidgets import QApplication
+        from modules.meetings.core.exporters.topic_dossier_exporter import TopicDossierExporterThread
+        from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
+        from modules.meetings.ui.dialogs.topic_inputs_dialog import InputsCollectorThread
+        from modules.meetings.core.topic_manager import MetaTopicDefinition
+        from modules.meetings.core.cohort_resolver import MeetingCohort
+
+        mock_db = MagicMock()
+        topic = MetaTopicDefinition(id="test_dl", name="Test DL", target_wgs=["RAN2"])
+
+        # 1. ExporterThread default
+        exp = TopicDossierExporterThread(
+            meetings_db=mock_db,
+            topic=topic,
+            selected_cohorts=[],
+        )
+        self.assertTrue(exp.allow_network_download, "Exporter should default allow_network_download to True")
+
+        # 2. TopicDossierDialog default
+        app = QApplication.instance() or QApplication([])
+        dlg = TopicDossierDialog(meetings_db=mock_db, parent=None)
+        self.assertTrue(dlg.chk_download.isChecked(), "TopicDossierDialog checkbox should be checked by default")
+        dlg.close()
+
+        # 3. InputsCollectorThread helper thread
+        round_1 = MeetingCohort(
+            year=2026, quarter=1,
+            key="2026-Q1", label="Feb 2026",
+            meetings=[{"wg_name": "RAN2", "meeting_number": "133", "folder_name": "TSGR2_133"}],
+            wgs_present={"RAN2"},
+        )
+        col = InputsCollectorThread(
+            meetings_db=mock_db,
+            topic=topic,
+            rounds=[round_1],
+        )
+        # Verify run() sets allow_network_download=True when instantiating helper_thread
+        with patch("modules.meetings.core.exporters.topic_dossier_exporter.TopicDossierExporterThread") as mock_exp_cls:
+            col.run()
+            mock_exp_cls.assert_called_once()
+            _, kwargs = mock_exp_cls.call_args
+            self.assertTrue(kwargs.get("allow_network_download", False))
 
 
 if __name__ == "__main__":

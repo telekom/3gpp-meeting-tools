@@ -150,6 +150,7 @@ class InputsCollectorThread(QThread):
                 topic=self.topic,
                 selected_cohorts=self.rounds,
                 export_scope_mode=self.scope_mode,
+                allow_network_download=True,
             )
 
             all_decisions: List[TopicDecision] = []

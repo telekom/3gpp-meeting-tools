@@ -606,8 +606,8 @@ class TopicDossierDialog(QDialog):
         opt_layout.addWidget(self.chk_consolidated)
 
         self.chk_download = QCheckBox("Download missing documents from 3GPP FTP")
-        self.chk_download.setChecked(False)
-        self.chk_download.setToolTip("If unchecked, exports local documents and creates structured metadata stubs for missing files (instant offline export)")
+        self.chk_download.setChecked(True)
+        self.chk_download.setToolTip("Always downloads missing TDoc documents and meeting archives from 3GPP FTP to ensure complete dossier export.")
         opt_layout.addWidget(self.chk_download)
         right_layout.addWidget(opt_box)
 

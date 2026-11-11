@@ -124,7 +124,7 @@ class TopicDossierExporterThread(QThread):
         include_discussions: bool = True,
         deduplicate_revisions: bool = True,
         generate_consolidated_md: bool = True,
-        allow_network_download: bool = False,
+        allow_network_download: bool = True,
         parent=None,
     ):
         super().__init__(parent)
@@ -508,38 +508,70 @@ class TopicDossierExporterThread(QThread):
         if not self.allow_network_download or self.is_cancelled:
             return None
 
+        from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url, normalize_3gpp_url
+
         candidate_urls = []
         is_rev = bool(re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tid, re.IGNORECASE))
         docs_url = meeting_dict.get("docs_folder_url")
         url_key = meeting_dict.get("url_key")
 
-        if is_rev:
-            if url_key:
-                candidate_urls.append(f"https://www.3gpp.org/ftp/{url_key}/Revisions")
-            if docs_url:
-                candidate_urls.append(docs_url.rstrip('/').replace('/Docs', '/Revisions'))
-            if docs_url:
-                candidate_urls.append(docs_url.rstrip('/'))
-        else:
-            if docs_url:
-                candidate_urls.append(docs_url.rstrip('/'))
-            if url_key:
-                candidate_urls.append(f"https://www.3gpp.org/ftp/{url_key}/Docs")
+        # 1. Primary official candidate from URL router
+        resolved_primary = resolve_tdoc_download_url(
+            tid,
+            docs_url=docs_url,
+            main_url=url_key,
+            meta=meeting_dict,
+        )
+        if resolved_primary:
+            candidate_urls.append(resolved_primary.rsplit('/', 1)[0])
 
-        for base_url in candidate_urls:
-            try:
-                os.makedirs(target_extract_dir, exist_ok=True)
-                docs = TDocFileHandler.download_and_extract_tdoc(
-                    target_filename=tid,
-                    base_url=base_url,
-                    tdoc_dir=target_extract_dir,
-                    timeout=6,
-                    cancel_check=lambda: self.is_cancelled,
-                )
-                if docs:
-                    return docs[0]
-            except Exception as e:
-                logger.debug(f"[Download] Failed {tid} from {base_url}: {e}")
+        # 2. Derive base folders from docs_url and url_key
+        bases = []
+        if docs_url:
+            norm_docs = normalize_3gpp_url(docs_url)
+            m_base = re.sub(r'/[Dd]ocs/?$', '', norm_docs, flags=re.IGNORECASE)
+            bases.append(m_base)
+        if url_key:
+            norm_key = normalize_3gpp_url(url_key)
+            bases.append(norm_key)
+
+        for b in bases:
+            if is_rev:
+                candidate_urls.append(f"{b}/INBOX/Revisions")
+                candidate_urls.append(f"{b}/Inbox/Revisions")
+                candidate_urls.append(f"{b}/Revisions")
+                candidate_urls.append(f"{b}/Docs")
+            else:
+                candidate_urls.append(f"{b}/Docs")
+                candidate_urls.append(f"{b}/INBOX")
+                candidate_urls.append(f"{b}/Inbox")
+
+        # Deduplicate while preserving order
+        dedup_urls = list(dict.fromkeys(u.rstrip('/') for u in candidate_urls if u))
+
+        # Attempt download for tid (and fallback to base_tdoc if revision is not found)
+        targets_to_try = [tid]
+        if is_rev and base_tdoc != tid:
+            targets_to_try.append(base_tdoc)
+
+        for target_id in targets_to_try:
+            for base_url in dedup_urls:
+                if self.is_cancelled:
+                    return None
+                try:
+                    os.makedirs(target_extract_dir, exist_ok=True)
+                    docs = TDocFileHandler.download_and_extract_tdoc(
+                        target_filename=target_id,
+                        base_url=base_url,
+                        tdoc_dir=target_extract_dir,
+                        timeout=12,
+                        cancel_check=lambda: self.is_cancelled,
+                    )
+                    if docs:
+                        logger.info(f"📥 [TopicDossier] Downloaded {target_id} from {base_url}")
+                        return docs[0]
+                except Exception as e:
+                    logger.debug(f"[Download] Failed {target_id} from {base_url}: {e}")
 
         return None
 
@@ -805,10 +837,65 @@ class TopicDossierExporterThread(QThread):
                             docx_path=str(docx_f),
                             mtg_info=mtg,
                         )
-                        if res and len(res) >= 2:
+                        if res and len(res) >= 2 and res[1]:
                             return res[1]  # agreements list
                     except Exception:
                         pass
+
+        # If still no agreements and network download is allowed, auto-fetch Chairman's Notes for RAN WGs
+        if self.allow_network_download and not self.is_cancelled:
+            wg_upper = str(mtg.get("wg_name", "")).strip().upper()
+            if "RAN" in wg_upper:
+                try:
+                    from modules.meetings.core.chair_notes_downloader import ChairNotesDownloaderThread
+                    from core.network.session import NetworkSession
+
+                    candidate_urls = []
+                    raw_url = str(mtg.get("url_key", "")).strip()
+                    if raw_url:
+                        full = raw_url if raw_url.startswith("http") else f"https://www.3gpp.org/ftp/{raw_url.lstrip('/')}"
+                        candidate_urls.append(full.rstrip("/"))
+                    docs_url = str(mtg.get("docs_folder_url", "")).strip()
+                    if docs_url:
+                        full_docs = docs_url if docs_url.startswith("http") else f"https://www.3gpp.org/ftp/{docs_url.lstrip('/')}"
+                        base = re.sub(r'/Docs/?$', '', full_docs.rstrip("/"), flags=re.IGNORECASE)
+                        if base not in candidate_urls:
+                            candidate_urls.append(base)
+
+                    if candidate_urls:
+                        session = NetworkSession.get_instance()
+                        base_url, html_text = ChairNotesDownloaderThread.locate_chair_notes_dir(
+                            session, candidate_urls, cancel_check=lambda: self.is_cancelled
+                        )
+                        if base_url and html_text and not self.is_cancelled:
+                            all_remote = ChairNotesDownloaderThread.parse_file_list_static(html_text, base_url)
+                            selected_remote = ChairNotesDownloaderThread.select_best_chair_notes_files(
+                                all_remote, only_final_or_latest=True
+                            )
+                            if selected_remote:
+                                cn_dir = agenda_dir / "ChairNotes"
+                                cn_dir.mkdir(parents=True, exist_ok=True)
+                                downloaded_names = ChairNotesDownloaderThread.download_files_sync(
+                                    session=session,
+                                    files_to_download=selected_remote,
+                                    target_dir=cn_dir,
+                                    cancel_check=lambda: self.is_cancelled,
+                                )
+                                if downloaded_names:
+                                    for fname in downloaded_names:
+                                        f_path = cn_dir / fname
+                                        if f_path.suffix.lower() == ".zip":
+                                            ChairNotesDownloaderThread.extract_chair_notes_zip(f_path, cn_dir)
+                                    _, agreements, _ = ChairNotesAgreementsParser.scan_and_cache_chair_notes(
+                                        meeting_dir=mtg_dir,
+                                        mtg_info=mtg,
+                                        force_rescan=True,
+                                    )
+                                    if agreements:
+                                        return agreements
+                except Exception as e:
+                    logger.debug(f"[TopicDossierExporter] Auto-download ChairNotes failed for {folder_name}: {e}")
+
         return []
 
     def _write_agreement_markdown(
