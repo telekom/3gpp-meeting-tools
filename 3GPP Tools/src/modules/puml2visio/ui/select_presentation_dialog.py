@@ -21,55 +21,56 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
-LIST_STYLE_CARDS = """
-QListWidget#presentationList {
-    background-color: #F8FAFC;
-    border: 1px solid #E2E8F0;
+LIST_STYLE_CARDS = f"""
+QListWidget#presentationList {{
+    background-color: {C.BG_SURFACE};
+    border: 1px solid {C.BORDER_SUBTLE};
     border-radius: 8px;
     outline: none;
     padding: 6px;
-}
-QListWidget#presentationList::item {
-    background-color: #FFFFFF;
-    border: 1px solid #E2E8F0;
+}}
+QListWidget#presentationList::item {{
+    background-color: {C.BG_CARD};
+    border: 1px solid {C.BORDER_SUBTLE};
     border-radius: 6px;
     margin-bottom: 6px;
     min-height: 68px;
-}
-QListWidget#presentationList::item:hover {
-    background-color: #FFFFFF;
-    border: 1.5px solid #CBD5E1;
-}
-QListWidget#presentationList::item:selected {
-    background-color: #FFF7ED;
-    border: 1.5px solid #EA580C;
-}
+}}
+QListWidget#presentationList::item:hover {{
+    background-color: {C.BG_CARD};
+    border: 1.5px solid {C.BORDER_STRONG};
+}}
+QListWidget#presentationList::item:selected {{
+    background-color: {C.WG_CT_BG};
+    border: 1.5px solid {C.PPT_ORANGE_BORDER};
+}}
 """
 
-PRIMARY_BTN_STYLE = """
-QPushButton#primaryBtn {
-    background-color: #D24726;
-    color: #FFFFFF;
+PRIMARY_BTN_STYLE = f"""
+QPushButton#primaryBtn {{
+    background-color: {C.PPT_ORANGE_PRIMARY};
+    color: {C.BG_CARD};
     font-weight: bold;
-    border: 1px solid #B73D20;
+    border: 1px solid {C.PPT_ORANGE_HOVER};
     border-radius: 5px;
     padding: 7px 20px;
     font-size: 12px;
-}
-QPushButton#primaryBtn:hover {
-    background-color: #B73D20;
-}
-QPushButton#primaryBtn:pressed {
-    background-color: #9C3319;
-}
-QPushButton#primaryBtn:disabled {
-    background-color: #E2E8F0;
-    color: #94A3B8;
-    border: 1px solid #CBD5E1;
-}
+}}
+QPushButton#primaryBtn:hover {{
+    background-color: {C.PPT_ORANGE_HOVER};
+}}
+QPushButton#primaryBtn:pressed {{
+    background-color: {C.PPT_ORANGE_PRESSED};
+}}
+QPushButton#primaryBtn:disabled {{
+    background-color: {C.BORDER_SUBTLE};
+    color: {C.TEXT_FAINT};
+    border: 1px solid {C.BORDER_STRONG};
+}}
 """
 
 
@@ -104,8 +105,8 @@ class PresentationItemWidget(QWidget):
         self.icon_badge.setFixedSize(36, 36)
         self.icon_badge.setAlignment(Qt.AlignCenter)
         self.icon_badge.setStyleSheet(
-            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #E05238, stop:1 #C43E1C);"
-            "color: #FFFFFF; font-weight: 800; font-size: 17px; border-radius: 6px; "
+            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {C.PPT_CORAL_LIGHT}, stop:1 {C.PPT_CORAL_DARK});"
+            f"color: {C.BG_CARD}; font-weight: 800; font-size: 17px; border-radius: 6px; "
             "font-family: 'Segoe UI', Arial, sans-serif;"
         )
         self.icon_badge.setAttribute(Qt.WA_TransparentForMouseEvents, True)
@@ -123,15 +124,15 @@ class PresentationItemWidget(QWidget):
 
         pres_name = self.pres.get("name", "Presentation.pptx")
         self.title_lbl = QLabel(pres_name)
-        self.title_lbl.setStyleSheet("color: #0F172A; font-size: 13px; font-weight: 700;")
+        self.title_lbl.setStyleSheet(f"color: {C.TEXT_PRIMARY}; font-size: 13px; font-weight: 700;")
         self.title_lbl.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         top_row.addWidget(self.title_lbl)
 
         if self.pres.get("is_active"):
             active_badge = QLabel("⭐ Active Deck")
             active_badge.setStyleSheet(
-                "background-color: #DCFCE7; color: #166534; font-weight: 600; "
-                "font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #86EFAC;"
+                f"background-color: {C.SUCCESS_SOFT_ALT}; color: {C.SUCCESS_DARK}; font-weight: 600; "
+                f"font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid {C.SUCCESS_BORDER_MEDIUM};"
             )
             active_badge.setAttribute(Qt.WA_TransparentForMouseEvents, True)
             top_row.addWidget(active_badge)
@@ -139,8 +140,8 @@ class PresentationItemWidget(QWidget):
         if not self.pres.get("saved", True):
             unsaved_badge = QLabel("🟠 Unsaved")
             unsaved_badge.setStyleSheet(
-                "background-color: #FEF3C7; color: #92400E; font-weight: 600; "
-                "font-size: 10px; padding: 2px 7px; border-radius: 10px; border: 1px solid #FCD34D;"
+                f"background-color: {C.WARNING_SOFT_ALT}; color: {C.WARNING_DARK}; font-weight: 600; "
+                f"font-size: 10px; padding: 2px 7px; border-radius: 10px; border: 1px solid {C.WARNING_BORDER_STRONG};"
             )
             unsaved_badge.setAttribute(Qt.WA_TransparentForMouseEvents, True)
             top_row.addWidget(unsaved_badge)
@@ -156,12 +157,12 @@ class PresentationItemWidget(QWidget):
         slides = self.pres.get("slides_count", 0)
         slide_text = f"📑 {slides} slide{'s' if slides != 1 else ''}"
         self.slides_lbl = QLabel(slide_text)
-        self.slides_lbl.setStyleSheet("color: #475569; font-size: 11px; font-weight: 600;")
+        self.slides_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px; font-weight: 600;")
         self.slides_lbl.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         bottom_row.addWidget(self.slides_lbl)
 
         dot_lbl = QLabel("•")
-        dot_lbl.setStyleSheet("color: #CBD5E1; font-size: 11px;")
+        dot_lbl.setStyleSheet(f"color: {C.BORDER_STRONG}; font-size: 11px;")
         dot_lbl.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         bottom_row.addWidget(dot_lbl)
 
@@ -169,7 +170,7 @@ class PresentationItemWidget(QWidget):
         display_path = _format_display_path(full_path, pres_name)
 
         self.path_lbl = QLabel(f"📁 {display_path}")
-        self.path_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
+        self.path_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         self.path_lbl.setToolTip(full_path if full_path else "Unsaved presentation")
         self.path_lbl.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         bottom_row.addWidget(self.path_lbl)
@@ -181,7 +182,7 @@ class PresentationItemWidget(QWidget):
 
         # Right: Selection pill indicator
         self.status_pill = QLabel("○")
-        self.status_pill.setStyleSheet("color: #CBD5E1; font-size: 13px; font-weight: normal; padding: 2px 6px;")
+        self.status_pill.setStyleSheet(f"color: {C.BORDER_STRONG}; font-size: 13px; font-weight: normal; padding: 2px 6px;")
         self.status_pill.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         layout.addWidget(self.status_pill, 0, Qt.AlignVCenter)
 
@@ -191,13 +192,13 @@ class PresentationItemWidget(QWidget):
         if selected:
             self.status_pill.setText("✓ Selected")
             self.status_pill.setStyleSheet(
-                "background-color: #FFEDD5; color: #C2410C; font-weight: bold; "
-                "font-size: 10px; padding: 3px 9px; border-radius: 10px; border: 1px solid #FDBA74;"
+                f"background-color: {C.ORANGE_SOFT}; color: {C.ORANGE_DARK}; font-weight: bold; "
+                f"font-size: 10px; padding: 3px 9px; border-radius: 10px; border: 1px solid {C.ORANGE_BORDER};"
             )
         else:
             self.status_pill.setText("○")
             self.status_pill.setStyleSheet(
-                "color: #CBD5E1; font-size: 13px; font-weight: normal; padding: 2px 6px;"
+                f"color: {C.BORDER_STRONG}; font-size: 13px; font-weight: normal; padding: 2px 6px;"
             )
 
     def sizeHint(self) -> QSize:
@@ -237,8 +238,8 @@ class SelectPresentationDialog(QDialog):
         header_icon.setFixedSize(38, 38)
         header_icon.setAlignment(Qt.AlignCenter)
         header_icon.setStyleSheet(
-            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #E05238, stop:1 #C43E1C);"
-            "color: #FFFFFF; font-weight: 800; font-size: 18px; border-radius: 8px; "
+            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {C.PPT_CORAL_LIGHT}, stop:1 {C.PPT_CORAL_DARK});"
+            f"color: {C.BG_CARD}; font-weight: 800; font-size: 18px; border-radius: 8px; "
             "font-family: 'Segoe UI', Arial, sans-serif;"
         )
         header_layout.addWidget(header_icon, 0, Qt.AlignVCenter)
@@ -247,13 +248,13 @@ class SelectPresentationDialog(QDialog):
         header_text_layout.setSpacing(2)
 
         title_lbl = QLabel("Select Target PowerPoint Slide Deck")
-        title_lbl.setStyleSheet("font-size: 15px; font-weight: bold; color: #0F172A;")
+        title_lbl.setStyleSheet(f"font-size: 15px; font-weight: bold; color: {C.TEXT_PRIMARY};")
 
         desc_lbl = QLabel(
             "Multiple presentations are currently open in Microsoft PowerPoint. "
             "Choose which slide deck to append this diagram to:"
         )
-        desc_lbl.setStyleSheet("font-size: 12px; color: #64748B;")
+        desc_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_MUTED};")
         desc_lbl.setWordWrap(True)
 
         header_text_layout.addWidget(title_lbl)
@@ -274,17 +275,17 @@ class SelectPresentationDialog(QDialog):
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText("🔍 Filter presentations by name or path...")
         self.filter_edit.setClearButtonEnabled(True)
-        self.filter_edit.setStyleSheet("""
-            QLineEdit {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.filter_edit.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 5px;
                 padding: 4px 8px;
                 font-size: 12px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #EA580C;
-            }
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {C.PPT_ORANGE_BORDER};
+            }}
         """)
         self.filter_edit.textChanged.connect(self._on_filter_changed)
         main_layout.addWidget(self.filter_edit)
@@ -302,34 +303,34 @@ class SelectPresentationDialog(QDialog):
         # Slide Placement Frame (End vs After Active Slide)
         placement_frame = QFrame()
         placement_frame.setObjectName("placementFrame")
-        placement_frame.setStyleSheet("""
-            QFrame#placementFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #E2E8F0;
+        placement_frame.setStyleSheet(f"""
+            QFrame#placementFrame {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 6px;
-            }
-            QLabel, QRadioButton {
+            }}
+            QLabel, QRadioButton {{
                 border: none;
                 background: transparent;
-            }
+            }}
         """)
         placement_layout = QHBoxLayout(placement_frame)
         placement_layout.setContentsMargins(12, 7, 12, 7)
         placement_layout.setSpacing(14)
 
         place_lbl = QLabel("<b>Slide Placement:</b>")
-        place_lbl.setStyleSheet("color: #334155; font-size: 11px;")
+        place_lbl.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 11px;")
         placement_layout.addWidget(place_lbl)
 
         self.radio_group = QButtonGroup(self)
         self.radio_end = QRadioButton("Append to end of presentation")
         self.radio_end.setChecked(True)
-        self.radio_end.setStyleSheet("font-size: 11px; color: #1E293B;")
+        self.radio_end.setStyleSheet(f"font-size: 11px; color: {C.TEXT_STRONG};")
         self.radio_group.addButton(self.radio_end)
         placement_layout.addWidget(self.radio_end)
 
         self.radio_after_active = QRadioButton("Insert after active slide")
-        self.radio_after_active.setStyleSheet("font-size: 11px; color: #1E293B;")
+        self.radio_after_active.setStyleSheet(f"font-size: 11px; color: {C.TEXT_STRONG};")
         self.radio_group.addButton(self.radio_after_active)
         placement_layout.addWidget(self.radio_after_active)
         placement_layout.addStretch()
@@ -339,16 +340,16 @@ class SelectPresentationDialog(QDialog):
         # Informational Callout Frame (Exported Slide Specifications)
         info_frame = QFrame()
         info_frame.setObjectName("infoFrame")
-        info_frame.setStyleSheet("""
-            QFrame#infoFrame {
-                background-color: #F8FAFC;
-                border: 1px solid #E2E8F0;
+        info_frame.setStyleSheet(f"""
+            QFrame#infoFrame {{
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 6px;
-            }
-            QLabel {
+            }}
+            QLabel {{
                 border: none;
                 background: transparent;
-            }
+            }}
         """)
         info_layout = QHBoxLayout(info_frame)
         info_layout.setContentsMargins(12, 7, 12, 7)
@@ -357,7 +358,7 @@ class SelectPresentationDialog(QDialog):
         info_lbl = QLabel(
             "💡 <b>Slide Output:</b> Native editable Office shapes, auto 16:9/4:3 scaling, and PlantUML preserved in notes."
         )
-        info_lbl.setStyleSheet("color: #475569; font-size: 11px;")
+        info_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px;")
         info_layout.addWidget(info_lbl)
         info_layout.addStretch()
 
@@ -369,9 +370,9 @@ class SelectPresentationDialog(QDialog):
 
         self.btn_new_pres = QPushButton("+ New Presentation Instead")
         self.btn_new_pres.setStyleSheet(
-            "QPushButton { background-color: #F8FAFC; border: 1px solid #CBD5E1; color: #1E293B; "
+            f"QPushButton {{ background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_STRONG}; color: {C.TEXT_STRONG}; "
             "font-size: 11px; padding: 6px 12px; border-radius: 4px; font-weight: 500; } "
-            "QPushButton:hover { background-color: #F1F5F9; border-color: #94A3B8; }"
+            f"QPushButton:hover {{ background-color: {C.BG_CANVAS}; border-color: {C.TEXT_FAINT}; }}"
         )
         self.btn_new_pres.setCursor(Qt.PointingHandCursor)
         self.btn_new_pres.setToolTip("Export diagram to a fresh standalone presentation instead of appending")

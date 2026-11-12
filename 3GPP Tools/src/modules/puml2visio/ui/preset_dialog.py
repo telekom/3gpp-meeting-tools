@@ -33,23 +33,24 @@ from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     CARD_FRAME_STYLE,
 )
+from core.ui.theme import C
 
-BUTTON_STYLE_PRIMARY = """
-    QPushButton {
-        background-color: #2563EB;
-        color: #FFFFFF;
+BUTTON_STYLE_PRIMARY = f"""
+    QPushButton {{
+        background-color: {C.ACCENT_ALT};
+        color: {C.BG_CARD};
         font-weight: bold;
-        border: 1px solid #1D4ED8;
+        border: 1px solid {C.INFO};
         border-radius: 4px;
         padding: 5px 14px;
         font-size: 12px;
-    }
-    QPushButton:hover {
-        background-color: #1D4ED8;
-    }
-    QPushButton:pressed {
-        background-color: #1E40AF;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {C.INFO};
+    }}
+    QPushButton:pressed {{
+        background-color: {C.INFO_DARK};
+    }}
 """
 from modules.puml2visio.templates.plantuml_snippets import (
     PlantUMLSnippet,
@@ -111,13 +112,13 @@ class UserPresetDialog(QDialog):
 
         # Header Info Banner
         header_frame = QFrame()
-        header_frame.setStyleSheet("""
-            QFrame {
-                background-color: #F1F5F9;
-                border: 1px solid #CBD5E1;
+        header_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_CANVAS};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 padding: 10px;
-            }
+            }}
         """)
         h_layout = QVBoxLayout(header_frame)
         h_layout.setContentsMargins(4, 4, 4, 4)
@@ -126,14 +127,14 @@ class UserPresetDialog(QDialog):
         title_lbl = QLabel(
             "<b>✏️ Edit User Preset</b>" if self.is_edit_mode else "<b>➕ Define Custom PlantUML Preset</b>"
         )
-        title_lbl.setStyleSheet("color: #1E293B; font-size: 13px;")
+        title_lbl.setStyleSheet(f"color: {C.TEXT_STRONG}; font-size: 13px;")
         desc_lbl = QLabel(
             "User presets are saved to <code>src/config/plantuml_presets_user.json</code> "
             "(excluded from Git commits) and immediately available across the PlantUML editor, "
             "elements palette, context menu, and stencils table."
         )
         desc_lbl.setWordWrap(True)
-        desc_lbl.setStyleSheet("color: #475569; font-size: 11px;")
+        desc_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px;")
 
         h_layout.addWidget(title_lbl)
         h_layout.addWidget(desc_lbl)
@@ -189,7 +190,7 @@ class UserPresetDialog(QDialog):
 
         # Code Editor
         code_lbl = QLabel("<b>PlantUML Template Code:</b>")
-        code_lbl.setStyleSheet("color: #1E293B; font-size: 12px;")
+        code_lbl.setStyleSheet(f"color: {C.TEXT_STRONG}; font-size: 12px;")
         main_layout.addWidget(code_lbl)
 
         self.code_edit = QPlainTextEdit()
@@ -202,22 +203,22 @@ class UserPresetDialog(QDialog):
             "' {p1}, {p2}   : Auto-detected first/second participant"
         )
         self.code_edit.setFont(QFont("Consolas", 10))
-        self.code_edit.setStyleSheet("""
-            QPlainTextEdit {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.code_edit.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 6px;
                 font-family: Consolas, 'Courier New', monospace;
                 font-size: 12px;
-                color: #0F172A;
-            }
+                color: {C.TEXT_PRIMARY};
+            }}
         """)
         main_layout.addWidget(self.code_edit, stretch=1)
 
         # Checkbox: is_block_wrapper
         self.wrapper_check = QCheckBox("Wraps selected text (replaces {selection} with indented user selection)")
-        self.wrapper_check.setStyleSheet("color: #334155; font-size: 11px;")
+        self.wrapper_check.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 11px;")
         main_layout.addWidget(self.wrapper_check)
 
         # Bottom Buttons
@@ -233,7 +234,7 @@ class UserPresetDialog(QDialog):
 
         if self.is_edit_mode and self.snippet and self.snippet.is_user_defined:
             self.delete_btn = QPushButton("🗑️ Delete Preset")
-            self.delete_btn.setStyleSheet("background-color: #FEE2E2; color: #DC2626; border: 1px solid #FCA5A5; padding: 5px 12px; border-radius: 4px;")
+            self.delete_btn.setStyleSheet(f"background-color: {C.DANGER_SOFT_HOVER}; color: {C.DANGER_ALT}; border: 1px solid {C.DANGER_BORDER_ALT}; padding: 5px 12px; border-radius: 4px;")
             self.delete_btn.clicked.connect(self._on_delete)
             btn_layout.addWidget(self.delete_btn)
 

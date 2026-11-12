@@ -34,6 +34,7 @@ from modules.puml2visio.templates.plantuml_snippets import (
     resolve_snippet_text,
 )
 from modules.puml2visio.ui.syntax_highlighter import PlantUMLHighlighter
+from core.ui.theme import C
 
 
 class LineNumberArea(QWidget):
@@ -103,23 +104,23 @@ class CodeDropTextEdit(QPlainTextEdit):
         self.highlight_current_line()
 
         # Modern Visual Styling
-        self.default_style = """
-            QPlainTextEdit {
+        self.default_style = f"""
+            QPlainTextEdit {{
                 font-family: Consolas, 'Cascadia Code', 'Courier New', monospace; 
                 font-size: 13px; 
-                border: 1px solid #CBD5E1; 
+                border: 1px solid {C.BORDER_STRONG}; 
                 border-radius: 6px; 
-                background-color: #FFFFFF;
-                color: #1E293B;
+                background-color: {C.BG_CARD};
+                color: {C.TEXT_STRONG};
                 line-height: 1.4;
-            }
-            QPlainTextEdit:focus {
-                border: 2px solid #395396;
-            }
+            }}
+            QPlainTextEdit:focus {{
+                border: 2px solid {C.ACCENT_INDIGO_BLUE};
+            }}
         """
         self.hover_style = self.default_style.replace(
-            "border: 1px solid #CBD5E1;",
-            "border: 2px dashed #395396; background-color: #EBF3FC;"
+            f"border: 1px solid {C.BORDER_STRONG};",
+            f"border: 2px dashed {C.ACCENT_INDIGO_BLUE}; background-color: {C.ACCENT_SOFT};"
         )
         self.setStyleSheet(self.default_style)
         self.setLineWrapMode(QPlainTextEdit.NoWrap)
@@ -160,7 +161,7 @@ class CodeDropTextEdit(QPlainTextEdit):
 
     def lineNumberAreaPaintEvent(self, event):
         painter = QPainter(self.line_number_area)
-        painter.fillRect(event.rect(), QColor("#F8FAFC"))
+        painter.fillRect(event.rect(), QColor(C.BG_SURFACE))
 
         block = self.firstVisibleBlock()
         block_number = block.blockNumber()
@@ -175,10 +176,10 @@ class CodeDropTextEdit(QPlainTextEdit):
 
                 # Distinguish error line in gutter
                 if self.error_line is not None and self.error_line == line_idx:
-                    painter.fillRect(0, top, self.line_number_area.width(), fm.height(), QColor("#FEE2E2"))
-                    painter.setPen(QColor("#DC2626"))
+                    painter.fillRect(0, top, self.line_number_area.width(), fm.height(), QColor(C.DANGER_SOFT_HOVER))
+                    painter.setPen(QColor(C.DANGER_ALT))
                 else:
-                    painter.setPen(QColor("#94A3B8"))
+                    painter.setPen(QColor(C.TEXT_FAINT))
 
                 painter.drawText(
                     0, top, self.line_number_area.width() - 6, fm.height(),
@@ -202,9 +203,9 @@ class CodeDropTextEdit(QPlainTextEdit):
             if block.isValid():
                 error_sel = QTextEdit.ExtraSelection()
                 error_format = QTextCharFormat()
-                error_format.setBackground(QColor("#FEE2E2"))
+                error_format.setBackground(QColor(C.DANGER_SOFT_HOVER))
                 error_format.setProperty(QTextFormat.FullWidthSelection, True)
-                error_format.setUnderlineColor(QColor("#DC2626"))
+                error_format.setUnderlineColor(QColor(C.DANGER_ALT))
                 error_format.setUnderlineStyle(QTextCharFormat.WaveUnderline)
                 error_sel.format = error_format
                 error_sel.cursor = QTextCursor(block)
@@ -214,7 +215,7 @@ class CodeDropTextEdit(QPlainTextEdit):
         # 2. Active Cursor Line Highlighting (Subtle light blue)
         if not self.isReadOnly():
             selection = QTextEdit.ExtraSelection()
-            line_color = QColor("#F1F5F9")
+            line_color = QColor(C.BG_CANVAS)
             selection.format.setBackground(line_color)
             selection.format.setProperty(QTextFormat.FullWidthSelection, True)
             selection.cursor = self.textCursor()
@@ -573,7 +574,7 @@ class FindReplaceBar(QWidget):
 
         # Find Input
         self.find_lbl = QLabel("🔍 Find:")
-        self.find_lbl.setStyleSheet("font-weight: bold; color: #475569; font-size: 11px;")
+        self.find_lbl.setStyleSheet(f"font-weight: bold; color: {C.TEXT_SECONDARY}; font-size: 11px;")
         self.find_input = QLineEdit()
         self.find_input.setPlaceholderText("Search...")
         self.find_input.setMinimumWidth(160)
@@ -581,7 +582,7 @@ class FindReplaceBar(QWidget):
         self.find_input.returnPressed.connect(self._find_next)
 
         self.match_count_lbl = QLabel("")
-        self.match_count_lbl.setStyleSheet("color: #64748B; font-size: 11px; min-width: 45px;")
+        self.match_count_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px; min-width: 45px;")
 
         self.prev_btn = QPushButton("▲")
         self.prev_btn.setToolTip("Find Previous (Shift+F3)")
@@ -597,7 +598,7 @@ class FindReplaceBar(QWidget):
 
         # Replace Input
         self.replace_lbl = QLabel("Replace:")
-        self.replace_lbl.setStyleSheet("font-weight: bold; color: #475569; font-size: 11px;")
+        self.replace_lbl.setStyleSheet(f"font-weight: bold; color: {C.TEXT_SECONDARY}; font-size: 11px;")
         self.replace_input = QLineEdit()
         self.replace_input.setPlaceholderText("Replace with...")
         self.replace_input.setMinimumWidth(140)
@@ -613,13 +614,13 @@ class FindReplaceBar(QWidget):
         # Case Sensitive Checkbox
         self.case_check = QCheckBox("Aa")
         self.case_check.setToolTip("Match Case")
-        self.case_check.setStyleSheet("font-weight: bold; color: #475569;")
+        self.case_check.setStyleSheet(f"font-weight: bold; color: {C.TEXT_SECONDARY};")
         self.case_check.toggled.connect(self._find_next)
 
         # Close button
         self.close_btn = QPushButton("✕")
         self.close_btn.setToolTip("Close Find Bar (Esc)")
-        self.close_btn.setStyleSheet("QPushButton { border: none; font-weight: bold; color: #64748B; padding: 2px 6px; } QPushButton:hover { color: #DC2626; }")
+        self.close_btn.setStyleSheet(f"QPushButton {{ border: none; font-weight: bold; color: {C.TEXT_MUTED}; padding: 2px 6px; }} QPushButton:hover {{ color: {C.DANGER_ALT}; }}")
         self.close_btn.clicked.connect(self.hide_and_focus_editor)
 
         layout.addWidget(self.find_lbl)
@@ -637,21 +638,21 @@ class FindReplaceBar(QWidget):
         layout.addWidget(self.close_btn)
 
         self.setLayout(layout)
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #F8FAFC; 
-                border-bottom: 1px solid #E2E8F0; 
+        self.setStyleSheet(f"""
+            QWidget {{
+                background-color: {C.BG_SURFACE}; 
+                border-bottom: 1px solid {C.BORDER_SUBTLE}; 
                 border-radius: 4px;
-            }
-            QLineEdit {
-                border: 1px solid #CBD5E1; 
+            }}
+            QLineEdit {{
+                border: 1px solid {C.BORDER_STRONG}; 
                 border-radius: 4px; 
                 padding: 3px 6px; 
                 background: white;
-            }
-            QLineEdit:focus {
-                border-color: #395396;
-            }
+            }}
+            QLineEdit:focus {{
+                border-color: {C.ACCENT_INDIGO_BLUE};
+            }}
         """)
 
     def show_and_focus(self):

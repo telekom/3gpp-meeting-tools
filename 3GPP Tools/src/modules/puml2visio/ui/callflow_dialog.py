@@ -50,6 +50,7 @@ from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
 from modules.puml2visio.ui.svg_preview_widget import EmbeddedSvgPreview
 from modules.puml2visio.ui.syntax_highlighter import PlantUMLHighlighter
 from modules.puml2visio.utils.paths import get_puml2visio_asset_path
+from core.ui.theme import C
 
 
 class CallFlowDialog(QDialog):
@@ -129,7 +130,7 @@ class CallFlowDialog(QDialog):
         top_strip.addStretch()
 
         self.status_lbl = QLabel("Ready.")
-        self.status_lbl.setStyleSheet("color: #64748B; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-weight: bold;")
         top_strip.addWidget(self.status_lbl)
 
         main_layout.addLayout(top_strip)
@@ -138,12 +139,12 @@ class CallFlowDialog(QDialog):
         # MIDDLE SPLITTER: Input Text & Options (Left) vs Output Preview (Right)
         # ---------------------------------------------------------------------
         splitter = QSplitter(Qt.Horizontal)
-        splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: #E2E8F0;
+        splitter.setStyleSheet(f"""
+            QSplitter::handle {{
+                background-color: {C.BORDER_SUBTLE};
                 width: 3px;
                 margin: 0px 2px;
-            }
+            }}
         """)
 
         # LEFT WIDGET: Specification Procedure Text & 3GPP Style Options
@@ -154,7 +155,7 @@ class CallFlowDialog(QDialog):
 
         input_header = QHBoxLayout()
         left_lbl = QLabel("📋 Specification Procedure Text:")
-        left_lbl.setStyleSheet("font-weight: bold; color: #1E293B; font-size: 12px;")
+        left_lbl.setStyleSheet(f"font-weight: bold; color: {C.TEXT_STRONG}; font-size: 12px;")
         input_header.addWidget(left_lbl)
         input_header.addStretch()
 
@@ -180,43 +181,43 @@ class CallFlowDialog(QDialog):
             "4. AUSF verifies with UDM and returns result to AMF.\n"
             "5. AMF sends Registration Accept to UE."
         )
-        self.input_text.setStyleSheet("""
-            QPlainTextEdit {
+        self.input_text.setStyleSheet(f"""
+            QPlainTextEdit {{
                 font-family: Consolas, 'Courier New', monospace;
                 font-size: 12px;
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 line-height: 1.4;
-            }
-            QPlainTextEdit:focus {
-                border-color: #395396;
-            }
+            }}
+            QPlainTextEdit:focus {{
+                border-color: {C.ACCENT_INDIGO_BLUE};
+            }}
         """)
         left_layout.addWidget(self.input_text, stretch=1)
 
         # 3GPP Generation Style Toggles (Prompt Modifiers)
         style_box = QGroupBox("⚙️ 3GPP Diagram Style && Detail Options")
-        style_box.setStyleSheet("""
-            QGroupBox {
+        style_box.setStyleSheet(f"""
+            QGroupBox {{
                 font-weight: bold;
-                color: #334155;
-                border: 1px solid #CBD5E1;
+                color: {C.TEXT_BODY};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 margin-top: 8px;
                 padding-top: 10px;
-                background-color: #F8FAFC;
-            }
-            QGroupBox::title {
+                background-color: {C.BG_SURFACE};
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 4px;
-            }
-            QCheckBox {
+            }}
+            QCheckBox {{
                 font-size: 11px;
-                color: #475569;
+                color: {C.TEXT_SECONDARY};
                 font-weight: 500;
-            }
+            }}
         """)
         style_grid = QGridLayout(style_box)
         style_grid.setContentsMargins(10, 10, 10, 10)
@@ -258,16 +259,16 @@ class CallFlowDialog(QDialog):
 
         # Output Tab Widget (Code vs Diagram Preview)
         self.output_tabs = QTabWidget()
-        self.output_tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #CBD5E1;
+        self.output_tabs.setStyleSheet(f"""
+            QTabWidget::pane {{
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
-                background-color: #FFFFFF;
-            }
-            QTabBar::tab {
+                background-color: {C.BG_CARD};
+            }}
+            QTabBar::tab {{
                 font-weight: bold;
                 padding: 6px 14px;
-            }
+            }}
         """)
 
         # Tab 1: Code View
@@ -278,15 +279,15 @@ class CallFlowDialog(QDialog):
         self.output_text = QPlainTextEdit()
         self.output_text.setReadOnly(False)
         self.output_text.setPlaceholderText("Generated PlantUML sequence code will stream here...")
-        self.output_text.setStyleSheet("""
-            QPlainTextEdit {
+        self.output_text.setStyleSheet(f"""
+            QPlainTextEdit {{
                 font-family: Consolas, 'Cascadia Code', 'Courier New', monospace;
                 font-size: 12px;
-                background-color: #FFFFFF;
+                background-color: {C.BG_CARD};
                 border: none;
-                color: #1E293B;
+                color: {C.TEXT_STRONG};
                 line-height: 1.4;
-            }
+            }}
         """)
         # Attach PlantUML syntax highlighter
         self.highlighter = PlantUMLHighlighter(self.output_text.document())
@@ -301,24 +302,24 @@ class CallFlowDialog(QDialog):
 
         # PlantUML Syntax Error Banner (Hidden by default)
         self.error_banner = QFrame()
-        self.error_banner.setStyleSheet("""
-            QFrame {
-                background-color: #FEE2E2;
-                border: 1px solid #F87171;
+        self.error_banner.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.DANGER_SOFT_HOVER};
+                border: 1px solid {C.DANGER_BORDER_HOVER};
                 border-radius: 6px;
                 padding: 4px;
-            }
+            }}
         """)
         error_layout = QHBoxLayout(self.error_banner)
         error_layout.setContentsMargins(8, 4, 8, 4)
         error_layout.setSpacing(8)
 
         self.error_banner_lbl = QLabel("")
-        self.error_banner_lbl.setStyleSheet("color: #B91C1C; font-weight: bold; font-size: 11px;")
+        self.error_banner_lbl.setStyleSheet(f"color: {C.DANGER}; font-weight: bold; font-size: 11px;")
         error_layout.addWidget(self.error_banner_lbl, stretch=1)
 
         self.autofix_btn = QPushButton("🪄 Auto-Fix Error")
-        self.autofix_btn.setStyleSheet("QPushButton { background-color: #DC2626; color: white; border: none; padding: 4px 10px; border-radius: 4px; font-weight: bold; } QPushButton:hover { background-color: #B91C1C; }")
+        self.autofix_btn.setStyleSheet(f"QPushButton {{ background-color: {C.DANGER_ALT}; color: white; border: none; padding: 4px 10px; border-radius: 4px; font-weight: bold; }} QPushButton:hover {{ background-color: {C.DANGER}; }}")
         self.autofix_btn.setToolTip("Prompt local LLM to automatically fix this PlantUML syntax error.")
         self.autofix_btn.clicked.connect(self._autofix_syntax_error)
         error_layout.addWidget(self.autofix_btn)
@@ -331,22 +332,22 @@ class CallFlowDialog(QDialog):
         refine_bar.setSpacing(6)
 
         refine_lbl = QLabel("💬 Refine:")
-        refine_lbl.setStyleSheet("font-weight: bold; color: #475569; font-size: 11px;")
+        refine_lbl.setStyleSheet(f"font-weight: bold; color: {C.TEXT_SECONDARY}; font-size: 11px;")
         refine_bar.addWidget(refine_lbl)
 
         self.refine_input = QLineEdit()
         self.refine_input.setPlaceholderText("e.g. Add an alt block for authentication failure, or group into VPLMN / HPLMN...")
-        self.refine_input.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #CBD5E1;
+        self.refine_input.setStyleSheet(f"""
+            QLineEdit {{
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 5px 8px;
-                background-color: #FFFFFF;
+                background-color: {C.BG_CARD};
                 font-size: 12px;
-            }
-            QLineEdit:focus {
-                border-color: #395396;
-            }
+            }}
+            QLineEdit:focus {{
+                border-color: {C.ACCENT_INDIGO_BLUE};
+            }}
         """)
         self.refine_input.returnPressed.connect(self._refine_diagram)
         refine_bar.addWidget(self.refine_input, stretch=1)
@@ -447,11 +448,11 @@ class CallFlowDialog(QDialog):
             if selected in models:
                 self.model_combo.setCurrentText(selected)
             self.status_lbl.setText(f"🟢 Connected ({len(models)} models)")
-            self.status_lbl.setStyleSheet("color: #16A34A; font-weight: bold;")
+            self.status_lbl.setStyleSheet(f"color: {C.GREEN_ACCENT}; font-weight: bold;")
             self.generate_btn.setEnabled(True)
         else:
             self.status_lbl.setText("🔴 Ollama Offline")
-            self.status_lbl.setStyleSheet("color: #DC2626; font-weight: bold;")
+            self.status_lbl.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
             self.generate_btn.setEnabled(False)
 
     # -------------------------------------------------------------------------
@@ -462,8 +463,8 @@ class CallFlowDialog(QDialog):
         directives = []
         if self.opt_boxes.isChecked():
             directives.append(
-                "Organize participants into visual boxes where applicable: e.g. box \"Radio Access Network\" #F8FAFC ... end box, "
-                "box \"5G Core Control Plane\" #F1F5F9 ... end box, and box \"User Plane\" #F8FAFC ... end box."
+                f"Organize participants into visual boxes where applicable: e.g. box \"Radio Access Network\" {C.BG_SURFACE} ... end box, "
+                f"box \"5G Core Control Plane\" {C.BG_CANVAS} ... end box, and box \"User Plane\" {C.BG_SURFACE} ... end box."
             )
         if self.opt_ies.isChecked():
             directives.append(
@@ -508,7 +509,7 @@ class CallFlowDialog(QDialog):
         self.error_banner.hide()
         self.output_tabs.setCurrentIndex(0)  # Switch to Code tab during streaming
         self.status_lbl.setText("⚡ Streaming tokens...")
-        self.status_lbl.setStyleSheet("color: #2563EB; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.ACCENT_ALT}; font-weight: bold;")
 
         self._set_ui_busy(True)
 
@@ -536,7 +537,7 @@ class CallFlowDialog(QDialog):
         self.conversation_history = getattr(self.worker, "history", [])
 
         self.status_lbl.setText("⚙️ Validating syntax...")
-        self.status_lbl.setStyleSheet("color: #0284C7; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.ACCENT_SKY}; font-weight: bold;")
         self._set_ui_busy(False)
 
         # Background validation & SVG preview generation
@@ -544,7 +545,7 @@ class CallFlowDialog(QDialog):
 
     def _handle_failed(self, error_msg: str):
         self.status_lbl.setText("⚠️ Failed / Cancelled")
-        self.status_lbl.setStyleSheet("color: #DC2626; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
         self._set_ui_busy(False)
         if self.output_text.toPlainText().strip():
             self._set_output_ready(True)
@@ -567,7 +568,7 @@ class CallFlowDialog(QDialog):
     def _on_validation_success(self, svg_path: str):
         self.error_banner.hide()
         self.status_lbl.setText("✅ Completed")
-        self.status_lbl.setStyleSheet("color: #16A34A; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.GREEN_ACCENT}; font-weight: bold;")
         self.svg_preview.load_svg(svg_path)
         # Switch to rendered diagram tab so user immediately sees the visual result
         self.output_tabs.setCurrentIndex(1)
@@ -583,7 +584,7 @@ class CallFlowDialog(QDialog):
         self.error_banner.show()
 
         self.status_lbl.setText("⚠️ Syntax Error")
-        self.status_lbl.setStyleSheet("color: #DC2626; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
         self.output_tabs.setCurrentIndex(0)  # Switch back to code tab
         self._set_output_ready(True)
 
@@ -625,7 +626,7 @@ class CallFlowDialog(QDialog):
         self.refine_input.clear()
         self.output_tabs.setCurrentIndex(0)
         self.status_lbl.setText("✨ Refining diagram...")
-        self.status_lbl.setStyleSheet("color: #2563EB; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.ACCENT_ALT}; font-weight: bold;")
         self._set_ui_busy(True)
 
         diag_type = self.type_combo.currentText()
@@ -667,7 +668,7 @@ class CallFlowDialog(QDialog):
         self.error_banner.hide()
         self.output_tabs.setCurrentIndex(0)
         self.status_lbl.setText("🪄 Auto-fixing syntax error...")
-        self.status_lbl.setStyleSheet("color: #7C3AED; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.VIOLET_VIBRANT}; font-weight: bold;")
         self._set_ui_busy(True)
 
         diag_type = self.type_combo.currentText()

@@ -27,6 +27,7 @@ from core.ui.ui_components import (
     InteractiveDropLabel,
 )
 from modules.puml2visio.ui.cards.batch_tab_utils import format_file_size
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class OfficeBridgeCard(QWidget):
         # Direction Switcher & Banner
         dir_frame = QFrame()
         dir_frame.setObjectName("cardFrame")
-        dir_frame.setStyleSheet(CARD_FRAME_STYLE + "QFrame#cardFrame { background-color: #F8FAFC; padding: 8px; }")
+        dir_frame.setStyleSheet(CARD_FRAME_STYLE + f"QFrame#cardFrame {{ background-color: {C.BG_SURFACE}; padding: 8px; }}")
         dir_layout = QVBoxLayout(dir_frame)
         dir_layout.setSpacing(6)
 
@@ -74,7 +75,7 @@ class OfficeBridgeCard(QWidget):
             "native editable Office vector shapes with automated ungrouping and text shrink-wrapping."
         )
         info_lbl.setWordWrap(True)
-        info_lbl.setStyleSheet("color: #475569; font-size: 11px;")
+        info_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px;")
         dir_layout.addWidget(info_lbl)
 
         layout.addWidget(dir_frame)
@@ -99,7 +100,7 @@ class OfficeBridgeCard(QWidget):
         self.clear_bridge_btn.clicked.connect(self._clear_staged_bridge)
 
         self.bridge_count_lbl = QLabel("0 presentation(s) staged")
-        self.bridge_count_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
+        self.bridge_count_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
 
         bridge_btn_bar.addWidget(self.add_bridge_file_btn)
         bridge_btn_bar.addWidget(self.clear_bridge_btn)
@@ -192,7 +193,7 @@ class OfficeBridgeCard(QWidget):
 
             btn_remove = QPushButton("✕")
             btn_remove.setFixedSize(24, 22)
-            btn_remove.setStyleSheet("font-size: 11px; padding: 0px; color: #EF4444; font-weight: bold;")
+            btn_remove.setStyleSheet(f"font-size: 11px; padding: 0px; color: {C.DANGER_ACCENT}; font-weight: bold;")
             btn_remove.clicked.connect(lambda checked, idx=row: self._remove_staged_bridge_index(idx))
 
             action_widget = QWidget()

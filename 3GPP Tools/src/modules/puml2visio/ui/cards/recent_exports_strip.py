@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import (
 
 from core.ui.ui_components import CARD_FRAME_STYLE
 from modules.puml2visio.ui.cards.batch_tab_utils import format_file_size
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +38,13 @@ class RecentExportsStrip(QFrame):
 
     def _setup_ui(self):
         self.setObjectName("cardFrame")
-        self.setStyleSheet(CARD_FRAME_STYLE + """
-            QFrame#cardFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #E2E8F0;
+        self.setStyleSheet(CARD_FRAME_STYLE + f"""
+            QFrame#cardFrame {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 6px;
                 padding: 4px 8px;
-            }
+            }}
         """)
         strip_layout = QVBoxLayout(self)
         strip_layout.setContentsMargins(6, 4, 6, 4)
@@ -51,10 +52,10 @@ class RecentExportsStrip(QFrame):
 
         header_row = QHBoxLayout()
         header_lbl = QLabel("<b>🕒 Recent Exports:</b>")
-        header_lbl.setStyleSheet("color: #475569; font-size: 11px;")
+        header_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px;")
 
         self.recent_count_lbl = QLabel("(0 files)")
-        self.recent_count_lbl.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        self.recent_count_lbl.setStyleSheet(f"color: {C.TEXT_FAINT}; font-size: 11px;")
 
         self.refresh_recent_btn = QPushButton("🔄 Refresh")
         self.refresh_recent_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")
@@ -98,7 +99,7 @@ class RecentExportsStrip(QFrame):
 
         if not top_files:
             empty_lbl = QLabel("No diagrams exported yet in output/ directory.")
-            empty_lbl.setStyleSheet("color: #94A3B8; font-style: italic; font-size: 11px;")
+            empty_lbl.setStyleSheet(f"color: {C.TEXT_FAINT}; font-style: italic; font-size: 11px;")
             self.recent_container.addWidget(empty_lbl)
             return
 
@@ -115,15 +116,15 @@ class RecentExportsStrip(QFrame):
 
             icon_lbl = QLabel(icon_str)
             name_lbl = QLabel(f.name)
-            name_lbl.setStyleSheet("font-weight: 500; color: #1E293B; font-size: 11px;")
+            name_lbl.setStyleSheet(f"font-weight: 500; color: {C.TEXT_STRONG}; font-size: 11px;")
             name_lbl.setToolTip(str(f.resolve()))
 
             time_lbl = QLabel(dt_str)
-            time_lbl.setStyleSheet("color: #94A3B8; font-size: 10px; margin-left: 4px;")
+            time_lbl.setStyleSheet(f"color: {C.TEXT_FAINT}; font-size: 10px; margin-left: 4px;")
 
             size_str = format_file_size(f.stat().st_size)
             size_lbl = QLabel(size_str)
-            size_lbl.setStyleSheet("color: #64748B; font-size: 10px;")
+            size_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 10px;")
 
             btn_open = QPushButton("👁️ Open")
             btn_open.setStyleSheet("font-size: 10px; padding: 1px 6px;")

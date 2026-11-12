@@ -243,7 +243,8 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ### 🧭 Grouped Shell Navigation, Collapsible Console Drawer & Smart Toasts
 * **Grouped Navigation Rail (`NavRail`):** Collapsible sidebar organized into **Authoring & Office** (`PlantUML`, `Visio & Office`, `Word Tools`), **3GPP Standards** (`Specifications`, `Spec Search`, `Protocols`), and **Delegate & AI** (`Meetings`, `Work Items`, `Assistant`), with crisp Lucide SVG icons, responsive auto-collapse on narrow windows (`<940 px`), and keyboard shortcuts <kbd>Ctrl+1</kbd>…<kbd>Ctrl+9</kbd> (<kbd>Ctrl+\\</kbd> to toggle the rail).
 * **Collapsible Console & Queue Drawer (<kbd>Ctrl+J</kbd>):** Slide-up bottom drawer toggled from the Status Bar badge pill showing active queued item counts and unread error badges (auto-clears unread errors upon opening).
-* **Non-Blocking Smart Toasts:** Floating completion notifications in the bottom-right corner with 1-click `[Open]` and `[Show in Folder]` actions for converted/exported files.
+* **Non-Blocking Smart Toasts:** Floating completion notifications in the bottom-right corner with 1-click `[Open]` and `[Show in Folder]` actions for converted/exported files, as well as non-blocking status feedback across Meetings, Spec Search, Specifications, Work Items, Protocols, Assistant, and PlantUML Studio.
+* **Unified 2-Tier Workspace Ribbons & Carded Tables (`PageRibbonCard`):** Consistent carded top toolbars with wrapping responsive filter bars (`FlowLayout`), crisp Lucide SVG action icons, and centralized Slate + 3GPP Blue design tokens across all major engineering workspaces.
 * **Persistent Workspace Layout (`QSettings`):** Automatically saves and restores window size/position (clamped safely to connected monitors), navigation rail collapse preference, drawer state/height, and active workspace tab across restarts.
 
 ### 📖 Help & Configurable Useful Links Menu

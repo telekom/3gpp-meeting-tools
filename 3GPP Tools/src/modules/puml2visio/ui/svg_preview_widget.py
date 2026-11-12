@@ -26,6 +26,7 @@ from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     CARD_FRAME_STYLE,
 )
+from core.ui.theme import C
 
 
 class SvgGraphicsView(QGraphicsView):
@@ -40,7 +41,7 @@ class SvgGraphicsView(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setAcceptDrops(False)
-        self.setStyleSheet("border: none; background-color: #ECECEC;")
+        self.setStyleSheet(f"border: none; background-color: {C.BG_PREVIEW_GRAY};")
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
 
@@ -63,12 +64,12 @@ class EmbeddedSvgPreview(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("cardFrame")
-        self.setStyleSheet(CARD_FRAME_STYLE + """
-            QFrame#cardFrame {
-                background-color: #F8FAFC; 
-                border: 1px solid #CBD5E1; 
+        self.setStyleSheet(CARD_FRAME_STYLE + f"""
+            QFrame#cardFrame {{
+                background-color: {C.BG_SURFACE}; 
+                border: 1px solid {C.BORDER_STRONG}; 
                 border-radius: 6px;
-            }
+            }}
         """)
 
         self.svg_item: Optional[QGraphicsSvgItem] = None
@@ -89,7 +90,7 @@ class EmbeddedSvgPreview(QFrame):
         header_layout.setSpacing(4)
 
         title_lbl = QLabel("👁️ Embedded Preview")
-        title_lbl.setStyleSheet("font-weight: bold; font-size: 12px; color: #1E293B;")
+        title_lbl.setStyleSheet(f"font-weight: bold; font-size: 12px; color: {C.TEXT_STRONG};")
         header_layout.addWidget(title_lbl)
         header_layout.addStretch()
 
@@ -135,16 +136,16 @@ class EmbeddedSvgPreview(QFrame):
         self.close_btn = QPushButton("✕")
         self.close_btn.setToolTip("Close Preview Panel")
         self.close_btn.setFixedWidth(26)
-        self.close_btn.setStyleSheet("""
-            QPushButton {
+        self.close_btn.setStyleSheet(f"""
+            QPushButton {{
                 border: none; 
                 font-weight: bold; 
-                color: #64748B; 
+                color: {C.TEXT_MUTED}; 
                 padding: 2px;
-            }
-            QPushButton:hover {
-                color: #DC2626;
-            }
+            }}
+            QPushButton:hover {{
+                color: {C.DANGER_ALT};
+            }}
         """)
         self.close_btn.clicked.connect(self.close_requested.emit)
         header_layout.addWidget(self.close_btn)

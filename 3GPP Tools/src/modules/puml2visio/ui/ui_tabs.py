@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon, make_filter_label
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     InteractiveDropLabel,
@@ -42,6 +43,7 @@ from modules.puml2visio.ui.callflow_dialog import CallFlowDialog
 from modules.puml2visio.ui.elements_palette import ElementsPaletteWidget
 from modules.puml2visio.ui.svg_preview_widget import EmbeddedSvgPreview
 from modules.puml2visio.ui.ui_components import CodeDropTextEdit, FindReplaceBar
+from core.ui.theme import C
 
 
 class CodeEditorTab(QWidget):
@@ -78,13 +80,11 @@ class CodeEditorTab(QWidget):
         layout.setSpacing(8)
 
         # ---------------------------------------------------------------------
-        # TOP TOOLBAR: Templates, Element Inserter, Palette, Find, AI, & Split Preview
+        # TOP TOOLBAR: 2-Tier Ribbon (Templates, Inserter, Palette, Find, AI, Preview)
         # ---------------------------------------------------------------------
-        template_layout = QHBoxLayout()
-        template_layout.setSpacing(6)
+        self.ribbon_card = PageRibbonCard("PlantUML Editor", parent=self)
 
-        template_lbl = QLabel("📖 Templates:")
-        template_lbl.setStyleSheet("font-weight: bold; color: #475569; font-size: 12px;")
+        template_lbl = make_filter_label("Templates:", emphasized=True)
 
         self.template_combo = QComboBox()
         self.template_combo.addItems(list(PLANTUML_TYPES.keys()))
@@ -93,60 +93,66 @@ class CodeEditorTab(QWidget):
 
         self.insert_tpl_btn = QPushButton("Insert")
         self.insert_tpl_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.insert_tpl_btn, "plus")
         self.insert_tpl_btn.setToolTip("Insert the selected template into the editor.")
         self.insert_tpl_btn.clicked.connect(lambda: self.template_requested.emit(self.template_combo.currentText()))
 
         # Quick Insert Element Menu Button
-        self.insert_elem_btn = QPushButton("🧩 Insert Element ▼")
+        self.insert_elem_btn = QPushButton("Insert Element ▼")
         self.insert_elem_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.insert_elem_btn, "layers")
         self.insert_elem_btn.setToolTip("Quickly insert PlantUML syntax elements, arrows, notes, and 3GPP presets at cursor.")
         self._build_insert_element_menu()
 
         # Syntax Palette Toggle Button
-        self.palette_btn = QPushButton("📚 Syntax Palette")
+        self.palette_btn = QPushButton("Syntax Palette")
         self.palette_btn.setCheckable(True)
         self.palette_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.palette_btn, "code")
         self.palette_btn.setToolTip("Toggle the searchable Elements & Syntax Cheat-Sheet sidebar.")
         self.palette_btn.toggled.connect(self._toggle_palette)
 
         # Inline Find Button
-        self.find_btn = QPushButton("🔍 Find")
+        self.find_btn = QPushButton("Find")
         self.find_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.find_btn, "search")
         self.find_btn.setToolTip("Find and Replace in diagram (Ctrl+F).")
         self.find_btn.clicked.connect(self._toggle_find_bar)
 
         # Official Docs Button
-        self.docs_btn = QPushButton("📘 Docs")
+        self.docs_btn = QPushButton("Docs")
         self.docs_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.docs_btn, "book-open")
         self.docs_btn.setToolTip("Open the official PlantUML syntax documentation for this diagram type.")
         self.docs_btn.clicked.connect(lambda: self.docs_requested.emit(self.template_combo.currentText()))
 
         # AI Call Flow Generator Button
-        self.ai_gen_btn = QPushButton("🤖 Generate from Call Flow...")
+        self.ai_gen_btn = QPushButton("Generate from Call Flow...")
         self.ai_gen_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.ai_gen_btn, "sparkles")
         self.ai_gen_btn.setToolTip(
             "Convert standard 3GPP call flow procedure steps into PlantUML using your local Ollama LLM.")
         self.ai_gen_btn.clicked.connect(self._open_ai_generator)
 
         # Split Preview Toggle Button
-        self.preview_dock_btn = QPushButton("👁️ Split Preview")
+        self.preview_dock_btn = QPushButton("Split Preview")
         self.preview_dock_btn.setCheckable(True)
         self.preview_dock_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.preview_dock_btn, "eye")
         self.preview_dock_btn.setToolTip("Toggle side-by-side embedded live SVG preview panel.")
         self.preview_dock_btn.toggled.connect(self._toggle_preview_dock)
 
-        template_layout.addWidget(template_lbl)
-        template_layout.addWidget(self.template_combo)
-        template_layout.addWidget(self.insert_tpl_btn)
-        template_layout.addWidget(self.insert_elem_btn)
-        template_layout.addWidget(self.palette_btn)
-        template_layout.addWidget(self.find_btn)
-        template_layout.addWidget(self.docs_btn)
-        template_layout.addWidget(self.ai_gen_btn)
-        template_layout.addStretch()
-        template_layout.addWidget(self.preview_dock_btn)
+        self.ribbon_card.add_primary_widget(template_lbl)
+        self.ribbon_card.add_primary_widget(self.template_combo)
+        self.ribbon_card.add_primary_widget(self.insert_tpl_btn)
+        self.ribbon_card.add_primary_widget(self.insert_elem_btn)
+        self.ribbon_card.add_primary_widget(self.palette_btn)
+        self.ribbon_card.add_primary_widget(self.find_btn)
+        self.ribbon_card.add_primary_widget(self.docs_btn)
+        self.ribbon_card.add_primary_widget(self.ai_gen_btn)
+        self.ribbon_card.add_utility_widget(self.preview_dock_btn)
 
-        layout.addLayout(template_layout)
+        layout.addWidget(self.ribbon_card)
 
         # ---------------------------------------------------------------------
         # INLINE FIND & REPLACE BAR (Hidden by default)
@@ -168,15 +174,15 @@ class CodeEditorTab(QWidget):
         # CENTRAL WORKSPACE SPLITTER (Palette | Code Editor | SVG Preview)
         # ---------------------------------------------------------------------
         self.work_splitter = QSplitter(Qt.Horizontal)
-        self.work_splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: #E2E8F0;
+        self.work_splitter.setStyleSheet(f"""
+            QSplitter::handle {{
+                background-color: {C.BORDER_SUBTLE};
                 width: 3px;
                 margin: 0px 2px;
-            }
-            QSplitter::handle:hover {
-                background-color: #395396;
-            }
+            }}
+            QSplitter::handle:hover {{
+                background-color: {C.ACCENT_INDIGO_BLUE};
+            }}
         """)
 
         # Left: Elements Palette (Hidden by default)
@@ -209,50 +215,59 @@ class CodeEditorTab(QWidget):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(6)
 
-        self.clear_btn = QPushButton("🗑️ Clear")
+        self.clear_btn = QPushButton("Clear")
         self.clear_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.clear_btn, "trash-2")
         self.clear_btn.setToolTip("Clear the text editor.")
         self.clear_btn.clicked.connect(self.clear_requested.emit)
 
-        self.undo_btn = QPushButton("↩️ Undo")
+        self.undo_btn = QPushButton("Undo")
         self.undo_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.undo_btn, "rotate-ccw")
         self.undo_btn.setToolTip("Undo the last action (Ctrl+Z).")
         self.undo_btn.clicked.connect(self.undo_requested.emit)
 
-        self.redo_btn = QPushButton("↪️ Redo")
+        self.redo_btn = QPushButton("Redo")
         self.redo_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.redo_btn, "arrow-right")
         self.redo_btn.setToolTip("Redo the last undone action (Ctrl+Y).")
         self.redo_btn.clicked.connect(self.redo_requested.emit)
 
-        self.copy_code_btn = QPushButton("📄 Copy Code")
+        self.copy_code_btn = QPushButton("Copy Code")
         self.copy_code_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.copy_code_btn, "copy")
         self.copy_code_btn.setToolTip("Copy the PlantUML source code to your clipboard.")
         self.copy_code_btn.clicked.connect(self.copy_code_requested.emit)
 
-        self.live_view_btn = QPushButton("🌐 Browser Preview")
+        self.live_view_btn = QPushButton("Browser Preview")
         self.live_view_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.live_view_btn, "globe")
         self.live_view_btn.setCheckable(True)
         self.live_view_btn.setToolTip("Toggle real-time external browser preview. Auto-updates as you type!")
         self.live_view_btn.clicked.connect(self.live_view_toggled.emit)
 
-        self.planttext_btn = QPushButton("🌐 Show in planttext")
+        self.planttext_btn = QPushButton("Show in planttext")
         self.planttext_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.planttext_btn, "external-link")
         self.planttext_btn.setToolTip("Open your code in PlantText.com for a quick web preview.")
         self.planttext_btn.clicked.connect(self.planttext_requested.emit)
 
-        self.copy_btn = QPushButton("🔗 Copy Path")
+        self.copy_btn = QPushButton("Copy Path")
         self.copy_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.copy_btn, "copy")
         self.copy_btn.setEnabled(False)
         self.copy_btn.setToolTip("Copy the file path of the last generated diagram.")
         self.copy_btn.clicked.connect(self.copy_path_requested.emit)
 
-        self.open_folder_btn = QPushButton("📂 Open Folder")
+        self.open_folder_btn = QPushButton("Open Folder")
         self.open_folder_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.open_folder_btn, "folder-open")
         self.open_folder_btn.setToolTip("Open the working directory where files are saved.")
         self.open_folder_btn.clicked.connect(self.open_folder_requested.emit)
 
-        self.export_btn = QPushButton("📤 Export Diagram ▼")
+        self.export_btn = QPushButton("Export Diagram ▼")
         self.export_btn.setObjectName("primaryBtn")
+        apply_lucide_icon(self.export_btn, "upload", color=C.TEXT_ON_ACCENT)
         self.export_btn.setToolTip("Export your PlantUML code to various formats.")
 
         export_menu = QMenu(self)

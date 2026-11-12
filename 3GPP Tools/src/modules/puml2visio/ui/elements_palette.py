@@ -44,6 +44,7 @@ from modules.puml2visio.ui.preset_dialog import (
     UserPresetDialog,
     open_presets_folder,
 )
+from core.ui.theme import C
 
 
 class ElementsPaletteWidget(QFrame):
@@ -53,12 +54,12 @@ class ElementsPaletteWidget(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("cardFrame")
-        self.setStyleSheet(CARD_FRAME_STYLE + """
-            QFrame#cardFrame {
-                background-color: #F8FAFC; 
-                border: 1px solid #CBD5E1; 
+        self.setStyleSheet(CARD_FRAME_STYLE + f"""
+            QFrame#cardFrame {{
+                background-color: {C.BG_SURFACE}; 
+                border: 1px solid {C.BORDER_STRONG}; 
                 border-radius: 6px;
-            }
+            }}
         """)
         self._current_scope = "Sequence"
         self._setup_ui()
@@ -75,7 +76,7 @@ class ElementsPaletteWidget(QFrame):
         # Header Title and Action Buttons
         title_layout = QHBoxLayout()
         title_lbl = QLabel("📚 Syntax & Element Palette")
-        title_lbl.setStyleSheet("font-weight: bold; font-size: 13px; color: #1E293B;")
+        title_lbl.setStyleSheet(f"font-weight: bold; font-size: 13px; color: {C.TEXT_STRONG};")
         title_layout.addWidget(title_lbl)
         title_layout.addStretch()
 
@@ -103,17 +104,17 @@ class ElementsPaletteWidget(QFrame):
         # Search Bar
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Filter elements (e.g. UE, AMF, note, arrow)...")
-        self.search_input.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #CBD5E1; 
+        self.search_input.setStyleSheet(f"""
+            QLineEdit {{
+                border: 1px solid {C.BORDER_STRONG}; 
                 border-radius: 4px; 
                 padding: 5px 8px; 
                 background: white; 
                 font-size: 12px;
-            }
-            QLineEdit:focus {
-                border-color: #395396;
-            }
+            }}
+            QLineEdit:focus {{
+                border-color: {C.ACCENT_INDIGO_BLUE};
+            }}
         """)
         self.search_input.textChanged.connect(self._filter_items)
         main_layout.addWidget(self.search_input)
@@ -121,31 +122,31 @@ class ElementsPaletteWidget(QFrame):
         # Scope Checkbox
         self.scope_check = QCheckBox("Filter by current diagram type")
         self.scope_check.setChecked(True)
-        self.scope_check.setStyleSheet("color: #475569; font-size: 11px; font-weight: 500;")
+        self.scope_check.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px; font-weight: 500;")
         self.scope_check.toggled.connect(self._populate_tree)
         main_layout.addWidget(self.scope_check)
 
         # Splitter between Tree and Preview
         splitter = QSplitter(Qt.Vertical)
-        splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: #E2E8F0;
+        splitter.setStyleSheet(f"""
+            QSplitter::handle {{
+                background-color: {C.BORDER_SUBTLE};
                 height: 3px;
                 margin: 2px 0px;
-            }
+            }}
         """)
 
         # Tree Widget of Snippets
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
-        self.tree.setStyleSheet(TREE_STYLE_CLEAN + """
-            QTreeWidget {
-                border: 1px solid #E2E8F0;
+        self.tree.setStyleSheet(TREE_STYLE_CLEAN + f"""
+            QTreeWidget {{
+                border: 1px solid {C.BORDER_SUBTLE};
                 font-size: 12px;
-            }
-            QTreeWidget::item {
+            }}
+            QTreeWidget::item {{
                 padding: 4px 6px;
-            }
+            }}
         """)
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._show_tree_context_menu)
@@ -160,21 +161,21 @@ class ElementsPaletteWidget(QFrame):
         preview_layout.setSpacing(4)
 
         preview_header = QLabel("Preview & Usage:")
-        preview_header.setStyleSheet("font-weight: bold; font-size: 11px; color: #64748B;")
+        preview_header.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {C.TEXT_MUTED};")
         preview_layout.addWidget(preview_header)
 
         self.preview_text = QTextEdit()
         self.preview_text.setReadOnly(True)
         self.preview_text.setMaximumHeight(110)
-        self.preview_text.setStyleSheet("""
-            QTextEdit {
+        self.preview_text.setStyleSheet(f"""
+            QTextEdit {{
                 font-family: Consolas, 'Courier New', monospace;
                 font-size: 11px;
-                background-color: #FFFFFF;
-                border: 1px solid #E2E8F0;
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 4px;
-                color: #334155;
-            }
+                color: {C.TEXT_BODY};
+            }}
         """)
         preview_layout.addWidget(self.preview_text)
 

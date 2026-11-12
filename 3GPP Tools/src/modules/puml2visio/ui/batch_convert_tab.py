@@ -46,6 +46,7 @@ from modules.puml2visio.ui.cards import (
 )
 from modules.puml2visio.utils.paths import get_puml2visio_asset_path
 from modules.puml2visio.utils.utils import get_plantuml_version
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -135,13 +136,13 @@ class BatchConvertTab(QWidget):
     def _setup_diagnostics_ribbon(self, parent_layout: QVBoxLayout):
         ribbon_frame = QFrame()
         ribbon_frame.setObjectName("cardFrame")
-        ribbon_frame.setStyleSheet(CARD_FRAME_STYLE + """
-            QFrame#cardFrame {
-                background-color: #F8FAFC;
+        ribbon_frame.setStyleSheet(CARD_FRAME_STYLE + f"""
+            QFrame#cardFrame {{
+                background-color: {C.BG_SURFACE};
                 padding: 4px 10px;
-                border: 1px solid #E2E8F0;
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 6px;
-            }
+            }}
         """)
         ribbon_layout = QHBoxLayout(ribbon_frame)
         ribbon_layout.setContentsMargins(8, 5, 8, 5)
@@ -150,32 +151,32 @@ class BatchConvertTab(QWidget):
         # Visio COM Status Badge
         self.visio_badge = QLabel("🔍 Checking Visio...")
         self.visio_badge.setStyleSheet(
-            "padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 11px; background-color: #E2E8F0; color: #475569;"
+            f"padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 11px; background-color: {C.BORDER_SUBTLE}; color: {C.TEXT_SECONDARY};"
         )
         ribbon_layout.addWidget(self.visio_badge)
 
         # PowerPoint COM Status Badge
         self.ppt_badge = QLabel("🔍 Checking PowerPoint...")
         self.ppt_badge.setStyleSheet(
-            "padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 11px; background-color: #E2E8F0; color: #475569;"
+            f"padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 11px; background-color: {C.BORDER_SUBTLE}; color: {C.TEXT_SECONDARY};"
         )
         ribbon_layout.addWidget(self.ppt_badge)
 
         # PlantUML Engine & Java Badge (Clickable)
         self.java_badge_btn = QPushButton("☕ PlantUML Engine")
-        self.java_badge_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #EFF6FF;
-                color: #1E40AF;
-                border: 1px solid #BFDBFE;
+        self.java_badge_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.INFO_SOFT};
+                color: {C.INFO_DARK};
+                border: 1px solid {C.INFO_BORDER};
                 border-radius: 12px;
                 padding: 3px 10px;
                 font-weight: 600;
                 font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #DBEAFE;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.INFO_SOFT_STRONG};
+            }}
         """)
         self.java_badge_btn.setToolTip("Click to view Java Runtime Diagnostics & PlantUML Maintenance")
         self.java_badge_btn.clicked.connect(self.java_maintenance_requested)
@@ -185,22 +186,22 @@ class BatchConvertTab(QWidget):
 
         # Output Directory Indicator & Controls
         out_lbl = QLabel("📂 Output:")
-        out_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold;")
+        out_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px; font-weight: bold;")
         ribbon_layout.addWidget(out_lbl)
 
         self.output_dir_btn = QPushButton(f"output/ ({self._export_dir.name})")
-        self.output_dir_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #F1F5F9;
-                color: #0F172A;
-                border: 1px solid #CBD5E1;
+        self.output_dir_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.BG_CANVAS};
+                color: {C.TEXT_PRIMARY};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 2px 8px;
                 font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #E2E8F0;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.BORDER_SUBTLE};
+            }}
         """)
         self.output_dir_btn.setToolTip(f"Open export folder: {self._export_dir.resolve()}")
         self.output_dir_btn.clicked.connect(self._on_open_output_folder)
@@ -221,7 +222,7 @@ class BatchConvertTab(QWidget):
         switcher_layout.setSpacing(6)
 
         mode_title = QLabel("<b>⚙️ Operation Mode:</b>")
-        mode_title.setStyleSheet("color: #334155; font-size: 12px;")
+        mode_title.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 12px;")
         switcher_layout.addWidget(mode_title)
 
         self.mode_btn_group = QButtonGroup(self)
@@ -234,25 +235,25 @@ class BatchConvertTab(QWidget):
             ("📐 3GPP Stencils Reference", 3),
         ]
 
-        btn_style = """
-            QPushButton {
-                background-color: #F8FAFC;
-                color: #475569;
-                border: 1px solid #CBD5E1;
+        btn_style = f"""
+            QPushButton {{
+                background-color: {C.BG_SURFACE};
+                color: {C.TEXT_SECONDARY};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 5px;
                 padding: 5px 12px;
                 font-weight: 600;
                 font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #F1F5F9;
-                color: #1E293B;
-            }
-            QPushButton:checked {
-                background-color: #EBF3FC;
-                border: 2px solid #395396;
-                color: #395396;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.BG_CANVAS};
+                color: {C.TEXT_STRONG};
+            }}
+            QPushButton:checked {{
+                background-color: {C.ACCENT_SOFT};
+                border: 2px solid {C.ACCENT_INDIGO_BLUE};
+                color: {C.ACCENT_INDIGO_BLUE};
+            }}
         """
 
         for label, idx in modes:
@@ -276,13 +277,13 @@ class BatchConvertTab(QWidget):
         if is_visio_registered():
             self.visio_badge.setText("🟢 Visio COM: Active")
             self.visio_badge.setStyleSheet(
-                "padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 11px; background-color: #DCFCE7; color: #166534;"
+                f"padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 11px; background-color: {C.SUCCESS_SOFT_ALT}; color: {C.SUCCESS_DARK};"
             )
             self.visio_badge.setToolTip("Microsoft Visio COM is registered and available for native shape creation.")
         else:
             self.visio_badge.setText("🟠 Visio COM: Not Found")
             self.visio_badge.setStyleSheet(
-                "padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 11px; background-color: #FEF3C7; color: #92400E;"
+                f"padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 11px; background-color: {C.WARNING_SOFT_ALT}; color: {C.WARNING_DARK};"
             )
             self.visio_badge.setToolTip("Visio COM automation is not detected. Diagrams can still be exported to SVG, PPTX, or text.")
 
@@ -290,13 +291,13 @@ class BatchConvertTab(QWidget):
         if is_powerpoint_registered():
             self.ppt_badge.setText("🟢 PowerPoint COM: Active")
             self.ppt_badge.setStyleSheet(
-                "padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 11px; background-color: #DCFCE7; color: #166534;"
+                f"padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 11px; background-color: {C.SUCCESS_SOFT_ALT}; color: {C.SUCCESS_DARK};"
             )
             self.ppt_badge.setToolTip("Microsoft PowerPoint COM is registered and available for presentation generation.")
         else:
             self.ppt_badge.setText("🟠 PowerPoint COM: Not Found")
             self.ppt_badge.setStyleSheet(
-                "padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 11px; background-color: #FEF3C7; color: #92400E;"
+                f"padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 11px; background-color: {C.WARNING_SOFT_ALT}; color: {C.WARNING_DARK};"
             )
             self.ppt_badge.setToolTip("PowerPoint COM automation is not detected.")
 

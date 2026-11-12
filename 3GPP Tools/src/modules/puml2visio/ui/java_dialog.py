@@ -16,6 +16,8 @@ from core.utils.utils import (
     reset_java_cache, get_best_java
 )
 from modules.puml2visio.utils.utils import get_plantuml_version, InitializationThread
+from core.ui.toast import notify_success
+from core.ui.theme import C
 
 
 class UpdateJarWorker(QThread):
@@ -35,7 +37,7 @@ class UpdateJarWorker(QThread):
 
             java_exe, java_major = get_best_java()
             if java_major == 0:
-                self.status_updated.emit("❌ Java is not detected. Cannot update PlantUML.", "#DC2626")
+                self.status_updated.emit("❌ Java is not detected. Cannot update PlantUML.", C.DANGER_ALT)
                 self.finished_signal.emit(False)
                 return
 
@@ -43,11 +45,11 @@ class UpdateJarWorker(QThread):
             version_file = self.jar_path.with_suffix('.version')
 
             if required_type == "legacy":
-                self.status_updated.emit("ℹ️ Java 8 detected. PlantUML is pinned to legacy v1.2023.13.", "#B45309")
+                self.status_updated.emit("ℹ️ Java 8 detected. PlantUML is pinned to legacy v1.2023.13.", C.WARNING)
                 self.finished_signal.emit(True)
                 return
 
-            self.status_updated.emit("🌐 Checking GitHub for latest release...", "#0284C7")
+            self.status_updated.emit("🌐 Checking GitHub for latest release...", C.ACCENT_SKY)
             session = NetworkSession.get_instance()
             response = session.head(
                 "https://github.com/plantuml/plantuml/releases/latest",
@@ -62,23 +64,23 @@ class UpdateJarWorker(QThread):
                 return tuple(int(x) for x in re.findall(r'\d+', v_str))
 
             if local_v and remote_v and v_tuple(remote_v) <= v_tuple(local_v):
-                self.status_updated.emit(f"✅ PlantUML is already up-to-date (Version {local_v}).", "#166534")
+                self.status_updated.emit(f"✅ PlantUML is already up-to-date (Version {local_v}).", C.SUCCESS_DARK)
                 self.finished_signal.emit(True)
                 return
 
             download_reason = f"Update available ({local_v or 'None'} → {remote_v or 'Latest'})"
-            self.status_updated.emit(f"⏳ Downloading: {download_reason}...", "#0284C7")
+            self.status_updated.emit(f"⏳ Downloading: {download_reason}...", C.ACCENT_SKY)
 
             url = PLANTUML_URL_LATEST if required_type == "modern" else PLANTUML_URL_JAVA_8
             NetworkSession.download_file(url, self.jar_path)
             version_file.write_text(required_type, encoding="utf-8")
 
             new_v = get_plantuml_version(java_exe, self.jar_path) or remote_v or "Updated"
-            self.status_updated.emit(f"✅ Successfully updated to PlantUML Version {new_v}!", "#166534")
+            self.status_updated.emit(f"✅ Successfully updated to PlantUML Version {new_v}!", C.SUCCESS_DARK)
             self.finished_signal.emit(True)
 
         except Exception as e:
-            self.status_updated.emit(f"❌ Update check failed: {e}", "#DC2626")
+            self.status_updated.emit(f"❌ Update check failed: {e}", C.DANGER_ALT)
             self.finished_signal.emit(False)
 
 
@@ -94,7 +96,7 @@ class JavaMaintenanceDialog(QDialog):
         self.setWindowTitle("Java Runtime & PlantUML Maintenance")
         self.setModal(True)
         self.resize(680, 520)
-        self.setStyleSheet("background-color: #FAFAFA;")
+        self.setStyleSheet(f"background-color: {C.BG_ALT_LIGHT};")
 
         self._setup_ui()
         self._refresh_status()
@@ -106,7 +108,7 @@ class JavaMaintenanceDialog(QDialog):
 
         # Header
         title = QLabel("☕ Java Runtime & PlantUML Engine Maintenance")
-        title.setStyleSheet("font-size: 15px; font-weight: bold; color: #1E293B;")
+        title.setStyleSheet(f"font-size: 15px; font-weight: bold; color: {C.TEXT_STRONG};")
         layout.addWidget(title)
 
         desc = QLabel(
@@ -115,64 +117,64 @@ class JavaMaintenanceDialog(QDialog):
             "and check for PlantUML updates."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #64748B; font-size: 11px;")
+        desc.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         layout.addWidget(desc)
 
         # --- CARD 1: DIAGNOSTICS & STATUS ---
         self.diag_card = QFrame()
-        self.diag_card.setStyleSheet("""
-            QFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.diag_card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 padding: 10px;
-            }
+            }}
         """)
         card_layout = QVBoxLayout(self.diag_card)
         card_layout.setContentsMargins(10, 8, 10, 8)
         card_layout.setSpacing(6)
 
         card_title = QLabel("📊 Active Engine Diagnostics")
-        card_title.setStyleSheet("font-weight: bold; color: #0F172A; font-size: 12px; border: none;")
+        card_title.setStyleSheet(f"font-weight: bold; color: {C.TEXT_PRIMARY}; font-size: 12px; border: none;")
         card_layout.addWidget(card_title)
 
         self.java_ver_lbl = QLabel("Java Version: Inspecting...")
-        self.java_ver_lbl.setStyleSheet("border: none; color: #1E293B;")
+        self.java_ver_lbl.setStyleSheet(f"border: none; color: {C.TEXT_STRONG};")
         card_layout.addWidget(self.java_ver_lbl)
 
         self.java_path_lbl = QLabel("Binary Path: Inspecting...")
         self.java_path_lbl.setWordWrap(True)
-        self.java_path_lbl.setStyleSheet("border: none; color: #475569; font-family: Consolas, monospace; font-size: 11px;")
+        self.java_path_lbl.setStyleSheet(f"border: none; color: {C.TEXT_SECONDARY}; font-family: Consolas, monospace; font-size: 11px;")
         card_layout.addWidget(self.java_path_lbl)
 
         self.puml_ver_lbl = QLabel("PlantUML Version: Inspecting...")
-        self.puml_ver_lbl.setStyleSheet("border: none; color: #1E293B;")
+        self.puml_ver_lbl.setStyleSheet(f"border: none; color: {C.TEXT_STRONG};")
         card_layout.addWidget(self.puml_ver_lbl)
 
         layout.addWidget(self.diag_card)
 
         # --- CARD 2: RUNTIME LOCATION & PORTABLE CONFIGURATION ---
         self.cfg_card = QFrame()
-        self.cfg_card.setStyleSheet("""
-            QFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.cfg_card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 padding: 10px;
-            }
+            }}
         """)
         cfg_layout = QVBoxLayout(self.cfg_card)
         cfg_layout.setContentsMargins(10, 8, 10, 8)
         cfg_layout.setSpacing(8)
 
         cfg_title = QLabel("⚙️ Java Runtime Source")
-        cfg_title.setStyleSheet("font-weight: bold; color: #0F172A; font-size: 12px; border: none;")
+        cfg_title.setStyleSheet(f"font-weight: bold; color: {C.TEXT_PRIMARY}; font-size: 12px; border: none;")
         cfg_layout.addWidget(cfg_title)
 
         self.radio_auto = QRadioButton("Automatic Discovery (System PATH, Registry, and local ./jre folder)")
-        self.radio_auto.setStyleSheet("border: none; font-size: 12px; color: #1E293B;")
+        self.radio_auto.setStyleSheet(f"border: none; font-size: 12px; color: {C.TEXT_STRONG};")
         self.radio_custom = QRadioButton("Custom Java Runtime (Portable ZIP / Folder without Admin Rights)")
-        self.radio_custom.setStyleSheet("border: none; font-size: 12px; color: #1E293B;")
+        self.radio_custom.setStyleSheet(f"border: none; font-size: 12px; color: {C.TEXT_STRONG};")
 
         self.source_group = QButtonGroup(self)
         self.source_group.addButton(self.radio_auto)
@@ -185,7 +187,7 @@ class JavaMaintenanceDialog(QDialog):
         custom_box = QHBoxLayout()
         self.custom_input = QLineEdit()
         self.custom_input.setPlaceholderText("Select java.exe OR the extracted OpenJDK/JRE root folder...")
-        self.custom_input.setStyleSheet("border: 1px solid #CBD5E1; border-radius: 4px; padding: 4px; font-size: 11px;")
+        self.custom_input.setStyleSheet(f"border: 1px solid {C.BORDER_STRONG}; border-radius: 4px; padding: 4px; font-size: 11px;")
 
         self.browse_btn = QPushButton("📁 Browse...")
         self.browse_btn.setFixedHeight(26)
@@ -210,18 +212,18 @@ class JavaMaintenanceDialog(QDialog):
 
         # --- CARD 3: NO-ADMIN / IT WORKAROUND TIP ---
         tip_frame = QFrame()
-        tip_frame.setStyleSheet("background-color: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 6px; padding: 8px;")
+        tip_frame.setStyleSheet(f"background-color: {C.INFO_SOFT}; border: 1px solid {C.INFO_BORDER}; border-radius: 6px; padding: 8px;")
         tip_layout = QVBoxLayout(tip_frame)
         tip_layout.setContentsMargins(8, 4, 8, 4)
         tip_title = QLabel("💡 Corporate IT Workaround (No Admin Rights Needed):")
-        tip_title.setStyleSheet("font-weight: bold; color: #1E40AF; border: none; font-size: 11px;")
+        tip_title.setStyleSheet(f"font-weight: bold; color: {C.INFO_DARK}; border: none; font-size: 11px;")
         tip_text = QLabel(
             "1. Download the <b>.zip</b> (not .msi) package of <b>Eclipse Temurin 21 (x64)</b> from adoptium.net.<br>"
             "2. Extract the zip to any user folder (or extract it directly into the application directory as <b>jre</b>).<br>"
             "3. Click <b>Browse...</b> above and select the extracted folder. Done!"
         )
         tip_text.setWordWrap(True)
-        tip_text.setStyleSheet("color: #1E3A8A; font-size: 11px; border: none;")
+        tip_text.setStyleSheet(f"color: {C.INFO_NAVY}; font-size: 11px; border: none;")
         tip_layout.addWidget(tip_title)
         tip_layout.addWidget(tip_text)
         layout.addWidget(tip_frame)
@@ -235,37 +237,37 @@ class JavaMaintenanceDialog(QDialog):
 
         self.update_jar_btn = QPushButton("🔄 Check Online && Update JAR")
         self.update_jar_btn.setFixedHeight(28)
-        self.update_jar_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #F8FAFC;
-                color: #0F172A;
-                border: 1px solid #CBD5E1;
+        self.update_jar_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.BG_SURFACE};
+                color: {C.TEXT_PRIMARY};
+                border: 1px solid {C.BORDER_STRONG};
                 font-weight: bold;
                 font-size: 11px;
                 border-radius: 4px;
                 padding: 3px 12px;
-            }
-            QPushButton:hover {
-                background-color: #F1F5F9;
-                border-color: #94A3B8;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.BG_CANVAS};
+                border-color: {C.TEXT_FAINT};
+            }}
         """)
         self.update_jar_btn.clicked.connect(self._run_jar_update)
 
         self.save_btn = QPushButton("Save && Apply")
         self.save_btn.setFixedHeight(28)
-        self.save_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1E5C99;
+        self.save_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.ACCENT_PRIMARY};
                 color: white;
                 font-weight: bold;
                 font-size: 11px;
                 border-radius: 4px;
                 padding: 3px 16px;
-            }
-            QPushButton:hover {
-                background-color: #15426E;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.ACCENT_HOVER};
+            }}
         """)
         self.save_btn.clicked.connect(self._save_and_apply)
 
@@ -329,7 +331,7 @@ class JavaMaintenanceDialog(QDialog):
         path_str = self.custom_input.text().strip(' "')
         if not path_str:
             self.custom_feedback_lbl.setText("⚠️ Please select a path first.")
-            self.custom_feedback_lbl.setStyleSheet("color: #B45309; border: none;")
+            self.custom_feedback_lbl.setStyleSheet(f"color: {C.WARNING}; border: none;")
             return
 
         resolved = path_str
@@ -343,17 +345,17 @@ class JavaMaintenanceDialog(QDialog):
             self.custom_feedback_lbl.setText(
                 f"✅ Verified: Java {info['major']} ({info['version_str']}) - {info['arch']} [{info['vendor']}]"
             )
-            self.custom_feedback_lbl.setStyleSheet("color: #166534; font-weight: bold; border: none;")
+            self.custom_feedback_lbl.setStyleSheet(f"color: {C.SUCCESS_DARK}; font-weight: bold; border: none;")
         else:
             self.custom_feedback_lbl.setText(f"❌ Failed to run java at this location: {info['version_str']}")
-            self.custom_feedback_lbl.setStyleSheet("color: #DC2626; border: none;")
+            self.custom_feedback_lbl.setStyleSheet(f"color: {C.DANGER_ALT}; border: none;")
 
     def _refresh_status(self):
         info = get_detailed_java_info()
         if info["installed"]:
             arch_str = f" ({info['arch']})" if info['arch'] != "Unknown" else ""
             profile_mode = "Modern (Java 11+)" if info["major"] >= 11 else "Legacy (Java 8)"
-            badge_color = "#166534" if info["major"] >= 11 else "#B45309"
+            badge_color = C.SUCCESS_DARK if info["major"] >= 11 else C.WARNING
 
             self.java_ver_lbl.setText(
                 f"<b>Java Version:</b> <span style='color: {badge_color}; font-weight: bold;'>Java {info['major']} [{info['version_str']}{arch_str}]</span> "
@@ -361,14 +363,14 @@ class JavaMaintenanceDialog(QDialog):
             )
             self.java_path_lbl.setText(f"<b>Path:</b> {info['path']} ({info['vendor']})")
         else:
-            self.java_ver_lbl.setText("<b>Java Version:</b> <span style='color: #DC2626; font-weight: bold;'>Not Installed / Not Detected</span>")
+            self.java_ver_lbl.setText(f"<b>Java Version:</b> <span style='color: {C.DANGER_ALT}; font-weight: bold;'>Not Installed / Not Detected</span>")
             self.java_path_lbl.setText("<b>Path:</b> —")
 
         # PlantUML JAR inspection
         java_exe, _ = get_best_java()
         jar_v = get_plantuml_version(java_exe, self.jar_path) if (self.jar_path.exists() and java_exe) else None
         jar_str = f"Version {jar_v}" if jar_v else ("Found" if self.jar_path.exists() else "Missing")
-        jar_color = "#166534" if self.jar_path.exists() else "#DC2626"
+        jar_color = C.SUCCESS_DARK if self.jar_path.exists() else C.DANGER_ALT
 
         self.puml_ver_lbl.setText(
             f"<b>PlantUML Asset:</b> <span style='color: {jar_color}; font-weight: bold;'>{jar_str}</span> "
@@ -398,12 +400,12 @@ class JavaMaintenanceDialog(QDialog):
 
         self._refresh_status()
         self.configuration_changed.emit()
-        QMessageBox.information(self, "Configuration Saved", "Java runtime settings saved and applied successfully.")
+        notify_success(self, "Configuration Saved", "Java runtime settings saved and applied successfully.")
 
     def _run_jar_update(self):
         self.update_jar_btn.setEnabled(False)
         self.update_status_lbl.setText("⏳ Checking for updates...")
-        self.update_status_lbl.setStyleSheet("color: #0284C7; font-size: 11px;")
+        self.update_status_lbl.setStyleSheet(f"color: {C.ACCENT_SKY}; font-size: 11px;")
         QApplication.processEvents()
 
         self._update_worker = UpdateJarWorker(self.jar_path, parent=self)

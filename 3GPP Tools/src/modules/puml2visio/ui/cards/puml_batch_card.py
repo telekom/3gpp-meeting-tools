@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.toast import notify_info
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     TABLE_STYLE_CLEAN,
@@ -30,6 +31,7 @@ from modules.puml2visio.ui.cards.batch_tab_utils import (
     detect_puml_diagram_type,
     format_file_size,
 )
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +106,7 @@ class PumlBatchCard(QWidget):
         self.clear_staged_btn.clicked.connect(self._clear_staged_puml)
 
         self.staged_count_lbl = QLabel("0 diagrams staged")
-        self.staged_count_lbl.setStyleSheet("color: #64748B; font-size: 11px; margin-left: 6px;")
+        self.staged_count_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px; margin-left: 6px;")
 
         btn_bar.addWidget(self.add_files_btn)
         btn_bar.addWidget(self.add_folder_btn)
@@ -167,7 +169,7 @@ class PumlBatchCard(QWidget):
             if found:
                 self._on_puml_files_dropped(found)
             else:
-                QMessageBox.information(
+                notify_info(
                     self, "No Diagrams Found", f"No .puml or .txt diagram files found in:\n{folder}"
                 )
 
@@ -207,7 +209,7 @@ class PumlBatchCard(QWidget):
             # 4. Remove Action
             btn_remove = QPushButton("✕")
             btn_remove.setFixedSize(24, 22)
-            btn_remove.setStyleSheet("font-size: 11px; padding: 0px; color: #EF4444; font-weight: bold;")
+            btn_remove.setStyleSheet(f"font-size: 11px; padding: 0px; color: {C.DANGER_ACCENT}; font-weight: bold;")
             btn_remove.setToolTip("Remove from staging")
             btn_remove.clicked.connect(lambda checked, idx=row: self._remove_staged_puml_index(idx))
 

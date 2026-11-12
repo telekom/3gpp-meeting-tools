@@ -12,6 +12,7 @@ Provides high-contrast, theme-consistent syntax highlighting for PlantUML diagra
 
 from PyQt5.QtCore import QRegularExpression, Qt
 from PyQt5.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
+from core.ui.theme import C
 
 
 class PlantUMLHighlighter(QSyntaxHighlighter):
@@ -31,14 +32,14 @@ class PlantUMLHighlighter(QSyntaxHighlighter):
                 fmt.setFontItalic(True)
             return fmt
 
-        fmt_preprocessor = create_format("#7C3AED", bold=True)      # Vibrant Purple
-        fmt_keyword = create_format("#1E5C99", bold=True)           # Application Primary Blue
-        fmt_declaration = create_format("#0F766E", bold=True)       # Dark Teal
-        fmt_arrow = create_format("#D97706", bold=True)             # Dark Amber/Orange
-        fmt_string = create_format("#15803D")                       # Forest Green
-        fmt_color_tag = create_format("#0284C7", bold=True)         # Sky Blue
-        fmt_divider = create_format("#475569", bold=True)           # Slate
-        fmt_comment = create_format("#94A3B8", italic=True)         # Muted Slate Gray
+        fmt_preprocessor = create_format(C.VIOLET_VIBRANT, bold=True)      # Vibrant Purple
+        fmt_keyword = create_format(C.ACCENT_PRIMARY, bold=True)           # Application Primary Blue
+        fmt_declaration = create_format(C.TEAL_DARK, bold=True)       # Dark Teal
+        fmt_arrow = create_format(C.WARNING_AMBER, bold=True)             # Dark Amber/Orange
+        fmt_string = create_format(C.SUCCESS)                       # Forest Green
+        fmt_color_tag = create_format(C.ACCENT_SKY, bold=True)         # Sky Blue
+        fmt_divider = create_format(C.TEXT_SECONDARY, bold=True)           # Slate
+        fmt_comment = create_format(C.TEXT_FAINT, italic=True)         # Muted Slate Gray
 
         # 1. Preprocessor & Directives (@startuml, @enduml, !pragma, skinparam, etc.)
         self.highlighting_rules.append((

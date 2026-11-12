@@ -215,6 +215,30 @@ class TestCodeEditorDragDrop(unittest.TestCase):
         win.log_message.assert_called_once()
         self.assertIn("Loaded PlantUML diagram", win.log_message.call_args[0][0])
 
+    def test_code_editor_phase2_ribbon_and_icons(self):
+        from core.ui.page_ribbon import PageRibbonCard
+
+        tab = CodeEditorTab()
+        self.assertIsInstance(tab.ribbon_card, PageRibbonCard)
+        for btn in (
+            tab.insert_tpl_btn,
+            tab.insert_elem_btn,
+            tab.palette_btn,
+            tab.find_btn,
+            tab.docs_btn,
+            tab.ai_gen_btn,
+            tab.preview_dock_btn,
+            tab.clear_btn,
+            tab.undo_btn,
+            tab.copy_code_btn,
+            tab.live_view_btn,
+            tab.planttext_btn,
+            tab.copy_btn,
+            tab.open_folder_btn,
+            tab.export_btn,
+        ):
+            self.assertFalse(btn.icon().isNull())
+
 
 if __name__ == "__main__":
     unittest.main()

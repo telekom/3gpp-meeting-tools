@@ -35,6 +35,7 @@ from modules.puml2visio.ui.preset_dialog import (
     UserPresetDialog,
     open_presets_folder,
 )
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class StencilsCard(QWidget):
             "Network Function definitions into your PlantUML diagrams. Supports custom user-defined presets "
             "(saved to Git-ignored config)."
         )
-        desc_lbl.setStyleSheet("color: #334155; font-size: 12px;")
+        desc_lbl.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 12px;")
         layout.addWidget(desc_lbl)
 
         # Toolbar: Filter search, category combo, add preset, reload, open folder
@@ -68,7 +69,7 @@ class StencilsCard(QWidget):
 
         self.stencils_search_edit = QLineEdit()
         self.stencils_search_edit.setPlaceholderText("Filter stencils (e.g. UE, AMF, gNB, 5GS)...")
-        self.stencils_search_edit.setStyleSheet("padding: 4px 8px; font-size: 11px; border: 1px solid #CBD5E1; border-radius: 4px;")
+        self.stencils_search_edit.setStyleSheet(f"padding: 4px 8px; font-size: 11px; border: 1px solid {C.BORDER_STRONG}; border-radius: 4px;")
         self.stencils_search_edit.textChanged.connect(self._populate_stencils_table)
         tb_layout.addWidget(self.stencils_search_edit, stretch=2)
 
@@ -175,7 +176,7 @@ class StencilsCard(QWidget):
             name_item = QTableWidgetItem(display_name)
             name_item.setFont(QFont("Segoe UI", 9, QFont.Bold))
             if s.is_user_defined:
-                name_item.setForeground(QColor("#B45309"))
+                name_item.setForeground(QColor(C.WARNING))
 
             desc_item = QTableWidgetItem(s.description)
             desc_item.setToolTip(s.code)
