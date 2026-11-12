@@ -18,6 +18,7 @@ from core.config.useful_links import populate_help_menu, get_useful_links_config
 from core.network.session import NetworkConfigDialog, NetworkSession, ProxyProfileManager
 from core.network.wifi_monitor import WifiMonitorThread
 from core.queue_manager import QueueManager
+from core.ui.bottom_drawer import BottomDrawer
 from core.ui.icons import lucide_icon
 from core.ui.nav_rail import NavRail
 from core.ui.theme import C
@@ -90,12 +91,13 @@ class DragDropUI(QMainWindow):
         # attach() connects the Qt signal and immediately replays all startup
         # records that were buffered before the panel was available.
         self.gui_logger.attach(self.console_panel.log_message)
+        self.gui_logger.log_emitted.connect(self.bottom_drawer.record_log_event)
 
         # Wire Queue Manager
         logging.info("🏁 [STARTUP:QUEUE] Initializing QueueManager...")
         app_context = {"jar_path": self.jar_path}
         self.queue_manager = QueueManager(app_context=app_context)
-        self.queue_manager.queue_updated.connect(self.queue_panel.update_list)
+        self.queue_manager.queue_updated.connect(self._on_queue_updated)
         self.queue_manager.processing_state_changed.connect(self._update_system_status)
         self.queue_manager.conversion_success.connect(self.on_conversion_success)
         self.queue_manager.conversion_failed.connect(self.on_conversion_failed)
@@ -328,9 +330,8 @@ class DragDropUI(QMainWindow):
 
         self.splitter.addWidget(self.tabs)
 
-        # --- BOTTOM HALF: PANELS ---
+        # --- BOTTOM HALF: COLLAPSIBLE CONSOLE & QUEUE DRAWER ---
         logging.info("🏁 [STARTUP:UI:PANELS] Initializing ConsolePanel and QueuePanel...")
-        self.bottom_splitter = QSplitter(Qt.Horizontal)
 
         # Wire Console Panel buttons in _setup_ui():
         self.console_panel = ConsolePanel()
@@ -344,12 +345,13 @@ class DragDropUI(QMainWindow):
 
         self.queue_panel = QueuePanel()
 
-        self.bottom_splitter.addWidget(self.console_panel)
-        self.bottom_splitter.addWidget(self.queue_panel)
-        self.bottom_splitter.setSizes([650, 250])
+        self.bottom_drawer = BottomDrawer(self.console_panel, self.queue_panel, self)
+        self.bottom_splitter = self.bottom_drawer.bottom_splitter
+        self.bottom_drawer.toggled.connect(self._on_bottom_drawer_toggled)
+        self.bottom_drawer.badges_changed.connect(self._on_drawer_badges_changed)
 
-        self.splitter.addWidget(self.bottom_splitter)
-        self.splitter.setSizes([700, 100])
+        self.splitter.addWidget(self.bottom_drawer)
+        self.splitter.setSizes([700, 0])
         main_layout.addWidget(self.splitter)
         root_layout.addWidget(main_container, 1)
 
@@ -360,9 +362,43 @@ class DragDropUI(QMainWindow):
         self.status_bar = SystemStatusBar(self)
         self.setStatusBar(self.status_bar)
         self.status_bar.reinit_requested.connect(self._on_status_reinit_requested)
+        self.status_bar.drawer_toggle_requested.connect(self.toggle_bottom_drawer)
         self.status_bar.update_proxy_indicator(self.console_panel)
+        self.status_bar.update_drawer_badge(
+            self.bottom_drawer.is_open,
+            self.bottom_drawer.queue_count,
+            self.bottom_drawer.unread_errors,
+        )
 
         logging.info("🏁 [STARTUP:UI] _setup_ui() layout complete.")
+
+    def toggle_bottom_drawer(self):
+        """Toggle the bottom Console & Queue drawer cleanly."""
+        if hasattr(self, "bottom_drawer"):
+            self.bottom_drawer.toggle()
+
+    def _on_bottom_drawer_toggled(self, opened: bool):
+        if hasattr(self, "bottom_drawer") and hasattr(self, "splitter"):
+            self.bottom_drawer.apply_splitter_sizes(self.splitter)
+        if hasattr(self, "status_bar") and hasattr(self, "bottom_drawer"):
+            self.status_bar.update_drawer_badge(
+                opened,
+                self.bottom_drawer.queue_count,
+                self.bottom_drawer.unread_errors,
+            )
+
+    def _on_drawer_badges_changed(self, queue_count: int, unread_errors: int):
+        if hasattr(self, "status_bar") and hasattr(self, "bottom_drawer"):
+            self.status_bar.update_drawer_badge(
+                self.bottom_drawer.is_open,
+                queue_count,
+                unread_errors,
+            )
+
+    def _on_queue_updated(self, display_items: list):
+        self.queue_panel.update_list(display_items)
+        if hasattr(self, "bottom_drawer"):
+            self.bottom_drawer.set_queue_count(len(display_items))
 
     def _on_tab_changed(self, index: int):
         """Triggers lazy loading when an inactive tab is selected and syncs NavRail."""

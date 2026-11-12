@@ -4,7 +4,7 @@ import os
 import urllib.request
 from typing import Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal, QTimer
+from PyQt5.QtCore import Qt, QSize, pyqtSignal, QTimer
 from PyQt5.QtWidgets import (
     QDialog,
     QLabel,
@@ -17,6 +17,8 @@ from core.ai.ollama_client import load_ollama_config, OllamaMonitorThread
 from core.ai.ollama_dialog import OllamaConfigDialog
 from core.network.session import NetworkSession, ProxyProfileManager
 from core.network.wifi_monitor import WifiMonitorThread
+from core.ui.icons import lucide_icon
+from core.ui.theme import C, R, T
 from core.ui.ui_components import ProxyDialog
 
 logger = logging.getLogger(__name__)
@@ -30,11 +32,15 @@ class SystemStatusBar(QStatusBar):
 
     proxy_changed = pyqtSignal()
     reinit_requested = pyqtSignal()
+    drawer_toggle_requested = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.wifi_monitor: Optional[WifiMonitorThread] = None
         self.ollama_monitor: Optional[OllamaMonitorThread] = None
+        self._drawer_open: bool = False
+        self._drawer_queue_count: int = 0
+        self._drawer_unread_errors: int = 0
 
         self.showMessage("⏳ Initializing...")
         self._setup_indicators()
@@ -99,6 +105,20 @@ class SystemStatusBar(QStatusBar):
         self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
         self.addPermanentWidget(self.network_indicator)
 
+        # 4. Collapsible Bottom Drawer Toggle (Console & Queue + Badges)
+        self.drawer_toggle_btn = QPushButton("Console && Queue")
+        self.drawer_toggle_btn.setObjectName("statusDrawerToggleBtn")
+        self.drawer_toggle_btn.setCheckable(True)
+        self.drawer_toggle_btn.setCursor(Qt.PointingHandCursor)
+        self.drawer_toggle_btn.setIcon(
+            lucide_icon("terminal", color=C.TEXT_SECONDARY, active_color=C.ACCENT_PRIMARY, size=14)
+        )
+        self.drawer_toggle_btn.setIconSize(QSize(14, 14))
+        self.drawer_toggle_btn.setToolTip("Show or hide the Console & Queue drawer (Ctrl+J)")
+        self.drawer_toggle_btn.clicked.connect(self.drawer_toggle_requested.emit)
+        self.addPermanentWidget(self.drawer_toggle_btn)
+        self.update_drawer_badge(False, 0, 0)
+
         # Synchronize proxy on boot
         self.sync_proxy_environment_from_session()
         self.update_proxy_indicator()
@@ -110,6 +130,51 @@ class SystemStatusBar(QStatusBar):
         self.mcp_timer.timeout.connect(self.update_mcp_indicator)
         self.mcp_timer.start()
         self.update_mcp_indicator()
+
+    def update_drawer_badge(self, opened: bool, queue_count: int, unread_errors: int) -> None:
+        """Update the status-bar Console & Queue pill text, active state, and error/queue badges."""
+        self._drawer_open = bool(opened)
+        self._drawer_queue_count = max(0, int(queue_count))
+        self._drawer_unread_errors = max(0, int(unread_errors))
+
+        parts = ["Console && Queue"]
+        if self._drawer_queue_count > 0:
+            parts.append(f"{self._drawer_queue_count} queued")
+        if self._drawer_unread_errors > 0:
+            noun = "err" if self._drawer_unread_errors == 1 else "errs"
+            parts.append(f"{self._drawer_unread_errors} {noun}")
+
+        self.drawer_toggle_btn.blockSignals(True)
+        self.drawer_toggle_btn.setChecked(self._drawer_open)
+        self.drawer_toggle_btn.blockSignals(False)
+        self.drawer_toggle_btn.setText(" · ".join(parts))
+
+        if self._drawer_unread_errors > 0 and not self._drawer_open:
+            bg, fg, bd = C.DANGER_SOFT, C.DANGER, C.DANGER_BORDER
+            hover_bg = C.DANGER_SOFT_HOVER
+        elif self._drawer_open:
+            bg, fg, bd = C.ACCENT_SOFT, C.ACCENT_PRIMARY, C.ACCENT_RING
+            hover_bg = C.ACCENT_SOFT_HOVER
+        else:
+            bg, fg, bd = "transparent", C.TEXT_SECONDARY, C.BORDER_STRONG
+            hover_bg = C.BG_CANVAS
+
+        self.drawer_toggle_btn.setStyleSheet(f"""
+            QPushButton#statusDrawerToggleBtn {{
+                background-color: {bg};
+                color: {fg};
+                border: 1px solid {bd};
+                border-radius: {R.SM}px;
+                padding: 1px 8px;
+                font-family: {T.FONT_FAMILY_UI};
+                font-size: {T.SIZE_CAPTION}px;
+                font-weight: 600;
+            }}
+            QPushButton#statusDrawerToggleBtn:hover {{
+                background-color: {hover_bg};
+                border-color: {C.BORDER_HOVER};
+            }}
+        """)
 
     # ==========================================
     # --- PROXY ORCHESTRATION ---
