@@ -13,8 +13,12 @@ from PyQt5.QtWidgets import (
     QScrollArea, QFormLayout, QShortcut
 )
 
+from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon, make_filter_label
+from core.ui.theme import C, R, S, T
+from core.ui.toast import notify_info, notify_success
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
+    CARD_FRAME_STYLE,
     SEGMENT_BTN_STYLE,
     TOGGLE_PILL_STYLE,
     FAV_PILL_STYLE,
@@ -218,66 +222,75 @@ class WorkItemsTab(QWidget):
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(12, 12, 12, 12)
-        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(S.MD, S.SM + 2, S.MD, S.SM + 2)
+        main_layout.setSpacing(S.SM + 2)
 
-        # --- ROW 1: HEADER & ACTION BUTTONS ---
-        header_layout = QHBoxLayout()
-        header_lbl = QLabel("<b>📋 3GPP Work Items (WIs)</b>")
-        header_lbl.setStyleSheet("font-size: 16px; color: #1E293B;")
+        # ==========================================
+        # --- 2-TIER CARDED PAGE RIBBON ---
+        # ==========================================
+        self.ribbon_card = PageRibbonCard("3GPP Work Items", parent=self)
 
-        self.add_wi_btn = QPushButton("➕ Add WI")
-        self.add_wi_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.add_wi_btn.setToolTip("Add and scrape an individual Work Item by ID or Portal URL without running a full sync.")
-        self.add_wi_btn.setCursor(Qt.PointingHandCursor)
-        self.add_wi_btn.clicked.connect(lambda: self._open_add_wi_dialog())
-
-        self.sync_tracked_btn = QPushButton("🎯 Update Tracked (0)")
-        self.sync_tracked_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.sync_tracked_btn.setToolTip("Quickly update details and remarks for only your Starred and Following Work Items.")
-        self.sync_tracked_btn.setCursor(Qt.PointingHandCursor)
-        self.sync_tracked_btn.clicked.connect(self._sync_tracked_wis)
-
-        self.sync_btn = QPushButton("🔄 Sync 3GPP WIs")
-        self.sync_btn.setObjectName("primaryBtn")
-        self.sync_btn.setToolTip("Click to download and synchronize 3GPP Work Items in parallel from the server.")
-        self.sync_btn.clicked.connect(self._start_sync)
+        # Tier 1 Status / Progress indicator + Utility Actions
+        self.status_lbl = QLabel("")
+        self.status_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-style: italic; font-size: {T.SIZE_CAPTION}px;")
+        self.ribbon_card.add_primary_widget(self.status_lbl)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setVisible(False)
         self.progress_bar.setFixedWidth(180)
+        self.ribbon_card.add_primary_widget(self.progress_bar)
 
-        self.status_lbl = QLabel("")
-        self.status_lbl.setStyleSheet("color: #64748B; font-style: italic; font-size: 11px;")
+        self.add_wi_btn = QPushButton("Add WI")
+        self.add_wi_btn.setFixedHeight(30)
+        self.add_wi_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.add_wi_btn, "plus", size=14)
+        self.add_wi_btn.setToolTip("Add and scrape an individual Work Item by ID or Portal URL without running a full sync.")
+        self.add_wi_btn.setCursor(Qt.PointingHandCursor)
+        self.add_wi_btn.clicked.connect(lambda: self._open_add_wi_dialog())
+        self.ribbon_card.add_utility_widget(self.add_wi_btn)
 
-        header_layout.addWidget(header_lbl)
-        header_layout.addStretch()
-        header_layout.addWidget(self.status_lbl)
-        header_layout.addWidget(self.progress_bar)
-        header_layout.addWidget(self.add_wi_btn)
-        header_layout.addWidget(self.sync_tracked_btn)
-        header_layout.addWidget(self.sync_btn)
-        main_layout.addLayout(header_layout)
+        self.sync_tracked_btn = QPushButton("Update Tracked (0)")
+        self.sync_tracked_btn.setFixedHeight(30)
+        self.sync_tracked_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.sync_tracked_btn, "refresh-cw", size=14)
+        self.sync_tracked_btn.setToolTip("Quickly update details and remarks for only your Starred and Following Work Items.")
+        self.sync_tracked_btn.setCursor(Qt.PointingHandCursor)
+        self.sync_tracked_btn.clicked.connect(self._sync_tracked_wis)
+        self.ribbon_card.add_utility_widget(self.sync_tracked_btn)
 
-        # --- ROW 2: INLINE SEARCH & FILTER BAR WITH TSG QUICK SCOPE ---
-        search_layout = QHBoxLayout()
-        search_layout.setSpacing(8)
+        self.sync_btn = QPushButton("Sync 3GPP WIs")
+        self.sync_btn.setObjectName("primaryBtn")
+        self.sync_btn.setFixedHeight(30)
+        apply_lucide_icon(self.sync_btn, "globe", color=C.TEXT_ON_ACCENT, active_color=C.TEXT_ON_ACCENT, size=14)
+        self.sync_btn.setToolTip("Click to download and synchronize 3GPP Work Items in parallel from the server.")
+        self.sync_btn.clicked.connect(self._start_sync)
+        self.ribbon_card.add_utility_widget(self.sync_btn)
 
-        search_layout.addWidget(QLabel("<b>🔍 Search:</b>"))
+        # Tier 2: Inline Search, TSG Quick Scope & Faceted Filters
+        search_group = QWidget(self.ribbon_card)
+        search_group.setStyleSheet("background: transparent; border: none;")
+        search_layout = QHBoxLayout(search_group)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(6)
+        search_layout.addWidget(make_filter_label("Search:", emphasized=True))
 
         self.search_input = QLineEdit()
         self.search_input.setStyleSheet(SPEC_FILTER_INPUT_STYLE)
-        self.search_input.setPlaceholderText("Search Code, Acronym, or Name...")
+        self.search_input.setPlaceholderText("Code, Acronym, or Name...")
         self.search_input.setClearButtonEnabled(True)
+        self.search_input.setMinimumWidth(210)
         self.search_input.setToolTip("Filter the table instantly by typing keywords or WI code.")
         self.search_input.textChanged.connect(lambda: self.search_timer.start())
-        search_layout.addWidget(self.search_input, stretch=3)
+        search_layout.addWidget(self.search_input)
+        self.ribbon_card.add_filter_widget(search_group)
 
-        # TSG Quick-Scope buttons
-        tsg_lbl = QLabel("TSG:")
-        tsg_lbl.setStyleSheet("color: #475569; font-weight: bold; font-size: 11px;")
-        search_layout.addWidget(tsg_lbl)
+        tsg_group = QWidget(self.ribbon_card)
+        tsg_group.setStyleSheet("background: transparent; border: none;")
+        tsg_layout = QHBoxLayout(tsg_group)
+        tsg_layout.setContentsMargins(0, 0, 0, 0)
+        tsg_layout.setSpacing(4)
+        tsg_layout.addWidget(make_filter_label("TSG:"))
 
         self.tsg_buttons = {}
         for tsg in ["All", "SA", "RAN", "CT"]:
@@ -288,20 +301,29 @@ class WorkItemsTab(QWidget):
             btn.setToolTip(f"Filter Work Items to {tsg if tsg != 'All' else 'all'} Technical Specification Groups")
             btn.clicked.connect(lambda _, t=tsg: self._on_tsg_clicked(t))
             self.tsg_buttons[tsg] = btn
-            search_layout.addWidget(btn)
+            tsg_layout.addWidget(btn)
         self.tsg_buttons["All"].setChecked(True)
+        self.ribbon_card.add_filter_widget(tsg_group)
+
+        combos_group = QWidget(self.ribbon_card)
+        combos_group.setStyleSheet("background: transparent; border: none;")
+        combos_layout = QHBoxLayout(combos_group)
+        combos_layout.setContentsMargins(0, 0, 0, 0)
+        combos_layout.setSpacing(6)
 
         self.release_combo = CheckableComboBox("Release")
+        self.release_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
         self.release_combo.setToolTip("Filter by 3GPP Release")
         self.release_combo.setMinimumWidth(130)
         self.release_combo.selectionChanged.connect(lambda _: self.search_timer.start())
-        search_layout.addWidget(self.release_combo)
+        combos_layout.addWidget(self.release_combo)
 
         self.wg_combo = CheckableComboBox("WG")
+        self.wg_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
         self.wg_combo.setToolTip("Filter by Working Group")
         self.wg_combo.setMinimumWidth(120)
         self.wg_combo.selectionChanged.connect(lambda _: self.search_timer.start())
-        search_layout.addWidget(self.wg_combo)
+        combos_layout.addWidget(self.wg_combo)
 
         self.status_combo = QComboBox()
         self.status_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
@@ -311,24 +333,45 @@ class WorkItemsTab(QWidget):
         self.status_combo.addItem("All Statuses", "all")
         self.status_combo.addItem("🏁 Finished", "finished")
         self.status_combo.currentIndexChanged.connect(lambda _: self.search_timer.start())
-        search_layout.addWidget(self.status_combo)
+        combos_layout.addWidget(self.status_combo)
 
-        self.clear_filters_btn = QPushButton("❌ Clear")
+        self.clear_filters_btn = QPushButton("Clear")
         self.clear_filters_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.clear_filters_btn, "rotate-ccw", size=13)
         self.clear_filters_btn.setToolTip("Reset all search fields and active filters.")
         self.clear_filters_btn.setCursor(Qt.PointingHandCursor)
         self.clear_filters_btn.clicked.connect(self._clear_all_filters)
-        search_layout.addWidget(self.clear_filters_btn)
+        combos_layout.addWidget(self.clear_filters_btn)
+        self.ribbon_card.add_filter_widget(combos_group)
 
-        main_layout.addLayout(search_layout)
+        main_layout.addWidget(self.ribbon_card)
 
-        # --- ROW 3: TRACKING FILTER CHIPS, ACTIVE DISMISSIBLE TAGS & RESULTS COUNTER ---
-        chips_layout = QHBoxLayout()
+        # ==========================================
+        # --- CARD: Tracking Chips Strip & Data Table ---
+        # ==========================================
+        self.table_card = QFrame(self)
+        self.table_card.setObjectName("cardFrame")
+        self.table_card.setStyleSheet(CARD_FRAME_STYLE)
+        table_card_layout = QVBoxLayout(self.table_card)
+        table_card_layout.setContentsMargins(0, 0, 0, 0)
+        table_card_layout.setSpacing(0)
+
+        chips_strip = QFrame(self.table_card)
+        chips_strip.setObjectName("wiHeaderStrip")
+        chips_strip.setStyleSheet(f"""
+            QFrame#wiHeaderStrip {{
+                background-color: {C.BG_SURFACE};
+                border: none;
+                border-bottom: 1px solid {C.BORDER_SUBTLE};
+                border-top-left-radius: {R.LG}px;
+                border-top-right-radius: {R.LG}px;
+            }}
+        """)
+        chips_layout = QHBoxLayout(chips_strip)
+        chips_layout.setContentsMargins(S.MD, S.XS + 2, S.MD, S.XS + 2)
         chips_layout.setSpacing(6)
 
-        chips_lbl = QLabel("Filter:")
-        chips_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold;")
-        chips_layout.addWidget(chips_lbl)
+        chips_layout.addWidget(make_filter_label("Filter:"))
 
         # Following Filter Chip (Assigned Duty)
         self.following_chip = QPushButton("🎯 Following (0)")
@@ -348,22 +391,23 @@ class WorkItemsTab(QWidget):
         self.starred_chip.clicked.connect(self._toggle_starred_filter)
         chips_layout.addWidget(self.starred_chip)
 
-        # Divider line
         div_lbl = QLabel("|")
-        div_lbl.setStyleSheet("color: #CBD5E1; margin: 0 4px;")
+        div_lbl.setStyleSheet(f"color: {C.BORDER_STRONG}; margin: 0 4px; background: transparent; border: none;")
         chips_layout.addWidget(div_lbl)
 
         # Active Dismissible Tags Container
-        self.active_tags_widget = QWidget()
+        self.active_tags_widget = QWidget(chips_strip)
+        self.active_tags_widget.setStyleSheet("background: transparent; border: none;")
         self.active_tags_container_layout = QHBoxLayout(self.active_tags_widget)
         self.active_tags_container_layout.setContentsMargins(0, 0, 0, 0)
         self.active_tags_container_layout.setSpacing(4)
         chips_layout.addWidget(self.active_tags_widget)
 
         # Clear all active tags button
-        self.clear_all_btn = QPushButton("✕ Clear All")
+        self.clear_all_btn = QPushButton("Reset All")
         self.clear_all_btn.setCursor(Qt.PointingHandCursor)
         self.clear_all_btn.setStyleSheet(CLEAR_ALL_BTN_STYLE)
+        apply_lucide_icon(self.clear_all_btn, "rotate-ccw", color=C.DANGER_ALT, size=12)
         self.clear_all_btn.setToolTip("Clear all active search and filter constraints.")
         self.clear_all_btn.setVisible(False)
         self.clear_all_btn.clicked.connect(self._clear_all_filters)
@@ -372,13 +416,13 @@ class WorkItemsTab(QWidget):
         chips_layout.addStretch()
 
         self.count_label = QLabel("Showing 0 Work Items")
-        self.count_label.setStyleSheet("font-weight: bold; color: #64748B; font-size: 11px;")
+        self.count_label.setStyleSheet(f"font-weight: bold; color: {C.TEXT_MUTED}; font-size: {T.SIZE_CAPTION}px; background: transparent; border: none;")
         chips_layout.addWidget(self.count_label)
 
-        main_layout.addLayout(chips_layout)
+        table_card_layout.addWidget(chips_strip)
 
         # --- TABLE VIEW ---
-        self.table = QTableView()
+        self.table = QTableView(self.table_card)
         self.table_model = WorkItemsTableModel()
         self.table_model.set_tracking_sets(self.starred, self.following)
         self.table.setModel(self.table_model)
@@ -388,28 +432,32 @@ class WorkItemsTab(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(30)
         self.table.setShowGrid(True)
-        self.table.setStyleSheet("""
-            QTableView {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
-                gridline-color: #F1F5F9;
-                selection-background-color: #EBF3FC;
-                selection-color: #1E293B;
-            }
-            QTableView::item {
-                padding: 2px 4px;
-                border-bottom: 1px solid #F1F5F9;
-            }
-            QHeaderView::section {
-                background-color: #F8FAFC;
-                color: #475569;
-                font-weight: bold;
-                font-size: 11px;
+        self.table.setStyleSheet(f"""
+            QTableView {{
+                background-color: {C.BG_CARD};
+                alternate-background-color: {C.BG_SURFACE};
                 border: none;
-                border-bottom: 1px solid #CBD5E1;
-                border-right: 1px solid #E2E8F0;
+                border-bottom-left-radius: {R.LG}px;
+                border-bottom-right-radius: {R.LG}px;
+                gridline-color: {C.BORDER_ROW};
+                selection-background-color: {C.ACCENT_SOFT};
+                selection-color: {C.TEXT_STRONG};
+                font-size: {T.SIZE_TABLE}px;
+            }}
+            QTableView::item {{
+                padding: 2px 4px;
+                border-bottom: 1px solid {C.BORDER_ROW};
+            }}
+            QHeaderView::section {{
+                background-color: {C.BG_SURFACE};
+                color: {C.TEXT_SECONDARY};
+                font-weight: bold;
+                font-size: {T.SIZE_CAPTION}px;
+                border: none;
+                border-bottom: 1px solid {C.BORDER_SUBTLE};
+                border-right: 1px solid {C.BORDER_SUBTLE};
                 padding: 5px 6px;
-            }
+            }}
         """)
 
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -476,7 +524,8 @@ class WorkItemsTab(QWidget):
         self.table.setItemDelegateForColumn(10, self.remarks_delegate)
 
         self.table.verticalScrollBar().valueChanged.connect(self._on_scroll)
-        main_layout.addWidget(self.table)
+        table_card_layout.addWidget(self.table, 1)
+        main_layout.addWidget(self.table_card, 1)
 
     def _on_tsg_clicked(self, tsg: str):
         if tsg == "All":
@@ -651,10 +700,10 @@ class WorkItemsTab(QWidget):
     def _sync_tracked_wis(self):
         tracked = sorted(list(self.starred | self.following))
         if not tracked:
-            QMessageBox.information(
-                self, "No Tracked Work Items",
-                "You have no Starred or Following Work Items to update.\n\n"
-                "Star or Follow Work Items first using the Track column or right-click menu."
+            notify_info(
+                self,
+                "No Tracked Work Items",
+                "Star or Follow Work Items first using the Track column or right-click menu.",
             )
             return
         self._start_targeted_sync(tracked)
@@ -894,7 +943,7 @@ class WorkItemsTab(QWidget):
         self.refresh_table(reset_pagination=True)
 
         if success:
-            QMessageBox.information(self, "Sync Complete", msg)
+            notify_success(self, "Sync Complete", msg)
         else:
             QMessageBox.warning(self, "Sync Failed", msg)
 

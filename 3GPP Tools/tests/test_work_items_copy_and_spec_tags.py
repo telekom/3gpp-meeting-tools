@@ -155,6 +155,26 @@ class TestWorkItemsCopyAndSpecTags(unittest.TestCase):
         self.app.processEvents()
         dlg.close()
 
+    def test_work_items_tab_phase2_ribbon_icons_and_toast(self):
+        from modules.work_items.ui.ui_tabs import WorkItemsTab
+
+        db_path = ROOT / "src" / "db" / "3gpp_data.db"
+        tab = WorkItemsTab(db_path)
+        self.assertTrue(hasattr(tab, "ribbon_card"))
+        self.assertTrue(hasattr(tab, "table_card"))
+        for btn in (tab.add_wi_btn, tab.sync_tracked_btn, tab.sync_btn, tab.clear_filters_btn):
+            self.assertFalse(btn.icon().isNull())
+        # Triggering sync tracked with empty starred/following must use non-blocking toast helper
+        orig_starred, orig_following = set(tab.starred), set(tab.following)
+        tab.starred.clear()
+        tab.following.clear()
+        try:
+            tab._sync_tracked_wis()
+        finally:
+            tab.starred = orig_starred
+            tab.following = orig_following
+        tab.close()
+
 
 if __name__ == "__main__":
     unittest.main()

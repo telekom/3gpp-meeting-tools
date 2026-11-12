@@ -31,6 +31,7 @@ from core.utils.portal_utils import get_portal_tdoc_url, get_portal_work_item_ur
 from modules.meetings.ui.tdocs_menus import _copy_to_clipboard
 from modules.work_items.core.wi_database import WorkItemsDatabase
 from modules.work_items.core.wi_scraper import extract_wi_code, fetch_wi_details_from_portal
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -392,27 +393,27 @@ class WorkItemInfoDialog(QDialog):
         self.setWindowTitle(f"Work Item Details: {acronym} (#{wi_code})")
         self.setMinimumWidth(620)
         self.setMinimumHeight(480)
-        self.setStyleSheet("""
-            QFrame#cardFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.setStyleSheet(f"""
+            QFrame#cardFrame {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 8px;
-            }
-            QLabel { font-size: 13px; color: #1E293B; }
-            QPushButton#specChipBtn {
-                background-color: #EBF3FC;
-                border: 1px solid #BFDBFE;
+            }}
+            QLabel {{ font-size: 13px; color: {C.TEXT_STRONG}; }}
+            QPushButton#specChipBtn {{
+                background-color: {C.ACCENT_SOFT};
+                border: 1px solid {C.INFO_BORDER};
                 border-radius: 12px;
                 padding: 3px 10px;
                 font-size: 11px;
-                color: #1E5C99;
+                color: {C.ACCENT_PRIMARY};
                 font-weight: bold;
-            }
-            QPushButton#specChipBtn:hover {
-                background-color: #DBEAFE;
-                border-color: #1E5C99;
-            }
-            QScrollArea { border: none; background-color: transparent; }
+            }}
+            QPushButton#specChipBtn:hover {{
+                background-color: {C.INFO_SOFT_STRONG};
+                border-color: {C.ACCENT_PRIMARY};
+            }}
+            QScrollArea {{ border: none; background-color: transparent; }}
         """)
 
         layout = QVBoxLayout(self)
@@ -429,16 +430,16 @@ class WorkItemInfoDialog(QDialog):
         title_row = QHBoxLayout()
 
         code_badge = QLabel(f"<b>WI #{wi_code}</b>")
-        code_badge.setStyleSheet("""
-            background-color: #EBF3FC; color: #1E5C99; border: 1px solid #BFDBFE;
+        code_badge.setStyleSheet(f"""
+            background-color: {C.ACCENT_SOFT}; color: {C.ACCENT_PRIMARY}; border: 1px solid {C.INFO_BORDER};
             border-radius: 4px; padding: 2px 6px; font-size: 12px; font-weight: bold;
         """)
         code_badge.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
         if release:
             rel_badge = QLabel(f"<b>{release}</b>")
-            rel_badge.setStyleSheet("""
-                background-color: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0;
+            rel_badge.setStyleSheet(f"""
+                background-color: {C.WG_RAN_BG}; color: {C.WG_RAN_TEXT}; border: 1px solid {C.WG_RAN_BORDER};
                 border-radius: 4px; padding: 2px 6px; font-size: 12px; font-weight: bold;
             """)
             title_row.addWidget(rel_badge)
@@ -446,13 +447,13 @@ class WorkItemInfoDialog(QDialog):
         is_finished = bool(end_date and end_date.strip() and end_date < datetime.now().strftime("%Y-%m-%d"))
         status_badge = QLabel("🏁 Finished" if is_finished else "🟢 Active / Ongoing")
         status_badge.setStyleSheet(
-            "background-color: #F1F5F9; color: #475569; border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: bold;"
+            f"background-color: {C.BG_CANVAS}; color: {C.TEXT_SECONDARY}; border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: bold;"
             if is_finished else
-            "background-color: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: bold;"
+            f"background-color: {C.WG_RAN_BG}; color: {C.WG_RAN_TEXT}; border: 1px solid {C.WG_RAN_BORDER}; border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: bold;"
         )
 
         acronym_lbl = QLabel(f"<b>{acronym}</b>")
-        acronym_lbl.setStyleSheet("font-size: 16px; color: #1E293B; font-weight: bold;")
+        acronym_lbl.setStyleSheet(f"font-size: 16px; color: {C.TEXT_STRONG}; font-weight: bold;")
         acronym_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
         title_row.addWidget(code_badge)
@@ -480,7 +481,7 @@ class WorkItemInfoDialog(QDialog):
 
         desc_label = QLabel(name)
         desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("color: #475569; font-size: 13px; line-height: 1.4;")
+        desc_label.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 13px; line-height: 1.4;")
         desc_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         header_layout.addWidget(desc_label)
 
@@ -530,7 +531,7 @@ class WorkItemInfoDialog(QDialog):
         remarks = details.get('remarks', [])
         if remarks:
             remarks_lbl = QLabel(f"<b>Secretary Remarks ({len(remarks)}):</b>")
-            remarks_lbl.setStyleSheet("color: #475569; font-size: 12px; margin-top: 4px;")
+            remarks_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 12px; margin-top: 4px;")
             layout.addWidget(remarks_lbl)
 
             remarks_scroll = QScrollArea()
@@ -544,19 +545,19 @@ class WorkItemInfoDialog(QDialog):
 
             for rm in remarks:
                 r_card = QFrame()
-                r_card.setStyleSheet("background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px;")
+                r_card.setStyleSheet(f"background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; padding: 6px;")
                 r_box = QVBoxLayout(r_card)
                 r_box.setContentsMargins(6, 4, 6, 4)
                 r_box.setSpacing(3)
 
                 if rm.get('date'):
                     date_lbl = QLabel(f"📅 {rm['date']}")
-                    date_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold;")
+                    date_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px; font-weight: bold;")
                     r_box.addWidget(date_lbl)
 
                 text_lbl = QLabel(rm.get('text', ''))
                 text_lbl.setWordWrap(True)
-                text_lbl.setStyleSheet("color: #1E293B; font-size: 12px;")
+                text_lbl.setStyleSheet(f"color: {C.TEXT_STRONG}; font-size: 12px;")
                 text_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
                 r_box.addWidget(text_lbl)
 
@@ -599,41 +600,41 @@ class WorkItemInfoDialog(QDialog):
     def _update_star_btn_style(self):
         if self.is_starred:
             self.star_btn.setText("⭐ Starred")
-            self.star_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #FEF3C7; color: #92400E; border: 1px solid #F59E0B;
+            self.star_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {C.WARNING_SOFT_ALT}; color: {C.WARNING_DARK}; border: 1px solid {C.WARNING_ACCENT};
                     border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: bold;
-                }
-                QPushButton:hover { background-color: #FDE68A; }
+                }}
+                QPushButton:hover {{ background-color: {C.WARNING_BORDER}; }}
             """)
         else:
             self.star_btn.setText("☆ Star")
-            self.star_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #F8FAFC; color: #64748B; border: 1px solid #CBD5E1;
+            self.star_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {C.BG_SURFACE}; color: {C.TEXT_MUTED}; border: 1px solid {C.BORDER_STRONG};
                     border-radius: 4px; padding: 3px 8px; font-size: 11px;
-                }
-                QPushButton:hover { background-color: #F1F5F9; color: #1E293B; }
+                }}
+                QPushButton:hover {{ background-color: {C.BG_CANVAS}; color: {C.TEXT_STRONG}; }}
             """)
 
     def _update_follow_btn_style(self):
         if self.is_following:
             self.follow_btn.setText("🎯 Following")
-            self.follow_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #DBEAFE; color: #1E40AF; border: 1px solid #3B82F6;
+            self.follow_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {C.INFO_SOFT_STRONG}; color: {C.INFO_DARK}; border: 1px solid {C.INFO_ACCENT};
                     border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: bold;
-                }
-                QPushButton:hover { background-color: #BFDBFE; }
+                }}
+                QPushButton:hover {{ background-color: {C.INFO_BORDER}; }}
             """)
         else:
             self.follow_btn.setText("🎯 Follow")
-            self.follow_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #F8FAFC; color: #64748B; border: 1px solid #CBD5E1;
+            self.follow_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {C.BG_SURFACE}; color: {C.TEXT_MUTED}; border: 1px solid {C.BORDER_STRONG};
                     border-radius: 4px; padding: 3px 8px; font-size: 11px;
-                }
-                QPushButton:hover { background-color: #F1F5F9; color: #1E293B; }
+                }}
+                QPushButton:hover {{ background-color: {C.BG_CANVAS}; color: {C.TEXT_STRONG}; }}
             """)
 
     def _handle_toggle_star(self):
@@ -654,7 +655,7 @@ class WorkItemInfoDialog(QDialog):
 
     def _make_key_label(self, text: str) -> QLabel:
         lbl = QLabel(f"<b>{text}</b>")
-        lbl.setStyleSheet("color: #64748B; font-size: 12px;")
+        lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 12px;")
         return lbl
 
     def _add_row(self, form: QFormLayout, label_text: str, value_text: str):
@@ -673,11 +674,11 @@ class LinkedSpecsDialog(QDialog):
         self.setWindowTitle(title_str)
         self.setMinimumWidth(580)
         self.setMinimumHeight(380)
-        self.setStyleSheet("""
-            QFrame#specCard { background-color: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 6px; }
-            QFrame#specCard:hover { border-color: #94A3B8; background-color: #FAFCFF; }
-            QLabel { color: #1E293B; }
-            QScrollArea { border: 1px solid #CBD5E1; border-radius: 6px; background-color: #FFFFFF; }
+        self.setStyleSheet(f"""
+            QFrame#specCard {{ background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px; }}
+            QFrame#specCard:hover {{ border-color: {C.TEXT_FAINT}; background-color: #FAFCFF; }}
+            QLabel {{ color: {C.TEXT_STRONG}; }}
+            QScrollArea {{ border: 1px solid {C.BORDER_STRONG}; border-radius: 6px; background-color: {C.BG_CARD}; }}
         """)
 
         layout = QVBoxLayout(self)
@@ -689,7 +690,7 @@ class LinkedSpecsDialog(QDialog):
             if acronym else f"Specifications Impacted by Work Item <b>#{wi_code}</b>:"
         )
         header = QLabel(header_text)
-        header.setStyleSheet("font-size: 14px; color: #1E293B;")
+        header.setStyleSheet(f"font-size: 14px; color: {C.TEXT_STRONG};")
         header.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(header)
 
@@ -713,7 +714,7 @@ class LinkedSpecsDialog(QDialog):
                 cards_layout.addWidget(card)
         else:
             no_data = QLabel("No linked specifications recorded in the local database for this Work Item.")
-            no_data.setStyleSheet("color: #64748B; font-style: italic; padding: 25px;")
+            no_data.setStyleSheet(f"color: {C.TEXT_MUTED}; font-style: italic; padding: 25px;")
             no_data.setAlignment(Qt.AlignCenter)
             cards_layout.addWidget(no_data)
 
@@ -723,7 +724,7 @@ class LinkedSpecsDialog(QDialog):
 
         footer_layout = QHBoxLayout()
         count_lbl = QLabel(f"<b>Total:</b> {len(specs)} specification(s)")
-        count_lbl.setStyleSheet("color: #64748B; font-size: 12px;")
+        count_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 12px;")
         footer_layout.addWidget(count_lbl)
         footer_layout.addStretch()
 
@@ -746,21 +747,21 @@ class LinkedSpecsDialog(QDialog):
         top_row.setSpacing(8)
 
         type_badge = QLabel(f"<b>{spec_type}</b>")
-        type_badge.setStyleSheet("""
-            background-color: #EBF3FC; color: #1E5C99; border: 1px solid #BFDBFE;
+        type_badge.setStyleSheet(f"""
+            background-color: {C.ACCENT_SOFT}; color: {C.ACCENT_PRIMARY}; border: 1px solid {C.INFO_BORDER};
             border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: bold;
         """)
         top_row.addWidget(type_badge)
 
         num_lbl = QLabel(f"<b>{num}</b>")
-        num_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #1E293B;")
+        num_lbl.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {C.TEXT_STRONG};")
         num_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         top_row.addWidget(num_lbl)
 
         if is_primary:
             pri_badge = QLabel("⭐ Primary Spec")
-            pri_badge.setStyleSheet("""
-                background-color: #FEF3C7; color: #92400E; border: 1px solid #FDE68A;
+            pri_badge.setStyleSheet(f"""
+                background-color: {C.WARNING_SOFT_ALT}; color: {C.WARNING_DARK}; border: 1px solid {C.WARNING_BORDER};
                 border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: bold;
             """)
             top_row.addWidget(pri_badge)
@@ -789,7 +790,7 @@ class LinkedSpecsDialog(QDialog):
 
         title_lbl = QLabel(title)
         title_lbl.setWordWrap(True)
-        title_lbl.setStyleSheet("font-size: 12px; color: #475569; line-height: 1.4;")
+        title_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_SECONDARY}; line-height: 1.4;")
         title_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         card_layout.addWidget(title_lbl)
 
@@ -852,19 +853,19 @@ class AddWorkItemDialog(QDialog):
 
         self.setWindowTitle("➕ Add / Fetch Work Item")
         self.setMinimumWidth(580)
-        self.setStyleSheet("""
-            QDialog { background-color: #FAFAFA; }
-            QGroupBox {
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {C.BG_ALT_LIGHT}; }}
+            QGroupBox {{
                 font-weight: bold;
                 border: 1px solid #D0D0D0;
                 border-radius: 6px;
                 margin-top: 10px;
                 padding-top: 10px;
                 background-color: white;
-            }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
-            QLineEdit, QComboBox { padding: 5px; border: 1px solid #CCC; border-radius: 4px; }
-            QLineEdit:focus, QComboBox:focus { border: 1px solid #0078D7; }
+            }}
+            QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; }}
+            QLineEdit, QComboBox {{ padding: 5px; border: 1px solid #CCC; border-radius: 4px; }}
+            QLineEdit:focus, QComboBox:focus {{ border: 1px solid #0078D7; }}
         """)
 
         self._setup_ui()
@@ -889,16 +890,16 @@ class AddWorkItemDialog(QDialog):
 
         self.btn_fetch = QPushButton("🔍 Fetch Details")
         self.btn_fetch.setCursor(Qt.PointingHandCursor)
-        self.btn_fetch.setStyleSheet("""
-            QPushButton {
+        self.btn_fetch.setStyleSheet(f"""
+            QPushButton {{
                 background-color: #0078D7;
                 color: white;
                 font-weight: bold;
                 padding: 6px 14px;
                 border-radius: 4px;
-            }
-            QPushButton:hover { background-color: #005A9E; }
-            QPushButton:disabled { background-color: #B0D0F0; }
+            }}
+            QPushButton:hover {{ background-color: {C.OFFICE_BLUE}; }}
+            QPushButton:disabled {{ background-color: #B0D0F0; }}
         """)
         self.btn_fetch.clicked.connect(self._start_fetch)
 
@@ -907,7 +908,7 @@ class AddWorkItemDialog(QDialog):
         query_layout.addLayout(row_layout)
 
         self.lbl_status = QLabel("Enter a Work Item ID or URL and click 'Fetch Details'.")
-        self.lbl_status.setStyleSheet("color: #64748B; font-size: 11px; margin-top: 2px;")
+        self.lbl_status.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px; margin-top: 2px;")
         self.lbl_status.setWordWrap(True)
         query_layout.addWidget(self.lbl_status)
         main_layout.addWidget(query_group)
@@ -1011,9 +1012,9 @@ class AddWorkItemDialog(QDialog):
     def _on_fetch_log(self, msg: str, level: int):
         self.lbl_status.setText(msg)
         if level >= logging.ERROR:
-            self.lbl_status.setStyleSheet("color: #DC2626; font-weight: bold;")
+            self.lbl_status.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
         elif level >= logging.WARNING:
-            self.lbl_status.setStyleSheet("color: #D97706; font-weight: bold;")
+            self.lbl_status.setStyleSheet(f"color: {C.WARNING_AMBER}; font-weight: bold;")
         else:
             self.lbl_status.setStyleSheet("color: #0078D7;")
 
@@ -1038,7 +1039,7 @@ class AddWorkItemDialog(QDialog):
             self._fetched_remarks = data.get("remarks", [])
         else:
             self.lbl_status.setText(f"⚠️ {msg}")
-            self.lbl_status.setStyleSheet("color: #DC2626; font-weight: bold;")
+            self.lbl_status.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
 
     def _save_wi(self):
         code = self.edit_code.text().strip()

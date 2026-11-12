@@ -100,10 +100,7 @@ LEGACY_UI_HEX_ALLOWLIST: Dict[str, int] = {
     "src/modules/word_tools/ui/document_selector_pane.py": 2,
     "src/modules/word_tools/ui/word_settings_dialog.py": 4,
     "src/modules/word_tools/ui/word_tabs.py": 29,
-    "src/modules/work_items/ui/ui_tabs.py": 16,
-    "src/modules/work_items/ui/work_items_delegates.py": 35,
-    "src/modules/work_items/ui/work_items_dialogs.py": 78,
-    "src/modules/work_items/ui/work_items_model.py": 5,
+    "src/modules/work_items/ui/work_items_dialogs.py": 10,
 }
 
 

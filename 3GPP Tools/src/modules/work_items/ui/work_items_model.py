@@ -6,6 +6,7 @@ from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex
 from PyQt5.QtGui import QBrush, QColor, QFont
 
 from core.ui.ui_components import WG_DESCRIPTIONS
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -105,19 +106,19 @@ class WorkItemsTableModel(QAbstractTableModel):
             if col_name == "Acronym" and self.search_term:
                 acronym = str(row.get("acronym") or "").strip().casefold()
                 if acronym == self.search_term.casefold():
-                    return QBrush(QColor("#DBEAFE"))
+                    return QBrush(QColor(C.INFO_SOFT_STRONG))
 
             # Unified soft row highlight for tracked items
             if wi_code in self.following_codes:
-                return QBrush(QColor("#EFF6FF"))
+                return QBrush(QColor(C.INFO_SOFT))
             elif wi_code in self.starred_codes:
-                return QBrush(QColor("#FFFBEB"))
+                return QBrush(QColor(C.WARNING_SOFT))
 
         elif role == Qt.ForegroundRole:
             if col_name == "Acronym" and self.search_term and str(row.get("acronym") or "").strip().casefold() == self.search_term.casefold():
-                return QBrush(QColor("#1E5C99"))
+                return QBrush(QColor(C.ACCENT_PRIMARY))
             elif col_name == "Code":
-                return QBrush(QColor("#475569"))
+                return QBrush(QColor(C.TEXT_SECONDARY))
 
         elif role == Qt.FontRole:
             if col_name in ["Acronym", "Latest WID"]:

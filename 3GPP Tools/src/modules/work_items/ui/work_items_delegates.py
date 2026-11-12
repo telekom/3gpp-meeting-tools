@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.ui_components import WG_DESCRIPTIONS, get_wg_colors
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +36,16 @@ class TrackingDelegate(QStyledItemDelegate):
 
         # Draw Starred pill/icon
         if is_starred:
-            painter.setBrush(QColor("#FEF3C7"))
-            painter.setPen(QColor("#F59E0B"))
+            painter.setBrush(QColor(C.WARNING_SOFT_ALT))
+            painter.setPen(QColor(C.WARNING_ACCENT))
             painter.drawRoundedRect(star_rect, 4, 4)
-            painter.setPen(QColor("#B45309"))
+            painter.setPen(QColor(C.WARNING))
             font = option.font
             font.setPointSize(font.pointSize() if font.pointSize() > 8 else 9)
             painter.setFont(font)
             painter.drawText(star_rect, Qt.AlignCenter, "⭐")
         else:
-            painter.setPen(QColor("#94A3B8"))
+            painter.setPen(QColor(C.TEXT_FAINT))
             font = option.font
             font.setPointSize(font.pointSize() if font.pointSize() > 8 else 9)
             painter.setFont(font)
@@ -52,17 +53,17 @@ class TrackingDelegate(QStyledItemDelegate):
 
         # Draw Following pill/icon
         if is_following:
-            painter.setBrush(QColor("#DBEAFE"))
-            painter.setPen(QColor("#3B82F6"))
+            painter.setBrush(QColor(C.INFO_SOFT_STRONG))
+            painter.setPen(QColor(C.INFO_ACCENT))
             painter.drawRoundedRect(follow_rect, 4, 4)
-            painter.setPen(QColor("#1E40AF"))
+            painter.setPen(QColor(C.INFO_DARK))
             font = option.font
             font.setPointSize(font.pointSize() if font.pointSize() > 8 else 9)
             painter.setFont(font)
             painter.drawText(follow_rect, Qt.AlignCenter, "🎯")
         else:
             # Concentric circular target outline (avoids red Windows emoji glyphs when unfollowed)
-            painter.setPen(QPen(QColor("#94A3B8"), 1.3))
+            painter.setPen(QPen(QColor(C.TEXT_FAINT), 1.3))
             painter.setBrush(Qt.NoBrush)
             center = follow_rect.center()
             painter.drawEllipse(center, 6, 6)
@@ -125,9 +126,9 @@ class WgBadgeDelegate(QStyledItemDelegate):
         cur_x = start_x
         for wg, w in badges:
             colors = get_wg_colors(wg)
-            bg_col = QColor(colors.get("bg", "#F1F5F9"))
-            border_col = QColor(colors.get("border", "#CBD5E1"))
-            text_col = QColor(colors.get("text", "#475569"))
+            bg_col = QColor(colors.get("bg", C.BG_CANVAS))
+            border_col = QColor(colors.get("border", C.BORDER_STRONG))
+            text_col = QColor(colors.get("text", C.TEXT_SECONDARY))
 
             badge_rect = QRect(cur_x, y, w, badge_h)
             painter.setBrush(bg_col)
@@ -165,14 +166,14 @@ class WidDelegate(QStyledItemDelegate):
         is_selected = bool(option.state & QStyle.State_Selected)
 
         if is_selected:
-            painter.setBrush(QColor("#DBEAFE"))
-            painter.setPen(QColor("#2563EB"))
+            painter.setBrush(QColor(C.INFO_SOFT_STRONG))
+            painter.setPen(QColor(C.ACCENT_ALT))
         else:
-            painter.setBrush(QColor("#EFF6FF"))
-            painter.setPen(QColor("#BFDBFE"))
+            painter.setBrush(QColor(C.INFO_SOFT))
+            painter.setPen(QColor(C.INFO_BORDER))
         painter.drawRoundedRect(badge_rect, 4, 4)
 
-        painter.setPen(QColor("#1E40AF" if is_selected else "#1E5C99"))
+        painter.setPen(QColor(C.INFO_DARK if is_selected else C.ACCENT_PRIMARY))
         font = option.font
         font.setBold(True)
         font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
@@ -209,11 +210,11 @@ class ReleaseBadgeDelegate(QStyledItemDelegate):
 
         painter.save()
         painter.setRenderHint(painter.Antialiasing)
-        painter.setBrush(QColor("#F1F5F9"))
-        painter.setPen(QColor("#CBD5E1"))
+        painter.setBrush(QColor(C.BG_CANVAS))
+        painter.setPen(QColor(C.BORDER_STRONG))
         painter.drawRoundedRect(badge_rect, 4, 4)
 
-        painter.setPen(QColor("#334155"))
+        painter.setPen(QColor(C.TEXT_BODY))
         font = option.font
         font.setBold(True)
         font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
@@ -245,14 +246,14 @@ class StatusBadgeDelegate(QStyledItemDelegate):
         painter.setRenderHint(painter.Antialiasing)
 
         if is_active:
-            painter.setBrush(QColor("#ECFDF5"))
-            painter.setPen(QColor("#A7F3D0"))
-            text_color = QColor("#065F46")
+            painter.setBrush(QColor(C.WG_RAN_BG))
+            painter.setPen(QColor(C.WG_RAN_BORDER))
+            text_color = QColor(C.WG_RAN_TEXT)
             label = "🟢 Active"
         else:
-            painter.setBrush(QColor("#F1F5F9"))
-            painter.setPen(QColor("#CBD5E1"))
-            text_color = QColor("#475569")
+            painter.setBrush(QColor(C.BG_CANVAS))
+            painter.setPen(QColor(C.BORDER_STRONG))
+            text_color = QColor(C.TEXT_SECONDARY)
             label = "🏁 Finished"
 
         painter.drawRoundedRect(badge_rect, 10, 10)
@@ -275,7 +276,7 @@ class SpecsDelegate(QStyledItemDelegate):
         text = index.data(Qt.DisplayRole)
         if not text or text == "-":
             painter.save()
-            painter.setPen(QColor("#94A3B8"))
+            painter.setPen(QColor(C.TEXT_FAINT))
             painter.drawText(option.rect, Qt.AlignCenter, "-")
             painter.restore()
             return
@@ -291,11 +292,11 @@ class SpecsDelegate(QStyledItemDelegate):
 
         painter.save()
         painter.setRenderHint(painter.Antialiasing)
-        painter.setBrush(QColor("#EBF3FC"))
-        painter.setPen(QColor("#BFDBFE"))
+        painter.setBrush(QColor(C.ACCENT_SOFT))
+        painter.setPen(QColor(C.INFO_BORDER))
         painter.drawRoundedRect(badge_rect, 10, 10)
 
-        painter.setPen(QColor("#1E5C99"))
+        painter.setPen(QColor(C.ACCENT_PRIMARY))
         font = option.font
         font.setBold(True)
         font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
@@ -320,7 +321,7 @@ class TimelineDelegate(QStyledItemDelegate):
         text = index.data(Qt.DisplayRole)
         if not text or text == "-":
             painter.save()
-            painter.setPen(QColor("#94A3B8"))
+            painter.setPen(QColor(C.TEXT_FAINT))
             painter.drawText(option.rect, Qt.AlignCenter, "-")
             painter.restore()
             return
@@ -329,7 +330,7 @@ class TimelineDelegate(QStyledItemDelegate):
         if option.state & QStyle.State_Selected:
             painter.setPen(option.palette.color(QPalette.HighlightedText))
         else:
-            painter.setPen(QColor("#334155"))
+            painter.setPen(QColor(C.TEXT_BODY))
         font = option.font
         font.setPointSize(font.pointSize() - 1 if font.pointSize() > 8 else 8)
         painter.setFont(font)
@@ -376,10 +377,10 @@ class RemarksDelegate(QStyledItemDelegate):
         btn_rect = self.get_button_rect(option)
         painter.save()
         painter.setRenderHint(painter.Antialiasing)
-        painter.setBrush(QColor("#EBF3FC"))
-        painter.setPen(QColor("#BFDBFE"))
+        painter.setBrush(QColor(C.ACCENT_SOFT))
+        painter.setPen(QColor(C.INFO_BORDER))
         painter.drawRoundedRect(btn_rect, 4, 4)
-        painter.setPen(QColor("#1E5C99"))
+        painter.setPen(QColor(C.ACCENT_PRIMARY))
         painter.drawText(btn_rect, Qt.AlignCenter, f"💬 {count}")
         painter.restore()
 
