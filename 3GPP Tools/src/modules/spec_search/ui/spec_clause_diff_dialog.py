@@ -34,6 +34,7 @@ from PyQt5.QtWidgets import (
 
 from modules.spec_search.core.spec_clause_diff import build_llm_clause_prompt, generate_unified_diff
 from modules.spec_search.core.spec_search_db import SpecSearchDatabase
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ class SpecClauseDiffDialog(QDialog):
         config_layout.addWidget(self.base_ver_combo, stretch=1)
 
         arrow_lbl = QLabel("➔")
-        arrow_lbl.setStyleSheet("font-weight: bold; color: #64748B; font-size: 14px;")
+        arrow_lbl.setStyleSheet(f"font-weight: bold; color: {C.TEXT_MUTED}; font-size: 14px;")
         config_layout.addWidget(arrow_lbl)
 
         config_layout.addWidget(QLabel("<b>Target Release (New):</b>"))
@@ -137,7 +138,7 @@ class SpecClauseDiffDialog(QDialog):
         config_layout.addWidget(self.target_ver_combo, stretch=1)
 
         clause_lbl = QLabel(f"<b>Clause:</b> {self.clause_number} ({self.clause_title})")
-        clause_lbl.setStyleSheet("color: #475569; font-size: 11px;")
+        clause_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px;")
         config_layout.addWidget(clause_lbl, stretch=1)
 
         main_layout.addWidget(config_group)
@@ -161,25 +162,25 @@ class SpecClauseDiffDialog(QDialog):
 
         diff_top_bar = QHBoxLayout()
         self.diff_stats_lbl = QLabel("<b>Diff Summary:</b> Calculating...")
-        self.diff_stats_lbl.setStyleSheet("font-size: 12px; color: #1E293B;")
+        self.diff_stats_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_STRONG};")
         diff_top_bar.addWidget(self.diff_stats_lbl, stretch=1)
 
         self.btn_copy_diff = QPushButton("📋 Copy Diff")
         self.btn_copy_diff.setToolTip("Copy raw unified diff text to clipboard.")
-        self.btn_copy_diff.setStyleSheet("padding: 4px 12px; font-weight: bold; background-color: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 4px;")
+        self.btn_copy_diff.setStyleSheet(f"padding: 4px 12px; font-weight: bold; background-color: {C.BG_CANVAS}; border: 1px solid {C.BORDER_STRONG}; border-radius: 4px;")
         self.btn_copy_diff.clicked.connect(self._copy_diff)
         diff_top_bar.addWidget(self.btn_copy_diff)
 
         self.btn_view_changes = QPushButton(f"📜 v{self.version_b} Changes / TDocs")
         self.btn_view_changes.setToolTip(f"View all integrated CRs, p-CRs, and TDocs that created v{self.version_b}, and directly open the source contribution documents.")
-        self.btn_view_changes.setStyleSheet("padding: 4px 12px; font-weight: bold; background-color: #F0FDF4; color: #166534; border: 1px solid #86EFAC; border-radius: 4px;")
+        self.btn_view_changes.setStyleSheet(f"padding: 4px 12px; font-weight: bold; background-color: {C.SUCCESS_SOFT}; color: {C.SUCCESS_DARK}; border: 1px solid {C.SUCCESS_BORDER_MEDIUM}; border-radius: 4px;")
         self.btn_view_changes.setCursor(Qt.PointingHandCursor)
         self.btn_view_changes.clicked.connect(self._open_version_changes)
         diff_top_bar.addWidget(self.btn_view_changes)
 
         self.btn_find_tdoc = QPushButton("🎯 Identify Modifying TDoc")
         self.btn_find_tdoc.setToolTip("Identify which specific CR or p-CR introduced or modified this clause across releases.")
-        self.btn_find_tdoc.setStyleSheet("padding: 4px 12px; font-weight: bold; background-color: #F0FDF4; color: #166534; border: 1px solid #86EFAC; border-radius: 4px;")
+        self.btn_find_tdoc.setStyleSheet(f"padding: 4px 12px; font-weight: bold; background-color: {C.SUCCESS_SOFT}; color: {C.SUCCESS_DARK}; border: 1px solid {C.SUCCESS_BORDER_MEDIUM}; border-radius: 4px;")
         self.btn_find_tdoc.setCursor(Qt.PointingHandCursor)
         self.btn_find_tdoc.clicked.connect(self._focus_and_run_attribution)
         diff_top_bar.addWidget(self.btn_find_tdoc)
@@ -188,17 +189,17 @@ class SpecClauseDiffDialog(QDialog):
 
         self.diff_browser = QTextEdit()
         self.diff_browser.setReadOnly(True)
-        self.diff_browser.setStyleSheet("""
-            QTextEdit {
-                background-color: #FAFAFA;
-                border: 1px solid #CBD5E1;
+        self.diff_browser.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {C.BG_ALT_LIGHT};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 font-family: 'Consolas', 'Courier New', monospace;
                 font-size: 11px;
                 line-height: 1.45;
-                color: #0F172A;
+                color: {C.TEXT_PRIMARY};
                 padding: 8px;
-            }
+            }}
         """)
         diff_layout.addWidget(self.diff_browser)
         self.tab_widget.addTab(self.tab_diff, "📊 Visual Diff")
@@ -210,7 +211,7 @@ class SpecClauseDiffDialog(QDialog):
         prompt_layout.setSpacing(8)
 
         prompt_opts_card = QFrame()
-        prompt_opts_card.setStyleSheet("background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 4px;")
+        prompt_opts_card.setStyleSheet(f"background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px;")
         opts_vlayout = QVBoxLayout(prompt_opts_card)
         opts_vlayout.setContentsMargins(8, 8, 8, 8)
         opts_vlayout.setSpacing(6)
@@ -253,17 +254,17 @@ class SpecClauseDiffDialog(QDialog):
 
         self.prompt_browser = QTextEdit()
         self.prompt_browser.setReadOnly(True)
-        self.prompt_browser.setStyleSheet("""
-            QTextEdit {
-                background-color: #F8FAFC;
-                border: 1px solid #CBD5E1;
+        self.prompt_browser.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 font-family: 'Consolas', 'Courier New', monospace;
                 font-size: 11px;
                 line-height: 1.4;
-                color: #1E293B;
+                color: {C.TEXT_STRONG};
                 padding: 6px;
-            }
+            }}
         """)
         prompt_layout.addWidget(self.prompt_browser)
 
@@ -272,12 +273,12 @@ class SpecClauseDiffDialog(QDialog):
 
         prompt_actions = QHBoxLayout()
         self.btn_copy_prompt = QPushButton("📋 Copy Prompt for LLM")
-        self.btn_copy_prompt.setStyleSheet("font-weight: bold; background-color: #0284C7; color: white; padding: 6px 16px; border-radius: 4px;")
+        self.btn_copy_prompt.setStyleSheet(f"font-weight: bold; background-color: {C.ACCENT_SKY}; color: white; padding: 6px 16px; border-radius: 4px;")
         self.btn_copy_prompt.clicked.connect(self._copy_prompt)
         prompt_actions.addWidget(self.btn_copy_prompt)
 
         self.btn_save = QPushButton("💾 Save Markdown (.md)")
-        self.btn_save.setStyleSheet("font-weight: bold; background-color: #F1F5F9; color: #334155; border: 1px solid #CBD5E1; padding: 6px 14px; border-radius: 4px;")
+        self.btn_save.setStyleSheet(f"font-weight: bold; background-color: {C.BG_CANVAS}; color: {C.TEXT_BODY}; border: 1px solid {C.BORDER_STRONG}; padding: 6px 14px; border-radius: 4px;")
         self.btn_save.clicked.connect(self._save_markdown)
         prompt_actions.addWidget(self.btn_save)
 
@@ -385,10 +386,10 @@ class SpecClauseDiffDialog(QDialog):
         """
         if not diff_text or "No text differences detected" in diff_text:
             empty_html = (
-                f"<div style='font-family: Segoe UI, sans-serif; padding: 18px; color: #166534; "
-                f"background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 6px; margin: 8px;'>"
+                f"<div style='font-family: Segoe UI, sans-serif; padding: 18px; color: {C.SUCCESS_DARK}; "
+                f"background-color: {C.SUCCESS_SOFT}; border: 1px solid {C.SUCCESS_BORDER}; border-radius: 6px; margin: 8px;'>"
                 f"<h3 style='margin: 0 0 6px 0; font-size: 14px;'>✓ No Text Differences Detected</h3>"
-                f"<p style='margin: 0; font-size: 12px; color: #15803D;'>"
+                f"<p style='margin: 0; font-size: 12px; color: {C.SUCCESS};'>"
                 f"Clause {html.escape(self.clause_number)} is identical between "
                 f"<b>3GPP TS {html.escape(self.spec_number)} v{html.escape(base_ver)}</b> and "
                 f"<b>v{html.escape(target_ver)}</b>."
@@ -404,26 +405,26 @@ class SpecClauseDiffDialog(QDialog):
             escaped = html.escape(line)
             if line.startswith("+++ ") or line.startswith("--- "):
                 html_lines.append(
-                    f"<div style='color: #64748B; font-weight: bold; font-family: Consolas, monospace; line-height: 1.4;'>{escaped}</div>"
+                    f"<div style='color: {C.TEXT_MUTED}; font-weight: bold; font-family: Consolas, monospace; line-height: 1.4;'>{escaped}</div>"
                 )
             elif line.startswith("@@"):
                 html_lines.append(
-                    f"<div style='background-color: #E0E7FF; color: #3730A3; font-weight: bold; font-family: Consolas, monospace; "
+                    f"<div style='background-color: {C.INDIGO_SOFT}; color: {C.WG_SA_TEXT}; font-weight: bold; font-family: Consolas, monospace; "
                     f"padding: 3px 6px; margin: 4px 0; border-radius: 3px;'>{escaped}</div>"
                 )
             elif line.startswith("+"):
                 additions += 1
                 html_lines.append(
-                    f"<div style='background-color: #DCFCE7; color: #15803D; font-family: Consolas, monospace; padding: 1px 6px; white-space: pre-wrap;'>{escaped}</div>"
+                    f"<div style='background-color: {C.SUCCESS_SOFT_ALT}; color: {C.SUCCESS}; font-family: Consolas, monospace; padding: 1px 6px; white-space: pre-wrap;'>{escaped}</div>"
                 )
             elif line.startswith("-"):
                 deletions += 1
                 html_lines.append(
-                    f"<div style='background-color: #FEE2E2; color: #B91C1C; font-family: Consolas, monospace; padding: 1px 6px; white-space: pre-wrap;'>{escaped}</div>"
+                    f"<div style='background-color: {C.DANGER_SOFT_HOVER}; color: {C.DANGER}; font-family: Consolas, monospace; padding: 1px 6px; white-space: pre-wrap;'>{escaped}</div>"
                 )
             else:
                 html_lines.append(
-                    f"<div style='color: #1E293B; font-family: Consolas, monospace; padding: 1px 6px; white-space: pre-wrap;'>{escaped}</div>"
+                    f"<div style='color: {C.TEXT_STRONG}; font-family: Consolas, monospace; padding: 1px 6px; white-space: pre-wrap;'>{escaped}</div>"
                 )
 
         full_html = (
@@ -473,15 +474,15 @@ class SpecClauseDiffDialog(QDialog):
 
         if additions == 0 and deletions == 0:
             self.diff_stats_lbl.setText(
-                f"<b>Diff Summary:</b> <span style='color: #166534; font-weight: bold;'>✓ Identical</span> "
-                f"<span style='color: #64748B;'>(TS {self.spec_number} v{base_ver} ➔ v{target_ver})</span>"
+                f"<b>Diff Summary:</b> <span style='color: {C.SUCCESS_DARK}; font-weight: bold;'>✓ Identical</span> "
+                f"<span style='color: {C.TEXT_MUTED};'>(TS {self.spec_number} v{base_ver} ➔ v{target_ver})</span>"
             )
         else:
             self.diff_stats_lbl.setText(
                 f"<b>Diff Summary:</b> "
-                f"<span style='color: #15803D; font-weight: bold;'>+{additions} addition(s)</span> &nbsp;|&nbsp; "
-                f"<span style='color: #B91C1C; font-weight: bold;'>-{deletions} deletion(s)</span> &nbsp;&nbsp; "
-                f"<span style='color: #64748B;'>(TS {self.spec_number} v{base_ver} ➔ v{target_ver})</span>"
+                f"<span style='color: {C.SUCCESS}; font-weight: bold;'>+{additions} addition(s)</span> &nbsp;|&nbsp; "
+                f"<span style='color: {C.DANGER}; font-weight: bold;'>-{deletions} deletion(s)</span> &nbsp;&nbsp; "
+                f"<span style='color: {C.TEXT_MUTED};'>(TS {self.spec_number} v{base_ver} ➔ v{target_ver})</span>"
             )
 
         # 2. Update AI Analysis Prompt Tab
@@ -629,19 +630,19 @@ class SpecClauseDiffDialog(QDialog):
         header_bar.setSpacing(8)
 
         self.attr_status_lbl = QLabel(f"<b>Clause Attribution:</b> Identifying originating CR/p-CR for Clause {self.clause_number}...")
-        self.attr_status_lbl.setStyleSheet("font-size: 12px; color: #1E293B;")
+        self.attr_status_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_STRONG};")
         header_bar.addWidget(self.attr_status_lbl, stretch=1)
 
         self.btn_attr_run = QPushButton("🔄 Re-Analyze")
         self.btn_attr_run.setToolTip("Re-run multi-stage clause attribution for current releases.")
-        self.btn_attr_run.setStyleSheet("padding: 4px 12px; font-weight: bold; background-color: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 4px;")
+        self.btn_attr_run.setStyleSheet(f"padding: 4px 12px; font-weight: bold; background-color: {C.BG_CANVAS}; border: 1px solid {C.BORDER_STRONG}; border-radius: 4px;")
         self.btn_attr_run.setCursor(Qt.PointingHandCursor)
         self.btn_attr_run.clicked.connect(lambda: self._run_attribution(force=True))
         header_bar.addWidget(self.btn_attr_run)
 
         self.btn_attr_deep_verify = QPushButton("🔬 Deep Verify Top 3 (DOCX)")
         self.btn_attr_deep_verify.setToolTip("Download and inspect Word OpenXML track changes in top 3 candidate documents for 100% deterministic text match.")
-        self.btn_attr_deep_verify.setStyleSheet("padding: 4px 12px; font-weight: bold; background-color: #EFF6FF; color: #1D4ED8; border: 1px solid #93C5FD; border-radius: 4px;")
+        self.btn_attr_deep_verify.setStyleSheet(f"padding: 4px 12px; font-weight: bold; background-color: {C.INFO_SOFT}; color: {C.INFO}; border: 1px solid {C.INFO_BORDER_MEDIUM}; border-radius: 4px;")
         self.btn_attr_deep_verify.setCursor(Qt.PointingHandCursor)
         self.btn_attr_deep_verify.setEnabled(False)
         self.btn_attr_deep_verify.clicked.connect(self._run_deep_verify)
@@ -654,29 +655,29 @@ class SpecClauseDiffDialog(QDialog):
         self.attr_progress_bar.setRange(0, 100)
         self.attr_progress_bar.setFixedHeight(8)
         self.attr_progress_bar.setTextVisible(False)
-        self.attr_progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #CBD5E1;
+        self.attr_progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 3px;
-                background-color: #F1F5F9;
-            }
-            QProgressBar::chunk {
-                background-color: #0284C7;
+                background-color: {C.BG_CANVAS};
+            }}
+            QProgressBar::chunk {{
+                background-color: {C.ACCENT_SKY};
                 border-radius: 2px;
-            }
+            }}
         """)
         self.attr_progress_bar.setVisible(False)
         layout.addWidget(self.attr_progress_bar)
 
         # 2. Hero Banner Card (Top Match)
         self.attr_hero_banner = QFrame()
-        self.attr_hero_banner.setStyleSheet("""
-            QFrame {
-                background-color: #F0FDF4;
-                border: 1px solid #BBF7D0;
+        self.attr_hero_banner.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.SUCCESS_SOFT};
+                border: 1px solid {C.SUCCESS_BORDER};
                 border-radius: 6px;
                 padding: 6px;
-            }
+            }}
         """)
         self.attr_hero_banner.setVisible(False)
         hero_layout = QVBoxLayout(self.attr_hero_banner)
@@ -686,31 +687,31 @@ class SpecClauseDiffDialog(QDialog):
         # Hero Top Row: Title + Action Buttons
         hero_row1 = QHBoxLayout()
         self.hero_match_title_lbl = QLabel("🎯 <b>Top Candidate:</b> Loading...")
-        self.hero_match_title_lbl.setStyleSheet("font-size: 13px; color: #15803D;")
+        self.hero_match_title_lbl.setStyleSheet(f"font-size: 13px; color: {C.SUCCESS};")
         hero_row1.addWidget(self.hero_match_title_lbl, stretch=1)
 
         self.btn_hero_open = QPushButton("📄 Open TDoc")
         self.btn_hero_open.setToolTip("Open contribution document (.docx) in Microsoft Word.")
-        self.btn_hero_open.setStyleSheet("padding: 3px 10px; font-weight: bold; background-color: #166534; color: white; border-radius: 4px;")
+        self.btn_hero_open.setStyleSheet(f"padding: 3px 10px; font-weight: bold; background-color: {C.SUCCESS_DARK}; color: white; border-radius: 4px;")
         self.btn_hero_open.setCursor(Qt.PointingHandCursor)
         hero_row1.addWidget(self.btn_hero_open)
 
         self.btn_hero_jump = QPushButton("🚀 Jump to Meetings")
         self.btn_hero_jump.setToolTip("Navigate to Meetings tab with this TDoc focused.")
-        self.btn_hero_jump.setStyleSheet("padding: 3px 10px; font-weight: bold; background-color: #F1F5F9; color: #334155; border: 1px solid #CBD5E1; border-radius: 4px;")
+        self.btn_hero_jump.setStyleSheet(f"padding: 3px 10px; font-weight: bold; background-color: {C.BG_CANVAS}; color: {C.TEXT_BODY}; border: 1px solid {C.BORDER_STRONG}; border-radius: 4px;")
         self.btn_hero_jump.setCursor(Qt.PointingHandCursor)
         hero_row1.addWidget(self.btn_hero_jump)
 
         self.btn_hero_copy = QPushButton("📋 Copy Citation")
         self.btn_hero_copy.setToolTip("Copy plain text and rich HTML citation.")
-        self.btn_hero_copy.setStyleSheet("padding: 3px 10px; font-weight: bold; background-color: #F1F5F9; color: #334155; border: 1px solid #CBD5E1; border-radius: 4px;")
+        self.btn_hero_copy.setStyleSheet(f"padding: 3px 10px; font-weight: bold; background-color: {C.BG_CANVAS}; color: {C.TEXT_BODY}; border: 1px solid {C.BORDER_STRONG}; border-radius: 4px;")
         self.btn_hero_copy.setCursor(Qt.PointingHandCursor)
         hero_row1.addWidget(self.btn_hero_copy)
 
         hero_layout.addLayout(hero_row1)
 
         self.hero_doc_title_lbl = QLabel("")
-        self.hero_doc_title_lbl.setStyleSheet("font-size: 11px; color: #334155; font-style: italic;")
+        self.hero_doc_title_lbl.setStyleSheet(f"font-size: 11px; color: {C.TEXT_BODY}; font-style: italic;")
         self.hero_doc_title_lbl.setWordWrap(True)
         hero_layout.addWidget(self.hero_doc_title_lbl)
 
@@ -737,23 +738,23 @@ class SpecClauseDiffDialog(QDialog):
         self.attr_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.attr_table.verticalHeader().setVisible(False)
         self.attr_table.itemSelectionChanged.connect(self._on_candidate_table_selection_changed)
-        self.attr_table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #CBD5E1;
+        self.attr_table.setStyleSheet(f"""
+            QTableWidget {{
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
-                background-color: #FFFFFF;
+                background-color: {C.BG_CARD};
                 font-size: 11px;
-                selection-background-color: #EBF3FC;
-                selection-color: #0F172A;
-            }
-            QHeaderView::section {
-                background-color: #F8FAFC;
+                selection-background-color: {C.ACCENT_SOFT};
+                selection-color: {C.TEXT_PRIMARY};
+            }}
+            QHeaderView::section {{
+                background-color: {C.BG_SURFACE};
                 font-weight: bold;
-                color: #475569;
+                color: {C.TEXT_SECONDARY};
                 padding: 4px 6px;
                 border: none;
-                border-bottom: 1px solid #CBD5E1;
-            }
+                border-bottom: 1px solid {C.BORDER_STRONG};
+            }}
         """)
         splitter.addWidget(self.attr_table)
 
@@ -761,15 +762,15 @@ class SpecClauseDiffDialog(QDialog):
         self.attr_details_browser = QTextBrowser()
         self.attr_details_browser.setOpenExternalLinks(True)
         self.attr_details_browser.setPlaceholderText("Select a candidate contribution above to inspect full metadata, meeting agenda context, and verified text excerpts...")
-        self.attr_details_browser.setStyleSheet("""
-            QTextBrowser {
-                border: 1px solid #CBD5E1;
+        self.attr_details_browser.setStyleSheet(f"""
+            QTextBrowser {{
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
-                background-color: #F8FAFC;
+                background-color: {C.BG_SURFACE};
                 padding: 6px;
                 font-size: 11px;
                 line-height: 1.4;
-            }
+            }}
         """)
         splitter.addWidget(self.attr_details_browser)
         splitter.setSizes([300, 160])
@@ -843,7 +844,7 @@ class SpecClauseDiffDialog(QDialog):
     def _on_attribution_error(self, err_msg: str):
         self.attr_progress_bar.setVisible(False)
         self.btn_attr_run.setEnabled(True)
-        self.attr_status_lbl.setText(f"<span style='color: #B91C1C;'><b>Attribution Error:</b> {html.escape(err_msg)}</span>")
+        self.attr_status_lbl.setText(f"<span style='color: {C.DANGER};'><b>Attribution Error:</b> {html.escape(err_msg)}</span>")
 
     def _populate_attribution_view(self, candidates: List[Dict[str, Any]]):
         self._candidate_list = list(candidates)
@@ -852,7 +853,7 @@ class SpecClauseDiffDialog(QDialog):
             self.attr_table.setRowCount(0)
             self.attr_status_lbl.setText(f"No candidate CRs or p-CRs found for TS {self.spec_number} v{self.version_b}.")
             self.attr_details_browser.setHtml(
-                f"<div style='color: #64748B; padding: 12px; font-family: Segoe UI, sans-serif;'>"
+                f"<div style='color: {C.TEXT_MUTED}; padding: 12px; font-family: Segoe UI, sans-serif;'>"
                 f"No change history records or candidate TDocs could be resolved for "
                 f"<b>3GPP TS {html.escape(self.spec_number)} v{html.escape(self.version_b)}</b>.<br/><br/>"
                 f"Tip: Ensure specification change history is indexed in <code>3gpp_spec_history.db</code>."
@@ -875,12 +876,12 @@ class SpecClauseDiffDialog(QDialog):
         top_verified = top.get("is_verified", False)
 
         if top_verified:
-            self.attr_hero_banner.setStyleSheet("QFrame { background-color: #F0FDF4; border: 1px solid #86EFAC; border-radius: 6px; padding: 6px; }")
-            self.hero_match_title_lbl.setStyleSheet("font-size: 13px; color: #15803D;")
+            self.attr_hero_banner.setStyleSheet(f"QFrame {{ background-color: {C.SUCCESS_SOFT}; border: 1px solid {C.SUCCESS_BORDER_MEDIUM}; border-radius: 6px; padding: 6px; }}")
+            self.hero_match_title_lbl.setStyleSheet(f"font-size: 13px; color: {C.SUCCESS};")
             self.hero_match_title_lbl.setText(f"🎯 <b>Top Match (Verified):</b> {html.escape(top_tdoc)} {f'({html.escape(top_source)})' if top_source else ''} · {top_score}% Match")
         else:
-            self.attr_hero_banner.setStyleSheet("QFrame { background-color: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 6px; padding: 6px; }")
-            self.hero_match_title_lbl.setStyleSheet("font-size: 13px; color: #0369A1;")
+            self.attr_hero_banner.setStyleSheet(f"QFrame {{ background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px; padding: 6px; }}")
+            self.hero_match_title_lbl.setStyleSheet(f"font-size: 13px; color: {C.ACCENT_SKY_DARK};")
             self.hero_match_title_lbl.setText(f"🎯 <b>Top Candidate:</b> {html.escape(top_tdoc)} {f'({html.escape(top_source)})' if top_source else ''} · {top_conf} Confidence ({top_score}%)")
 
         self.hero_doc_title_lbl.setText(top.get("title", "") or "No title available")
@@ -894,7 +895,7 @@ class SpecClauseDiffDialog(QDialog):
 
         for b_text in top.get("evidence_badges", []):
             b_lbl = QLabel(b_text)
-            b_lbl.setStyleSheet("background-color: #E0F2FE; color: #0369A1; border: 1px solid #BAE6FD; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: bold;")
+            b_lbl.setStyleSheet(f"background-color: {C.SKY_SOFT}; color: {C.ACCENT_SKY_DARK}; border: 1px solid {C.SKY_BORDER}; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: bold;")
             self.hero_badges_layout.addWidget(b_lbl)
         self.hero_badges_layout.addStretch()
 
@@ -979,19 +980,19 @@ class SpecClauseDiffDialog(QDialog):
 
             btn_open = QPushButton("📄")
             btn_open.setToolTip(f"Open {tdoc_tok} in Microsoft Word")
-            btn_open.setStyleSheet("padding: 2px 6px; font-size: 10px; font-weight: bold; background-color: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 3px;")
+            btn_open.setStyleSheet(f"padding: 2px 6px; font-size: 10px; font-weight: bold; background-color: {C.BG_CANVAS}; border: 1px solid {C.BORDER_STRONG}; border-radius: 3px;")
             btn_open.clicked.connect(lambda _, t=tdoc_tok, m=cand.get("meeting", ""): self._open_candidate_tdoc(t, m))
             act_layout.addWidget(btn_open)
 
             btn_jump = QPushButton("🚀")
             btn_jump.setToolTip(f"Jump to Meetings tab for {tdoc_tok}")
-            btn_jump.setStyleSheet("padding: 2px 6px; font-size: 10px; font-weight: bold; background-color: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 3px;")
+            btn_jump.setStyleSheet(f"padding: 2px 6px; font-size: 10px; font-weight: bold; background-color: {C.BG_CANVAS}; border: 1px solid {C.BORDER_STRONG}; border-radius: 3px;")
             btn_jump.clicked.connect(lambda _, t=tdoc_tok: self._jump_candidate_to_meetings(t))
             act_layout.addWidget(btn_jump)
 
             btn_cp = QPushButton("📋")
             btn_cp.setToolTip(f"Copy citation for {tdoc_tok}")
-            btn_cp.setStyleSheet("padding: 2px 6px; font-size: 10px; font-weight: bold; background-color: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 3px;")
+            btn_cp.setStyleSheet(f"padding: 2px 6px; font-size: 10px; font-weight: bold; background-color: {C.BG_CANVAS}; border: 1px solid {C.BORDER_STRONG}; border-radius: 3px;")
             btn_cp.clicked.connect(lambda _, t=tdoc_tok, m=cand.get("meeting", ""), s=title: self._copy_candidate_citation(t, m, s))
             act_layout.addWidget(btn_cp)
 
@@ -1026,36 +1027,36 @@ class SpecClauseDiffDialog(QDialog):
         snippet = cand.get("verified_snippet", "")
 
         badges_html = " ".join([
-            f"<span style='background-color: #E0F2FE; color: #0369A1; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;'>{html.escape(b)}</span>"
+            f"<span style='background-color: {C.SKY_SOFT}; color: {C.ACCENT_SKY_DARK}; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;'>{html.escape(b)}</span>"
             for b in badges
         ])
 
         verified_html = ""
         if is_verified:
             verified_html = f"""
-            <div style='background-color: #DCFCE7; border: 1px solid #86EFAC; border-radius: 4px; padding: 6px 10px; margin: 8px 0;'>
-                <span style='color: #15803D; font-weight: bold;'>✅ Deterministic OpenXML Text Match ({match_pct}%):</span><br/>
-                <code style='font-family: Consolas, monospace; font-size: 11px; color: #166534;'>"{html.escape(snippet)}"</code>
+            <div style='background-color: {C.SUCCESS_SOFT_ALT}; border: 1px solid {C.SUCCESS_BORDER_MEDIUM}; border-radius: 4px; padding: 6px 10px; margin: 8px 0;'>
+                <span style='color: {C.SUCCESS}; font-weight: bold;'>✅ Deterministic OpenXML Text Match ({match_pct}%):</span><br/>
+                <code style='font-family: Consolas, monospace; font-size: 11px; color: {C.SUCCESS_DARK};'>"{html.escape(snippet)}"</code>
             </div>
             """
 
         details_html = f"""
         <div style='font-family: Segoe UI, sans-serif;'>
             <div style='margin-bottom: 6px;'>
-                <b style='font-size: 13px; color: #0284C7;'>{html.escape(tdoc)}</b>
-                {f" <span style='color: #64748B;'>(CR #{html.escape(cr_num)})</span>" if cr_num else ""}
-                &nbsp;—&nbsp; <span style='font-weight: 600; color: #334155;'>{html.escape(source)}</span>
-                &nbsp;•&nbsp; <span style='color: #64748B;'>Meeting: <b>{html.escape(meeting or 'N/A')}</b></span>
-                {f" &nbsp;•&nbsp; <span style='color: #64748B;'>AI: <b>{html.escape(agenda_item)}</b></span>" if agenda_item else ""}
-                &nbsp;|&nbsp; <span style='color: #0369A1; font-weight: bold;'>Score: {score}% ({confidence})</span>
+                <b style='font-size: 13px; color: {C.ACCENT_SKY};'>{html.escape(tdoc)}</b>
+                {f" <span style='color: {C.TEXT_MUTED};'>(CR #{html.escape(cr_num)})</span>" if cr_num else ""}
+                &nbsp;—&nbsp; <span style='font-weight: 600; color: {C.TEXT_BODY};'>{html.escape(source)}</span>
+                &nbsp;•&nbsp; <span style='color: {C.TEXT_MUTED};'>Meeting: <b>{html.escape(meeting or 'N/A')}</b></span>
+                {f" &nbsp;•&nbsp; <span style='color: {C.TEXT_MUTED};'>AI: <b>{html.escape(agenda_item)}</b></span>" if agenda_item else ""}
+                &nbsp;|&nbsp; <span style='color: {C.ACCENT_SKY_DARK}; font-weight: bold;'>Score: {score}% ({confidence})</span>
             </div>
-            <div style='margin-bottom: 6px; font-size: 12px; font-weight: 600; color: #1E293B;'>
+            <div style='margin-bottom: 6px; font-size: 12px; font-weight: 600; color: {C.TEXT_STRONG};'>
                 {html.escape(title or 'No title available')}
             </div>
             <div style='margin-bottom: 8px;'>{badges_html}</div>
             {verified_html}
-            {f"<div style='margin-top: 6px; color: #475569;'><b>Abstract / Summary:</b> {html.escape(abstract)}</div>" if abstract else ""}
-            {f"<div style='margin-top: 4px; color: #64748B; font-size: 10px;'><b>Secretary Remarks:</b> {html.escape(remarks)}</div>" if remarks else ""}
+            {f"<div style='margin-top: 6px; color: {C.TEXT_SECONDARY};'><b>Abstract / Summary:</b> {html.escape(abstract)}</div>" if abstract else ""}
+            {f"<div style='margin-top: 4px; color: {C.TEXT_MUTED}; font-size: 10px;'><b>Secretary Remarks:</b> {html.escape(remarks)}</div>" if remarks else ""}
         </div>
         """
         self.attr_details_browser.setHtml(details_html)
@@ -1095,7 +1096,7 @@ class SpecClauseDiffDialog(QDialog):
         def _on_dv_error(err: str):
             self.attr_progress_bar.setVisible(False)
             self.btn_attr_deep_verify.setEnabled(True)
-            self.attr_status_lbl.setText(f"<span style='color: #B91C1C;'><b>Deep Verify Error:</b> {html.escape(err)}</span>")
+            self.attr_status_lbl.setText(f"<span style='color: {C.DANGER};'><b>Deep Verify Error:</b> {html.escape(err)}</span>")
 
         self._deep_verify_worker.progress.connect(_on_dv_progress)
         self._deep_verify_worker.finished.connect(_on_dv_finished)

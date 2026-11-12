@@ -44,6 +44,7 @@ from modules.spec_search.core.spec_search_db import (
     parse_version_tuple,
 )
 from modules.specifications.core.database import SpecsDatabase
+from core.ui.theme import C
 
 
 class SpecSearchVersionSelectDialog(QDialog):
@@ -114,7 +115,7 @@ class SpecSearchVersionSelectDialog(QDialog):
         left_layout.setContentsMargins(6, 8, 6, 6)
 
         self.lbl_specs_count = QLabel("Loading specifications...")
-        self.lbl_specs_count.setStyleSheet("color: #475569; font-size: 11px;")
+        self.lbl_specs_count.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px;")
         left_layout.addWidget(self.lbl_specs_count)
 
         self.specs_table = QTableWidget()
@@ -155,7 +156,7 @@ class SpecSearchVersionSelectDialog(QDialog):
 
         batch_bar.addStretch()
         self.lbl_selected_count = QLabel("Selected: 0 version(s)")
-        self.lbl_selected_count.setStyleSheet("font-weight: bold; color: #0284C7;")
+        self.lbl_selected_count.setStyleSheet(f"font-weight: bold; color: {C.ACCENT_SKY};")
         batch_bar.addWidget(self.lbl_selected_count)
         right_layout.addLayout(batch_bar)
 
@@ -545,13 +546,13 @@ class SpecSearchPruneDialog(QDialog):
 
         # Header Info Banner
         info_banner = QFrame()
-        info_banner.setStyleSheet("""
-            QFrame {
-                background-color: #EFF6FF;
-                border: 1px solid #BFDBFE;
+        info_banner.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.INFO_SOFT};
+                border: 1px solid {C.INFO_BORDER};
                 border-radius: 6px;
                 padding: 8px;
-            }
+            }}
         """)
         ib_layout = QVBoxLayout(info_banner)
         ib_layout.setContentsMargins(6, 6, 6, 6)
@@ -563,7 +564,7 @@ class SpecSearchPruneDialog(QDialog):
             "These older minor releases belong to the same 3GPP Release as a newer indexed version.\n"
             "Pruning them will remove their clause records and FTS indices, freeing database space and cleaning the evolution matrix."
         )
-        desc_lbl.setStyleSheet("color: #1E40AF; font-size: 11px;")
+        desc_lbl.setStyleSheet(f"color: {C.INFO_DARK}; font-size: 11px;")
         desc_lbl.setWordWrap(True)
         ib_layout.addWidget(title_lbl)
         ib_layout.addWidget(desc_lbl)
@@ -581,7 +582,7 @@ class SpecSearchPruneDialog(QDialog):
 
         sel_bar.addStretch()
         self.lbl_selected = QLabel(f"Selected: {len(self.superseded_versions)} version(s)")
-        self.lbl_selected.setStyleSheet("font-weight: bold; color: #0284C7; font-size: 11px;")
+        self.lbl_selected.setStyleSheet(f"font-weight: bold; color: {C.ACCENT_SKY}; font-size: 11px;")
         sel_bar.addWidget(self.lbl_selected)
         layout.addLayout(sel_bar)
 
@@ -613,23 +614,23 @@ class SpecSearchPruneDialog(QDialog):
         btn_box.addWidget(btn_cancel)
 
         self.btn_prune = QPushButton(f"🧹 Prune Selected ({len(self.superseded_versions)})")
-        self.btn_prune.setStyleSheet("""
-            QPushButton {
-                background-color: #DC2626;
-                color: #FFFFFF;
+        self.btn_prune.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.DANGER_ALT};
+                color: {C.BG_CARD};
                 border: none;
                 border-radius: 4px;
                 padding: 6px 14px;
                 font-weight: bold;
                 font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #B91C1C;
-            }
-            QPushButton:disabled {
-                background-color: #CBD5E1;
-                color: #94A3B8;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.DANGER};
+            }}
+            QPushButton:disabled {{
+                background-color: {C.BORDER_STRONG};
+                color: {C.TEXT_FAINT};
+            }}
         """)
         self.btn_prune.clicked.connect(self._on_prune_confirmed)
         btn_box.addWidget(self.btn_prune)
@@ -657,7 +658,7 @@ class SpecSearchPruneDialog(QDialog):
 
             sup_item = QTableWidgetItem(f"v{item.get('superseded_by', '')} (Newer)")
             sup_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-            sup_item.setForeground(QColor("#15803D"))
+            sup_item.setForeground(QColor(C.SUCCESS))
             self.table.setItem(r, 4, sup_item)
 
             c_item = QTableWidgetItem(f"{item.get('total_clauses', 0):,}")
@@ -766,12 +767,12 @@ class SpecSmartImportDialog(QDialog):
 
         # Header Frame: Search input & spec info
         header_frame = QFrame()
-        header_frame.setStyleSheet("""
-            QFrame {
-                background-color: #F8FAFC;
-                border: 1px solid #E2E8F0;
+        header_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 6px;
-            }
+            }}
         """)
         h_layout = QVBoxLayout(header_frame)
         h_layout.setContentsMargins(10, 10, 10, 10)
@@ -781,24 +782,24 @@ class SpecSmartImportDialog(QDialog):
         search_row = QHBoxLayout()
         search_row.setSpacing(8)
         lbl_prompt = QLabel("🔍 Specification:")
-        lbl_prompt.setStyleSheet("font-weight: bold; font-size: 12px; color: #1E293B;")
+        lbl_prompt.setStyleSheet(f"font-weight: bold; font-size: 12px; color: {C.TEXT_STRONG};")
         search_row.addWidget(lbl_prompt)
 
         self.spec_input = QLineEdit()
         self.spec_input.setPlaceholderText("Enter spec number (e.g. 23.501, 38.300, 24.501, 38.211)...")
-        self.spec_input.setStyleSheet("""
-            QLineEdit {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.spec_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 5px 8px;
                 font-size: 12px;
                 font-weight: 500;
-                color: #0F172A;
-            }
-            QLineEdit:focus {
-                border-color: #0284C7;
-            }
+                color: {C.TEXT_PRIMARY};
+            }}
+            QLineEdit:focus {{
+                border-color: {C.ACCENT_SKY};
+            }}
         """)
         self.spec_input.setClearButtonEnabled(True)
         self.spec_input.returnPressed.connect(self._on_find_releases)
@@ -806,19 +807,19 @@ class SpecSmartImportDialog(QDialog):
 
         self.btn_find = QPushButton("🔍 Find Releases")
         self.btn_find.setCursor(Qt.PointingHandCursor)
-        self.btn_find.setStyleSheet("""
-            QPushButton {
-                background-color: #0284C7;
-                color: #FFFFFF;
-                border: 1px solid #0284C7;
+        self.btn_find.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.ACCENT_SKY};
+                color: {C.BG_CARD};
+                border: 1px solid {C.ACCENT_SKY};
                 border-radius: 4px;
                 padding: 6px 14px;
                 font-weight: bold;
                 font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #0369A1;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.ACCENT_SKY_DARK};
+            }}
         """)
         self.btn_find.clicked.connect(self._on_find_releases)
         search_row.addWidget(self.btn_find)
@@ -831,15 +832,15 @@ class SpecSmartImportDialog(QDialog):
         info_layout.setSpacing(8)
 
         self.lbl_spec_title = QLabel("Enter a 3GPP specification number above to load available releases.")
-        self.lbl_spec_title.setStyleSheet("color: #475569; font-size: 11px; font-weight: 500;")
+        self.lbl_spec_title.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px; font-weight: 500;")
         self.lbl_spec_title.setWordWrap(True)
         info_layout.addWidget(self.lbl_spec_title, stretch=1)
 
         self.lbl_status_badge = QLabel("")
-        self.lbl_status_badge.setStyleSheet("""
-            background-color: #F1F5F9;
-            color: #334155;
-            border: 1px solid #CBD5E1;
+        self.lbl_status_badge.setStyleSheet(f"""
+            background-color: {C.BG_CANVAS};
+            color: {C.TEXT_BODY};
+            border: 1px solid {C.BORDER_STRONG};
             border-radius: 4px;
             padding: 2px 8px;
             font-size: 10px;
@@ -856,26 +857,26 @@ class SpecSmartImportDialog(QDialog):
         chips_layout.setSpacing(6)
 
         lbl_select = QLabel("Select:")
-        lbl_select.setStyleSheet("font-size: 11px; font-weight: bold; color: #475569;")
+        lbl_select.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {C.TEXT_SECONDARY};")
         chips_layout.addWidget(lbl_select)
 
         self.btn_chip_updates = QPushButton("⚡ Updates && New Only")
         self.btn_chip_updates.setToolTip("Select only releases that have updates or are not yet indexed")
         self.btn_chip_updates.setCursor(Qt.PointingHandCursor)
-        self.btn_chip_updates.setStyleSheet("""
-            QPushButton {
+        self.btn_chip_updates.setStyleSheet(f"""
+            QPushButton {{
                 font-size: 11px;
                 font-weight: 600;
-                color: #C2410C;
-                background-color: #FFF7ED;
-                border: 1px solid #FDBA74;
+                color: {C.ORANGE_DARK};
+                background-color: {C.WG_CT_BG};
+                border: 1px solid {C.ORANGE_BORDER};
                 border-radius: 4px;
                 padding: 3px 8px;
-            }
-            QPushButton:hover {
-                background-color: #FFEDD5;
+            }}
+            QPushButton:hover {{
+                background-color: {C.ORANGE_SOFT};
                 border-color: #FB923C;
-            }
+            }}
         """)
         self.btn_chip_updates.clicked.connect(self._select_updates_and_new)
         chips_layout.addWidget(self.btn_chip_updates)
@@ -883,19 +884,19 @@ class SpecSmartImportDialog(QDialog):
         self.btn_chip_all = QPushButton("⭐ All Releases")
         self.btn_chip_all.setToolTip("Select the latest version of all releases")
         self.btn_chip_all.setCursor(Qt.PointingHandCursor)
-        self.btn_chip_all.setStyleSheet("""
-            QPushButton {
+        self.btn_chip_all.setStyleSheet(f"""
+            QPushButton {{
                 font-size: 11px;
                 font-weight: 600;
-                color: #0369A1;
-                background-color: #F0F9FF;
-                border: 1px solid #BAE6FD;
+                color: {C.ACCENT_SKY_DARK};
+                background-color: {C.SKY_SURFACE};
+                border: 1px solid {C.SKY_BORDER};
                 border-radius: 4px;
                 padding: 3px 8px;
-            }
-            QPushButton:hover {
-                background-color: #E0F2FE;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.SKY_SOFT};
+            }}
         """)
         self.btn_chip_all.clicked.connect(self._select_all)
         chips_layout.addWidget(self.btn_chip_all)
@@ -903,19 +904,19 @@ class SpecSmartImportDialog(QDialog):
         self.btn_chip_r18 = QPushButton("Rel-18+")
         self.btn_chip_r18.setToolTip("Select Release 18 and newer (5G-Advanced & 6G)")
         self.btn_chip_r18.setCursor(Qt.PointingHandCursor)
-        self.btn_chip_r18.setStyleSheet("""
-            QPushButton {
+        self.btn_chip_r18.setStyleSheet(f"""
+            QPushButton {{
                 font-size: 11px;
                 font-weight: 600;
-                color: #4338CA;
-                background-color: #EEF2FF;
-                border: 1px solid #C7D2FE;
+                color: {C.INDIGO_DARK};
+                background-color: {C.WG_SA_BG};
+                border: 1px solid {C.WG_SA_BORDER};
                 border-radius: 4px;
                 padding: 3px 8px;
-            }
-            QPushButton:hover {
-                background-color: #E0E7FF;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.INDIGO_SOFT};
+            }}
         """)
         self.btn_chip_r18.clicked.connect(lambda: self._select_min_release(18))
         chips_layout.addWidget(self.btn_chip_r18)
@@ -923,19 +924,19 @@ class SpecSmartImportDialog(QDialog):
         self.btn_chip_r17 = QPushButton("Rel-17+")
         self.btn_chip_r17.setToolTip("Select Release 17 and newer")
         self.btn_chip_r17.setCursor(Qt.PointingHandCursor)
-        self.btn_chip_r17.setStyleSheet("""
-            QPushButton {
+        self.btn_chip_r17.setStyleSheet(f"""
+            QPushButton {{
                 font-size: 11px;
                 font-weight: 600;
-                color: #475569;
-                background-color: #F8FAFC;
-                border: 1px solid #CBD5E1;
+                color: {C.TEXT_SECONDARY};
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 3px 8px;
-            }
-            QPushButton:hover {
-                background-color: #F1F5F9;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.BG_CANVAS};
+            }}
         """)
         self.btn_chip_r17.clicked.connect(lambda: self._select_min_release(17))
         chips_layout.addWidget(self.btn_chip_r17)
@@ -943,20 +944,20 @@ class SpecSmartImportDialog(QDialog):
         self.btn_chip_clear = QPushButton("◻️ Clear")
         self.btn_chip_clear.setToolTip("Deselect all releases")
         self.btn_chip_clear.setCursor(Qt.PointingHandCursor)
-        self.btn_chip_clear.setStyleSheet("""
-            QPushButton {
+        self.btn_chip_clear.setStyleSheet(f"""
+            QPushButton {{
                 font-size: 11px;
                 font-weight: 500;
-                color: #64748B;
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+                color: {C.TEXT_MUTED};
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 3px 8px;
-            }
-            QPushButton:hover {
-                background-color: #F8FAFC;
-                color: #0F172A;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.BG_SURFACE};
+                color: {C.TEXT_PRIMARY};
+            }}
         """)
         self.btn_chip_clear.clicked.connect(self._clear_selection)
         chips_layout.addWidget(self.btn_chip_clear)
@@ -964,7 +965,7 @@ class SpecSmartImportDialog(QDialog):
         chips_layout.addStretch()
 
         self.lbl_selection_summary = QLabel("Selected: 0 release(s)")
-        self.lbl_selection_summary.setStyleSheet("font-weight: bold; font-size: 11px; color: #0284C7;")
+        self.lbl_selection_summary.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {C.ACCENT_SKY};")
         chips_layout.addWidget(self.lbl_selection_summary)
 
         layout.addLayout(chips_layout)
@@ -984,27 +985,27 @@ class SpecSmartImportDialog(QDialog):
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.table.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
-                gridline-color: #F1F5F9;
+                gridline-color: {C.BG_CANVAS};
                 font-size: 11px;
-            }
-            QTableWidget::item:selected {
-                background-color: #EBF3FC;
-                color: #0F172A;
-            }
-            QHeaderView::section {
-                background-color: #F8FAFC;
+            }}
+            QTableWidget::item:selected {{
+                background-color: {C.ACCENT_SOFT};
+                color: {C.TEXT_PRIMARY};
+            }}
+            QHeaderView::section {{
+                background-color: {C.BG_SURFACE};
                 border: none;
-                border-bottom: 1px solid #CBD5E1;
+                border-bottom: 1px solid {C.BORDER_STRONG};
                 padding: 4px 6px;
                 font-weight: bold;
                 font-size: 11px;
-                color: #334155;
-            }
+                color: {C.TEXT_BODY};
+            }}
         """)
         self.table.itemChanged.connect(self._on_table_item_changed)
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
@@ -1018,7 +1019,7 @@ class SpecSmartImportDialog(QDialog):
             "When checked, ingesting newer versions (e.g. v20.3.0) will automatically remove older\n"
             "superseded versions (e.g. v20.2.0) of that release from the search index."
         )
-        self.chk_auto_supersede.setStyleSheet("font-size: 11px; color: #334155; font-weight: 500;")
+        self.chk_auto_supersede.setStyleSheet(f"font-size: 11px; color: {C.TEXT_BODY}; font-weight: 500;")
         opt_layout.addWidget(self.chk_auto_supersede)
         opt_layout.addStretch()
         layout.addLayout(opt_layout)
@@ -1030,19 +1031,19 @@ class SpecSmartImportDialog(QDialog):
 
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.setCursor(Qt.PointingHandCursor)
-        self.btn_cancel.setStyleSheet("""
-            QPushButton {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.btn_cancel.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 6px 14px;
                 font-size: 11px;
                 font-weight: 500;
-                color: #334155;
-            }
-            QPushButton:hover {
-                background-color: #F8FAFC;
-            }
+                color: {C.TEXT_BODY};
+            }}
+            QPushButton:hover {{
+                background-color: {C.BG_SURFACE};
+            }}
         """)
         self.btn_cancel.clicked.connect(self.reject)
         btn_box.addWidget(self.btn_cancel)
@@ -1050,24 +1051,24 @@ class SpecSmartImportDialog(QDialog):
         self.btn_ingest = QPushButton("📥 Ingest Selected Releases (0)")
         self.btn_ingest.setEnabled(False)
         self.btn_ingest.setCursor(Qt.PointingHandCursor)
-        self.btn_ingest.setStyleSheet("""
-            QPushButton {
-                background-color: #0284C7;
-                color: #FFFFFF;
-                border: 1px solid #0284C7;
+        self.btn_ingest.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.ACCENT_SKY};
+                color: {C.BG_CARD};
+                border: 1px solid {C.ACCENT_SKY};
                 border-radius: 4px;
                 padding: 6px 16px;
                 font-weight: bold;
                 font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #0369A1;
-            }
-            QPushButton:disabled {
-                background-color: #CBD5E1;
-                color: #94A3B8;
-                border-color: #CBD5E1;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.ACCENT_SKY_DARK};
+            }}
+            QPushButton:disabled {{
+                background-color: {C.BORDER_STRONG};
+                color: {C.TEXT_FAINT};
+                border-color: {C.BORDER_STRONG};
+            }}
         """)
         self.btn_ingest.clicked.connect(self._on_ingest_confirmed)
         btn_box.addWidget(self.btn_ingest)
@@ -1096,7 +1097,7 @@ class SpecSmartImportDialog(QDialog):
         if not files:
             self.table.setRowCount(0)
             self.lbl_spec_title.setText(f"❌ Specification <b>TS {clean_spec}</b> was not found in 3GPP specifications database.")
-            self.lbl_spec_title.setStyleSheet("color: #DC2626; font-size: 11px;")
+            self.lbl_spec_title.setStyleSheet(f"color: {C.DANGER_ALT}; font-size: 11px;")
             self.lbl_status_badge.setVisible(False)
             self._update_selection_count()
             return
@@ -1108,7 +1109,7 @@ class SpecSmartImportDialog(QDialog):
         if self.current_spec_wg:
             title_str += f" — <i>{self.current_spec_wg}</i>"
         self.lbl_spec_title.setText(title_str)
-        self.lbl_spec_title.setStyleSheet("color: #1E293B; font-size: 11px;")
+        self.lbl_spec_title.setStyleSheet(f"color: {C.TEXT_STRONG}; font-size: 11px;")
 
         # Group files by release
         rel_files: Dict[str, Dict[str, Any]] = {}
@@ -1173,10 +1174,10 @@ class SpecSmartImportDialog(QDialog):
             })
 
         self.lbl_status_badge.setText(f"{len(self.releases_data)} releases: {updates_count} update(s), {new_count} new, {current_count} current")
-        self.lbl_status_badge.setStyleSheet("""
-            background-color: #F1F5F9;
-            color: #334155;
-            border: 1px solid #CBD5E1;
+        self.lbl_status_badge.setStyleSheet(f"""
+            background-color: {C.BG_CANVAS};
+            color: {C.TEXT_BODY};
+            border: 1px solid {C.BORDER_STRONG};
             border-radius: 4px;
             padding: 2px 8px;
             font-size: 10px;
@@ -1214,11 +1215,11 @@ class SpecSmartImportDialog(QDialog):
             status_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
             status_item.setToolTip(item["status_desc"])
             if item["status"] == "update":
-                status_item.setForeground(QColor("#C2410C"))
+                status_item.setForeground(QColor(C.ORANGE_DARK))
             elif item["status"] == "new":
-                status_item.setForeground(QColor("#0369A1"))
+                status_item.setForeground(QColor(C.ACCENT_SKY_DARK))
             else:
-                status_item.setForeground(QColor("#15803D"))
+                status_item.setForeground(QColor(C.SUCCESS))
             self.table.setItem(r, 3, status_item)
 
             d_item = QTableWidgetItem(item.get("upload_date", ""))

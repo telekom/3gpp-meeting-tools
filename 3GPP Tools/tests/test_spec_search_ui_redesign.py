@@ -223,6 +223,11 @@ class TestSpecSearchUIRedesign(unittest.TestCase):
             self.assertEqual(tab.progress_bar.height(), 4)
             self.assertFalse(tab.progress_bar.isVisible())
 
+            # Check Phase 2.2 shared ribbon + Lucide SVG icon + non-blocking toast dispatch
+            self.assertTrue(hasattr(tab, "search_ribbon"))
+            self.assertFalse(tab.btn_find_origin_cr.icon().isNull())
+            tab._on_find_origin_cr_clicked()  # No active tab -> non-blocking notify_info without modal lock
+
 
 
 if __name__ == "__main__":

@@ -26,6 +26,7 @@ from modules.word_tools.core.word_excerpt_extractor import (
     WordExcerptEngine,
 )
 from modules.meetings.core.tdocs.tdoc_markdown_converter import convert_document_to_markdown
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -118,13 +119,13 @@ def generate_clause_html_email(
             continue
         p_escaped = html.escape(p_clean).replace("\n", "<br/>")
         body_parts.append(
-            f'<p style="margin: 0 0 10px 0; font-family: Calibri, \'Segoe UI\', Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: #1e293b;">{p_escaped}</p>'
+            f'<p style="margin: 0 0 10px 0; font-family: Calibri, \'Segoe UI\', Arial, sans-serif; font-size: 11pt; line-height: 1.5; color: {C.TEXT_STRONG};">{p_escaped}</p>'
         )
     body_html = "\n".join(body_parts)
 
-    return f"""<div style="font-family: Calibri, 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #1e293b; max-width: 850px;">
-  <div style="margin: 0 0 10px 0; padding: 8px 12px; background-color: #f1f5f9; border-left: 4px solid #0284c7; border-radius: 4px;">
-    <strong style="color: #0369a1; font-size: 11.5pt;">{header_text}</strong>
+    return f"""<div style="font-family: Calibri, 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: {C.TEXT_STRONG}; max-width: 850px;">
+  <div style="margin: 0 0 10px 0; padding: 8px 12px; background-color: {C.BG_CANVAS}; border-left: 4px solid {C.ACCENT_SKY}; border-radius: 4px;">
+    <strong style="color: {C.ACCENT_SKY_DARK}; font-size: 11.5pt;">{header_text}</strong>
   </div>
   <div style="padding-left: 4px;">
     {body_html}

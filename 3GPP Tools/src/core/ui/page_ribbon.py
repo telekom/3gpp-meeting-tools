@@ -139,6 +139,11 @@ class PageRibbonCard(QFrame):
         """Add a widget to the left/main flow area of Tier 1."""
         self.primary_flow.addWidget(widget)
 
+    def add_expanding_primary_widget(self, widget: QWidget, stretch: int = 1) -> None:
+        """Add an expanding widget (e.g. search bar) directly to Tier 1's horizontal bar."""
+        idx = self.tier1_outer.indexOf(self.primary_container)
+        self.tier1_outer.insertWidget(max(0, idx), widget, stretch)
+
     def add_utility_widget(self, widget: QWidget) -> None:
         """Add a widget to the right-aligned utility strip of Tier 1."""
         self.utility_layout.addWidget(widget)

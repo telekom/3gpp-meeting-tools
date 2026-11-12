@@ -149,6 +149,13 @@ class ThemeColors:
     BG_ALT_LIGHT = "#FAFAFA"
     BORDER_GRAY = "#E0E0E0"
     ACCENT_BRAND_PINK = "#E20074"
+    SKY_SURFACE = "#F0F9FF"
+    SKY_SOFT = "#E0F2FE"
+    SKY_BORDER = "#BAE6FD"
+    HIGHLIGHT_YELLOW = "#FEF08A"
+    ORANGE_SOFT = "#FFEDD5"
+    ORANGE_BORDER = "#FDBA74"
+    ORANGE_DARK = "#C2410C"
 
 
 class ThemeTypography:
@@ -313,6 +320,13 @@ HEX_TO_TOKEN: Dict[str, str] = {
     "#FAFAFA": "BG_ALT_LIGHT",
     "#E0E0E0": "BORDER_GRAY",
     "#E20074": "ACCENT_BRAND_PINK",
+    "#F0F9FF": "SKY_SURFACE",
+    "#E0F2FE": "SKY_SOFT",
+    "#BAE6FD": "SKY_BORDER",
+    "#FEF08A": "HIGHLIGHT_YELLOW",
+    "#FFEDD5": "ORANGE_SOFT",
+    "#FDBA74": "ORANGE_BORDER",
+    "#C2410C": "ORANGE_DARK",
 }
 
 

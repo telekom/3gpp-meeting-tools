@@ -35,124 +35,125 @@ from PyQt5.QtWidgets import (
 from modules.spec_search.core.spec_clause_exporter import copy_clause_to_clipboard
 from core.ui.flow_layout import FlowLayout
 from modules.spec_search.core.spec_search_db import extract_major_release, parse_version_tuple
+from core.ui.theme import C
 
 
 # -----------------------------------------------------------------------------
 # Inspector Button Styles
 # -----------------------------------------------------------------------------
-INSPECTOR_BTN_BASE = """
-QPushButton {
+INSPECTOR_BTN_BASE = f"""
+QPushButton {{
     font-size: 11px;
     font-weight: 500;
-    color: #334155;
-    background-color: #F8FAFC;
-    border: 1px solid #CBD5E1;
+    color: {C.TEXT_BODY};
+    background-color: {C.BG_SURFACE};
+    border: 1px solid {C.BORDER_STRONG};
     border-radius: 4px;
     padding: 3px 8px;
     min-height: 22px;
-}
-QPushButton:hover {
-    background-color: #F1F5F9;
-    color: #0F172A;
-    border-color: #94A3B8;
-}
-QPushButton:disabled {
-    background-color: #F8FAFC;
-    color: #94A3B8;
-    border-color: #E2E8F0;
-}
+}}
+QPushButton:hover {{
+    background-color: {C.BG_CANVAS};
+    color: {C.TEXT_PRIMARY};
+    border-color: {C.TEXT_FAINT};
+}}
+QPushButton:disabled {{
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_FAINT};
+    border-color: {C.BORDER_SUBTLE};
+}}
 """
 
-INSPECTOR_BTN_SUCCESS = """
-QPushButton {
+INSPECTOR_BTN_SUCCESS = f"""
+QPushButton {{
     font-size: 11px;
     font-weight: 600;
-    color: #166534;
-    background-color: #F0FDF4;
-    border: 1px solid #86EFAC;
+    color: {C.SUCCESS_DARK};
+    background-color: {C.SUCCESS_SOFT};
+    border: 1px solid {C.SUCCESS_BORDER_MEDIUM};
     border-radius: 4px;
     padding: 3px 8px;
     min-height: 22px;
-}
-QPushButton:hover {
-    background-color: #DCFCE7;
+}}
+QPushButton:hover {{
+    background-color: {C.SUCCESS_SOFT_ALT};
     color: #14532D;
     border-color: #4ADE80;
-}
-QPushButton:disabled {
-    background-color: #F8FAFC;
-    color: #94A3B8;
-    border-color: #E2E8F0;
-}
+}}
+QPushButton:disabled {{
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_FAINT};
+    border-color: {C.BORDER_SUBTLE};
+}}
 """
 
-INSPECTOR_BTN_AI = """
-QPushButton {
+INSPECTOR_BTN_AI = f"""
+QPushButton {{
     font-size: 11px;
     font-weight: 600;
-    color: #6D28D9;
-    background-color: #F5F3FF;
-    border: 1px solid #DDD6FE;
+    color: {C.VIOLET_PRIMARY};
+    background-color: {C.VIOLET_SURFACE};
+    border: 1px solid {C.VIOLET_BORDER};
     border-radius: 4px;
     padding: 3px 8px;
     min-height: 22px;
-}
-QPushButton:hover {
-    background-color: #EDE9FE;
-    color: #5B21B6;
-    border-color: #C4B5FD;
-}
-QPushButton:disabled {
-    background-color: #F8FAFC;
-    color: #94A3B8;
-    border-color: #E2E8F0;
-}
+}}
+QPushButton:hover {{
+    background-color: {C.VIOLET_SOFT};
+    color: {C.VIOLET_DARK};
+    border-color: {C.VIOLET_BORDER_STRONG};
+}}
+QPushButton:disabled {{
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_FAINT};
+    border-color: {C.BORDER_SUBTLE};
+}}
 """
 
-INSPECTOR_BTN_WARNING = """
-QPushButton {
+INSPECTOR_BTN_WARNING = f"""
+QPushButton {{
     font-size: 11px;
     font-weight: 500;
-    color: #92400E;
-    background-color: #FFFBEB;
-    border: 1px solid #FDE68A;
+    color: {C.WARNING_DARK};
+    background-color: {C.WARNING_SOFT};
+    border: 1px solid {C.WARNING_BORDER};
     border-radius: 4px;
     padding: 3px 8px;
     min-height: 22px;
-}
-QPushButton:hover {
-    background-color: #FEF3C7;
+}}
+QPushButton:hover {{
+    background-color: {C.WARNING_SOFT_ALT};
     color: #78350F;
-    border-color: #F59E0B;
-}
-QPushButton:disabled {
-    background-color: #F8FAFC;
-    color: #94A3B8;
-    border-color: #E2E8F0;
-}
+    border-color: {C.WARNING_ACCENT};
+}}
+QPushButton:disabled {{
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_FAINT};
+    border-color: {C.BORDER_SUBTLE};
+}}
 """
 
-INSPECTOR_BTN_INFO = """
-QPushButton {
+INSPECTOR_BTN_INFO = f"""
+QPushButton {{
     font-size: 11px;
     font-weight: 500;
-    color: #1D4ED8;
-    background-color: #EFF6FF;
-    border: 1px solid #BFDBFE;
+    color: {C.INFO};
+    background-color: {C.INFO_SOFT};
+    border: 1px solid {C.INFO_BORDER};
     border-radius: 4px;
     padding: 3px 8px;
     min-height: 22px;
-}
-QPushButton:hover {
-    background-color: #DBEAFE;
-    color: #1E40AF;
-    border-color: #93C5FD;
-}
-QPushButton:disabled {
-    background-color: #F8FAFC;
-    color: #94A3B8;
-    border-color: #E2E8F0;
-}
+}}
+QPushButton:hover {{
+    background-color: {C.INFO_SOFT_STRONG};
+    color: {C.INFO_DARK};
+    border-color: {C.INFO_BORDER_MEDIUM};
+}}
+QPushButton:disabled {{
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_FAINT};
+    border-color: {C.BORDER_SUBTLE};
+}}
 """
 
 
@@ -177,17 +178,17 @@ class SpecEvolutionStatusDelegate(QStyledItemDelegate):
 
         # 1. Background fill
         if is_selected:
-            bg_brush = QBrush(QColor("#EBF3FC"))
+            bg_brush = QBrush(QColor(C.ACCENT_SOFT))
         elif is_hover:
-            bg_brush = QBrush(QColor("#F8FAFC"))
+            bg_brush = QBrush(QColor(C.BG_SURFACE))
         elif index.row() % 2 == 1:
-            bg_brush = QBrush(QColor("#F8FAFC"))
+            bg_brush = QBrush(QColor(C.BG_SURFACE))
         else:
-            bg_brush = QBrush(QColor("#FFFFFF"))
+            bg_brush = QBrush(QColor(C.BG_CARD))
         painter.fillRect(option.rect, bg_brush)
 
         # Subtle bottom separator line
-        painter.setPen(QPen(QColor("#F1F5F9"), 1))
+        painter.setPen(QPen(QColor(C.BG_CANVAS), 1))
         painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
 
         # 2. Cell Content
@@ -195,40 +196,40 @@ class SpecEvolutionStatusDelegate(QStyledItemDelegate):
             val = str(index.data(Qt.DisplayRole) or "")
             text_rect = option.rect.adjusted(8, 0, -8, 0)
             painter.setFont(QFont("Segoe UI", 9, QFont.Bold))
-            painter.setPen(QColor("#0284C7" if not is_selected else "#0369A1"))
+            painter.setPen(QColor(C.ACCENT_SKY if not is_selected else C.ACCENT_SKY_DARK))
             painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, val)
         elif col == 1:
             val = str(index.data(Qt.DisplayRole) or "")
             text_rect = option.rect.adjusted(8, 0, -8, 0)
             painter.setFont(QFont("Segoe UI", 9, QFont.Normal))
-            painter.setPen(QColor("#0F172A" if not is_selected else "#1E293B"))
+            painter.setPen(QColor(C.TEXT_PRIMARY if not is_selected else C.TEXT_STRONG))
             painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, val)
         else:
             display_text = str(index.data(Qt.DisplayRole) or "").strip()
             if not display_text or display_text in ("-", "—"):
                 painter.setFont(QFont("Segoe UI", 10, QFont.Normal))
-                painter.setPen(QColor("#CBD5E1"))
+                painter.setPen(QColor(C.BORDER_STRONG))
                 painter.drawText(option.rect, Qt.AlignCenter, "—")
             else:
                 if "Post-Cutoff" in display_text or "⚡" in display_text:
-                    pill_bg = QColor("#FEF3C7")
-                    pill_border = QColor("#FDE68A")
-                    pill_fg = QColor("#B45309")
+                    pill_bg = QColor(C.WARNING_SOFT_ALT)
+                    pill_border = QColor(C.WARNING_BORDER)
+                    pill_fg = QColor(C.WARNING)
                     badge_label = "⚡ Post-Cutoff"
                 elif "Added" in display_text or "🟢" in display_text:
-                    pill_bg = QColor("#DCFCE7")
-                    pill_border = QColor("#86EFAC")
-                    pill_fg = QColor("#15803D")
+                    pill_bg = QColor(C.SUCCESS_SOFT_ALT)
+                    pill_border = QColor(C.SUCCESS_BORDER_MEDIUM)
+                    pill_fg = QColor(C.SUCCESS)
                     badge_label = "🟢 Added"
                 elif "Present" in display_text or "✓" in display_text:
-                    pill_bg = QColor("#F1F5F9")
-                    pill_border = QColor("#E2E8F0")
-                    pill_fg = QColor("#475569")
+                    pill_bg = QColor(C.BG_CANVAS)
+                    pill_border = QColor(C.BORDER_SUBTLE)
+                    pill_fg = QColor(C.TEXT_SECONDARY)
                     badge_label = "✓ Present"
                 else:
-                    pill_bg = QColor("#F8FAFC")
-                    pill_border = QColor("#E2E8F0")
-                    pill_fg = QColor("#334155")
+                    pill_bg = QColor(C.BG_SURFACE)
+                    pill_border = QColor(C.BORDER_SUBTLE)
+                    pill_fg = QColor(C.TEXT_BODY)
                     badge_label = display_text
 
                 pill_font = QFont("Segoe UI", 8, QFont.Bold)
@@ -287,37 +288,37 @@ class ReleasePillWidget(QPushButton):
 
     def _update_style(self):
         if self.isChecked():
-            self.setStyleSheet("""
-                QPushButton {
-                    background-color: #0284C7;
-                    color: #FFFFFF;
-                    border: 1px solid #0284C7;
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {C.ACCENT_SKY};
+                    color: {C.BG_CARD};
+                    border: 1px solid {C.ACCENT_SKY};
                     border-radius: 11px;
                     padding: 1px 7px;
                     font-size: 11px;
                     font-weight: 600;
-                }
-                QPushButton:hover {
-                    background-color: #0369A1;
-                    border-color: #0369A1;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {C.ACCENT_SKY_DARK};
+                    border-color: {C.ACCENT_SKY_DARK};
+                }}
             """)
         else:
-            self.setStyleSheet("""
-                QPushButton {
-                    background-color: #F8FAFC;
-                    color: #64748B;
-                    border: 1px solid #CBD5E1;
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {C.BG_SURFACE};
+                    color: {C.TEXT_MUTED};
+                    border: 1px solid {C.BORDER_STRONG};
                     border-radius: 11px;
                     padding: 1px 7px;
                     font-size: 11px;
                     font-weight: 500;
-                }
-                QPushButton:hover {
-                    background-color: #F1F5F9;
-                    color: #0F172A;
-                    border-color: #94A3B8;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {C.BG_CANVAS};
+                    color: {C.TEXT_PRIMARY};
+                    border-color: {C.TEXT_FAINT};
+                }}
             """)
 
 
@@ -346,15 +347,15 @@ class SpecCardWidget(QFrame):
         self._updating_checks = False
 
         self.setObjectName("SpecCard")
-        self.setStyleSheet("""
-            QFrame#SpecCard {
-                background-color: #FFFFFF;
-                border: 1px solid #E2E8F0;
+        self.setStyleSheet(f"""
+            QFrame#SpecCard {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 6px;
-            }
-            QFrame#SpecCard:hover {
-                border-color: #CBD5E1;
-            }
+            }}
+            QFrame#SpecCard:hover {{
+                border-color: {C.BORDER_STRONG};
+            }}
         """)
 
         layout = QVBoxLayout(self)
@@ -376,7 +377,7 @@ class SpecCardWidget(QFrame):
         font_spec.setBold(True)
         font_spec.setPointSize(9)
         lbl_spec.setFont(font_spec)
-        lbl_spec.setStyleSheet("color: #0F172A;")
+        lbl_spec.setStyleSheet(f"color: {C.TEXT_PRIMARY};")
         hdr.addWidget(lbl_spec)
 
         clean_title = re.sub(r'^(NR;\s*|LTE;\s*|Universal Mobile Telecommunications System \(UMTS\);\s*)', '', title, flags=re.IGNORECASE).strip()
@@ -386,16 +387,16 @@ class SpecCardWidget(QFrame):
             display_title = display_title[:35].rstrip() + "…"
 
         self.lbl_title = QLabel(display_title)
-        self.lbl_title.setStyleSheet("color: #64748B; font-size: 11px;")
+        self.lbl_title.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         if title:
             self.lbl_title.setToolTip(f"TS {spec_number}: {title}\n{len(versions)} indexed release(s)")
         hdr.addWidget(self.lbl_title, stretch=1)
 
         self.badge = QLabel(str(len(versions)))
-        self.badge.setStyleSheet("""
-            background-color: #F1F5F9;
-            color: #475569;
-            border: 1px solid #E2E8F0;
+        self.badge.setStyleSheet(f"""
+            background-color: {C.BG_CANVAS};
+            color: {C.TEXT_SECONDARY};
+            border: 1px solid {C.BORDER_SUBTLE};
             border-radius: 8px;
             padding: 1px 6px;
             font-size: 10px;
@@ -406,20 +407,20 @@ class SpecCardWidget(QFrame):
         self.btn_opt = QToolButton()
         self.btn_opt.setText("⋮")
         self.btn_opt.setCursor(Qt.PointingHandCursor)
-        self.btn_opt.setStyleSheet("""
-            QToolButton {
+        self.btn_opt.setStyleSheet(f"""
+            QToolButton {{
                 border: none;
                 background: transparent;
-                color: #64748B;
+                color: {C.TEXT_MUTED};
                 font-weight: bold;
                 font-size: 12px;
                 padding: 0px 2px;
-            }
-            QToolButton:hover {
-                color: #0F172A;
-                background-color: #F1F5F9;
+            }}
+            QToolButton:hover {{
+                color: {C.TEXT_PRIMARY};
+                background-color: {C.BG_CANVAS};
                 border-radius: 3px;
-            }
+            }}
         """)
         self.btn_opt.clicked.connect(self._show_options_menu)
         hdr.addWidget(self.btn_opt)
@@ -649,16 +650,16 @@ class SpecSearchVersionCardsWidget(QScrollArea):
         super().__init__(parent)
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
-        self.setStyleSheet("""
-            QScrollArea {
-                border: 1px solid #CBD5E1;
+        self.setStyleSheet(f"""
+            QScrollArea {{
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
-                background-color: #F8FAFC;
-            }
+                background-color: {C.BG_SURFACE};
+            }}
         """)
 
         self.container = QWidget()
-        self.container.setStyleSheet("background-color: #F8FAFC;")
+        self.container.setStyleSheet(f"background-color: {C.BG_SURFACE};")
         self.cards_layout = QVBoxLayout(self.container)
         self.cards_layout.setContentsMargins(4, 4, 4, 4)
         self.cards_layout.setSpacing(6)
@@ -891,22 +892,22 @@ class SpecClauseInspector(QGroupBox):
         self._prev_ver = ""
         self._is_side_by_side = False
         self._is_maximized = False
-        self.setStyleSheet("""
-            QGroupBox {
+        self.setStyleSheet(f"""
+            QGroupBox {{
                 font-weight: bold;
                 font-size: 12px;
-                color: #1E293B;
-                border: 1px solid #CBD5E1;
+                color: {C.TEXT_STRONG};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 margin-top: 6px;
                 padding-top: 10px;
-                background-color: #FFFFFF;
-            }
-            QGroupBox::title {
+                background-color: {C.BG_CARD};
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 4px;
-            }
+            }}
         """)
         self._setup_ui()
 
@@ -922,27 +923,27 @@ class SpecClauseInspector(QGroupBox):
         tier1_bar.setSpacing(6)
 
         self.title_lbl = QLabel("No clause selected")
-        self.title_lbl.setStyleSheet("font-weight: bold; color: #0284C7; font-size: 12px;")
+        self.title_lbl.setStyleSheet(f"font-weight: bold; color: {C.ACCENT_SKY}; font-size: 12px;")
         tier1_bar.addWidget(self.title_lbl, stretch=1)
 
         # Clickable First Introduced Chip
         self.first_added_badge = QPushButton("")
         self.first_added_badge.setCursor(Qt.PointingHandCursor)
         self.first_added_badge.setToolTip("Click to jump directly to the version where this clause was first introduced")
-        self.first_added_badge.setStyleSheet("""
-            QPushButton {
+        self.first_added_badge.setStyleSheet(f"""
+            QPushButton {{
                 font-weight: bold;
                 font-size: 11px;
-                background-color: #DCFCE7;
-                color: #15803D;
-                border: 1px solid #86EFAC;
+                background-color: {C.SUCCESS_SOFT_ALT};
+                color: {C.SUCCESS};
+                border: 1px solid {C.SUCCESS_BORDER_MEDIUM};
                 padding: 1px 8px;
                 border-radius: 10px;
-            }
-            QPushButton:hover {
-                background-color: #BBF7D0;
+            }}
+            QPushButton:hover {{
+                background-color: {C.SUCCESS_BORDER};
                 border-color: #4ADE80;
-            }
+            }}
         """)
         self.first_added_badge.setVisible(False)
         self.first_added_badge.clicked.connect(self._on_first_added_clicked)
@@ -950,7 +951,7 @@ class SpecClauseInspector(QGroupBox):
 
         # Match navigation group
         self.match_badge = QLabel("")
-        self.match_badge.setStyleSheet("font-weight: bold; font-size: 11px; color: #B45309; background-color: #FEF3C7; border: 1px solid #FDE68A; padding: 2px 6px; border-radius: 4px;")
+        self.match_badge.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {C.WARNING}; background-color: {C.WARNING_SOFT_ALT}; border: 1px solid {C.WARNING_BORDER}; padding: 2px 6px; border-radius: 4px;")
         self.match_badge.setVisible(False)
         tier1_bar.addWidget(self.match_badge)
 
@@ -1032,7 +1033,7 @@ class SpecClauseInspector(QGroupBox):
         # Separator line
         sep1 = QFrame()
         sep1.setFrameShape(QFrame.VLine)
-        sep1.setStyleSheet("color: #E2E8F0;")
+        sep1.setStyleSheet(f"color: {C.BORDER_SUBTLE};")
         tier2_bar.addWidget(sep1)
 
         # Group 2: Full Document & Specs Catalogue
@@ -1063,7 +1064,7 @@ class SpecClauseInspector(QGroupBox):
         # Separator line
         sep2 = QFrame()
         sep2.setFrameShape(QFrame.VLine)
-        sep2.setStyleSheet("color: #E2E8F0;")
+        sep2.setStyleSheet(f"color: {C.BORDER_SUBTLE};")
         tier2_bar.addWidget(sep2)
 
         # Group 3: Comparison & LLM Analysis
@@ -1107,13 +1108,13 @@ class SpecClauseInspector(QGroupBox):
         self.browser.setReadOnly(True)
         self.browser.setOpenExternalLinks(True)
         self.browser.setPlaceholderText("Select a cell in the evolution matrix above to inspect the full clause content and match context...")
-        self.browser.setStyleSheet("""
-            QTextBrowser {
-                border: 1px solid #E2E8F0;
+        self.browser.setStyleSheet(f"""
+            QTextBrowser {{
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 4px;
-                background-color: #FFFFFF;
+                background-color: {C.BG_CARD};
                 padding: 6px;
-            }
+            }}
         """)
         layout.addWidget(self.browser)
 
@@ -1248,18 +1249,18 @@ class SpecClauseInspector(QGroupBox):
         if self._current_search_query:
             pattern = re.compile(re.escape(html.escape(self._current_search_query)), re.IGNORECASE)
             escaped_content = pattern.sub(
-                lambda m: f'<mark style="background-color: #FEF08A; font-weight: bold; padding: 1px 4px; border-radius: 2px; color: #0F172A;">{m.group(0)}</mark>',
+                lambda m: f'<mark style="background-color: {C.HIGHLIGHT_YELLOW}; font-weight: bold; padding: 1px 4px; border-radius: 2px; color: {C.TEXT_PRIMARY};">{m.group(0)}</mark>',
                 escaped_content,
             )
 
         formatted_html = f"""
         <html>
-        <body style="font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; line-height: 1.6; color: #1E293B; margin: 4px;">
+        <body style="font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; line-height: 1.6; color: {C.TEXT_STRONG}; margin: 4px;">
             {excerpt_html}
-            <div style="background-color: #F1F5F9; border-left: 4px solid #0284C7; border-radius: 4px; padding: 6px 12px; margin: 8px 0 10px 0;">
-                <span style="color: #0369A1; font-weight: bold; font-size: 13px;">Clause {clause_number}: {html.escape(clause_title)}</span>
+            <div style="background-color: {C.BG_CANVAS}; border-left: 4px solid {C.ACCENT_SKY}; border-radius: 4px; padding: 6px 12px; margin: 8px 0 10px 0;">
+                <span style="color: {C.ACCENT_SKY_DARK}; font-weight: bold; font-size: 13px;">Clause {clause_number}: {html.escape(clause_title)}</span>
             </div>
-            <pre style="white-space: pre-wrap; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #334155; line-height: 1.6;">{escaped_content}</pre>
+            <pre style="white-space: pre-wrap; font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: {C.TEXT_BODY}; line-height: 1.6;">{escaped_content}</pre>
         </body>
         </html>
         """
@@ -1326,39 +1327,39 @@ class SpecClauseInspector(QGroupBox):
             escaped_excerpt = html.escape(target_excerpt)
             pattern = re.compile(re.escape(html.escape(query)), re.IGNORECASE)
             highlighted_excerpt = pattern.sub(
-                lambda m: f'<mark style="background-color: #FEF08A; font-weight: bold; padding: 1px 4px; border-radius: 2px; color: #0F172A;">{m.group(0)}</mark>',
+                lambda m: f'<mark style="background-color: {C.HIGHLIGHT_YELLOW}; font-weight: bold; padding: 1px 4px; border-radius: 2px; color: {C.TEXT_PRIMARY};">{m.group(0)}</mark>',
                 escaped_excerpt,
             )
             return f"""
-            <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 4px solid #0284C7; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px;">
-                <div style="font-weight: 600; color: #0369A1; font-size: 11px; margin-bottom: 3px;">💡 Key Match Excerpt & Context:</div>
-                <div style="color: #1E293B; font-size: 12px; line-height: 1.55;">{highlighted_excerpt}</div>
+            <div style="background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-left: 4px solid {C.ACCENT_SKY}; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px;">
+                <div style="font-weight: 600; color: {C.ACCENT_SKY_DARK}; font-size: 11px; margin-bottom: 3px;">💡 Key Match Excerpt & Context:</div>
+                <div style="color: {C.TEXT_STRONG}; font-size: 12px; line-height: 1.55;">{highlighted_excerpt}</div>
             </div>
             """
         elif clause_title and query.lower() in clause_title.lower():
             escaped_title = html.escape(clause_title)
             pattern = re.compile(re.escape(html.escape(query)), re.IGNORECASE)
             highlighted_title = pattern.sub(
-                lambda m: f'<mark style="background-color: #FEF08A; font-weight: bold; padding: 1px 4px; border-radius: 2px; color: #0F172A;">{m.group(0)}</mark>',
+                lambda m: f'<mark style="background-color: {C.HIGHLIGHT_YELLOW}; font-weight: bold; padding: 1px 4px; border-radius: 2px; color: {C.TEXT_PRIMARY};">{m.group(0)}</mark>',
                 escaped_title,
             )
             return f"""
-            <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 4px solid #0284C7; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px;">
-                <div style="font-weight: 600; color: #0369A1; font-size: 11px; margin-bottom: 3px;">💡 Match Location:</div>
-                <div style="color: #1E293B; font-size: 12px; line-height: 1.55;">Query matches the <b>Clause Title</b>: {highlighted_title}</div>
+            <div style="background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-left: 4px solid {C.ACCENT_SKY}; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px;">
+                <div style="font-weight: 600; color: {C.ACCENT_SKY_DARK}; font-size: 11px; margin-bottom: 3px;">💡 Match Location:</div>
+                <div style="color: {C.TEXT_STRONG}; font-size: 12px; line-height: 1.55;">Query matches the <b>Clause Title</b>: {highlighted_title}</div>
             </div>
             """
         elif matched_paras:
             escaped_excerpt = html.escape(matched_paras[0])
             pattern = re.compile(re.escape(html.escape(query)), re.IGNORECASE)
             highlighted_excerpt = pattern.sub(
-                lambda m: f'<mark style="background-color: #FEF08A; font-weight: bold; padding: 1px 4px; border-radius: 2px; color: #0F172A;">{m.group(0)}</mark>',
+                lambda m: f'<mark style="background-color: {C.HIGHLIGHT_YELLOW}; font-weight: bold; padding: 1px 4px; border-radius: 2px; color: {C.TEXT_PRIMARY};">{m.group(0)}</mark>',
                 escaped_excerpt,
             )
             return f"""
-            <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 4px solid #0284C7; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px;">
-                <div style="font-weight: 600; color: #0369A1; font-size: 11px; margin-bottom: 3px;">💡 Key Match Excerpt & Context:</div>
-                <div style="color: #1E293B; font-size: 12px; line-height: 1.55;">{highlighted_excerpt}</div>
+            <div style="background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-left: 4px solid {C.ACCENT_SKY}; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px;">
+                <div style="font-weight: 600; color: {C.ACCENT_SKY_DARK}; font-size: 11px; margin-bottom: 3px;">💡 Key Match Excerpt & Context:</div>
+                <div style="color: {C.TEXT_STRONG}; font-size: 12px; line-height: 1.55;">{highlighted_excerpt}</div>
             </div>
             """
         return ""
