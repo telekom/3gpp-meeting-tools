@@ -8,6 +8,7 @@ from PyQt5.QtCore import Qt, QSize, pyqtSignal, QTimer
 from PyQt5.QtWidgets import (
     QDialog,
     QLabel,
+    QMenu,
     QPushButton,
     QStatusBar,
     QWidget,
@@ -24,15 +25,39 @@ from core.ui.ui_components import ProxyDialog
 logger = logging.getLogger(__name__)
 
 
+def _status_pill_qss(
+    bg: str = "transparent",
+    fg: str = C.TEXT_MUTED,
+    bd: str = C.BORDER_STRONG,
+    hover_bg: str = C.BG_CANVAS,
+    hover_bd: str = C.BORDER_HOVER,
+) -> str:
+    """Build consistent DPI-friendly status bar pill QSS."""
+    return (
+        f"QPushButton {{"
+        f" background-color: {bg}; border: 1px solid {bd}; border-radius: {R.SM}px;"
+        f" padding: 2px 8px; font-family: {T.FONT_FAMILY_UI}; font-size: {T.SIZE_CAPTION}px;"
+        f" font-weight: 600; color: {fg};"
+        f"}}"
+        f"QPushButton:hover {{ background-color: {hover_bg}; border-color: {hover_bd}; }}"
+        f"QPushButton::menu-indicator {{ image: none; width: 0px; }}"
+    )
+
+
 class SystemStatusBar(QStatusBar):
     """
     Manages application status, background connectivity monitors,
-    and interactive status indicator pills (Ollama, Proxy, Network).
+    System tools menu, Console & Queue drawer badge toggle,
+    and interactive status indicator pills (Ollama, MCP, Proxy, Network).
     """
 
     proxy_changed = pyqtSignal()
     reinit_requested = pyqtSignal()
     drawer_toggle_requested = pyqtSignal()
+    task_manager_requested = pyqtSignal()
+    db_maintenance_requested = pyqtSignal()
+    network_config_requested = pyqtSignal()
+    java_info_requested = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -54,21 +79,7 @@ class SystemStatusBar(QStatusBar):
         self.ollama_indicator = QPushButton(initial_ollama_text)
         self.ollama_indicator.setCursor(Qt.PointingHandCursor)
         self.ollama_indicator.setToolTip("Click to configure Ollama LLM connection")
-        self.ollama_indicator.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                border: 1px solid #CBD5E1;
-                border-radius: 4px;
-                padding: 1px 8px;
-                font-size: 11px;
-                font-weight: bold;
-                color: #64748B;
-            }
-            QPushButton:hover {
-                background-color: #F1F5F9;
-                border-color: #94A3B8;
-            }
-        """)
+        self.ollama_indicator.setStyleSheet(_status_pill_qss())
         self.ollama_indicator.clicked.connect(self.open_ollama_settings)
         self.addPermanentWidget(self.ollama_indicator)
 
@@ -76,36 +87,41 @@ class SystemStatusBar(QStatusBar):
         self.mcp_indicator = QPushButton("🤖 MCP: Idle")
         self.mcp_indicator.setCursor(Qt.PointingHandCursor)
         self.mcp_indicator.setToolTip("Click to inspect MCP Server activity & external AI agents (Claude, Codex)")
-        self.mcp_indicator.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                border: 1px solid #CBD5E1;
-                border-radius: 4px;
-                padding: 1px 8px;
-                font-size: 11px;
-                font-weight: bold;
-                color: #64748B;
-            }
-            QPushButton:hover {
-                background-color: #F1F5F9;
-                border-color: #94A3B8;
-            }
-        """)
+        self.mcp_indicator.setStyleSheet(_status_pill_qss())
         self.mcp_indicator.clicked.connect(self.open_mcp_monitor)
         self.addPermanentWidget(self.mcp_indicator)
 
         # 3. Proxy Indicator Pill
         self.proxy_indicator = QPushButton("🌐 Direct")
         self.proxy_indicator.setCursor(Qt.PointingHandCursor)
+        self.proxy_indicator.setStyleSheet(_status_pill_qss())
         self.proxy_indicator.clicked.connect(self.open_proxy_settings)
         self.addPermanentWidget(self.proxy_indicator)
 
-        # 3. Network Indicator
+        # 4. Network Indicator
         self.network_indicator = QLabel("📶 Network")
-        self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
+        self.network_indicator.setStyleSheet(
+            f"color: {C.TEXT_MUTED}; font-size: {T.SIZE_CAPTION}px; padding: 0 8px;"
+        )
         self.addPermanentWidget(self.network_indicator)
 
-        # 4. Collapsible Bottom Drawer Toggle (Console & Queue + Badges)
+        # 5. System Tools Menu Pill (Task Manager, Database, Proxy, Network, Java, MCP)
+        self.system_btn = QPushButton("System")
+        self.system_btn.setObjectName("statusSystemMenuBtn")
+        self.system_btn.setCursor(Qt.PointingHandCursor)
+        self.system_btn.setIcon(
+            lucide_icon("wrench", color=C.TEXT_SECONDARY, active_color=C.ACCENT_PRIMARY, size=14)
+        )
+        self.system_btn.setIconSize(QSize(14, 14))
+        self.system_btn.setToolTip("System diagnostics and maintenance tools (COM Task Manager, Database, Proxy, Network, Java, MCP)")
+        self.system_btn.setStyleSheet(_status_pill_qss(bg=C.BG_SURFACE, fg=C.TEXT_BODY))
+        self.system_menu = QMenu(self)
+        self.system_menu.setToolTipsVisible(True)
+        self._populate_system_menu()
+        self.system_btn.setMenu(self.system_menu)
+        self.addPermanentWidget(self.system_btn)
+
+        # 6. Collapsible Bottom Drawer Toggle (Console & Queue + Badges)
         self.drawer_toggle_btn = QPushButton("Console && Queue")
         self.drawer_toggle_btn.setObjectName("statusDrawerToggleBtn")
         self.drawer_toggle_btn.setCheckable(True)
@@ -130,6 +146,16 @@ class SystemStatusBar(QStatusBar):
         self.mcp_timer.timeout.connect(self.update_mcp_indicator)
         self.mcp_timer.start()
         self.update_mcp_indicator()
+
+    def _populate_system_menu(self) -> None:
+        """Populate the status-bar System tools dropdown menu."""
+        self.system_menu.clear()
+        self.system_menu.addAction("🖥️ Task Manager...", self.task_manager_requested.emit)
+        self.system_menu.addAction("🗄️ Database...", self.db_maintenance_requested.emit)
+        self.system_menu.addAction("📡 Proxy...", self.open_proxy_settings)
+        self.system_menu.addAction("⚙️ Network...", self.network_config_requested.emit)
+        self.system_menu.addAction("☕ Java...", self.java_info_requested.emit)
+        self.system_menu.addAction("🤖 MCP...", self.open_mcp_monitor)
 
     def update_drawer_badge(self, opened: bool, queue_count: int, unread_errors: int) -> None:
         """Update the status-bar Console & Queue pill text, active state, and error/queue badges."""
@@ -213,21 +239,15 @@ class SystemStatusBar(QStatusBar):
 
             self.proxy_indicator.setText("🛡️ Proxy: ON")
             self.proxy_indicator.setToolTip(tooltip)
-            self.proxy_indicator.setStyleSheet("""
-                QPushButton {
-                    background-color: #EBF8FF;
-                    border: 1px solid #90CDF4;
-                    border-radius: 4px;
-                    padding: 1px 8px;
-                    font-size: 11px;
-                    font-weight: bold;
-                    color: #1E5C99;
-                }
-                QPushButton:hover {
-                    background-color: #BEE3F8;
-                    border-color: #63B3ED;
-                }
-            """)
+            self.proxy_indicator.setStyleSheet(
+                _status_pill_qss(
+                    bg=C.INFO_SOFT_ALT,
+                    fg=C.ACCENT_PRIMARY,
+                    bd=C.INFO_BORDER_SKY,
+                    hover_bg=C.INFO_BORDER_ALT,
+                    hover_bd=C.ACCENT_SKY,
+                )
+            )
             if console_panel:
                 console_panel.set_proxy_status(True, tooltip)
         else:
@@ -238,21 +258,7 @@ class SystemStatusBar(QStatusBar):
 
             self.proxy_indicator.setText("🌐 Direct")
             self.proxy_indicator.setToolTip(tooltip)
-            self.proxy_indicator.setStyleSheet("""
-                QPushButton {
-                    background-color: transparent;
-                    border: 1px solid #CBD5E1;
-                    border-radius: 4px;
-                    padding: 1px 8px;
-                    font-size: 11px;
-                    font-weight: bold;
-                    color: #64748B;
-                }
-                QPushButton:hover {
-                    background-color: #F1F5F9;
-                    border-color: #94A3B8;
-                }
-            """)
+            self.proxy_indicator.setStyleSheet(_status_pill_qss())
             if console_panel:
                 console_panel.set_proxy_status(False, tooltip)
 
@@ -296,53 +302,47 @@ class SystemStatusBar(QStatusBar):
     def _update_network_indicator(self, ssid: str, is_3gpp: bool, server_reachable: bool):
         if is_3gpp and server_reachable:
             self.network_indicator.setText(f"🟢 {ssid} (Local Server Active)")
-            self.network_indicator.setStyleSheet("color: #2e7d32; font-weight: bold; padding: 0 10px;")
+            self.network_indicator.setStyleSheet(
+                f"color: {C.SUCCESS}; font-size: {T.SIZE_CAPTION}px; font-weight: 600; padding: 0 8px;"
+            )
         elif is_3gpp and not server_reachable:
             self.network_indicator.setText(f"🟡 {ssid} (No Local Server)")
-            self.network_indicator.setStyleSheet("color: #b8860b; font-weight: bold; padding: 0 10px;")
+            self.network_indicator.setStyleSheet(
+                f"color: {C.WARNING}; font-size: {T.SIZE_CAPTION}px; font-weight: 600; padding: 0 8px;"
+            )
         else:
             display_name = ssid if ssid else "Offline"
             self.network_indicator.setText(f"🌐 {display_name}")
-            self.network_indicator.setStyleSheet("color: gray; padding: 0 10px;")
+            self.network_indicator.setStyleSheet(
+                f"color: {C.TEXT_MUTED}; font-size: {T.SIZE_CAPTION}px; padding: 0 8px;"
+            )
 
     def _update_ollama_indicator(self, is_online: bool, selected_model: str, models: list, error: str):
         if is_online:
             model_display = selected_model if selected_model else (models[0] if models else "Connected")
             self.ollama_indicator.setText(f"🦙 {model_display}")
             self.ollama_indicator.setToolTip(f"Ollama Online ({len(models)} models available)\nClick to configure")
-            self.ollama_indicator.setStyleSheet("""
-                QPushButton {
-                    background-color: #F0FDF4;
-                    border: 1px solid #BBF7D0;
-                    border-radius: 4px;
-                    padding: 1px 8px;
-                    font-size: 11px;
-                    font-weight: bold;
-                    color: #15803D;
-                }
-                QPushButton:hover {
-                    background-color: #DCFCE7;
-                    border-color: #86EFAC;
-                }
-            """)
+            self.ollama_indicator.setStyleSheet(
+                _status_pill_qss(
+                    bg=C.SUCCESS_SOFT,
+                    fg=C.SUCCESS,
+                    bd=C.SUCCESS_BORDER,
+                    hover_bg=C.SUCCESS_SOFT_ALT,
+                    hover_bd=C.SUCCESS_BORDER_MINT,
+                )
+            )
         else:
             self.ollama_indicator.setText("🦙 Offline")
             self.ollama_indicator.setToolTip(f"Ollama Unreachable: {error}\nClick to configure")
-            self.ollama_indicator.setStyleSheet("""
-                QPushButton {
-                    background-color: #FEF2F2;
-                    border: 1px solid #FECACA;
-                    border-radius: 4px;
-                    padding: 1px 8px;
-                    font-size: 11px;
-                    font-weight: bold;
-                    color: #DC2626;
-                }
-                QPushButton:hover {
-                    background-color: #FEE2E2;
-                    border-color: #FCA5A5;
-                }
-            """)
+            self.ollama_indicator.setStyleSheet(
+                _status_pill_qss(
+                    bg=C.DANGER_SOFT,
+                    fg=C.DANGER_ALT,
+                    bd=C.DANGER_BORDER,
+                    hover_bg=C.DANGER_SOFT_HOVER,
+                    hover_bd=C.DANGER_BORDER_ALT,
+                )
+            )
 
     def open_ollama_settings(self):
         """Opens Ollama connection, model preferences, and service management dialog."""
@@ -388,21 +388,15 @@ class SystemStatusBar(QStatusBar):
                 )
                 self.mcp_indicator.setText(text)
                 self.mcp_indicator.setToolTip(tooltip)
-                self.mcp_indicator.setStyleSheet("""
-                    QPushButton {
-                        background-color: #F0FDF4;
-                        border: 1px solid #86EFAC;
-                        border-radius: 4px;
-                        padding: 1px 8px;
-                        font-size: 11px;
-                        font-weight: bold;
-                        color: #15803D;
-                    }
-                    QPushButton:hover {
-                        background-color: #DCFCE7;
-                        border-color: #4ADE80;
-                    }
-                """)
+                self.mcp_indicator.setStyleSheet(
+                    _status_pill_qss(
+                        bg=C.SUCCESS_SOFT,
+                        fg=C.SUCCESS,
+                        bd=C.SUCCESS_BORDER,
+                        hover_bg=C.SUCCESS_SOFT_ALT,
+                        hover_bd=C.SUCCESS_BORDER_MINT,
+                    )
+                )
             else:
                 text = f"🤖 MCP: {total_calls} calls" if total_calls > 0 else "🤖 MCP: Idle"
                 tooltip = (
@@ -412,21 +406,7 @@ class SystemStatusBar(QStatusBar):
                 )
                 self.mcp_indicator.setText(text)
                 self.mcp_indicator.setToolTip(tooltip)
-                self.mcp_indicator.setStyleSheet("""
-                    QPushButton {
-                        background-color: transparent;
-                        border: 1px solid #CBD5E1;
-                        border-radius: 4px;
-                        padding: 1px 8px;
-                        font-size: 11px;
-                        font-weight: bold;
-                        color: #64748B;
-                    }
-                    QPushButton:hover {
-                        background-color: #F1F5F9;
-                        border-color: #94A3B8;
-                    }
-                """)
+                self.mcp_indicator.setStyleSheet(_status_pill_qss())
         except Exception:
             pass
 

@@ -363,6 +363,10 @@ class DragDropUI(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.reinit_requested.connect(self._on_status_reinit_requested)
         self.status_bar.drawer_toggle_requested.connect(self.toggle_bottom_drawer)
+        self.status_bar.task_manager_requested.connect(self.open_task_manager)
+        self.status_bar.db_maintenance_requested.connect(self.open_db_maintenance)
+        self.status_bar.network_config_requested.connect(lambda: NetworkConfigDialog(self).exec_())
+        self.status_bar.java_info_requested.connect(self.open_java_maintenance)
         self.status_bar.update_proxy_indicator(self.console_panel)
         self.status_bar.update_drawer_badge(
             self.bottom_drawer.is_open,

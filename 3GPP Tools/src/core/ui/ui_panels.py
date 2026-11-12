@@ -16,6 +16,7 @@ from PyQt5.QtGui import QColor, QBrush, QFont
 
 from core.process_manager import ProcessManager
 from core.ui.database_inspector import DatabaseInspectorDialog
+from core.ui.theme import C, R, T
 from core.ui.ui_components import (
     TREE_STYLE_CLEAN,
     BUTTON_STYLE_TOOLBAR_SECONDARY,
@@ -121,6 +122,16 @@ from core.ui.process_manager_dialog import ProcessManagerDialog
 from core.ui.mcp_monitor_dialog import McpMonitorDialog
 
 
+def _panel_btn_qss() -> str:
+    return (
+        f"QPushButton {{ background-color: {C.BG_SURFACE}; color: {C.TEXT_BODY}; "
+        f"border: 1px solid {C.BORDER_STRONG}; border-radius: {R.SM}px; "
+        f"padding: 3px 10px; font-family: {T.FONT_FAMILY_UI}; "
+        f"font-size: {T.SIZE_CAPTION}px; font-weight: 500; }}"
+        f"QPushButton:hover {{ background-color: {C.BG_CANVAS}; border-color: {C.BORDER_HOVER}; }}"
+    )
+
+
 # ==========================================
 # --- CONSOLE PANEL ---
 # ==========================================
@@ -139,61 +150,31 @@ class ConsolePanel(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout()
-        layout.setContentsMargins(0, 5, 0, 0)
+        layout.setContentsMargins(0, 4, 0, 0)
 
         header = QHBoxLayout()
         lbl = QLabel("Terminal Output")
-        lbl.setStyleSheet("font-weight: bold; color: #555;")
+        lbl.setStyleSheet(
+            f"font-weight: 600; color: {C.TEXT_SECONDARY}; font-size: {T.SIZE_TABLE}px;"
+        )
 
-        self.task_btn = QPushButton("🖥️ Task Manager")
-        self.task_btn.setFixedSize(110, 24)
-        self.task_btn.setStyleSheet("padding: 2px; font-size: 11px;")
-        self.task_btn.setToolTip("Manage hanging background COM processes.")
-        self.task_btn.clicked.connect(self.task_manager_requested.emit)
+        btn_style = _panel_btn_qss()
 
-        self.db_btn = QPushButton("🗄️ Database")
-        self.db_btn.setFixedSize(85, 24)
-        self.db_btn.setStyleSheet("padding: 2px; font-size: 11px;")
-        self.db_btn.setToolTip("Browse database contents and diagnostics, inspect sizes, and compact SQLite files.")
-        self.db_btn.clicked.connect(self.db_maintenance_requested.emit)
-
-        self.proxy_btn = QPushButton("📡 Proxy")
-        self.proxy_btn.setFixedSize(95, 24)
-        self.proxy_btn.setStyleSheet("padding: 2px; font-size: 11px;")
-        self.proxy_btn.setToolTip("Update network proxy settings and retry system initialization.")
-        self.proxy_btn.clicked.connect(self.proxy_requested.emit)
-
-        self.net_cfg_btn = QPushButton("⚙️ Network")
-        self.net_cfg_btn.setFixedSize(70, 24)
-        self.net_cfg_btn.setStyleSheet("padding: 2px; font-size: 11px;")
-        self.net_cfg_btn.setToolTip("Update network settings to make the scraper look more human in behavior.")
-        self.net_cfg_btn.clicked.connect(self.network_config_requested.emit)
-
-        self.java_btn = QPushButton("☕ Java")
-        self.java_btn.setFixedSize(65, 24)
-        self.java_btn.setStyleSheet("padding: 2px; font-size: 11px;")
-        self.java_btn.setToolTip("Inspect installed Java runtime version, vendor, architecture, and binary path.")
-        self.java_btn.clicked.connect(self.java_info_requested.emit)
-
-        self.mcp_btn = QPushButton("🤖 MCP")
-        self.mcp_btn.setFixedSize(65, 24)
-        self.mcp_btn.setStyleSheet("padding: 2px; font-size: 11px;")
-        self.mcp_btn.setToolTip("Inspect real-time MCP server tool calls, external AI agent activity, and client configurations.")
-        self.mcp_btn.clicked.connect(self.mcp_monitor_requested.emit)
+        self.copy_log_btn = QPushButton("Copy Log")
+        self.copy_log_btn.setCursor(Qt.PointingHandCursor)
+        self.copy_log_btn.setStyleSheet(btn_style)
+        self.copy_log_btn.setToolTip("Copy terminal output to clipboard")
+        self.copy_log_btn.clicked.connect(self.copy_log)
 
         self.clear_btn = QPushButton("Clear")
-        self.clear_btn.setFixedSize(60, 24)
-        self.clear_btn.setStyleSheet("padding: 2px; font-size: 11px;")
+        self.clear_btn.setCursor(Qt.PointingHandCursor)
+        self.clear_btn.setStyleSheet(btn_style)
+        self.clear_btn.setToolTip("Clear terminal output")
         self.clear_btn.clicked.connect(self.clear_log)
 
         header.addWidget(lbl)
         header.addStretch()
-        header.addWidget(self.task_btn)
-        header.addWidget(self.db_btn)
-        header.addWidget(self.proxy_btn)
-        header.addWidget(self.net_cfg_btn)
-        header.addWidget(self.java_btn)
-        header.addWidget(self.mcp_btn)
+        header.addWidget(self.copy_log_btn)
         header.addWidget(self.clear_btn)
 
         self.console = QTextEdit()
@@ -205,43 +186,26 @@ class ConsolePanel(QWidget):
         layout.addWidget(self.console)
         self.setLayout(layout)
 
+    def copy_log(self):
+        text = self.console.toPlainText()
+        if text:
+            QApplication.clipboard().setText(text)
+
     def clear_log(self):
         self.console.clear()
 
     def set_proxy_status(self, enabled: bool, tooltip: str = ""):
-        """Updates the Terminal toolbar Proxy button to reflect active proxy state."""
-        if enabled:
-            self.proxy_btn.setText("🛡️ Proxy: ON")
-            self.proxy_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #F0FDF4;
-                    color: #15803D;
-                    border: 1px solid #BBF7D0;
-                    border-radius: 4px;
-                    padding: 2px 6px;
-                    font-size: 11px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #DCFCE7;
-                    border-color: #86EFAC;
-                }
-            """)
-        else:
-            self.proxy_btn.setText("📡 Proxy")
-            self.proxy_btn.setStyleSheet("padding: 2px; font-size: 11px;")
-
-        if tooltip:
-            self.proxy_btn.setToolTip(tooltip)
+        """Legacy compatibility hook (proxy state is displayed on SystemStatusBar)."""
+        return None
 
     def log_message(self, message: str, level=logging.INFO):
-        color = "#D4D4D4"
+        color = C.CONSOLE_TEXT
         if "❌" in message or "Error" in message:
-            color = "#F44747"
+            color = C.CONSOLE_LOG_ERR
         elif "⚠️" in message or "Warning" in message:
-            color = "#D7BA7D"
+            color = C.CONSOLE_LOG_WARN
         elif "✅" in message or "Success" in message or "Ready" in message:
-            color = "#6A9955"
+            color = C.CONSOLE_LOG_OK
 
         escaped_msg = html.escape(message).replace(chr(10), "<br>")
         html_msg = f'<span style="color: {color};">{escaped_msg}</span>'
@@ -265,28 +229,40 @@ class QueuePanel(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(0, 4, 0, 0)
 
         header = QHBoxLayout()
         lbl = QLabel("⏳ Queue")
-        lbl.setStyleSheet("font-weight: bold; color: #555;")
+        lbl.setStyleSheet(
+            f"font-weight: 600; color: {C.TEXT_SECONDARY}; font-size: {T.SIZE_TABLE}px;"
+        )
+
+        btn_style = _panel_btn_qss()
+        abort_style = (
+            f"QPushButton {{ background-color: {C.DANGER_SOFT}; color: {C.DANGER}; "
+            f"border: 1px solid {C.DANGER_BORDER}; border-radius: {R.SM}px; "
+            f"padding: 3px 10px; font-family: {T.FONT_FAMILY_UI}; "
+            f"font-size: {T.SIZE_CAPTION}px; font-weight: 600; }}"
+            f"QPushButton:hover {{ background-color: {C.DANGER_SOFT_HOVER}; border-color: {C.DANGER_BORDER_HOVER}; }}"
+            f"QPushButton:disabled {{ background-color: {C.BG_SURFACE}; color: {C.TEXT_FAINT}; border-color: {C.BORDER_SUBTLE}; }}"
+        )
 
         self.abort_btn = QPushButton("🛑 Abort")
-        self.abort_btn.setFixedSize(65, 24)
-        self.abort_btn.setStyleSheet("padding: 2px; font-size: 11px; color: #D32F2F; font-weight: bold;")
+        self.abort_btn.setCursor(Qt.PointingHandCursor)
+        self.abort_btn.setStyleSheet(abort_style)
         self.abort_btn.setToolTip("Forcefully abort the currently running task.")
         self.abort_btn.setEnabled(False)
         self.abort_btn.clicked.connect(self.abort_requested.emit)
 
         self.remove_btn = QPushButton("Remove")
-        self.remove_btn.setFixedSize(60, 24)
-        self.remove_btn.setStyleSheet("padding: 2px; font-size: 11px;")
+        self.remove_btn.setCursor(Qt.PointingHandCursor)
+        self.remove_btn.setStyleSheet(btn_style)
         self.remove_btn.setToolTip("Remove selected item(s) from the waiting queue.")
         self.remove_btn.clicked.connect(self._on_remove_clicked)
 
         self.clear_btn = QPushButton("Clear All")
-        self.clear_btn.setFixedSize(60, 24)
-        self.clear_btn.setStyleSheet("padding: 2px; font-size: 11px;")
+        self.clear_btn.setCursor(Qt.PointingHandCursor)
+        self.clear_btn.setStyleSheet(btn_style)
         self.clear_btn.setToolTip("Remove all waiting items from the queue.")
         self.clear_btn.clicked.connect(self.clear_requested.emit)
 

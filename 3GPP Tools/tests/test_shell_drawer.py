@@ -90,6 +90,37 @@ class TestBottomDrawerAndStatusBadges(unittest.TestCase):
             bar.stop_monitors()
             bar.mcp_timer.stop()
 
+    def test_system_menu_in_status_bar_and_no_fixed_panel_buttons(self):
+        console = ConsolePanel()
+        queue = QueuePanel()
+
+        # Buttons must not lock pixel size via setFixedSize for high-DPI adaptability
+        for btn in (console.copy_log_btn, console.clear_btn, queue.abort_btn, queue.remove_btn, queue.clear_btn):
+            self.assertGreater(btn.maximumWidth(), 10000)
+            self.assertGreater(btn.maximumHeight(), 10000)
+
+        # Compatibility no-op
+        console.set_proxy_status(True, "Proxy active")
+
+        bar = SystemStatusBar()
+        try:
+            actions = [act.text() for act in bar.system_menu.actions()]
+            self.assertEqual(len(actions), 6)
+            fired = []
+            bar.task_manager_requested.connect(lambda: fired.append("task"))
+            bar.db_maintenance_requested.connect(lambda: fired.append("db"))
+            bar.network_config_requested.connect(lambda: fired.append("net"))
+            bar.java_info_requested.connect(lambda: fired.append("java"))
+
+            bar.system_menu.actions()[0].trigger()
+            bar.system_menu.actions()[1].trigger()
+            bar.system_menu.actions()[3].trigger()
+            bar.system_menu.actions()[4].trigger()
+            self.assertEqual(fired, ["task", "db", "net", "java"])
+        finally:
+            bar.stop_monitors()
+            bar.mcp_timer.stop()
+
 
 if __name__ == "__main__":
     unittest.main()
