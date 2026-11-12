@@ -149,8 +149,12 @@ class DragDropUI(QMainWindow):
 
         # --- TOP HALF: TABS (tab bar hidden; driven by NavRail) ---
         self.tabs = QTabWidget()
+        self.tabs.setObjectName("shellWorkspaceTabs")
         self.tabs.setDocumentMode(True)
         self.tabs.tabBar().hide()
+        self.tabs.setStyleSheet(
+            f"QTabWidget#shellWorkspaceTabs::pane {{ border: none; background: {C.BG_CANVAS}; top: 0px; }}"
+        )
 
         logging.info("🏁 [STARTUP:UI:TAB] 1/8 Initializing CodeEditorTab...")
         self.code_tab = CodeEditorTab()
