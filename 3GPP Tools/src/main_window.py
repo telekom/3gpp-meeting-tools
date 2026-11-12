@@ -2,6 +2,7 @@
 import datetime
 import logging
 import os
+import subprocess
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -22,6 +23,7 @@ from core.ui.bottom_drawer import BottomDrawer
 from core.ui.icons import lucide_icon
 from core.ui.nav_rail import NavRail
 from core.ui.theme import C
+from core.ui.toast import ToastAction, ToastManager
 from core.ui.ui_components import ProxyDialog, create_app_icon
 from core.ui.ui_panels import (
     ConsolePanel, QueuePanel, ProcessManagerDialog, DatabaseMaintenanceDialog, GuiLogHandler
@@ -373,6 +375,9 @@ class DragDropUI(QMainWindow):
             self.bottom_drawer.queue_count,
             self.bottom_drawer.unread_errors,
         )
+
+        # Floating non-blocking Toast notification overlay manager
+        self.toast_manager = ToastManager(self)
 
         logging.info("🏁 [STARTUP:UI] _setup_ui() layout complete.")
 
@@ -957,14 +962,17 @@ class DragDropUI(QMainWindow):
                     self.specs_tab.set_bg_sync_active(False)
                 else:
                     self.specs_tab.refresh_table()
+            self.show_toast("Specifications Updated", "Deep metadata synchronization completed.", variant="success")
 
         elif out_path == "OPENED_IN_PPT":
             self.log_message("👁️ PowerPoint is open with your new slide. You can copy it directly.")
+            self.show_toast("PowerPoint Updated", "Added diagram slide to open presentation.", variant="success")
 
         elif out_path == "SPECS_DB_UPDATED":
             self.log_message("🔄 Reloading specifications table...")
             if hasattr(self, 'specs_tab'):
                 self.specs_tab.refresh_table()
+            self.show_toast("Specifications Reloaded", "Specification catalogue refreshed.", variant="success")
 
         elif out_path and out_path.startswith("MEETINGS_DB"):
             self.log_message("🔄 Reloading meetings table...", logging.INFO)
@@ -992,6 +1000,7 @@ class DragDropUI(QMainWindow):
             if hasattr(self, 'batch_tab') and hasattr(self.batch_tab, 'on_conversion_success'):
                 self.batch_tab.on_conversion_success(out_path)
 
+            file_name = Path(out_path).name
             if out_path.lower().endswith(('.svg', '.txt')):
                 try:
                     os.startfile(out_path)
@@ -1000,8 +1009,48 @@ class DragDropUI(QMainWindow):
                 except Exception as e:
                     self.log_message(f"⚠️ Could not automatically open file: {e}")
             else:
-                file_name = Path(out_path).name
                 self.log_message(f"✅ Successfully saved/downloaded: {file_name}", logging.INFO)
+
+            self.show_toast(
+                f"Saved {file_name}",
+                str(Path(out_path).parent),
+                variant="success",
+                actions=[
+                    ToastAction("Open", lambda p=out_path: self._open_output_file(p)),
+                    ToastAction("Show in Folder", lambda p=out_path: self._reveal_output_folder(p)),
+                ],
+            )
+
+    def show_toast(self, title: str, message: str = "", variant: str = "info", actions=None, duration_ms: int = 6000):
+        """Show a non-blocking toast notification if ToastManager is initialized."""
+        if hasattr(self, "toast_manager") and self.toast_manager is not None:
+            return self.toast_manager.show_toast(
+                title=title,
+                message=message,
+                variant=variant,
+                actions=actions,
+                duration_ms=duration_ms,
+            )
+        return None
+
+    def _open_output_file(self, path_str: str):
+        try:
+            if hasattr(os, "startfile"):
+                os.startfile(path_str)
+            else:
+                webbrowser.open(Path(path_str).as_uri())
+        except Exception as exc:
+            self.log_message(f"⚠️ Could not open file '{path_str}': {exc}", logging.WARNING)
+
+    def _reveal_output_folder(self, path_str: str):
+        p = Path(path_str)
+        try:
+            if os.name == "nt" and p.exists():
+                subprocess.Popen(["explorer", "/select,", str(p)])
+            elif hasattr(os, "startfile"):
+                os.startfile(str(p.parent if p.parent.exists() else p))
+        except Exception as exc:
+            self.log_message(f"⚠️ Could not reveal folder for '{path_str}': {exc}", logging.WARNING)
 
     def log_message(self, message: str, level=logging.INFO):
         logging.log(level, message)
@@ -1062,6 +1111,8 @@ class DragDropUI(QMainWindow):
             logging.warning(f"⚠️ [SHUTDOWN] Could not save cache: {e}")
 
         self.status_bar.stop_monitors()
+        if hasattr(self, "toast_manager") and self.toast_manager is not None:
+            self.toast_manager.dismiss_all()
 
         # 3. Stop initialization thread independently
         if hasattr(self, 'init_thread') and self.init_thread is not None and self.init_thread.isRunning():
