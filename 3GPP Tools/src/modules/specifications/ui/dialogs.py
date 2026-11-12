@@ -56,6 +56,7 @@ from modules.word_tools.core.word_excerpt_extractor import (
 
 from modules.word_tools.core.document_opener import open_document
 from modules.specifications.ui.threads import SpecExcerptPrepThread
+from core.ui.theme import C
 
 class SpecsConfigDialog(QDialog):
     """Configuration dialog for setting and verifying the specifications download directory."""
@@ -111,18 +112,18 @@ class SpecsConfigDialog(QDialog):
 
         save_btn = QPushButton("💾 Save Settings")
         save_btn.setCursor(Qt.PointingHandCursor)
-        save_btn.setStyleSheet("""
-            QPushButton {
+        save_btn.setStyleSheet(f"""
+            QPushButton {{
                 font-weight: bold;
-                background-color: #0066CC;
+                background-color: {C.ACCENT_BRIGHT};
                 color: white;
                 padding: 6px 16px;
                 border-radius: 4px;
-                border: 1px solid #0055AA;
-            }
-            QPushButton:hover {
+                border: 1px solid {C.ACCENT_BRIGHT_BORDER};
+            }}
+            QPushButton:hover {{
                 background-color: #0052A3;
-            }
+            }}
         """)
         save_btn.clicked.connect(self._save_and_accept)
 
@@ -409,19 +410,19 @@ class AddSpecDialog(QDialog):
 
         self.setWindowTitle("➕ Add / Fetch Specification")
         self.setMinimumWidth(560)
-        self.setStyleSheet("""
-            QDialog { background-color: #FAFAFA; }
-            QGroupBox {
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {C.BG_ALT_LIGHT}; }}
+            QGroupBox {{
                 font-weight: bold;
                 border: 1px solid #D0D0D0;
                 border-radius: 6px;
                 margin-top: 10px;
                 padding-top: 10px;
                 background-color: white;
-            }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
-            QLineEdit, QComboBox { padding: 5px; border: 1px solid #CCC; border-radius: 4px; }
-            QLineEdit:focus, QComboBox:focus { border: 1px solid #0078D7; }
+            }}
+            QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; }}
+            QLineEdit, QComboBox {{ padding: 5px; border: 1px solid #CCC; border-radius: 4px; }}
+            QLineEdit:focus, QComboBox:focus {{ border: 1px solid #0078D7; }}
         """)
 
         self._setup_ui()
@@ -441,16 +442,16 @@ class AddSpecDialog(QDialog):
 
         self.btn_fetch = QPushButton("🔍 Fetch Details")
         self.btn_fetch.setCursor(Qt.PointingHandCursor)
-        self.btn_fetch.setStyleSheet("""
-            QPushButton {
+        self.btn_fetch.setStyleSheet(f"""
+            QPushButton {{
                 background-color: #0078D7;
                 color: white;
                 font-weight: bold;
                 padding: 6px 14px;
                 border-radius: 4px;
-            }
-            QPushButton:hover { background-color: #005A9E; }
-            QPushButton:disabled { background-color: #B0D0F0; }
+            }}
+            QPushButton:hover {{ background-color: {C.OFFICE_BLUE}; }}
+            QPushButton:disabled {{ background-color: #B0D0F0; }}
         """)
         self.btn_fetch.clicked.connect(self._start_fetch)
 
@@ -459,7 +460,7 @@ class AddSpecDialog(QDialog):
         query_layout.addLayout(row_layout)
 
         self.lbl_status = QLabel("Enter a specification number and click 'Fetch Details'.")
-        self.lbl_status.setStyleSheet("color: #64748B; font-size: 11px; margin-top: 2px;")
+        self.lbl_status.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px; margin-top: 2px;")
         self.lbl_status.setWordWrap(True)
         query_layout.addWidget(self.lbl_status)
         main_layout.addWidget(query_group)
@@ -546,9 +547,9 @@ class AddSpecDialog(QDialog):
     def _on_fetch_log(self, msg: str, level: int):
         self.lbl_status.setText(msg)
         if level >= logging.ERROR:
-            self.lbl_status.setStyleSheet("color: #DC2626; font-weight: bold;")
+            self.lbl_status.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
         elif level >= logging.WARNING:
-            self.lbl_status.setStyleSheet("color: #D97706; font-weight: bold;")
+            self.lbl_status.setStyleSheet(f"color: {C.WARNING_AMBER}; font-weight: bold;")
         else:
             self.lbl_status.setStyleSheet("color: #0078D7;")
 
@@ -568,7 +569,7 @@ class AddSpecDialog(QDialog):
             self.edit_tech.setText(data.get("radio_technology", ""))
         else:
             self.lbl_status.setText(f"⚠️ {msg}")
-            self.lbl_status.setStyleSheet("color: #DC2626; font-weight: bold;")
+            self.lbl_status.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
 
             raw_num = self.query_input.text().strip()
             if raw_num:

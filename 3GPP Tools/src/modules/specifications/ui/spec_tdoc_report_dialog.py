@@ -48,6 +48,7 @@ from core.ui.ui_components import (
 from core.utils.paths import get_project_root
 from modules.specifications.core.spec_tdoc_opener import SpecTDocOpener
 from modules.specifications.core.spec_tdoc_report import SpecTDocReportGenerator
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ class SpecTDocReportDialog(QDialog):
         self.setMinimumSize(880, 540)
 
         self.setStyleSheet(f"""
-            QDialog {{ background-color: #F8FAFC; }}
+            QDialog {{ background-color: {C.BG_SURFACE}; }}
             {CARD_FRAME_STYLE}
         """)
 
@@ -115,10 +116,10 @@ class SpecTDocReportDialog(QDialog):
         spec_pill.setStyleSheet(BADGE_STYLE_PRIMARY + " font-size: 14px; padding: 4px 10px;")
 
         ver_pill = QLabel(f"<b>v{self.version}</b>")
-        ver_pill.setStyleSheet("""
-            background-color: #ECFDF5;
-            color: #065F46;
-            border: 1px solid #A7F3D0;
+        ver_pill.setStyleSheet(f"""
+            background-color: {C.WG_RAN_BG};
+            color: {C.WG_RAN_TEXT};
+            border: 1px solid {C.WG_RAN_BORDER};
             border-radius: 4px;
             font-size: 13px;
             font-weight: bold;
@@ -127,7 +128,7 @@ class SpecTDocReportDialog(QDialog):
 
         title_text = self.spec_title or "Integrated Technical Contributions Dossier"
         self.title_lbl = QLabel(title_text)
-        self.title_lbl.setStyleSheet("font-size: 13px; font-weight: bold; color: #1E293B;")
+        self.title_lbl.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {C.TEXT_STRONG};")
         self.title_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
         top_row.addWidget(spec_pill)
@@ -140,11 +141,11 @@ class SpecTDocReportDialog(QDialog):
         approved_cnt = sum(1 for r in self.all_entries if "approv" in r.get("status", "") or "agree" in r.get("status", ""))
 
         self.kpi_lbl = QLabel(
-            f"<span style='color: #475569;'>Total:</span> <b>{total_cnt}</b> TDocs &nbsp;|&nbsp; "
-            f"<span style='color: #475569;'>Sources:</span> <b>{len(sources)}</b> Companies &nbsp;|&nbsp; "
-            f"<span style='color: #166534;'>Approved/Agreed:</span> <b>{approved_cnt}</b>"
+            f"<span style='color: {C.TEXT_SECONDARY};'>Total:</span> <b>{total_cnt}</b> TDocs &nbsp;|&nbsp; "
+            f"<span style='color: {C.TEXT_SECONDARY};'>Sources:</span> <b>{len(sources)}</b> Companies &nbsp;|&nbsp; "
+            f"<span style='color: {C.SUCCESS_DARK};'>Approved/Agreed:</span> <b>{approved_cnt}</b>"
         )
-        self.kpi_lbl.setStyleSheet("font-size: 12px; background-color: #F1F5F9; padding: 4px 10px; border-radius: 4px;")
+        self.kpi_lbl.setStyleSheet(f"font-size: 12px; background-color: {C.BG_CANVAS}; padding: 4px 10px; border-radius: 4px;")
         top_row.addWidget(self.kpi_lbl)
 
         header_layout.addLayout(top_row)
@@ -157,17 +158,17 @@ class SpecTDocReportDialog(QDialog):
         self.search_input.setPlaceholderText("🔍 Filter by TDoc, title, company, agenda item, keyword...")
         self.search_input.setClearButtonEnabled(True)
         self.search_input.setFixedHeight(28)
-        self.search_input.setStyleSheet("""
-            QLineEdit {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.search_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 2px 8px;
                 font-size: 12px;
-            }
-            QLineEdit:focus {
-                border-color: #0284C7;
-            }
+            }}
+            QLineEdit:focus {{
+                border-color: {C.ACCENT_SKY};
+            }}
         """)
         self.search_input.textChanged.connect(self._apply_filters)
         filter_row.addWidget(self.search_input, stretch=2)
@@ -224,17 +225,17 @@ class SpecTDocReportDialog(QDialog):
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                background-color: #FFFFFF;
-                border: 1px solid #E2E8F0;
-                gridline-color: #F1F5F9;
+        self.table.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_SUBTLE};
+                gridline-color: {C.BG_CANVAS};
                 font-size: 12px;
-            }
-            QTableWidget::item:selected {
-                background-color: #E0F2FE;
-                color: #0F172A;
-            }
+            }}
+            QTableWidget::item:selected {{
+                background-color: {C.SKY_SOFT};
+                color: {C.TEXT_PRIMARY};
+            }}
         """)
 
         h_hdr = self.table.horizontalHeader()
@@ -255,12 +256,12 @@ class SpecTDocReportDialog(QDialog):
 
         # Bottom Abstract / Solution Drawer
         self.drawer_frame = QFrame()
-        self.drawer_frame.setStyleSheet("""
-            QFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.drawer_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
-            }
+            }}
         """)
         drawer_layout = QVBoxLayout(self.drawer_frame)
         drawer_layout.setContentsMargins(10, 8, 10, 8)
@@ -268,7 +269,7 @@ class SpecTDocReportDialog(QDialog):
 
         drawer_hdr = QHBoxLayout()
         self.drawer_title_lbl = QLabel("<b>Technical Details &amp; Proposed Solution</b>")
-        self.drawer_title_lbl.setStyleSheet("font-size: 12px; color: #1E293B;")
+        self.drawer_title_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_STRONG};")
         drawer_hdr.addWidget(self.drawer_title_lbl)
         drawer_hdr.addStretch()
 
@@ -283,14 +284,14 @@ class SpecTDocReportDialog(QDialog):
         self.drawer_text = QTextEdit()
         self.drawer_text.setReadOnly(True)
         self.drawer_text.setPlaceholderText("Select any contribution above to inspect its technical abstract, proposed solution, and secretary remarks...")
-        self.drawer_text.setStyleSheet("""
-            QTextEdit {
+        self.drawer_text.setStyleSheet(f"""
+            QTextEdit {{
                 border: none;
-                background-color: #F8FAFC;
+                background-color: {C.BG_SURFACE};
                 font-size: 12px;
-                color: #334155;
+                color: {C.TEXT_BODY};
                 line-height: 1.4;
-            }
+            }}
         """)
         drawer_layout.addWidget(self.drawer_text)
 
@@ -310,16 +311,16 @@ class SpecTDocReportDialog(QDialog):
         self.md_browser.setReadOnly(True)
         self.md_browser.setFont(QFont("Consolas", 10))
         self.md_browser.setPlainText(self.markdown_report)
-        self.md_browser.setStyleSheet("""
-            QTextEdit {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.md_browser.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 8px;
                 font-family: 'Consolas', 'Courier New', monospace;
                 font-size: 11px;
-                color: #1E293B;
-            }
+                color: {C.TEXT_STRONG};
+            }}
         """)
         tab_md_layout.addWidget(self.md_browser)
         self.tab_widget.addTab(tab_md, "📝 Technical Dossier (Markdown)")
@@ -332,7 +333,7 @@ class SpecTDocReportDialog(QDialog):
         footer_layout = QHBoxLayout()
 
         self.count_lbl = QLabel(f"Showing {len(self.filtered_entries)} of {len(self.all_entries)} TDocs")
-        self.count_lbl.setStyleSheet("font-size: 12px; color: #64748B;")
+        self.count_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_MUTED};")
         footer_layout.addWidget(self.count_lbl)
         footer_layout.addStretch()
 
@@ -445,7 +446,7 @@ class SpecTDocReportDialog(QDialog):
             tdoc_str = r.get("tdoc", "")
             tdoc_item = QTableWidgetItem(tdoc_str)
             tdoc_item.setFont(QFont("Segoe UI", 9, QFont.Bold))
-            tdoc_item.setForeground(QBrush(QColor("#0369A1")))
+            tdoc_item.setForeground(QBrush(QColor(C.ACCENT_SKY_DARK)))
             tdoc_item.setData(Qt.UserRole, r)
             self.table.setItem(row_idx, 0, tdoc_item)
 
@@ -460,11 +461,11 @@ class SpecTDocReportDialog(QDialog):
             status_item = QTableWidgetItem(status_str.capitalize())
             status_item.setTextAlignment(Qt.AlignCenter)
             if "approv" in status_str or "agree" in status_str:
-                status_item.setForeground(QBrush(QColor("#166534")))
+                status_item.setForeground(QBrush(QColor(C.SUCCESS_DARK)))
             elif "noted" in status_str:
-                status_item.setForeground(QBrush(QColor("#0369A1")))
+                status_item.setForeground(QBrush(QColor(C.ACCENT_SKY_DARK)))
             elif "postpone" in status_str or "revise" in status_str:
-                status_item.setForeground(QBrush(QColor("#B45309")))
+                status_item.setForeground(QBrush(QColor(C.WARNING)))
             self.table.setItem(row_idx, 2, status_item)
 
             # 3. Source (Company)
@@ -538,18 +539,18 @@ class SpecTDocReportDialog(QDialog):
         if contact:
             meta_spans.append(f"<b>Contact:</b> {html.escape(contact)}")
 
-        html_parts.append(f"<div style='margin-bottom: 8px; color: #475569;'>{' &nbsp;|&nbsp; '.join(meta_spans)}</div>")
+        html_parts.append(f"<div style='margin-bottom: 8px; color: {C.TEXT_SECONDARY};'>{' &nbsp;|&nbsp; '.join(meta_spans)}</div>")
 
         if abstract:
-            html_parts.append("<div style='font-weight: bold; margin-bottom: 4px; color: #0F172A;'>Contribution Abstract / Technical Scope:</div>")
-            html_parts.append(f"<div style='background-color: #F1F5F9; border-left: 3px solid #0284C7; padding: 6px 10px; margin-bottom: 8px; white-space: pre-wrap;'>{html.escape(abstract)}</div>")
+            html_parts.append(f"<div style='font-weight: bold; margin-bottom: 4px; color: {C.TEXT_PRIMARY};'>Contribution Abstract / Technical Scope:</div>")
+            html_parts.append(f"<div style='background-color: {C.BG_CANVAS}; border-left: 3px solid {C.ACCENT_SKY}; padding: 6px 10px; margin-bottom: 8px; white-space: pre-wrap;'>{html.escape(abstract)}</div>")
 
         if remarks:
-            html_parts.append("<div style='font-weight: bold; margin-bottom: 4px; color: #0F172A;'>Secretary Remarks / Outcome:</div>")
-            html_parts.append(f"<div style='background-color: #FEF3C7; border-left: 3px solid #D97706; padding: 6px 10px; color: #92400E;'>{html.escape(remarks)}</div>")
+            html_parts.append(f"<div style='font-weight: bold; margin-bottom: 4px; color: {C.TEXT_PRIMARY};'>Secretary Remarks / Outcome:</div>")
+            html_parts.append(f"<div style='background-color: {C.WARNING_SOFT_ALT}; border-left: 3px solid {C.WARNING_AMBER}; padding: 6px 10px; color: {C.WARNING_DARK};'>{html.escape(remarks)}</div>")
 
         if not abstract and not remarks:
-            html_parts.append("<div style='color: #94A3B8; font-style: italic;'>No extended abstract or secretary remarks in the meeting spreadsheet for this document.</div>")
+            html_parts.append(f"<div style='color: {C.TEXT_FAINT}; font-style: italic;'>No extended abstract or secretary remarks in the meeting spreadsheet for this document.</div>")
 
         self.drawer_text.setHtml("".join(html_parts))
 

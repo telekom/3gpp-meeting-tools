@@ -34,6 +34,7 @@ from modules.specifications.ui.spec_annotations_dialog import EditSpecAnnotation
 from modules.specifications.ui.spec_history_dialog import SpecVersionHistoryDialog
 from modules.specifications.ui.spec_menu import populate_spec_copy_menu
 from modules.specifications.utils.utils import normalize_dynareport_spec_number, build_dynareport_url
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +132,7 @@ class SpecInfoDialog(QDialog):
 
         if ftp_url:
             ftp_label = QLabel(
-                f'<a href="{ftp_url}" style="color: #1E5C99; text-decoration: none;">{ftp_url}</a>'
+                f'<a href="{ftp_url}" style="color: {C.ACCENT_PRIMARY}; text-decoration: none;">{ftp_url}</a>'
             )
             ftp_label.setOpenExternalLinks(True)
             ftp_label.setTextInteractionFlags(Qt.TextBrowserInteraction | Qt.TextSelectableByMouse)
@@ -139,7 +140,7 @@ class SpecInfoDialog(QDialog):
 
         if dynareport_url:
             dyna_label = QLabel(
-                f'<a href="{dynareport_url}" style="color: #1E5C99; text-decoration: none;">'
+                f'<a href="{dynareport_url}" style="color: {C.ACCENT_PRIMARY}; text-decoration: none;">'
                 f"Open 3GPP Portal Report ({clean_number}.htm) ↗</a>"
             )
             dyna_label.setOpenExternalLinks(True)
@@ -264,7 +265,7 @@ class SpecInfoDialog(QDialog):
         self.notes_display_lbl = QLabel()
         self.notes_display_lbl.setWordWrap(True)
         self.notes_display_lbl.setStyleSheet(
-            "color: #4A5568; font-size: 12px; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 4px; padding: 6px;"
+            f"color: #4A5568; font-size: 12px; background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px; padding: 6px;"
         )
         layout.addWidget(self.notes_display_lbl)
 
@@ -281,7 +282,7 @@ class SpecInfoDialog(QDialog):
         tags = ann.get("tags", [])
         if tags:
             tag_badges = " ".join([
-                f"<span style='background-color: #EBF3FC; color: #1E5C99; border: 1px solid #BDD7EE; border-radius: 8px; padding: 2px 6px; font-size: 11px; font-weight: bold;'>🏷️ {t}</span>"
+                f"<span style='background-color: {C.ACCENT_SOFT}; color: {C.ACCENT_PRIMARY}; border: 1px solid #BDD7EE; border-radius: 8px; padding: 2px 6px; font-size: 11px; font-weight: bold;'>🏷️ {t}</span>"
                 for t in tags
             ])
             self.tags_display_lbl.setText(f"<b>Tags:</b> {tag_badges}")
@@ -426,7 +427,7 @@ class SpecInfoDialog(QDialog):
             # Column 4: Text Hyperlink (Clean link without button boxes)
             if portal_url:
                 link_lbl = QLabel(
-                    f'<a href="{portal_url}" style="color: #1E5C99; text-decoration: none; font-weight: 600;">Open ↗</a>'
+                    f'<a href="{portal_url}" style="color: {C.ACCENT_PRIMARY}; text-decoration: none; font-weight: 600;">Open ↗</a>'
                 )
                 link_lbl.setOpenExternalLinks(True)
                 link_lbl.setAlignment(Qt.AlignCenter)

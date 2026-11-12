@@ -27,11 +27,17 @@ from PyQt5.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QWidget, QDialog,
+    QFrame,
+    QWidget,
+    QDialog,
 )
 
+from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon, make_filter_label
+from core.ui.theme import C, R, S, T
+from core.ui.toast import notify_info
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
+    CARD_FRAME_STYLE,
     BUTTON_STYLE_TOOLBAR_DANGER,
     SEGMENT_BTN_STYLE,
     TOGGLE_PILL_STYLE,
@@ -251,37 +257,22 @@ class SpecificationsTab(QWidget):
     # ==========================================
     def _setup_ui(self):
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(6)
+        main_layout.setContentsMargins(S.MD, S.SM + 2, S.MD, S.SM + 2)
+        main_layout.setSpacing(S.SM + 2)
 
-        # --- ROW 1: Network Sync & Configuration Toolbar ---
-        toolbar_layout = QHBoxLayout()
-        toolbar_layout.setSpacing(8)
+        # ==========================================
+        # --- 2-TIER CARDED PAGE RIBBON ---
+        # ==========================================
+        self.ribbon_card = PageRibbonCard("Specifications", parent=self)
 
-        toolbar_layout.addWidget(QLabel("<b>🌐 Network Sync:</b>"))
-
-        self.sync_menu_btn = QPushButton("🌐 Sync && Fetch ▾")
+        # Tier 1 Primary Actions
+        self.sync_menu_btn = QPushButton("Sync && Fetch ▾")
+        self.sync_menu_btn.setObjectName("primaryBtn")
+        self.sync_menu_btn.setFixedHeight(30)
         self.sync_menu_btn.setCursor(Qt.PointingHandCursor)
-        self.sync_menu_btn.setStyleSheet("""
-                    QPushButton {
-                        font-weight: bold;
-                        background-color: #0066CC;
-                        color: #FFFFFF;
-                        border: 1px solid #0055AA;
-                        border-radius: 4px;
-                        padding: 5px 12px;
-                    }
-                    QPushButton:hover {
-                        background-color: #0052A3;
-                    }
-                """)
+        apply_lucide_icon(self.sync_menu_btn, "globe", color=C.TEXT_ON_ACCENT, active_color=C.TEXT_ON_ACCENT, size=14)
 
         sync_menu = QMenu(self)
-        sync_menu.setStyleSheet("""
-                    QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
-                    QMenu::item { padding: 6px 20px 6px 15px; color: #333333; }
-                    QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
-                """)
 
         quick_action = sync_menu.addAction("🎯 Quick Fetch (By Spec or Series)...")
         quick_action.setToolTip("Instantly download specific specs or series (e.g., '23.501' or '23') directly.")
@@ -311,78 +302,90 @@ class SpecificationsTab(QWidget):
         open_folder_action.triggered.connect(self._open_download_dir)
 
         self.sync_menu_btn.setMenu(sync_menu)
-        toolbar_layout.addWidget(self.sync_menu_btn)
+        self.ribbon_card.add_primary_widget(self.sync_menu_btn)
 
-        # ➕ Add Individual Specification Button
-        self.add_spec_btn = QPushButton("➕ Add Spec")
+        # Add Individual Specification Button
+        self.add_spec_btn = QPushButton("Add Spec")
+        self.add_spec_btn.setFixedHeight(30)
         self.add_spec_btn.setToolTip("Add and inspect an individual specification without running a full sync.")
         self.add_spec_btn.setCursor(Qt.PointingHandCursor)
         self.add_spec_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.add_spec_btn, "plus", size=14)
         self.add_spec_btn.clicked.connect(self._open_add_spec_dialog)
-        toolbar_layout.addWidget(self.add_spec_btn)
+        self.ribbon_card.add_primary_widget(self.add_spec_btn)
 
-        # ⚙️ Settings Button
-        self.settings_btn = QPushButton("⚙️ Settings")
-        self.settings_btn.setToolTip("Configure the local specifications download folder and paths.")
-        self.settings_btn.setCursor(Qt.PointingHandCursor)
-        self.settings_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.settings_btn.clicked.connect(self._open_settings_dialog)
-        toolbar_layout.addWidget(self.settings_btn)
+        self.bg_sync_label = QLabel("⏳ Fetching deep metadata in background...")
+        self.bg_sync_label.setStyleSheet(f"color: {C.WARNING}; font-weight: bold; font-style: italic;")
+        self.bg_sync_label.setVisible(False)
+        self.ribbon_card.add_primary_widget(self.bg_sync_label)
 
-        # ↗️ Open Local Folder Button
-        self.open_dir_btn = QPushButton("↗️ Open Folder")
+        # Tier 1 Utility Actions (Right-Aligned)
+        self.open_dir_btn = QPushButton("Open Folder")
+        self.open_dir_btn.setFixedHeight(30)
         self.open_dir_btn.setToolTip("Open the local specifications storage directory in Explorer.")
         self.open_dir_btn.setCursor(Qt.PointingHandCursor)
         self.open_dir_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.open_dir_btn, "folder-open", size=14)
         self.open_dir_btn.clicked.connect(self._open_download_dir)
-        toolbar_layout.addWidget(self.open_dir_btn)
+        self.ribbon_card.add_utility_widget(self.open_dir_btn)
 
-        # ⚠️ Wipe Database Button
-        self.wipe_db_btn = QPushButton("⚠️ Wipe DB")
+        self.settings_btn = QPushButton("Settings")
+        self.settings_btn.setFixedHeight(30)
+        self.settings_btn.setToolTip("Configure the local specifications download folder and paths.")
+        self.settings_btn.setCursor(Qt.PointingHandCursor)
+        self.settings_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.settings_btn, "settings", size=14)
+        self.settings_btn.clicked.connect(self._open_settings_dialog)
+        self.ribbon_card.add_utility_widget(self.settings_btn)
+
+        self.wipe_db_btn = QPushButton("Wipe DB")
+        self.wipe_db_btn.setFixedHeight(30)
         self.wipe_db_btn.setToolTip("Clear all specifications, file mappings, and reset the local database.")
         self.wipe_db_btn.setCursor(Qt.PointingHandCursor)
         self.wipe_db_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_DANGER)
+        apply_lucide_icon(self.wipe_db_btn, "trash-2", color=C.DANGER_ALT, active_color=C.DANGER_DARK, size=14)
         self.wipe_db_btn.clicked.connect(self._on_wipe_db_clicked)
-        toolbar_layout.addWidget(self.wipe_db_btn)
+        self.ribbon_card.add_utility_widget(self.wipe_db_btn)
 
-        self.bg_sync_label = QLabel("⏳ Fetching deep metadata in background...")
-        self.bg_sync_label.setStyleSheet("color: #E65100; font-weight: bold; font-style: italic;")
-        self.bg_sync_label.setVisible(False)
-        toolbar_layout.addWidget(self.bg_sync_label)
+        # --- TIER 2: Search, Quick Scope & Faceted Filters ---
+        search_group = QWidget(self.ribbon_card)
+        search_group.setStyleSheet("background: transparent; border: none;")
+        search_layout = QHBoxLayout(search_group)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(6)
 
-        toolbar_layout.addStretch()
-        main_layout.addLayout(toolbar_layout)
-
-        # --- ROW 2: Primary Search & Quick Scope ---
-        search_layout = QHBoxLayout()
-        search_layout.setSpacing(8)
-
-        search_layout.addWidget(QLabel("<b>🔍 Search:</b>"))
+        search_layout.addWidget(make_filter_label("Search:", emphasized=True))
 
         self.spec_search_input = QLineEdit()
         self.spec_search_input.setStyleSheet(SPEC_FILTER_INPUT_STYLE)
-        self.spec_search_input.setPlaceholderText("Search Spec # (e.g. 23.501) or title keywords...")
+        self.spec_search_input.setPlaceholderText("Spec # (e.g. 23.501) or title...")
         self.spec_search_input.setText(self.saved_search)
         self.spec_search_input.setClearButtonEnabled(True)
+        self.spec_search_input.setMinimumWidth(210)
         self.spec_search_input.setToolTip("Filter instantly by specification number or title keywords.")
         self.spec_search_input.textChanged.connect(self._on_search_changed)
-        search_layout.addWidget(self.spec_search_input, stretch=3)
+        search_layout.addWidget(self.spec_search_input)
 
-        ver_lbl = QLabel("Ver:")
-        ver_lbl.setStyleSheet("color: #475569; font-weight: bold; font-size: 11px;")
-        search_layout.addWidget(ver_lbl)
+        search_layout.addWidget(make_filter_label("Ver:", emphasized=True))
 
         self.version_search_input = QLineEdit()
         self.version_search_input.setStyleSheet(SPEC_FILTER_INPUT_STYLE)
-        self.version_search_input.setPlaceholderText("e.g. 17 or 16.2")
+        self.version_search_input.setPlaceholderText("17 or 16.2")
         self.version_search_input.setText(self.saved_version)
         self.version_search_input.setClearButtonEnabled(True)
         self.version_search_input.setToolTip("Filter table by 3GPP release version (e.g. '15', '16.2', '17').")
-        self.version_search_input.setFixedWidth(115)
+        self.version_search_input.setFixedWidth(105)
         self.version_search_input.textChanged.connect(self._on_search_changed)
         search_layout.addWidget(self.version_search_input)
+        self.ribbon_card.add_filter_widget(search_group)
 
-        # Downloaded Only Toggle Pill
+        # Quick Toggle Pills
+        scope_group = QWidget(self.ribbon_card)
+        scope_group.setStyleSheet("background: transparent; border: none;")
+        scope_layout = QHBoxLayout(scope_group)
+        scope_layout.setContentsMargins(0, 0, 0, 0)
+        scope_layout.setSpacing(6)
+
         self.downloaded_only_btn = QPushButton("💾 Downloaded Only")
         self.downloaded_only_btn.setCheckable(True)
         self.downloaded_only_btn.setChecked(self.saved_downloaded_only)
@@ -391,9 +394,8 @@ class SpecificationsTab(QWidget):
         self.downloaded_only_btn.setToolTip("Show only specifications that currently have local cached files.")
         self.downloaded_only_btn.toggled.connect(self._toggle_downloaded_filter)
         self.downloaded_only_cb = self.downloaded_only_btn  # Backward compatibility alias
-        search_layout.addWidget(self.downloaded_only_btn)
+        scope_layout.addWidget(self.downloaded_only_btn)
 
-        # Favorites Toggle Pill
         self.fav_chip = QPushButton(f"⭐ Favorites ({len(self.favorites)})")
         self.fav_chip.setCheckable(True)
         self.fav_chip.setChecked(self.favorites_only)
@@ -401,22 +403,16 @@ class SpecificationsTab(QWidget):
         self.fav_chip.setStyleSheet(FAV_PILL_STYLE)
         self.fav_chip.setToolTip("Toggle view to show only your starred/favorite specifications.")
         self.fav_chip.toggled.connect(self._toggle_favorites_filter)
-        search_layout.addWidget(self.fav_chip)
-
-        main_layout.addLayout(search_layout)
-
-        # --- ROW 3: Inline Faceted Filters (TSG, WG, Series, Tech, Type) ---
-        filter_layout = QHBoxLayout()
-        filter_layout.setSpacing(6)
-
-        filters_lbl = QLabel("<b>🎯 Filters:</b>")
-        filters_lbl.setStyleSheet("color: #334155; font-size: 11px;")
-        filter_layout.addWidget(filters_lbl)
+        scope_layout.addWidget(self.fav_chip)
+        self.ribbon_card.add_filter_widget(scope_group)
 
         # TSG Segmented Chips (All, RAN, SA, CT)
-        tsg_lbl = QLabel("TSG:")
-        tsg_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold;")
-        filter_layout.addWidget(tsg_lbl)
+        tsg_group = QWidget(self.ribbon_card)
+        tsg_group.setStyleSheet("background: transparent; border: none;")
+        tsg_layout = QHBoxLayout(tsg_group)
+        tsg_layout.setContentsMargins(0, 0, 0, 0)
+        tsg_layout.setSpacing(4)
+        tsg_layout.addWidget(make_filter_label("TSG:"))
 
         self.tsg_buttons = {}
         preset_tsgs = [
@@ -437,47 +433,55 @@ class SpecificationsTab(QWidget):
             )
             btn.clicked.connect(lambda _, t=tsg_val: self._on_tsg_button_clicked(t))
             self.tsg_buttons[tsg_val] = btn
-            filter_layout.addWidget(btn)
+            tsg_layout.addWidget(btn)
         self.chip_buttons = self.tsg_buttons  # Backward compatibility alias
+        self.ribbon_card.add_filter_widget(tsg_group)
 
-        # Working Group CheckableComboBox
+        # Working Group + Series + Tech group
+        wg_group = QWidget(self.ribbon_card)
+        wg_group.setStyleSheet("background: transparent; border: none;")
+        wg_layout = QHBoxLayout(wg_group)
+        wg_layout.setContentsMargins(0, 0, 0, 0)
+        wg_layout.setSpacing(6)
+
         self.wg_combo = CheckableComboBox("WG")
         self.wg_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
         self.wg_combo.setMinimumWidth(125)
         self.wg_combo.selectionChanged.connect(self._on_wg_filter_changed)
         self.wg_combo.setContextMenuPolicy(Qt.CustomContextMenu)
         self.wg_combo.customContextMenuRequested.connect(self._show_wg_context_menu)
-        filter_layout.addWidget(self.wg_combo)
+        wg_layout.addWidget(self.wg_combo)
 
-        # Working Group Scope Toggle (Active / Useful vs Full)
         self.wg_scope_btn = QPushButton("Active WGs")
         self.wg_scope_btn.setCheckable(True)
         self.wg_scope_btn.setCursor(Qt.PointingHandCursor)
         self.wg_scope_btn.setStyleSheet(SEGMENT_BTN_STYLE)
         self.wg_scope_btn.clicked.connect(self._toggle_wg_scope)
         self._set_wg_scope(getattr(self, "_show_all_wgs", False))
-        filter_layout.addWidget(self.wg_scope_btn)
+        wg_layout.addWidget(self.wg_scope_btn)
 
-        # Series Multi-Select CheckableComboBox
         self.series_combo = CheckableComboBox("Series")
         self.series_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
         self.series_combo.setMinimumWidth(125)
         self.series_combo.addItems(self.filter_options.get("series", []))
         self.series_combo.selectionChanged.connect(self._on_series_filter_changed)
-        filter_layout.addWidget(self.series_combo)
+        wg_layout.addWidget(self.series_combo)
 
-        # Radio Technology Multi-Select CheckableComboBox
         self.tech_combo = CheckableComboBox("Tech")
         self.tech_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
         self.tech_combo.setMinimumWidth(105)
         self.tech_combo.addItems(self.filter_options.get("techs", []))
         self.tech_combo.selectionChanged.connect(self._on_tech_filter_changed)
-        filter_layout.addWidget(self.tech_combo)
+        wg_layout.addWidget(self.tech_combo)
+        self.ribbon_card.add_filter_widget(wg_group)
 
-        # Spec Type Segmented Buttons (All, TS, TR)
-        type_lbl = QLabel("Type:")
-        type_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold; margin-left: 4px;")
-        filter_layout.addWidget(type_lbl)
+        # Spec Type + Tag Filter + Reset All
+        type_tag_group = QWidget(self.ribbon_card)
+        type_tag_group.setStyleSheet("background: transparent; border: none;")
+        tt_layout = QHBoxLayout(type_tag_group)
+        tt_layout.setContentsMargins(0, 0, 0, 0)
+        tt_layout.setSpacing(4)
+        tt_layout.addWidget(make_filter_label("Type:"))
 
         self.type_buttons = {}
         for t_label, t_val in [("All", "Any"), ("TS", "TS"), ("TR", "TR")]:
@@ -488,44 +492,58 @@ class SpecificationsTab(QWidget):
             btn.setToolTip(f"Filter by specification document type: {t_label}")
             btn.clicked.connect(lambda _, tv=t_val: self._on_type_button_clicked(tv))
             self.type_buttons[t_val] = btn
-            filter_layout.addWidget(btn)
+            tt_layout.addWidget(btn)
 
-        # Tag Filter Dropdown
-        tag_lbl = QLabel("Tag:")
-        tag_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold; margin-left: 4px;")
-        filter_layout.addWidget(tag_lbl)
-
+        tt_layout.addWidget(make_filter_label("Tag:"))
         self.tag_filter_combo = QComboBox()
         self.tag_filter_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
         self.tag_filter_combo.setMinimumWidth(115)
         self.tag_filter_combo.currentIndexChanged.connect(self._on_tag_filter_changed)
-        filter_layout.addWidget(self.tag_filter_combo)
+        tt_layout.addWidget(self.tag_filter_combo)
 
-        filter_layout.addStretch()
-
-        # Reset All Button
-        self.clear_all_btn = QPushButton("❌ Reset All")
+        self.clear_all_btn = QPushButton("Reset All")
         self.clear_all_btn.setCursor(Qt.PointingHandCursor)
         self.clear_all_btn.setStyleSheet(CLEAR_ALL_BTN_STYLE)
+        apply_lucide_icon(self.clear_all_btn, "rotate-ccw", color=C.DANGER_ALT, size=13)
         self.clear_all_btn.setToolTip("Reset all search fields, active filters, and scopes.")
         self.clear_all_btn.clicked.connect(self._clear_all_filters)
         self.clear_all_btn.setVisible(False)
-        filter_layout.addWidget(self.clear_all_btn)
+        tt_layout.addWidget(self.clear_all_btn)
+        self.ribbon_card.add_filter_widget(type_tag_group)
 
-        main_layout.addLayout(filter_layout)
+        main_layout.addWidget(self.ribbon_card)
 
-        # --- ROW 4: Active Filter Tags & Count Banner ---
-        self.active_tags_widget = QWidget()
+        # ==========================================
+        # --- CARD: Active Filter Strip & Data Table ---
+        # ==========================================
+        self.table_card = QFrame(self)
+        self.table_card.setObjectName("cardFrame")
+        self.table_card.setStyleSheet(CARD_FRAME_STYLE)
+        table_card_layout = QVBoxLayout(self.table_card)
+        table_card_layout.setContentsMargins(0, 0, 0, 0)
+        table_card_layout.setSpacing(0)
+
+        self.active_tags_widget = QFrame(self.table_card)
+        self.active_tags_widget.setObjectName("specsHeaderStrip")
+        self.active_tags_widget.setStyleSheet(f"""
+            QFrame#specsHeaderStrip {{
+                background-color: {C.BG_SURFACE};
+                border: none;
+                border-bottom: 1px solid {C.BORDER_SUBTLE};
+                border-top-left-radius: {R.LG}px;
+                border-top-right-radius: {R.LG}px;
+            }}
+        """)
         tags_bar_layout = QHBoxLayout(self.active_tags_widget)
-        tags_bar_layout.setContentsMargins(0, 0, 0, 0)
+        tags_bar_layout.setContentsMargins(S.MD, S.XS + 2, S.MD, S.XS + 2)
         tags_bar_layout.setSpacing(6)
 
-        self.active_tags_label = QLabel("Active:")
-        self.active_tags_label.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold;")
+        self.active_tags_label = make_filter_label("Active:", emphasized=True)
         self.active_tags_label.setVisible(False)
         tags_bar_layout.addWidget(self.active_tags_label)
 
-        self.active_tags_container = QWidget()
+        self.active_tags_container = QWidget(self.active_tags_widget)
+        self.active_tags_container.setStyleSheet("background: transparent; border: none;")
         self.active_tags_container_layout = QHBoxLayout(self.active_tags_container)
         self.active_tags_container_layout.setContentsMargins(0, 0, 0, 0)
         self.active_tags_container_layout.setSpacing(4)
@@ -534,23 +552,22 @@ class SpecificationsTab(QWidget):
         tags_bar_layout.addStretch()
 
         self.count_badge = QLabel("0 specifications")
-        self.count_badge.setStyleSheet("""
-            QLabel {
+        self.count_badge.setStyleSheet(f"""
+            QLabel {{
                 padding: 2px 10px;
-                font-size: 11px;
+                font-size: {T.SIZE_CAPTION}px;
                 font-weight: bold;
-                background-color: #F1F5F9;
-                color: #475569;
-                border: 1px solid #E2E8F0;
+                background-color: {C.BG_CANVAS};
+                color: {C.TEXT_SECONDARY};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 10px;
-            }
+            }}
         """)
         tags_bar_layout.addWidget(self.count_badge)
 
-        main_layout.addWidget(self.active_tags_widget)
+        table_card_layout.addWidget(self.active_tags_widget)
 
-        # --- ROW 5: Data Table ---
-        self.table = QTableWidget()
+        self.table = QTableWidget(self.table_card)
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(["Specification", "Title", "Version / Documents"])
         header = self.table.horizontalHeader()
@@ -561,7 +578,33 @@ class SpecificationsTab(QWidget):
         self.table.setColumnWidth(2, 420)
 
         self.table.verticalHeader().setDefaultSectionSize(34)
-        self.table.verticalHeader().setStyleSheet("QHeaderView::section { color: #94A3B8; font-size: 11px; }")
+        self.table.verticalHeader().setStyleSheet(f"QHeaderView::section {{ color: {C.TEXT_FAINT}; font-size: {T.SIZE_CAPTION}px; }}")
+        self.table.setStyleSheet(f"""
+            QTableWidget {{
+                border: none;
+                border-bottom-left-radius: {R.LG}px;
+                border-bottom-right-radius: {R.LG}px;
+                background-color: {C.BG_CARD};
+                alternate-background-color: {C.BG_SURFACE};
+                gridline-color: {C.BORDER_ROW};
+                selection-background-color: {C.ACCENT_SOFT};
+                selection-color: {C.TEXT_STRONG};
+                font-size: {T.SIZE_TABLE}px;
+            }}
+            QTableWidget::item {{
+                padding: 4px 6px;
+                border-bottom: 1px solid {C.BORDER_ROW};
+            }}
+            QHeaderView::section {{
+                background-color: {C.BG_SURFACE};
+                color: {C.TEXT_SECONDARY};
+                font-weight: bold;
+                font-size: {T.SIZE_CAPTION}px;
+                border: none;
+                border-bottom: 1px solid {C.BORDER_SUBTLE};
+                padding: 6px 8px;
+            }}
+        """)
 
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
@@ -575,7 +618,8 @@ class SpecificationsTab(QWidget):
         self.copy_shortcut = QShortcut(QKeySequence.Copy, self.table)
         self.copy_shortcut.activated.connect(self._copy_table_selection)
 
-        main_layout.addWidget(self.table)
+        table_card_layout.addWidget(self.table, 1)
+        main_layout.addWidget(self.table_card, 1)
         self.setLayout(main_layout)
 
         self._sync_ui_to_filters()
@@ -1208,10 +1252,10 @@ class SpecificationsTab(QWidget):
             except Exception as e:
                 QMessageBox.warning(self, "Explorer Error", f"Could not open directory:\n{e}")
         else:
-            QMessageBox.information(
+            notify_info(
                 self,
                 "Folder Not Found",
-                f"No downloaded files found for {spec_num}.\nDownload a document first to create the local folder.",
+                f"No downloaded files found for {spec_num}. Download a document first to create the local folder.",
             )
 
     def _open_web_report(self, spec_num: str):
@@ -1397,27 +1441,27 @@ class SpecificationsTab(QWidget):
 
             if self.favorites_only:
                 self.count_badge.setText(f"⭐ {total_found} Favorites")
-                self.count_badge.setStyleSheet("""
+                self.count_badge.setStyleSheet(f"""
                     padding: 2px 10px; font-size: 11px; font-weight: bold;
-                    background-color: #FEF3C7; color: #92400E; border: 1px solid #F59E0B; border-radius: 10px;
+                    background-color: {C.WARNING_SOFT_ALT}; color: {C.WARNING_DARK}; border: 1px solid {C.WARNING_ACCENT}; border-radius: 10px;
                 """)
             elif not spec_query and not version_query and not is_filtered and not downloaded_only:
                 self.count_badge.setText(f"Top {len(rendered_specs)} specifications")
-                self.count_badge.setStyleSheet("""
+                self.count_badge.setStyleSheet(f"""
                     padding: 2px 10px; font-size: 11px; font-weight: bold;
-                    background-color: #EBF8FF; color: #2B6CB0; border: 1px solid #BEE3F8; border-radius: 10px;
+                    background-color: {C.INFO_SOFT_ALT}; color: {C.INFO_ALT}; border: 1px solid {C.INFO_BORDER_ALT}; border-radius: 10px;
                 """)
             elif total_found > 100:
                 self.count_badge.setText(f"Showing 100 of {total_found} specs")
-                self.count_badge.setStyleSheet("""
+                self.count_badge.setStyleSheet(f"""
                     padding: 2px 10px; font-size: 11px; font-weight: bold;
-                    background-color: #FFF3E0; color: #D83B01; border: 1px solid #FFB74D; border-radius: 10px;
+                    background-color: {C.WARNING_SOFT}; color: {C.ORANGE_DARK}; border: 1px solid {C.WARNING_BORDER_STRONG}; border-radius: 10px;
                 """)
             else:
                 self.count_badge.setText(f"{total_found} specifications")
-                self.count_badge.setStyleSheet("""
+                self.count_badge.setStyleSheet(f"""
                     padding: 2px 10px; font-size: 11px; font-weight: bold;
-                    background-color: #F1F5F9; color: #475569; border: 1px solid #E2E8F0; border-radius: 10px;
+                    background-color: {C.BG_CANVAS}; color: {C.TEXT_SECONDARY}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 10px;
                 """)
 
             self._update_active_tags()
@@ -1437,18 +1481,18 @@ class SpecificationsTab(QWidget):
                 action_btn.setFixedSize(22, 22)
                 action_btn.setToolTip("Specification Actions")
                 action_btn.setCursor(Qt.PointingHandCursor)
-                action_btn.setStyleSheet("""
-                    QPushButton { border: none; background: transparent; color: #718096; font-size: 18px; font-weight: bold; padding-bottom: 3px; }
-                    QPushButton:hover { color: #0078D7; }
-                    QPushButton::menu-indicator { image: none; width: 0px; }
+                action_btn.setStyleSheet(f"""
+                    QPushButton {{ border: none; background: transparent; color: {C.TEXT_MUTED}; font-size: 18px; font-weight: bold; padding-bottom: 3px; }}
+                    QPushButton:hover {{ color: {C.ACCENT_PRIMARY}; }}
+                    QPushButton::menu-indicator {{ image: none; width: 0px; }}
                 """)
 
                 menu = QMenu(self)
-                menu.setStyleSheet("""
-                    QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
-                    QMenu::item { padding: 5px 20px 5px 15px; color: #333333; }
-                    QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
-                    QMenu::item:disabled { color: #AAAAAA; }
+                menu.setStyleSheet(f"""
+                    QMenu {{ background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; }}
+                    QMenu::item {{ padding: 5px 20px 5px 15px; color: {C.TEXT_BODY}; }}
+                    QMenu::item:selected {{ background-color: {C.ACCENT_SOFT}; color: {C.ACCENT_PRIMARY}; }}
+                    QMenu::item:disabled {{ color: {C.TEXT_FAINT}; }}
                 """)
 
                 fav_label = "⭐ Remove from Favorites" if is_fav else "⭐ Add to Favorites"
@@ -1539,8 +1583,8 @@ class SpecificationsTab(QWidget):
                     wg_badge.setToolTip(f"Working Group: {wg_name} ({wg_desc})\nClick to filter by this Working Group")
                     wg_badge.mousePressEvent = lambda event, wg=wg_name: self._on_wg_badge_clicked(wg)
                 else:
-                    wg_badge.setStyleSheet("""
-                        background-color: #F8FAFC; color: #94A3B8; border: 1px solid #E2E8F0;
+                    wg_badge.setStyleSheet(f"""
+                        background-color: {C.BG_SURFACE}; color: {C.TEXT_FAINT}; border: 1px solid {C.BORDER_SUBTLE};
                         border-radius: 3px; padding: 1px 0px; font-size: 10px; font-weight: bold;
                     """)
                     wg_badge.setToolTip("Working Group: Unassigned / Plenary")
@@ -1551,7 +1595,7 @@ class SpecificationsTab(QWidget):
                 spec_label.setObjectName("specNumberLabel")
                 # Keep the canonical identifier separate from decorated display text.
                 spec_label.setProperty("specNumber", spec_num)
-                spec_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #1A202C;")
+                spec_label.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {C.TEXT_PRIMARY};")
                 if is_fav:
                     spec_label.setToolTip("Marked as Favorite")
 
@@ -1573,7 +1617,7 @@ class SpecificationsTab(QWidget):
                     title_layout.setSpacing(2)
 
                     title_lbl = QLabel(title_text)
-                    title_lbl.setStyleSheet("font-size: 12px; color: #1E293B;")
+                    title_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_STRONG};")
                     title_lbl.setWordWrap(True)
                     title_layout.addWidget(title_lbl)
 
@@ -1583,8 +1627,8 @@ class SpecificationsTab(QWidget):
 
                     for tag_str in tags:
                         tag_pill = QLabel(f"🏷️ {tag_str}")
-                        tag_pill.setStyleSheet("""
-                            background-color: #EBF3FC; color: #1E5C99; border: 1px solid #BDD7EE;
+                        tag_pill.setStyleSheet(f"""
+                            background-color: {C.ACCENT_SOFT}; color: {C.ACCENT_PRIMARY}; border: 1px solid {C.ACCENT_RING};
                             border-radius: 9px; padding: 1px 6px; font-size: 10px; font-weight: bold;
                         """)
                         tag_pill.setToolTip(f"User Tag: {tag_str}")
@@ -1592,8 +1636,8 @@ class SpecificationsTab(QWidget):
 
                     if comments:
                         note_pill = QLabel("📝 Note")
-                        note_pill.setStyleSheet("""
-                            background-color: #FEF3C7; color: #92400E; border: 1px solid #FCD34D;
+                        note_pill.setStyleSheet(f"""
+                            background-color: {C.WARNING_SOFT_ALT}; color: {C.WARNING_DARK}; border: 1px solid {C.WARNING_BORDER_STRONG};
                             border-radius: 9px; padding: 1px 6px; font-size: 10px; font-weight: bold;
                         """)
                         preview = comments if len(comments) <= 250 else f"{comments[:247]}..."
@@ -1691,12 +1735,12 @@ class SpecificationsTab(QWidget):
                 doc_action_btn.setCursor(Qt.PointingHandCursor)
 
                 doc_menu = QMenu(self)
-                doc_menu.setStyleSheet("""
-                    QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
-                    QMenu::item { padding: 6px 22px 6px 14px; color: #333333; font-size: 12px; }
-                    QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
-                    QMenu::item:disabled { color: #AAAAAA; }
-                    QMenu::separator { height: 1px; background-color: #E2E8F0; margin: 4px 0; }
+                doc_menu.setStyleSheet(f"""
+                    QMenu {{ background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; }}
+                    QMenu::item {{ padding: 6px 22px 6px 14px; color: {C.TEXT_BODY}; font-size: 12px; }}
+                    QMenu::item:selected {{ background-color: {C.ACCENT_SOFT}; color: {C.ACCENT_PRIMARY}; }}
+                    QMenu::item:disabled {{ color: {C.TEXT_FAINT}; }}
+                    QMenu::separator {{ height: 1px; background-color: {C.BORDER_SUBTLE}; margin: 4px 0; }}
                 """)
                 doc_action_btn.setMenu(doc_menu)
 
@@ -1748,33 +1792,33 @@ class SpecificationsTab(QWidget):
 
                     if word_exists:
                         btn.setText("📝 Open Word ▾")
-                        btn.setStyleSheet(base_style + """
-                            QPushButton {
-                                background-color: #E8F5E9;
-                                color: #2E7D32;
-                                border: 1px solid #2E7D32;
-                            }
-                            QPushButton:hover { background-color: #C8E6C9; }
+                        btn.setStyleSheet(base_style + f"""
+                            QPushButton {{
+                                background-color: {C.SUCCESS_SOFT};
+                                color: {C.SUCCESS};
+                                border: 1px solid {C.SUCCESS};
+                            }}
+                            QPushButton:hover {{ background-color: {C.SUCCESS_SOFT_ALT}; }}
                         """)
                     elif zip_exists:
                         btn.setText("⚙️ Extract Word ▾")
-                        btn.setStyleSheet(base_style + """
-                            QPushButton {
-                                background-color: #FFF3E0;
-                                color: #E65100;
-                                border: 1px solid #FFB74D;
-                            }
-                            QPushButton:hover { background-color: #FFE0B2; }
+                        btn.setStyleSheet(base_style + f"""
+                            QPushButton {{
+                                background-color: {C.WARNING_SOFT};
+                                color: {C.WARNING};
+                                border: 1px solid {C.WARNING_BORDER_STRONG};
+                            }}
+                            QPushButton:hover {{ background-color: {C.ORANGE_SOFT}; }}
                         """)
                     else:
                         btn.setText("⬇️ Get Word ▾")
-                        btn.setStyleSheet(base_style + """
-                            QPushButton {
-                                background-color: #EBF3FB;
-                                color: #0066CC;
-                                border: 1px solid #B0D0F0;
-                            }
-                            QPushButton:hover { background-color: #D6E8FA; border-color: #0066CC; }
+                        btn.setStyleSheet(base_style + f"""
+                            QPushButton {{
+                                background-color: {C.ACCENT_SOFT};
+                                color: {C.ACCENT_BRIGHT};
+                                border: 1px solid {C.ACCENT_RING};
+                            }}
+                            QPushButton:hover {{ background-color: {C.ACCENT_SOFT_HOVER}; border-color: {C.ACCENT_BRIGHT}; }}
                         """)
 
                     menu.clear()

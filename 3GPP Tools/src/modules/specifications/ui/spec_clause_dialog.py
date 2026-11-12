@@ -40,6 +40,7 @@ from modules.word_tools.core.word_excerpt_naming import (
 )
 from modules.word_tools.core.document_opener import open_document
 from modules.specifications.ui.threads import SpecExcerptPrepThread
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -150,16 +151,16 @@ class SpecClauseExcerptDialog(QDialog):
         self.progress_bar.setValue(0)
         self.progress_bar.setFixedHeight(14)
         self.progress_bar.setTextVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #E2E8F0;
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 4px;
                 background-color: #EDF2F7;
-            }
-            QProgressBar::chunk {
-                background-color: #0066CC;
+            }}
+            QProgressBar::chunk {{
+                background-color: {C.ACCENT_BRIGHT};
                 border-radius: 3px;
-            }
+            }}
         """)
 
         self.status_label = QLabel("Preparing specification documents...")
@@ -183,7 +184,7 @@ class SpecClauseExcerptDialog(QDialog):
         filter_layout.addWidget(self.filter_input, 1)
 
         self.lbl_filter_matches = QLabel()
-        self.lbl_filter_matches.setStyleSheet("font-size: 11px; color: #64748B; padding-right: 4px;")
+        self.lbl_filter_matches.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED}; padding-right: 4px;")
         filter_layout.addWidget(self.lbl_filter_matches)
 
         self.btn_expand_all = QPushButton("Expand All")
@@ -207,24 +208,24 @@ class SpecClauseExcerptDialog(QDialog):
         header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.clause_tree.setStyleSheet("""
-            QTreeWidget {
+        self.clause_tree.setStyleSheet(f"""
+            QTreeWidget {{
                 background-color: white;
-                border: 1px solid #CBD5E1;
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 padding: 4px;
                 font-size: 12px;
-            }
-            QTreeWidget::item {
+            }}
+            QTreeWidget::item {{
                 padding: 3px 0;
-            }
-            QTreeWidget::item:hover {
-                background-color: #F1F5F9;
-            }
-            QTreeWidget::item:selected {
-                background-color: #E2E8F0;
-                color: #0F172A;
-            }
+            }}
+            QTreeWidget::item:hover {{
+                background-color: {C.BG_CANVAS};
+            }}
+            QTreeWidget::item:selected {{
+                background-color: {C.BORDER_SUBTLE};
+                color: {C.TEXT_PRIMARY};
+            }}
         """)
         self.clause_tree.itemChanged.connect(self._on_tree_item_changed)
         main_layout.addWidget(self.clause_tree, 1)
@@ -246,19 +247,19 @@ class SpecClauseExcerptDialog(QDialog):
         options_layout.addWidget(self.btn_clear)
 
         self.lbl_selection_count = QLabel("No clauses selected")
-        self.lbl_selection_count.setStyleSheet("color: #64748B; font-size: 12px; font-weight: 500;")
+        self.lbl_selection_count.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 12px; font-weight: 500;")
         options_layout.addWidget(self.lbl_selection_count)
 
         options_layout.addStretch()
 
         self.open_after_cb = QCheckBox("Open when finished")
         self.open_after_cb.setChecked(True)
-        self.open_after_cb.setStyleSheet("color: #334155; font-size: 12px;")
+        self.open_after_cb.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 12px;")
         self.open_after_cb.setToolTip("Open the extracted document in Microsoft Word or default viewer when extraction completes.")
         options_layout.addWidget(self.open_after_cb)
 
         self.chk_also_markdown = QCheckBox("Also export as Markdown (with figures)")
-        self.chk_also_markdown.setStyleSheet("color: #334155; font-size: 12px;")
+        self.chk_also_markdown.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 12px;")
         self.chk_also_markdown.setToolTip(
             "Automatically convert the extracted clause(s) to Markdown (.md) and extract all embedded figures and diagrams into a companion media folder."
         )
@@ -281,23 +282,23 @@ class SpecClauseExcerptDialog(QDialog):
         self.btn_extract = QPushButton("✂️ Extract Selected Clauses...")
         self.btn_extract.setCursor(Qt.PointingHandCursor)
         self.btn_extract.setEnabled(False)
-        self.btn_extract.setStyleSheet("""
-            QPushButton {
+        self.btn_extract.setStyleSheet(f"""
+            QPushButton {{
                 font-weight: bold;
-                background-color: #0066CC;
+                background-color: {C.ACCENT_BRIGHT};
                 color: white;
                 padding: 7px 20px;
                 border-radius: 4px;
-                border: 1px solid #0055AA;
-            }
-            QPushButton:hover {
+                border: 1px solid {C.ACCENT_BRIGHT_BORDER};
+            }}
+            QPushButton:hover {{
                 background-color: #0052A3;
-            }
-            QPushButton:disabled {
-                background-color: #CBD5E1;
-                color: #94A3B8;
-                border: 1px solid #CBD5E1;
-            }
+            }}
+            QPushButton:disabled {{
+                background-color: {C.BORDER_STRONG};
+                color: {C.TEXT_FAINT};
+                border: 1px solid {C.BORDER_STRONG};
+            }}
         """)
         self.btn_extract.clicked.connect(self._extract_selected_clauses)
         action_layout.addWidget(self.btn_extract)
@@ -348,9 +349,9 @@ class SpecClauseExcerptDialog(QDialog):
     def _on_prep_error(self, err_msg: str):
         self.progress_bar.setVisible(False)
         self.status_label.setText("⚠️ Preparation failed.")
-        self.status_label.setStyleSheet("color: #DC2626; font-weight: bold;")
+        self.status_label.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
         self.source_summary_badge.setText("Failed")
-        self.source_summary_badge.setStyleSheet("color: #DC2626;")
+        self.source_summary_badge.setStyleSheet(f"color: {C.DANGER_ALT};")
         QMessageBox.critical(self, "Preparation Failed", f"Could not prepare specification for extraction:\n{err_msg}")
 
     def _populate_tree(self):
@@ -496,12 +497,12 @@ class SpecClauseExcerptDialog(QDialog):
             self.btn_extract.setText(f"✂️ Extract Selected Clauses ({count})...")
             if hasattr(self, "lbl_selection_count"):
                 self.lbl_selection_count.setText(f"<b>{count}</b> clause(s) selected")
-                self.lbl_selection_count.setStyleSheet("color: #0284C7; font-size: 12px; font-weight: 500;")
+                self.lbl_selection_count.setStyleSheet(f"color: {C.ACCENT_SKY}; font-size: 12px; font-weight: 500;")
         else:
             self.btn_extract.setText("✂️ Extract Selected Clauses...")
             if hasattr(self, "lbl_selection_count"):
                 self.lbl_selection_count.setText("No clauses selected")
-                self.lbl_selection_count.setStyleSheet("color: #64748B; font-size: 12px; font-weight: 500;")
+                self.lbl_selection_count.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 12px; font-weight: 500;")
 
     def _extract_selected_clauses(self):
         selected_ids = self._get_selected_ids()

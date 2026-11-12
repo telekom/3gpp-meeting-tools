@@ -85,6 +85,14 @@ class TestSpecWGBadge(unittest.TestCase):
         self.assertEqual(tab.table_filters.get("group"), "SA2")
         self.assertEqual(tab._current_tsg, "SA")
 
+        # Test Phase 2.3 shared ribbon, table card, Lucide icons, and non-blocking missing folder notify
+        self.assertTrue(hasattr(tab, "ribbon_card"))
+        self.assertTrue(hasattr(tab, "table_card"))
+        for btn in (tab.sync_menu_btn, tab.add_spec_btn, tab.open_dir_btn, tab.settings_btn, tab.wipe_db_btn):
+            self.assertFalse(btn.icon().isNull())
+        tab._open_spec_folder("__NONEXISTENT_SPEC_DIR__")  # Non-blocking notify_info in standalone test
+        tab.close()
+
 
 if __name__ == "__main__":
     unittest.main()

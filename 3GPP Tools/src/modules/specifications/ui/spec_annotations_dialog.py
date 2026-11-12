@@ -30,76 +30,77 @@ from core.ui.ui_components import (
     CARD_FRAME_STYLE,
     SEARCH_INPUT_STYLE,
 )
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
-PRIMARY_BUTTON_STYLE = """
-QPushButton {
-    background-color: #1E5C99;
-    color: #FFFFFF;
+PRIMARY_BUTTON_STYLE = f"""
+QPushButton {{
+    background-color: {C.ACCENT_PRIMARY};
+    color: {C.BG_CARD};
     border: 1px solid #164877;
     border-radius: 4px;
     padding: 6px 16px;
     font-size: 12px;
     font-weight: bold;
-}
-QPushButton:hover {
+}}
+QPushButton:hover {{
     background-color: #184D80;
-}
-QPushButton:pressed {
+}}
+QPushButton:pressed {{
     background-color: #123A61;
-}
+}}
 """
 
-TAG_CHIP_STYLE = """
-QFrame#tagChip {
-    background-color: #EBF3FC;
-    border: 1px solid #93C5FD;
+TAG_CHIP_STYLE = f"""
+QFrame#tagChip {{
+    background-color: {C.ACCENT_SOFT};
+    border: 1px solid {C.INFO_BORDER_MEDIUM};
     border-radius: 12px;
-}
-QFrame#tagChip:hover {
-    background-color: #DBEAFE;
+}}
+QFrame#tagChip:hover {{
+    background-color: {C.INFO_SOFT_STRONG};
     border-color: #60A5FA;
-}
-QLabel#tagText {
-    color: #1E40AF;
+}}
+QLabel#tagText {{
+    color: {C.INFO_DARK};
     font-size: 11px;
     font-weight: 600;
     background: transparent;
     border: none;
-}
-QPushButton#tagRemoveBtn {
+}}
+QPushButton#tagRemoveBtn {{
     background: transparent;
     border: none;
-    color: #64748B;
+    color: {C.TEXT_MUTED};
     font-size: 11px;
     font-weight: bold;
     padding: 0 4px;
     margin: 0;
-}
-QPushButton#tagRemoveBtn:hover {
-    color: #DC2626;
-}
+}}
+QPushButton#tagRemoveBtn:hover {{
+    color: {C.DANGER_ALT};
+}}
 """
 
-SUGGESTION_CHIP_STYLE = """
-QPushButton {
-    background-color: #F8FAFC;
-    color: #334155;
-    border: 1px solid #CBD5E1;
+SUGGESTION_CHIP_STYLE = f"""
+QPushButton {{
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_BODY};
+    border: 1px solid {C.BORDER_STRONG};
     border-radius: 11px;
     padding: 3px 10px;
     font-size: 11px;
     font-weight: 500;
-}
-QPushButton:hover {
-    background-color: #EBF3FC;
-    color: #1E5C99;
-    border-color: #93C5FD;
-}
-QPushButton:pressed {
-    background-color: #DBEAFE;
-}
+}}
+QPushButton:hover {{
+    background-color: {C.ACCENT_SOFT};
+    color: {C.ACCENT_PRIMARY};
+    border-color: {C.INFO_BORDER_MEDIUM};
+}}
+QPushButton:pressed {{
+    background-color: {C.INFO_SOFT_STRONG};
+}}
 """
 
 
@@ -196,7 +197,7 @@ class EditSpecAnnotationsDialog(QDialog):
         tags_header_row.addStretch()
 
         self.tag_count_lbl = QLabel("")
-        self.tag_count_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: 600;")
+        self.tag_count_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px; font-weight: 600;")
         tags_header_row.addWidget(self.tag_count_lbl)
         tags_layout.addLayout(tags_header_row)
 
@@ -237,8 +238,8 @@ class EditSpecAnnotationsDialog(QDialog):
         sugg_vbox.setContentsMargins(0, 2, 0, 0)
         sugg_vbox.setSpacing(5)
 
-        self.suggestions_header_lbl = QLabel("💡 <b>Suggested Tags</b> <span style='color: #94A3B8;'>(click to add)</span>:")
-        self.suggestions_header_lbl.setStyleSheet("color: #475569; font-size: 11px;")
+        self.suggestions_header_lbl = QLabel(f"💡 <b>Suggested Tags</b> <span style='color: {C.TEXT_FAINT};'>(click to add)</span>:")
+        self.suggestions_header_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px;")
         sugg_vbox.addWidget(self.suggestions_header_lbl)
 
         self.suggestions_chips_container = QWidget()
@@ -266,18 +267,18 @@ class EditSpecAnnotationsDialog(QDialog):
             "Write personal notes, technical context, meeting relevance, or delegation stance...\n"
             "These comments are fully searchable in the Specifications search bar."
         )
-        self.comments_edit.setStyleSheet("""
-            QPlainTextEdit {
-                border: 1px solid #CBD5E1;
+        self.comments_edit.setStyleSheet(f"""
+            QPlainTextEdit {{
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
-                background-color: #FFFFFF;
+                background-color: {C.BG_CARD};
                 font-size: 12px;
                 padding: 6px;
                 line-height: 1.4;
-            }
-            QPlainTextEdit:focus {
-                border: 1px solid #1E5C99;
-            }
+            }}
+            QPlainTextEdit:focus {{
+                border: 1px solid {C.ACCENT_PRIMARY};
+            }}
         """)
         notes_layout.addWidget(self.comments_edit, stretch=1)
 
@@ -358,23 +359,23 @@ class EditSpecAnnotationsDialog(QDialog):
         self.tag_count_lbl.setText(f"{count} tag{'s' if count != 1 else ''} assigned" if count else "")
 
         if not self.current_tags:
-            self.pills_container.setStyleSheet("""
-                QFrame#assignedTagsBox {
-                    background-color: #F8FAFC;
-                    border: 1px dashed #CBD5E1;
+            self.pills_container.setStyleSheet(f"""
+                QFrame#assignedTagsBox {{
+                    background-color: {C.BG_SURFACE};
+                    border: 1px dashed {C.BORDER_STRONG};
                     border-radius: 6px;
-                }
+                }}
             """)
             no_tags = QLabel("<i>🏷️ No tags assigned yet — type above or click a suggestion below.</i>")
-            no_tags.setStyleSheet("color: #94A3B8; font-size: 11px; border: none; background: transparent;")
+            no_tags.setStyleSheet(f"color: {C.TEXT_FAINT}; font-size: 11px; border: none; background: transparent;")
             self.pills_layout.addWidget(no_tags)
         else:
-            self.pills_container.setStyleSheet("""
-                QFrame#assignedTagsBox {
-                    background-color: #F8FAFC;
-                    border: 1px solid #E2E8F0;
+            self.pills_container.setStyleSheet(f"""
+                QFrame#assignedTagsBox {{
+                    background-color: {C.BG_SURFACE};
+                    border: 1px solid {C.BORDER_SUBTLE};
                     border-radius: 6px;
-                }
+                }}
             """)
             for t in sorted(list(self.current_tags), key=lambda x: x.lower()):
                 chip = TagChip(t, self.pills_container)
@@ -497,8 +498,8 @@ class BatchTagDialog(QDialog):
         card_layout.addWidget(self.tag_input)
 
         if existing_tags:
-            sugg_lbl = QLabel("💡 <b>Existing Tags</b> <span style='color: #94A3B8;'>(click to select)</span>:")
-            sugg_lbl.setStyleSheet("color: #475569; font-size: 11px; margin-top: 2px;")
+            sugg_lbl = QLabel(f"💡 <b>Existing Tags</b> <span style='color: {C.TEXT_FAINT};'>(click to select)</span>:")
+            sugg_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px; margin-top: 2px;")
             card_layout.addWidget(sugg_lbl)
 
             sugg_container = QWidget()

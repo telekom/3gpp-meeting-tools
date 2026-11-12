@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import (
 
 from core.utils.paths import get_project_root
 from modules.specifications.utils.utils import build_dynareport_url
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -785,11 +786,11 @@ def show_spec_context_menu(tab, position):
         return
 
     menu = QMenu(tab)
-    menu.setStyleSheet("""
-        QMenu { background-color: #FAFAFA; border: 1px solid #CCC; }
-        QMenu::item { padding: 5px 20px 5px 15px; color: #333333; }
-        QMenu::item:selected { background-color: #E1F0FF; color: #0078D7; }
-        QMenu::item:disabled { color: #AAAAAA; }
+    menu.setStyleSheet(f"""
+        QMenu {{ background-color: {C.BG_ALT_LIGHT}; border: 1px solid #CCC; }}
+        QMenu::item {{ padding: 5px 20px 5px 15px; color: #333333; }}
+        QMenu::item:selected {{ background-color: #E1F0FF; color: #0078D7; }}
+        QMenu::item:disabled {{ color: #AAAAAA; }}
     """)
 
     if len(target_items) == 1:

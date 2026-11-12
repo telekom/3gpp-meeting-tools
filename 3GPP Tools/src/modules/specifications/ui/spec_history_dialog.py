@@ -62,6 +62,7 @@ from modules.specifications.core.spec_tdoc_report import (
     SpecTDocReportThread,
 )
 from modules.specifications.ui.spec_tdoc_report_dialog import SpecTDocReportDialog
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,7 @@ class SpecVersionHistoryDialog(QDialog):
                 pass
 
         self.title_lbl = QLabel(spec_title)
-        self.title_lbl.setStyleSheet("font-size: 13px; font-weight: bold; color: #1E293B;")
+        self.title_lbl.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {C.TEXT_STRONG};")
         self.title_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
         top_row.addWidget(self.spec_badge)
@@ -234,7 +235,7 @@ class SpecVersionHistoryDialog(QDialog):
         filter_row.setSpacing(8)
 
         ver_lbl = QLabel("<b>Version:</b>")
-        ver_lbl.setStyleSheet("color: #475569; font-size: 12px;")
+        ver_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 12px;")
 
         self.version_combo = QComboBox()
         self.version_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
@@ -248,7 +249,7 @@ class SpecVersionHistoryDialog(QDialog):
         self.search_input.textChanged.connect(self._apply_filters)
 
         self.stats_lbl = QLabel("0 record(s)")
-        self.stats_lbl.setStyleSheet("color: #64748B; font-size: 12px; font-weight: bold;")
+        self.stats_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 12px; font-weight: bold;")
 
         filter_row.addWidget(ver_lbl)
         filter_row.addWidget(self.version_combo)
@@ -262,7 +263,7 @@ class SpecVersionHistoryDialog(QDialog):
         clause_row.setSpacing(8)
 
         self.chk_clause_filter = QCheckBox("🎯 Affected Clause:")
-        self.chk_clause_filter.setStyleSheet("font-size: 11px; font-weight: 600; color: #334155;")
+        self.chk_clause_filter.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {C.TEXT_BODY};")
         self.chk_clause_filter.toggled.connect(self._apply_filters)
 
         self.clause_input = QLineEdit()
@@ -285,7 +286,7 @@ class SpecVersionHistoryDialog(QDialog):
         self.clause_mode_combo.currentIndexChanged.connect(self._apply_filters)
 
         self.chk_origin_ranking = QCheckBox("⭐ Origin CR Ranking")
-        self.chk_origin_ranking.setStyleSheet("font-size: 11px; font-weight: bold; color: #0284C7;")
+        self.chk_origin_ranking.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {C.ACCENT_SKY};")
         self.chk_origin_ranking.setToolTip("Ranks candidate CRs by origin relevance using Category B, Title/Intro keywords, Affected Clauses, and chronological release primacy.")
         self.chk_origin_ranking.toggled.connect(self._apply_filters)
 
@@ -305,14 +306,14 @@ class SpecVersionHistoryDialog(QDialog):
         # -------------------------------------------------------------
         splitter = QSplitter(Qt.Vertical)
         splitter.setHandleWidth(6)
-        splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: #E2E8F0;
+        splitter.setStyleSheet(f"""
+            QSplitter::handle {{
+                background-color: {C.BORDER_SUBTLE};
                 border-radius: 2px;
-            }
-            QSplitter::handle:hover {
-                background-color: #0284C7;
-            }
+            }}
+            QSplitter::handle:hover {{
+                background-color: {C.ACCENT_SKY};
+            }}
         """)
 
         # Table Container Card
@@ -352,7 +353,7 @@ class SpecVersionHistoryDialog(QDialog):
 
         details_header = QHBoxLayout()
         self.drawer_title_lbl = QLabel("<b>Selected Entry Details:</b>")
-        self.drawer_title_lbl.setStyleSheet("font-size: 12px; color: #334155;")
+        self.drawer_title_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_BODY};")
 
         self.btn_copy_entry_tdocs = QPushButton("📋 Copy Entry TDocs")
         self.btn_copy_entry_tdocs.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -378,14 +379,14 @@ class SpecVersionHistoryDialog(QDialog):
         self.notes_browser = QTextBrowser()
         self.notes_browser.setReadOnly(True)
         self.notes_browser.setOpenLinks(False)
-        self.notes_browser.setStyleSheet("""
-            QTextBrowser {
-                background-color: #F8FAFC;
-                border: 1px solid #E2E8F0;
+        self.notes_browser.setStyleSheet(f"""
+            QTextBrowser {{
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 4px;
-                color: #1E293B;
+                color: {C.TEXT_STRONG};
                 padding: 6px 8px;
-            }
+            }}
         """)
         self.notes_browser.anchorClicked.connect(self._on_notes_anchor_clicked)
         self.notes_browser.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -609,11 +610,11 @@ class SpecVersionHistoryDialog(QDialog):
                 f_rel.setBold(True)
                 rel_item.setFont(f_rel)
                 if score >= 70:
-                    rel_item.setForeground(QBrush(QColor("#0284C7")))
+                    rel_item.setForeground(QBrush(QColor(C.ACCENT_SKY)))
                 elif score >= 50:
                     rel_item.setForeground(QBrush(QColor("#0D9488")))
                 else:
-                    rel_item.setForeground(QBrush(QColor("#64748B")))
+                    rel_item.setForeground(QBrush(QColor(C.TEXT_MUTED)))
                 badges = r.get("evidence_badges", [])
                 tip = f"<b>{role}</b> (Score: {score}/100)<br/>" + "<br/>".join(f"• {b}" for b in badges)
                 rel_item.setToolTip(tip)
@@ -627,7 +628,7 @@ class SpecVersionHistoryDialog(QDialog):
             # Meeting
             meeting_item = QTableWidgetItem(r.get("meeting", ""))
             meeting_item.setTextAlignment(Qt.AlignCenter)
-            meeting_item.setForeground(QBrush(QColor("#0369A1")))
+            meeting_item.setForeground(QBrush(QColor(C.ACCENT_SKY_DARK)))
             self.table.setItem(row_idx, col_offset + 1, meeting_item)
 
             # Version
@@ -662,7 +663,7 @@ class SpecVersionHistoryDialog(QDialog):
             cat_item = QTableWidgetItem(cat_val if cat_val != "-" else "—")
             cat_item.setTextAlignment(Qt.AlignCenter)
             if cat_val == "B":
-                cat_item.setForeground(QBrush(QColor("#0284C7")))
+                cat_item.setForeground(QBrush(QColor(C.ACCENT_SKY)))
                 f_cat = cat_item.font()
                 f_cat.setBold(True)
                 cat_item.setFont(f_cat)
@@ -675,7 +676,7 @@ class SpecVersionHistoryDialog(QDialog):
             tdoc_item = QTableWidgetItem(source_tdoc if source_tdoc else "—")
             tdoc_item.setTextAlignment(Qt.AlignCenter)
             if source_tdoc and source_tdoc != "—":
-                tdoc_item.setForeground(QBrush(QColor("#0284C7")))
+                tdoc_item.setForeground(QBrush(QColor(C.ACCENT_SKY)))
                 f_tdoc = tdoc_item.font()
                 f_tdoc.setBold(True)
                 tdoc_item.setFont(f_tdoc)
@@ -712,7 +713,7 @@ class SpecVersionHistoryDialog(QDialog):
         if not rec:
             return (
                 "<html><body style=\"font-family: 'Segoe UI', -apple-system, sans-serif; "
-                "font-size: 12px; color: #94A3B8; background-color: #F8FAFC; margin: 10px;\">"
+                f"font-size: 12px; color: {C.TEXT_FAINT}; background-color: {C.BG_SURFACE}; margin: 10px;\">"
                 "<i>Select an entry above to view details, rapporteur notes, and clickable TDoc links.</i>"
                 "</body></html>"
             )
@@ -743,7 +744,7 @@ class SpecVersionHistoryDialog(QDialog):
             t_sp = "&nbsp;" if trailing_nbsp else ""
             return (
                 f'<a href="tdoc:{token}" title="Click to open {token} (Right-click for options)" '
-                f'style="color: #0369A1; background-color: #E0F2FE; text-decoration: none; '
+                f'style="color: {C.ACCENT_SKY_DARK}; background-color: {C.SKY_SOFT}; text-decoration: none; '
                 f'font-weight: bold; font-family: Consolas, monospace;">'
                 f'&nbsp;{token}{t_sp}</a>'
             )
@@ -771,7 +772,7 @@ class SpecVersionHistoryDialog(QDialog):
                     formatted_lines.append(f"<div style='margin-bottom: 5px; line-height: 1.5;'>{line}</div>")
             notes_html = "\n".join(formatted_lines)
         else:
-            notes_html = "<div style='color: #64748B;'><i>(No rapporteur notes recorded for this entry)</i></div>"
+            notes_html = f"<div style='color: {C.TEXT_MUTED};'><i>(No rapporteur notes recorded for this entry)</i></div>"
 
         # Top metadata row
         primary_html = ""
@@ -780,11 +781,11 @@ class SpecVersionHistoryDialog(QDialog):
 
         count_html = ""
         if len(raw_tokens) > 0:
-            count_html = f"&nbsp;&nbsp;|&nbsp;&nbsp;<b style='color: #0284C7;'>{len(raw_tokens)} TDoc(s)</b>"
+            count_html = f"&nbsp;&nbsp;|&nbsp;&nbsp;<b style='color: {C.ACCENT_SKY};'>{len(raw_tokens)} TDoc(s)</b>"
 
         meta_row = (
-            f"<div style='padding-bottom: 8px; margin-bottom: 10px; border-bottom: 1px solid #E2E8F0; "
-            f"font-size: 11px; color: #475569;'>"
+            f"<div style='padding-bottom: 8px; margin-bottom: 10px; border-bottom: 1px solid {C.BORDER_SUBTLE}; "
+            f"font-size: 11px; color: {C.TEXT_SECONDARY};'>"
             f"<b>Meeting:</b> {meeting} &nbsp;&nbsp;|&nbsp;&nbsp; "
             f"<b>Version:</b> v{version} &nbsp;&nbsp;|&nbsp;&nbsp; "
             f"<b>CR:</b> {cr_num} (Cat {cat})"
@@ -796,14 +797,14 @@ class SpecVersionHistoryDialog(QDialog):
         role_banner = ""
         if role or score:
             badges_html = " ".join(
-                f'<span style="background-color: #E0F2FE; color: #0369A1; border: 1px solid #BAE6FD; border-radius: 3px; padding: 2px 6px; font-size: 11px; margin-right: 4px;">{html.escape(b)}</span>'
+                f'<span style="background-color: {C.SKY_SOFT}; color: {C.ACCENT_SKY_DARK}; border: 1px solid {C.SKY_BORDER}; border-radius: 3px; padding: 2px 6px; font-size: 11px; margin-right: 4px;">{html.escape(b)}</span>'
                 for b in evidence_badges
             )
-            aff_html = f'<br/><span style="color: #475569; font-size: 11px;"><b>Affected Clauses:</b> <code>{html.escape(aff_clauses)}</code></span>' if aff_clauses else ""
+            aff_html = f'<br/><span style="color: {C.TEXT_SECONDARY}; font-size: 11px;"><b>Affected Clauses:</b> <code>{html.escape(aff_clauses)}</code></span>' if aff_clauses else ""
             role_banner = f'''
-            <div style="background-color: #F0F9FF; border: 1px solid #B9E6FE; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px;">
-                <div style="font-size: 13px; font-weight: bold; color: #0284C7; margin-bottom: 4px;">
-                    {html.escape(role)} <span style="font-size: 11px; font-weight: normal; color: #64748B;">(Relevance Score: <b>{score}</b>/100)</span>
+            <div style="background-color: {C.SKY_SURFACE}; border: 1px solid #B9E6FE; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px;">
+                <div style="font-size: 13px; font-weight: bold; color: {C.ACCENT_SKY}; margin-bottom: 4px;">
+                    {html.escape(role)} <span style="font-size: 11px; font-weight: normal; color: {C.TEXT_MUTED};">(Relevance Score: <b>{score}</b>/100)</span>
                 </div>
                 <div>{badges_html}</div>
                 {aff_html}
@@ -817,8 +818,8 @@ class SpecVersionHistoryDialog(QDialog):
           body {{
             font-family: 'Segoe UI', -apple-system, sans-serif;
             font-size: 12px;
-            color: #1E293B;
-            background-color: #F8FAFC;
+            color: {C.TEXT_STRONG};
+            background-color: {C.BG_SURFACE};
             margin: 6px 8px;
           }}
         </style>
@@ -868,7 +869,7 @@ class SpecVersionHistoryDialog(QDialog):
         cr_text = f"CR {rec.get('cr_number')}" if rec.get("cr_number") and rec.get("cr_number") != "-" else "p-CRs / Draft"
         header_text = f"<b>Selected Entry:</b> {f'{v_name} · ' if v_name else ''}{f'{m_name} · ' if m_name else ''}{cr_text}"
         if raw_tokens:
-            header_text += f" <span style='color: #64748B;'>({len(raw_tokens)} TDoc{'s' if len(raw_tokens) > 1 else ''})</span>"
+            header_text += f" <span style='color: {C.TEXT_MUTED};'>({len(raw_tokens)} TDoc{'s' if len(raw_tokens) > 1 else ''})</span>"
         self.drawer_title_lbl.setText(header_text)
 
         self.btn_open_primary.setEnabled(bool(raw_tokens))
