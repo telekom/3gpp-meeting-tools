@@ -9,7 +9,7 @@ from pathlib import Path
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QKeySequence, QTextCursor
 from PyQt5.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QSplitter, QStatusBar, QApplication,
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QStatusBar, QApplication,
     QDialog, QTabWidget, QPushButton, QShortcut, QLabel, QMessageBox, QMenu
 )
 
@@ -18,6 +18,7 @@ from core.config.useful_links import populate_help_menu, get_useful_links_config
 from core.network.session import NetworkConfigDialog, NetworkSession, ProxyProfileManager
 from core.network.wifi_monitor import WifiMonitorThread
 from core.queue_manager import QueueManager
+from core.ui.nav_rail import NavRail
 from core.ui.ui_components import ProxyDialog, create_app_icon
 from core.ui.ui_panels import (
     ConsolePanel, QueuePanel, ProcessManagerDialog, DatabaseMaintenanceDialog, GuiLogHandler
@@ -48,7 +49,7 @@ class DragDropUI(QMainWindow):
         super().__init__()
         self.setWindowTitle("3GPP Delegate Tools")
         self.setWindowIcon(create_app_icon())
-        self.resize(950, 750)
+        self.resize(1160, 780)
 
         self.jar_path = get_puml2visio_asset_path(PLANTUML_JAR_NAME)
         self.last_out_path = ""
@@ -124,13 +125,24 @@ class DragDropUI(QMainWindow):
 
     def _setup_ui(self):
         central_widget = QWidget()
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(15, 15, 15, 15)
+        root_layout = QHBoxLayout()
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        self.nav_rail = NavRail(self)
+        root_layout.addWidget(self.nav_rail)
+
+        main_container = QWidget()
+        main_layout = QVBoxLayout(main_container)
+        main_layout.setContentsMargins(12, 10, 12, 8)
+        main_layout.setSpacing(8)
 
         self.splitter = QSplitter(Qt.Vertical)
 
-        # --- TOP HALF: TABS ---
+        # --- TOP HALF: TABS (tab bar hidden; driven by NavRail) ---
         self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.tabBar().hide()
 
         logging.info("🏁 [STARTUP:UI:TAB] 1/8 Initializing CodeEditorTab...")
         self.code_tab = CodeEditorTab()
@@ -270,13 +282,15 @@ class DragDropUI(QMainWindow):
         self.tabs.addTab(self.word_tab, "📘 Word")
         self.tabs.addTab(self.specs_tab, "📚 Specifications")
         self.tabs.addTab(self.spec_search_tab, "🔎 Spec Search")
-        self.tabs.addTab(self.work_items_tab, "📋 Work Items")
-        self.tabs.addTab(self.meetings_tab, "🗓️ Meetings")
         self.tabs.addTab(self.nas_tab, "🔬 Protocols")
+        self.tabs.addTab(self.meetings_tab, "🗓️ Meetings")
+        self.tabs.addTab(self.work_items_tab, "📋 Work Items")
         self.tabs.addTab(self.assistant_tab, "🤖 Assistant")
 
-        # Connect tab activation for lazy loading
+        # Sync hidden QTabWidget <-> NavRail and trigger lazy loading
+        self.nav_rail.tab_selected.connect(self.tabs.setCurrentIndex)
         self.tabs.currentChanged.connect(self._on_tab_changed)
+        self.nav_rail.set_active_index(self.tabs.currentIndex())
 
         # Tab corner help dropdown menu
         self.help_btn = QPushButton("📖 Help ▾")
@@ -316,7 +330,7 @@ class DragDropUI(QMainWindow):
         self.help_btn.setMenu(self.help_menu)
         self._rebuild_help_menu()
 
-        self.tabs.setCornerWidget(self.help_btn, Qt.TopRightCorner)
+        self.nav_rail.register_footer_button(self.help_btn, "Help && Docs")
 
         self.help_shortcut = QShortcut(QKeySequence("F1"), self)
         self.help_shortcut.activated.connect(self.open_documentation)
@@ -346,8 +360,9 @@ class DragDropUI(QMainWindow):
         self.splitter.addWidget(self.bottom_splitter)
         self.splitter.setSizes([700, 100])
         main_layout.addWidget(self.splitter)
+        root_layout.addWidget(main_container, 1)
 
-        central_widget.setLayout(main_layout)
+        central_widget.setLayout(root_layout)
         self.setCentralWidget(central_widget)
 
         # Bottom System Status Bar (decoupled component)
@@ -359,10 +374,17 @@ class DragDropUI(QMainWindow):
         logging.info("🏁 [STARTUP:UI] _setup_ui() layout complete.")
 
     def _on_tab_changed(self, index: int):
-        """Triggers lazy loading when an inactive tab is selected for the first time."""
+        """Triggers lazy loading when an inactive tab is selected and syncs NavRail."""
+        if hasattr(self, "nav_rail"):
+            self.nav_rail.set_active_index(index)
         active_widget = self.tabs.widget(index)
         if hasattr(active_widget, 'ensure_loaded'):
             active_widget.ensure_loaded()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "nav_rail"):
+            self.nav_rail.apply_responsive_width(self.width())
 
     def _navigate_from_search_to_specs(self, spec_number: str, version: str):
         """Switches to Specifications tab and selects the requested spec and version."""
