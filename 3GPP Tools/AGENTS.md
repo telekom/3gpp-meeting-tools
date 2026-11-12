@@ -75,7 +75,7 @@ python -m main_tools
 │   │   ├── ai/                    # OllamaClient, health monitoring, OllamaConfigDialog
 │   │   ├── config/                # Global application constants and paths
 │   │   ├── network/               # NetworkSession singleton, RFC 1918 proxy bypassing
-│   │   ├── ui/                    # Centralized theme tokens (`theme.py`), Lucide SVG icons (`icons.py`), grouped NavRail (`nav_rail.py`), BottomDrawer (`bottom_drawer.py`), Smart Toast (`toast.py`), hex migrator, base components, ModernDropZone, global QSS, panels
+│   │   ├── ui/                    # Centralized theme tokens (`theme.py`), Lucide SVG icons (`icons.py`), grouped NavRail (`nav_rail.py`), BottomDrawer (`bottom_drawer.py`), Smart Toast (`toast.py`), QSettings shell state (`shell_state.py`), hex migrator, base components, ModernDropZone, global QSS, panels
 │   │   ├── utils/                 # Path resolution, Java runtime detection, 3GPP Portal URL generators, helpers
 │   │   └── queue_manager.py       # Multi-threaded background conversion & sync task queue
 │   ├── db/                        # Persistent SQLite databases (3gpp_data.db, etc.)

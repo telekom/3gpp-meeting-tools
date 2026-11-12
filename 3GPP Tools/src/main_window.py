@@ -22,6 +22,7 @@ from core.queue_manager import QueueManager
 from core.ui.bottom_drawer import BottomDrawer
 from core.ui.icons import lucide_icon
 from core.ui.nav_rail import NavRail
+from core.ui.shell_state import restore_shell_state, save_shell_state
 from core.ui.theme import C
 from core.ui.toast import ToastAction, ToastManager
 from core.ui.ui_components import ProxyDialog, create_app_icon
@@ -66,6 +67,7 @@ class DragDropUI(QMainWindow):
 
         logging.info("🏁 [STARTUP:UI] Starting _setup_ui()...")
         self._setup_ui()
+        restore_shell_state(self)
         logging.info("🏁 [STARTUP:UI] _setup_ui() finished successfully.")
 
         # ==========================================
@@ -1109,6 +1111,11 @@ class DragDropUI(QMainWindow):
             self.save_cache()
         except Exception as e:
             logging.warning(f"⚠️ [SHUTDOWN] Could not save cache: {e}")
+
+        try:
+            save_shell_state(self)
+        except Exception as e:
+            logging.warning(f"⚠️ [SHUTDOWN] Could not save shell layout state: {e}")
 
         self.status_bar.stop_monitors()
         if hasattr(self, "toast_manager") and self.toast_manager is not None:
