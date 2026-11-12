@@ -20,6 +20,7 @@ check_dependencies_or_exit()
 from PyQt5.QtWidgets import QApplication, QDialog
 
 from core.network.session import NetworkSession
+from core.ui.theme import load_app_fonts
 from core.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
 from core.ui.ui_panels import GuiLogHandler
 from core.utils.paths import ensure_app_data_dirs, get_app_data_root, get_project_root
@@ -107,6 +108,7 @@ if __name__ == '__main__':
     logging.info("🏁 [STARTUP] Plugins registered successfully.")
 
     app = QApplication(sys.argv)
+    load_app_fonts(app)
     app_icon = create_app_icon()
     app.setWindowIcon(app_icon)
     app.setStyle("Fusion")

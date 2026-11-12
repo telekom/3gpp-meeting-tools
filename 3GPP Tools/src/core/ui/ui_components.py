@@ -19,564 +19,563 @@ from PyQt5.QtWidgets import (
 )
 
 from core.network.session import NetworkSession, ProxyProfileManager
+from core.ui.theme import C, R, T
 from core.utils.dpapi import SecureCredentialStore, redact_sensitive_urls
 
 # ==========================================
 # --- GLOBAL STYLESHEET (ALL-BLUE THEME) ---
 # ==========================================
-GLOBAL_STYLE = """
-    QWidget {
-        font-family: "Segoe UI", Arial, sans-serif;
-        font-size: 13px;
-        color: #333333;
-    }
-    QToolTip {
-        color: #333333;
-        background-color: #F8F8F8;
-        border: 1px solid #D0D0D0;
-        border-radius: 4px;
+GLOBAL_STYLE = f"""
+    QWidget {{
+        font-family: {T.FONT_FAMILY_UI};
+        font-size: {T.SIZE_BODY}px;
+        color: {C.TEXT_BODY};
+    }}
+    QToolTip {{
+        color: {C.TEXT_BODY};
+        background-color: {C.BG_SURFACE};
+        border: 1px solid {C.BORDER_STRONG};
+        border-radius: {R.SM}px;
         padding: 4px;
-    }
-    QTabWidget::pane {
-        border: 1px solid #D0D0D0;
-        border-radius: 8px;
-        background: #FFFFFF;
+    }}
+    QTabWidget::pane {{
+        border: 1px solid {C.BORDER_STRONG};
+        border-radius: {R.LG}px;
+        background: {C.BG_CARD};
         top: -1px;
-    }
-    QTabBar::tab {
-        background: #EAEAEA;
-        border: 1px solid #D0D0D0;
+    }}
+    QTabBar::tab {{
+        background: {C.BG_CANVAS};
+        border: 1px solid {C.BORDER_STRONG};
         padding: 8px 16px;
         margin-right: 2px;
-        border-top-left-radius: 6px;
-        border-top-right-radius: 6px;
-    }
-    QTabBar::tab:selected {
-        background: #FFFFFF;
-        border-bottom-color: #FFFFFF;
+        border-top-left-radius: {R.MD}px;
+        border-top-right-radius: {R.MD}px;
+    }}
+    QTabBar::tab:selected {{
+        background: {C.BG_CARD};
+        border-bottom-color: {C.BG_CARD};
         font-weight: bold;
-        color: #395396;
-    }
-    QTabBar::tab:hover:!selected {
-        background: #F0F0F0;
-    }
-    QPushButton {
+        color: {C.ACCENT_PRIMARY};
+    }}
+    QTabBar::tab:hover:!selected {{
+        background: {C.BG_SURFACE};
+    }}
+    QPushButton {{
         padding: 8px 16px;
-        border-radius: 6px;
-        border: 1px solid #CCCCCC;
-        background-color: #F8F8F8;
+        border-radius: {R.MD}px;
+        border: 1px solid {C.BORDER_STRONG};
+        background-color: {C.BG_SURFACE};
         font-weight: bold;
-    }
-    QPushButton:hover {
-        background-color: #EAEAEA;
-    }
-    QPushButton:disabled {
-        background-color: #F0F0F0;
-        color: #A0A0A0;
-        border: 1px solid #DFDFDF;
-    }
-    QPushButton:checked {
-        background-color: #EBF3FC;
-        border: 2px solid #395396;
-        color: #395396;
-    }
-    QPushButton#primaryBtn, QPushButton#pptBtn, QPushButton#svgBtn {
-        background-color: #1E5C99; 
-        color: white; 
+    }}
+    QPushButton:hover {{
+        background-color: {C.BG_CANVAS};
+    }}
+    QPushButton:disabled {{
+        background-color: {C.BG_SURFACE};
+        color: {C.TEXT_FAINT};
+        border: 1px solid {C.BORDER_SUBTLE};
+    }}
+    QPushButton:checked {{
+        background-color: {C.ACCENT_SOFT};
+        border: 2px solid {C.ACCENT_PRIMARY};
+        color: {C.ACCENT_PRIMARY};
+    }}
+    QPushButton#primaryBtn, QPushButton#pptBtn, QPushButton#svgBtn {{
+        background-color: {C.ACCENT_PRIMARY};
+        color: {C.TEXT_ON_ACCENT};
         border: none;
-    }
-    QPushButton#primaryBtn:hover, QPushButton#pptBtn:hover, QPushButton#svgBtn:hover {
-        background-color: #15426E;
-    }
-    QPushButton#primaryBtn:disabled, QPushButton#pptBtn:disabled, QPushButton#svgBtn:disabled {
-        background-color: #E2E8F0;
-        color: #94A3B8;
-        border: 1px solid #CBD5E1;
-    }
-    QMenu {
-        background-color: #FFFFFF;
-        border: 1px solid #CCCCCC;
-        border-radius: 6px;
+    }}
+    QPushButton#primaryBtn:hover, QPushButton#pptBtn:hover, QPushButton#svgBtn:hover {{
+        background-color: {C.ACCENT_HOVER};
+    }}
+    QPushButton#primaryBtn:disabled, QPushButton#pptBtn:disabled, QPushButton#svgBtn:disabled {{
+        background-color: {C.BG_MUTED};
+        color: {C.TEXT_FAINT};
+        border: 1px solid {C.BORDER_STRONG};
+    }}
+    QMenu {{
+        background-color: {C.BG_CARD};
+        border: 1px solid {C.BORDER_STRONG};
+        border-radius: {R.MD}px;
         padding: 4px;
-    }
-    QMenu::item {
+    }}
+    QMenu::item {{
         padding: 8px 24px 8px 12px;
-        border-radius: 4px;
-        font-size: 13px;
-        color: #333333;
-    }
-    QMenu::item:selected {
-        background-color: #EBF3FC;
-        color: #395396;
+        border-radius: {R.SM}px;
+        font-size: {T.SIZE_BODY}px;
+        color: {C.TEXT_BODY};
+    }}
+    QMenu::item:selected {{
+        background-color: {C.ACCENT_SOFT};
+        color: {C.ACCENT_PRIMARY};
         font-weight: bold;
-    }
-    QPushButton::menu-indicator {
-        width: 0px; 
-    }
-    QSplitter::handle {
-        background-color: #E0E0E0;
+    }}
+    QPushButton::menu-indicator {{
+        width: 0px;
+    }}
+    QSplitter::handle {{
+        background-color: {C.BORDER_SUBTLE};
         height: 2px;
         margin: 4px 0px;
-    }
-    QSplitter::handle:hover {
-        background-color: #395396;
-    }
-    QStatusBar {
-        background-color: #F0F0F0;
-        border-top: 1px solid #D0D0D0;
-        color: #333333;
-    }
-    QComboBox {
+    }}
+    QSplitter::handle:hover {{
+        background-color: {C.ACCENT_PRIMARY};
+    }}
+    QStatusBar {{
+        background-color: {C.BG_SURFACE};
+        border-top: 1px solid {C.BORDER_STRONG};
+        color: {C.TEXT_BODY};
+    }}
+    QComboBox {{
         padding: 4px 8px;
-        border-radius: 4px;
-        border: 1px solid #CCCCCC;
-        background-color: #FFFFFF;
+        border-radius: {R.SM}px;
+        border: 1px solid {C.BORDER_STRONG};
+        background-color: {C.BG_CARD};
         font-weight: bold;
-        color: #333333;
-    }
-    QComboBox::drop-down {
+        color: {C.TEXT_BODY};
+    }}
+    QComboBox::drop-down {{
         border: none;
         width: 20px;
-    }
-    QTextEdit#console, QListWidget#queueList {
-        background-color: #1E1E1E; 
-        color: #D4D4D4; 
-        font-family: Consolas, 'Courier New', monospace; 
-        font-size: 13px; 
-        border-radius: 8px; 
+    }}
+    QTextEdit#console, QListWidget#queueList {{
+        background-color: {C.CONSOLE_LEGACY_BG};
+        color: {C.CONSOLE_TEXT};
+        font-family: {T.FONT_FAMILY_MONO};
+        font-size: {T.SIZE_BODY}px;
+        border-radius: {R.LG}px;
         padding: 8px;
-        border: 1px solid #444444;
-    }
-    QListWidget#queueList::item {
+        border: 1px solid {C.CONSOLE_BORDER};
+    }}
+    QListWidget#queueList::item {{
         padding: 4px;
-        border-bottom: 1px solid #333333;
-    }
-    QListWidget#queueList::item:selected {
-        background-color: #264F78;
-        color: #FFFFFF;
-        border-radius: 4px;
-    }
+        border-bottom: 1px solid {C.CONSOLE_ROW_DIVIDER};
+    }}
+    QListWidget#queueList::item:selected {{
+        background-color: {C.CONSOLE_SEL_BG};
+        color: {C.TEXT_ON_ACCENT};
+        border-radius: {R.SM}px;
+    }}
 """
 
 # ==========================================
 # --- COMMON REUSABLE UI STYLES ---
 # ==========================================
 
-CARD_FRAME_STYLE = """
-QFrame#cardFrame {
-    background-color: #FFFFFF;
-    border: 1px solid #E2E8F0;
-    border-radius: 8px;
-}
+CARD_FRAME_STYLE = f"""
+QFrame#cardFrame {{
+    background-color: {C.BG_CARD};
+    border: 1px solid {C.BORDER_SUBTLE};
+    border-radius: {R.LG}px;
+}}
 """
 
-TABLE_STYLE_CLEAN = """
-QTableWidget {
-    background-color: #FFFFFF;
-    border: 1px solid #E2E8F0;
-    border-radius: 6px;
-    gridline-color: #F1F5F9;
-    font-size: 12px;
-}
-QTableWidget::item {
+TABLE_STYLE_CLEAN = f"""
+QTableWidget {{
+    background-color: {C.BG_CARD};
+    border: 1px solid {C.BORDER_SUBTLE};
+    border-radius: {R.MD}px;
+    gridline-color: {C.BORDER_ROW};
+    font-size: {T.SIZE_TABLE}px;
+}}
+QTableWidget::item {{
     padding: 4px 8px;
-    border-bottom: 1px solid #F1F5F9;
-}
-QTableWidget::item:selected {
-    background-color: #EBF3FC;
-    color: #1E293B;
-}
-QHeaderView::section {
-    background-color: #F8FAFC;
-    color: #475569;
+    border-bottom: 1px solid {C.BORDER_ROW};
+}}
+QTableWidget::item:selected {{
+    background-color: {C.ACCENT_SOFT};
+    color: {C.TEXT_STRONG};
+}}
+QHeaderView::section {{
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_SECONDARY};
     font-weight: bold;
-    font-size: 11px;
+    font-size: {T.SIZE_CAPTION}px;
     border: none;
-    border-bottom: 1px solid #CBD5E1;
+    border-bottom: 1px solid {C.BORDER_STRONG};
     padding: 6px 8px;
-}
+}}
 """
 
-
-
-TREE_STYLE_CLEAN = """
-QTreeWidget {
-    background-color: #FFFFFF;
-    border: 1px solid #E2E8F0;
-    border-radius: 6px;
-    alternate-background-color: #F8FAFC;
-    font-size: 12px;
+TREE_STYLE_CLEAN = f"""
+QTreeWidget {{
+    background-color: {C.BG_CARD};
+    border: 1px solid {C.BORDER_SUBTLE};
+    border-radius: {R.MD}px;
+    alternate-background-color: {C.BG_SURFACE};
+    font-size: {T.SIZE_TABLE}px;
     outline: none;
-}
-QTreeWidget::item {
+}}
+QTreeWidget::item {{
     min-height: 28px;
     padding: 2px 6px;
-    border-bottom: 1px solid #F1F5F9;
-}
-QTreeWidget::item:selected {
-    background-color: #EBF3FC;
-    color: #1E293B;
-}
-QTreeWidget::item:hover {
-    background-color: #F8FAFC;
-}
-QHeaderView::section {
-    background-color: #F8FAFC;
-    color: #475569;
+    border-bottom: 1px solid {C.BORDER_ROW};
+}}
+QTreeWidget::item:selected {{
+    background-color: {C.ACCENT_SOFT};
+    color: {C.TEXT_STRONG};
+}}
+QTreeWidget::item:hover {{
+    background-color: {C.BG_SURFACE};
+}}
+QHeaderView::section {{
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_SECONDARY};
     font-weight: bold;
-    font-size: 11px;
+    font-size: {T.SIZE_CAPTION}px;
     border: none;
-    border-bottom: 1px solid #CBD5E1;
+    border-bottom: 1px solid {C.BORDER_STRONG};
     padding: 6px 8px;
-}
+}}
 """
 
-SEARCH_INPUT_STYLE = """
-QLineEdit {
+SEARCH_INPUT_STYLE = f"""
+QLineEdit {{
     padding: 4px 8px;
-    border: 1px solid #CBD5E1;
-    border-radius: 4px;
-    font-size: 12px;
-    background-color: #FFFFFF;
-}
-QLineEdit:focus {
-    border: 1px solid #1E5C99;
-}
+    border: 1px solid {C.BORDER_STRONG};
+    border-radius: {R.SM}px;
+    font-size: {T.SIZE_TABLE}px;
+    background-color: {C.BG_CARD};
+}}
+QLineEdit:focus {{
+    border: 1px solid {C.ACCENT_PRIMARY};
+}}
 """
 
-BADGE_STYLE_PRIMARY = """
-background-color: #E6F4EA;
-color: #137333;
+BADGE_STYLE_PRIMARY = f"""
+background-color: {C.SUCCESS_SOFT_MINT};
+color: {C.SUCCESS_ALT};
 font-weight: bold;
-font-size: 11px;
-border: 1px solid #CEEAD6;
-border-radius: 4px;
+font-size: {T.SIZE_CAPTION}px;
+border: 1px solid {C.SUCCESS_BORDER_MINT};
+border-radius: {R.SM}px;
 padding: 2px 8px;
 """
 
-BADGE_STYLE_MUTED = """
-background-color: #F1F5F9;
-color: #475569;
-font-size: 11px;
-border: 1px solid #E2E8F0;
-border-radius: 4px;
+BADGE_STYLE_MUTED = f"""
+background-color: {C.BG_CANVAS};
+color: {C.TEXT_SECONDARY};
+font-size: {T.SIZE_CAPTION}px;
+border: 1px solid {C.BORDER_SUBTLE};
+border-radius: {R.SM}px;
 padding: 2px 8px;
 """
 
-BADGE_STYLE_INFO = """
-background-color: #EBF8FF;
-color: #2B6CB0;
-border: 1px solid #BEE3F8;
-border-radius: 4px;
+BADGE_STYLE_INFO = f"""
+background-color: {C.INFO_SOFT_ALT};
+color: {C.INFO_ALT};
+border: 1px solid {C.INFO_BORDER_ALT};
+border-radius: {R.SM}px;
 padding: 2px 8px;
-font-size: 11px;
+font-size: {T.SIZE_CAPTION}px;
 font-weight: bold;
 """
 
-BUTTON_STYLE_TOOLBAR_SECONDARY = """
-QPushButton {
-    background-color: #F8FAFC;
-    color: #1E293B;
-    border: 1px solid #CBD5E1;
-    border-radius: 4px;
+BUTTON_STYLE_TOOLBAR_SECONDARY = f"""
+QPushButton {{
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_STRONG};
+    border: 1px solid {C.BORDER_STRONG};
+    border-radius: {R.SM}px;
     padding: 5px 12px;
-    font-size: 12px;
+    font-size: {T.SIZE_TABLE}px;
     font-weight: 500;
-}
-QPushButton:hover {
-    background-color: #F1F5F9;
-    border-color: #94A3B8;
-}
-QPushButton:pressed {
-    background-color: #E2E8F0;
-}
-QPushButton:checked {
-    background-color: #EBF3FC;
-    color: #1E5C99;
-    border: 1.5px solid #1E5C99;
+}}
+QPushButton:hover {{
+    background-color: {C.BG_CANVAS};
+    border-color: {C.BORDER_HOVER};
+}}
+QPushButton:pressed {{
+    background-color: {C.BG_MUTED};
+}}
+QPushButton:checked {{
+    background-color: {C.ACCENT_SOFT};
+    color: {C.ACCENT_PRIMARY};
+    border: 1.5px solid {C.ACCENT_PRIMARY};
     font-weight: 600;
-}
-QPushButton:checked:hover {
-    background-color: #DFEDFA;
-    border-color: #15426E;
-}
-QPushButton:disabled {
-    background-color: #F8FAFC;
-    color: #94A3B8;
-    border-color: #E2E8F0;
-}
+}}
+QPushButton:checked:hover {{
+    background-color: {C.ACCENT_SOFT_HOVER};
+    border-color: {C.ACCENT_HOVER};
+}}
+QPushButton:disabled {{
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_FAINT};
+    border-color: {C.BORDER_SUBTLE};
+}}
 """
 
-BUTTON_STYLE_TOOLBAR_DANGER = """
-QPushButton {
-    background-color: #FEF2F2;
-    color: #DC2626;
-    border: 1px solid #FECACA;
-    border-radius: 4px;
+BUTTON_STYLE_TOOLBAR_DANGER = f"""
+QPushButton {{
+    background-color: {C.DANGER_SOFT};
+    color: {C.DANGER_ALT};
+    border: 1px solid {C.DANGER_BORDER};
+    border-radius: {R.SM}px;
     padding: 5px 12px;
-    font-size: 12px;
+    font-size: {T.SIZE_TABLE}px;
     font-weight: bold;
-}
-QPushButton:hover {
-    background-color: #FEE2E2;
-    border-color: #F87171;
-    color: #B91C1C;
-}
-QPushButton:pressed {
-    background-color: #FECACA;
-    border-color: #EF4444;
-}
-QPushButton:checked {
-    background-color: #FEE2E2;
-    color: #991B1B;
-    border: 1.5px solid #EF4444;
+}}
+QPushButton:hover {{
+    background-color: {C.DANGER_SOFT_HOVER};
+    border-color: {C.DANGER_BORDER_HOVER};
+    color: {C.DANGER};
+}}
+QPushButton:pressed {{
+    background-color: {C.DANGER_BORDER};
+    border-color: {C.DANGER_ACCENT};
+}}
+QPushButton:checked {{
+    background-color: {C.DANGER_SOFT_HOVER};
+    color: {C.DANGER_DARK};
+    border: 1.5px solid {C.DANGER_ACCENT};
     font-weight: bold;
-}
-QPushButton:checked:hover {
-    background-color: #FECACA;
-    border-color: #DC2626;
-}
-QPushButton:disabled {
-    background-color: #F8FAFC;
-    color: #94A3B8;
-    border-color: #E2E8F0;
-}
+}}
+QPushButton:checked:hover {{
+    background-color: {C.DANGER_BORDER};
+    border-color: {C.DANGER_ALT};
+}}
+QPushButton:disabled {{
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_FAINT};
+    border-color: {C.BORDER_SUBTLE};
+}}
 """
 
-BUTTON_STYLE_TOOLBAR_WARNING = """
-QPushButton {
-    background-color: #FFFBEB;
-    color: #B45309;
-    border: 1px solid #FDE68A;
-    border-radius: 4px;
+BUTTON_STYLE_TOOLBAR_WARNING = f"""
+QPushButton {{
+    background-color: {C.WARNING_SOFT};
+    color: {C.WARNING};
+    border: 1px solid {C.WARNING_BORDER};
+    border-radius: {R.SM}px;
     padding: 5px 12px;
-    font-size: 12px;
+    font-size: {T.SIZE_TABLE}px;
     font-weight: 500;
-}
-QPushButton:hover {
-    background-color: #FEF3C7;
-    border-color: #F59E0B;
-}
-QPushButton:pressed {
-    background-color: #FDE68A;
-}
-QPushButton:checked {
-    background-color: #FEF3C7;
-    color: #92400E;
-    border: 1.5px solid #F59E0B;
+}}
+QPushButton:hover {{
+    background-color: {C.WARNING_SOFT_ALT};
+    border-color: {C.WARNING_ACCENT};
+}}
+QPushButton:pressed {{
+    background-color: {C.WARNING_BORDER};
+}}
+QPushButton:checked {{
+    background-color: {C.WARNING_SOFT_ALT};
+    color: {C.WARNING_DARK};
+    border: 1.5px solid {C.WARNING_ACCENT};
     font-weight: 600;
-}
-QPushButton:checked:hover {
-    background-color: #FDE68A;
-    border-color: #D97706;
-}
-QPushButton:disabled {
-    background-color: #F8FAFC;
-    color: #94A3B8;
-    border-color: #E2E8F0;
-}
+}}
+QPushButton:checked:hover {{
+    background-color: {C.WARNING_BORDER};
+    border-color: {C.WARNING};
+}}
+QPushButton:disabled {{
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_FAINT};
+    border-color: {C.BORDER_SUBTLE};
+}}
 """
 
-COMBOBOX_STYLE_TOOLBAR = """
-QComboBox {
+COMBOBOX_STYLE_TOOLBAR = f"""
+QComboBox {{
     combobox-popup: 0;
-    font-size: 11px;
+    font-size: {T.SIZE_CAPTION}px;
     font-weight: 600;
-    color: #1E293B;
-    background-color: #F8FAFC;
-    border: 1px solid #CBD5E1;
-    border-radius: 4px;
+    color: {C.TEXT_STRONG};
+    background-color: {C.BG_SURFACE};
+    border: 1px solid {C.BORDER_STRONG};
+    border-radius: {R.SM}px;
     padding: 3px 22px 3px 10px;
     min-height: 22px;
-}
-QComboBox:hover {
-    background-color: #F1F5F9;
-    border-color: #94A3B8;
-}
-QComboBox:focus, QComboBox:on {
-    background-color: #FFFFFF;
-    border-color: #1E5C99;
-}
-QComboBox QAbstractItemView {
-    border: 1px solid #CBD5E1;
-    border-radius: 6px;
-    background-color: #FFFFFF;
-    color: #1E293B;
-    selection-background-color: #EBF3FC;
-    selection-color: #1E5C99;
+}}
+QComboBox:hover {{
+    background-color: {C.BG_CANVAS};
+    border-color: {C.BORDER_HOVER};
+}}
+QComboBox:focus, QComboBox:on {{
+    background-color: {C.BG_CARD};
+    border-color: {C.ACCENT_PRIMARY};
+}}
+QComboBox QAbstractItemView {{
+    border: 1px solid {C.BORDER_STRONG};
+    border-radius: {R.MD}px;
+    background-color: {C.BG_CARD};
+    color: {C.TEXT_STRONG};
+    selection-background-color: {C.ACCENT_SOFT};
+    selection-color: {C.ACCENT_PRIMARY};
     padding: 4px;
     outline: none;
-}
-QComboBox QAbstractItemView::item {
+}}
+QComboBox QAbstractItemView::item {{
     min-height: 22px;
     padding: 2px 8px;
     border-radius: 3px;
-}
-QComboBox QAbstractItemView::item:hover {
-    background-color: #F1F5F9;
-    color: #0F172A;
-}
-QComboBox QAbstractItemView::item:selected {
-    background-color: #EBF3FC;
-    color: #1E5C99;
+}}
+QComboBox QAbstractItemView::item:hover {{
+    background-color: {C.BG_CANVAS};
+    color: {C.TEXT_PRIMARY};
+}}
+QComboBox QAbstractItemView::item:selected {{
+    background-color: {C.ACCENT_SOFT};
+    color: {C.ACCENT_PRIMARY};
     font-weight: bold;
-}
-QScrollBar:vertical {
+}}
+QScrollBar:vertical {{
     border: none;
-    background: #F8FAFC;
+    background: {C.BG_SURFACE};
     width: 8px;
     margin: 4px 0;
-    border-radius: 4px;
-}
-QScrollBar::handle:vertical {
-    background: #CBD5E1;
+    border-radius: {R.SM}px;
+}}
+QScrollBar::handle:vertical {{
+    background: {C.BORDER_STRONG};
     min-height: 20px;
-    border-radius: 4px;
-}
-QScrollBar::handle:vertical:hover {
-    background: #94A3B8;
-}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    border-radius: {R.SM}px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: {C.BORDER_HOVER};
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0px;
-}
+}}
 """
 
-SEGMENT_BTN_STYLE = """
-QPushButton {
+SEGMENT_BTN_STYLE = f"""
+QPushButton {{
     padding: 3px 9px;
-    font-size: 11px;
+    font-size: {T.SIZE_CAPTION}px;
     font-weight: 500;
-    background-color: #F8FAFC;
-    color: #334155;
-    border: 1px solid #CBD5E1;
-    border-radius: 4px;
-}
-QPushButton:hover {
-    background-color: #F1F5F9;
-    border-color: #94A3B8;
-}
-QPushButton:checked {
-    background-color: #0066CC;
-    color: #FFFFFF;
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_BODY};
+    border: 1px solid {C.BORDER_STRONG};
+    border-radius: {R.SM}px;
+}}
+QPushButton:hover {{
+    background-color: {C.BG_CANVAS};
+    border-color: {C.BORDER_HOVER};
+}}
+QPushButton:checked {{
+    background-color: {C.ACCENT_BRIGHT};
+    color: {C.TEXT_ON_ACCENT};
     font-weight: bold;
-    border: 1px solid #0055AA;
-}
+    border: 1px solid {C.ACCENT_BRIGHT_BORDER};
+}}
 """
 
-TOGGLE_PILL_STYLE = """
-QPushButton {
+TOGGLE_PILL_STYLE = f"""
+QPushButton {{
     padding: 3px 12px;
-    font-size: 11px;
+    font-size: {T.SIZE_CAPTION}px;
     font-weight: 500;
-    background-color: #F8FAFC;
-    color: #334155;
-    border: 1px solid #CBD5E1;
-    border-radius: 12px;
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_BODY};
+    border: 1px solid {C.BORDER_STRONG};
+    border-radius: {R.PILL}px;
     min-height: 22px;
-}
-QPushButton:hover {
-    background-color: #F1F5F9;
-    border-color: #94A3B8;
-}
-QPushButton:checked {
-    background-color: #EBF3FC;
-    color: #1E5C99;
+}}
+QPushButton:hover {{
+    background-color: {C.BG_CANVAS};
+    border-color: {C.BORDER_HOVER};
+}}
+QPushButton:checked {{
+    background-color: {C.ACCENT_SOFT};
+    color: {C.ACCENT_PRIMARY};
     font-weight: bold;
-    border: 1.5px solid #1E5C99;
-    border-radius: 12px;
-}
-QPushButton:checked:hover {
-    background-color: #DFEDFA;
-}
+    border: 1.5px solid {C.ACCENT_PRIMARY};
+    border-radius: {R.PILL}px;
+}}
+QPushButton:checked:hover {{
+    background-color: {C.ACCENT_SOFT_HOVER};
+}}
 """
 
-FAV_PILL_STYLE = """
-QPushButton {
+FAV_PILL_STYLE = f"""
+QPushButton {{
     padding: 3px 10px;
-    font-size: 11px;
+    font-size: {T.SIZE_CAPTION}px;
     font-weight: 500;
-    background-color: #F8FAFC;
-    color: #334155;
-    border: 1px solid #CBD5E1;
-    border-radius: 12px;
-}
-QPushButton:hover {
-    background-color: #F1F5F9;
-    border-color: #94A3B8;
-}
-QPushButton:checked {
-    background-color: #FEF3C7;
-    color: #92400E;
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_BODY};
+    border: 1px solid {C.BORDER_STRONG};
+    border-radius: {R.PILL}px;
+}}
+QPushButton:hover {{
+    background-color: {C.BG_CANVAS};
+    border-color: {C.BORDER_HOVER};
+}}
+QPushButton:checked {{
+    background-color: {C.WARNING_SOFT_ALT};
+    color: {C.WARNING_DARK};
     font-weight: bold;
-    border: 1.5px solid #F59E0B;
-}
-QPushButton:checked:hover {
-    background-color: #FDE68A;
-}
+    border: 1.5px solid {C.WARNING_ACCENT};
+}}
+QPushButton:checked:hover {{
+    background-color: {C.WARNING_BORDER};
+}}
 """
 
-DISMISSIBLE_TAG_STYLE = """
-QPushButton {
+DISMISSIBLE_TAG_STYLE = f"""
+QPushButton {{
     padding: 2px 8px;
-    font-size: 11px;
+    font-size: {T.SIZE_CAPTION}px;
     font-weight: 500;
-    background-color: #EFF6FF;
-    color: #1E40AF;
-    border: 1px solid #BFDBFE;
-    border-radius: 10px;
-}
-QPushButton:hover {
-    background-color: #FEE2E2;
-    color: #991B1B;
-    border-color: #FCA5A5;
-}
+    background-color: {C.INFO_SOFT};
+    color: {C.INFO_DARK};
+    border: 1px solid {C.INFO_BORDER};
+    border-radius: {R.XL}px;
+}}
+QPushButton:hover {{
+    background-color: {C.DANGER_SOFT_HOVER};
+    color: {C.DANGER_DARK};
+    border-color: {C.DANGER_BORDER_ALT};
+}}
 """
 
-CLEAR_ALL_BTN_STYLE = """
-QPushButton {
+CLEAR_ALL_BTN_STYLE = f"""
+QPushButton {{
     padding: 2px 8px;
-    font-size: 11px;
+    font-size: {T.SIZE_CAPTION}px;
     font-weight: bold;
-    background-color: #FEF2F2;
-    color: #B91C1C;
-    border: 1px solid #FECACA;
-    border-radius: 4px;
-}
-QPushButton:hover {
-    background-color: #FEE2E2;
-    border-color: #F87171;
-}
+    background-color: {C.DANGER_SOFT};
+    color: {C.DANGER};
+    border: 1px solid {C.DANGER_BORDER};
+    border-radius: {R.SM}px;
+}}
+QPushButton:hover {{
+    background-color: {C.DANGER_SOFT_HOVER};
+    border-color: {C.DANGER_BORDER_HOVER};
+}}
 """
 
-SPEC_FILTER_COMBO_STYLE = """
-QComboBox {
+SPEC_FILTER_COMBO_STYLE = f"""
+QComboBox {{
     padding: 3px 8px;
-    border: 1px solid #CBD5E1;
-    border-radius: 4px;
-    font-size: 12px;
-    background-color: #FFFFFF;
-    color: #1E293B;
-}
-QComboBox:hover {
-    border-color: #94A3B8;
-}
-QComboBox:focus {
-    border-color: #1E5C99;
-}
+    border: 1px solid {C.BORDER_STRONG};
+    border-radius: {R.SM}px;
+    font-size: {T.SIZE_TABLE}px;
+    background-color: {C.BG_CARD};
+    color: {C.TEXT_STRONG};
+}}
+QComboBox:hover {{
+    border-color: {C.BORDER_HOVER};
+}}
+QComboBox:focus {{
+    border-color: {C.ACCENT_PRIMARY};
+}}
 """
 
-SPEC_FILTER_INPUT_STYLE = """
-QLineEdit {
+SPEC_FILTER_INPUT_STYLE = f"""
+QLineEdit {{
     padding: 4px 8px;
-    border: 1px solid #CBD5E1;
-    border-radius: 4px;
-    font-size: 12px;
-    background-color: #FFFFFF;
-    color: #1E293B;
-}
-QLineEdit:focus {
-    border: 1px solid #1E5C99;
-}
+    border: 1px solid {C.BORDER_STRONG};
+    border-radius: {R.SM}px;
+    font-size: {T.SIZE_TABLE}px;
+    background-color: {C.BG_CARD};
+    color: {C.TEXT_STRONG};
+}}
+QLineEdit:focus {{
+    border-color: {C.ACCENT_PRIMARY};
+}}
 """
 
 # ==========================================
@@ -632,36 +631,36 @@ def get_wg_colors(wg: str) -> dict:
     # SA (Soft Indigo)
     if wg_upper.startswith("SA"):
         return {
-            "bg": "#EEF2FF",
-            "text": "#3730A3",
-            "border": "#C7D2FE",
+            "bg": C.WG_SA_BG,
+            "text": C.WG_SA_TEXT,
+            "border": C.WG_SA_BORDER,
             "desc": desc,
             "tsg": "SA",
         }
     # RAN (Soft Emerald)
     elif wg_upper.startswith("RAN") or wg_upper.startswith("GERAN"):
         return {
-            "bg": "#ECFDF5",
-            "text": "#065F46",
-            "border": "#A7F3D0",
+            "bg": C.WG_RAN_BG,
+            "text": C.WG_RAN_TEXT,
+            "border": C.WG_RAN_BORDER,
             "desc": desc,
             "tsg": "RAN",
         }
     # CT (Soft Amber)
     elif wg_upper.startswith("CT") or wg_upper.startswith("CN"):
         return {
-            "bg": "#FFF7ED",
-            "text": "#9A3412",
-            "border": "#FED7AA",
+            "bg": C.WG_CT_BG,
+            "text": C.WG_CT_TEXT,
+            "border": C.WG_CT_BORDER,
             "desc": desc,
             "tsg": "CT",
         }
     # Default (Slate)
     else:
         return {
-            "bg": "#F1F5F9",
-            "text": "#475569",
-            "border": "#CBD5E1",
+            "bg": C.WG_DEFAULT_BG,
+            "text": C.WG_DEFAULT_TEXT,
+            "border": C.WG_DEFAULT_BORDER,
             "desc": desc,
             "tsg": "OTHER",
         }
@@ -772,11 +771,11 @@ class ProxyDialog(QDialog):
             "and password) are encrypted locally via Windows DPAPI and are never stored in plain text."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #64748B; font-size: 11px; margin-bottom: 8px;")
+        desc.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: {T.SIZE_CAPTION}px; margin-bottom: 8px;")
         layout.addWidget(desc)
 
         self.enable_checkbox = QCheckBox("Activate this proxy profile")
-        self.enable_checkbox.setStyleSheet("font-weight: bold; color: #1E293B; margin-bottom: 6px;")
+        self.enable_checkbox.setStyleSheet(f"font-weight: bold; color: {C.TEXT_STRONG}; margin-bottom: 6px;")
         self.enable_checkbox.toggled.connect(self._on_enable_toggled)
         layout.addWidget(self.enable_checkbox)
 
@@ -785,13 +784,14 @@ class ProxyDialog(QDialog):
         form.setContentsMargins(0, 0, 0, 0)
         form.setLabelAlignment(Qt.AlignRight)
 
+        input_style = f"padding: 4px; border: 1px solid {C.BORDER_STRONG}; border-radius: {R.SM}px;"
         self.http_input = QLineEdit()
         self.http_input.setPlaceholderText("e.g., proxy.company.com:8080")
-        self.http_input.setStyleSheet("padding: 4px; border: 1px solid #CBD5E1; border-radius: 4px;")
+        self.http_input.setStyleSheet(input_style)
 
         self.https_input = QLineEdit()
         self.https_input.setPlaceholderText("e.g., proxy.company.com:8080")
-        self.https_input.setStyleSheet("padding: 4px; border: 1px solid #CBD5E1; border-radius: 4px;")
+        self.https_input.setStyleSheet(input_style)
 
         self.sync_checkbox = QCheckBox("Use the same proxy address for HTTPS")
         self.sync_checkbox.setChecked(True)
@@ -800,12 +800,12 @@ class ProxyDialog(QDialog):
 
         self.user_input = QLineEdit()
         self.user_input.setPlaceholderText("Domain\\Username or Username (Optional)")
-        self.user_input.setStyleSheet("padding: 4px; border: 1px solid #CBD5E1; border-radius: 4px;")
+        self.user_input.setStyleSheet(input_style)
 
         self.pass_input = QLineEdit()
         self.pass_input.setEchoMode(QLineEdit.Password)
         self.pass_input.setPlaceholderText("Password (Optional)")
-        self.pass_input.setStyleSheet("padding: 4px; border: 1px solid #CBD5E1; border-radius: 4px;")
+        self.pass_input.setStyleSheet(input_style)
 
         self.remember_cred_checkbox = QCheckBox("Save proxy profile securely (Windows DPAPI)")
         self.remember_cred_checkbox.setChecked(True)
@@ -824,7 +824,7 @@ class ProxyDialog(QDialog):
         self.status_lbl = QLabel("")
         self.status_lbl.setWordWrap(True)
         self.status_lbl.setAlignment(Qt.AlignCenter)
-        self.status_lbl.setStyleSheet("font-size: 11px; color: #475569; margin: 4px 0;")
+        self.status_lbl.setStyleSheet(f"font-size: {T.SIZE_CAPTION}px; color: {C.TEXT_SECONDARY}; margin: 4px 0;")
         layout.addWidget(self.status_lbl)
 
         btn_layout = QHBoxLayout()
@@ -841,7 +841,7 @@ class ProxyDialog(QDialog):
 
         self.save_btn = QPushButton("Save && Apply")
         self.save_btn.setObjectName("primaryBtn")
-        self.save_btn.setStyleSheet("background-color: #1E5C99; color: white; font-weight: bold;")
+        self.save_btn.setStyleSheet(f"background-color: {C.ACCENT_PRIMARY}; color: {C.TEXT_ON_ACCENT}; font-weight: bold;")
         self.save_btn.clicked.connect(self.accept)
 
         btn_layout.addWidget(self.deactivate_btn)
@@ -925,7 +925,7 @@ class ProxyDialog(QDialog):
         self.test_btn.setText("Testing...")
         self.save_btn.setEnabled(False)
         self.status_lbl.setText("⏳ Connecting to www.3gpp.org through proxy...")
-        self.status_lbl.setStyleSheet("color: #0284C7; font-size: 11px;")
+        self.status_lbl.setStyleSheet(f"color: {C.ACCENT_SKY}; font-size: {T.SIZE_CAPTION}px;")
 
         self._test_worker = ProxyTestWorker(proxies, parent=self)
         self._test_worker.finished_signal.connect(self._on_test_finished)
@@ -938,11 +938,11 @@ class ProxyDialog(QDialog):
 
         if success:
             self.status_lbl.setText("✅ Connection verified successfully!")
-            self.status_lbl.setStyleSheet("color: #166534; font-size: 11px;")
+            self.status_lbl.setStyleSheet(f"color: {C.SUCCESS_DARK}; font-size: {T.SIZE_CAPTION}px;")
             QMessageBox.information(self, "Proxy Success", message)
         else:
             self.status_lbl.setText("❌ Connection failed.")
-            self.status_lbl.setStyleSheet("color: #DC2626; font-size: 11px;")
+            self.status_lbl.setStyleSheet(f"color: {C.DANGER_ALT}; font-size: {T.SIZE_CAPTION}px;")
             QMessageBox.warning(self, "Proxy Test Failed", message)
 
     def deactivate_profile(self):
