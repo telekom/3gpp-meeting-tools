@@ -25,6 +25,7 @@ from modules.meetings.ui.tdoc_delegates import SourceCompanyDelegate
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.tdocs_dialogs import ReadOnlyViewerDialog
 from modules.work_items.core.wi_database import WorkItemsDatabase
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ class ContributionReportDialog(QDialog):
         left_layout.setSpacing(6)
 
         title_lbl = QLabel("<b>Search & Audit Filters</b>")
-        title_lbl.setStyleSheet("font-size: 13px; color: #1E293B;")
+        title_lbl.setStyleSheet(f"font-size: 13px; color: {C.TEXT_STRONG};")
         left_layout.addWidget(title_lbl)
 
         left_layout.addWidget(QLabel("Working Groups:"))
@@ -178,8 +179,8 @@ class ContributionReportDialog(QDialog):
         self.filter_summary_lbl.setWordWrap(True)
         self.filter_summary_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.filter_summary_lbl.setStyleSheet(
-            "QLabel { background-color: #F8FAFC; color: #475569; "
-            "border: 1px solid #E2E8F0; border-radius: 4px; "
+            f"QLabel {{ background-color: {C.BG_SURFACE}; color: {C.TEXT_SECONDARY}; "
+            f"border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px; "
             "padding: 5px 8px; font-size: 11px; }"
         )
         right_layout.addWidget(self.filter_summary_lbl)
@@ -193,7 +194,7 @@ class ContributionReportDialog(QDialog):
         self.log_viewer = QTextEdit()
         self.log_viewer.setReadOnly(True)
         self.log_viewer.setMaximumHeight(80)
-        self.log_viewer.setStyleSheet("background-color: #0F172A; color: #38BDF8; font-family: monospace; font-size: 11px;")
+        self.log_viewer.setStyleSheet(f"background-color: {C.TEXT_PRIMARY}; color: #38BDF8; font-family: monospace; font-size: 11px;")
         right_layout.addWidget(self.log_viewer)
 
         # Table View
@@ -203,8 +204,8 @@ class ContributionReportDialog(QDialog):
         self.table_view.setAlternatingRowColors(True)
         self.table_view.setSelectionBehavior(QTableView.SelectRows)
         self.table_view.setStyleSheet(
-            "QTableView { border: 1px solid #CBD5E1; gridline-color: #F1F5F9; background-color: #FFFFFF; } "
-            "QTableView::item:selected { background-color: #EBF3FC; color: #1E293B; }"
+            f"QTableView {{ border: 1px solid {C.BORDER_STRONG}; gridline-color: {C.BG_CANVAS}; background-color: {C.BG_CARD}; }} "
+            f"QTableView::item:selected {{ background-color: {C.ACCENT_SOFT}; color: {C.TEXT_STRONG}; }}"
         )
         self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table_view.horizontalHeader().setStretchLastSection(True)
@@ -222,7 +223,7 @@ class ContributionReportDialog(QDialog):
         # Footer Actions
         footer_layout = QHBoxLayout()
         self.lbl_count = QLabel("0 contributions found.")
-        self.lbl_count.setStyleSheet("color: #64748B; font-weight: bold;")
+        self.lbl_count.setStyleSheet(f"color: {C.TEXT_MUTED}; font-weight: bold;")
 
         self.btn_stats = QPushButton("📊 Statistics Dashboard...")
         self.btn_stats.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)

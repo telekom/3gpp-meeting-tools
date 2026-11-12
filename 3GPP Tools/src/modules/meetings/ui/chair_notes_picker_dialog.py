@@ -31,29 +31,30 @@ from core.ui.ui_components import (
     SEARCH_INPUT_STYLE,
 )
 from modules.meetings.core.chair_notes_classifier import analyze_candidate_files
+from core.ui.theme import C
 
-BUTTON_STYLE_PRIMARY = """
-QPushButton {
-    background-color: #2563EB;
-    color: #FFFFFF;
-    border: 1px solid #1D4ED8;
+BUTTON_STYLE_PRIMARY = f"""
+QPushButton {{
+    background-color: {C.ACCENT_ALT};
+    color: {C.BG_CARD};
+    border: 1px solid {C.INFO};
     border-radius: 4px;
     padding: 6px 14px;
     font-size: 12px;
     font-weight: bold;
-}
-QPushButton:hover {
-    background-color: #1D4ED8;
-    border-color: #1E40AF;
-}
-QPushButton:pressed {
-    background-color: #1E40AF;
-}
-QPushButton:disabled {
-    background-color: #E2E8F0;
-    color: #94A3B8;
-    border-color: #CBD5E1;
-}
+}}
+QPushButton:hover {{
+    background-color: {C.INFO};
+    border-color: {C.INFO_DARK};
+}}
+QPushButton:pressed {{
+    background-color: {C.INFO_DARK};
+}}
+QPushButton:disabled {{
+    background-color: {C.BORDER_SUBTLE};
+    color: {C.TEXT_FAINT};
+    border-color: {C.BORDER_STRONG};
+}}
 """
 
 
@@ -103,19 +104,19 @@ class ChairNotesPickerDialog(QDialog):
         # 1. Header Frame
         header_frame = QFrame()
         header_frame.setStyleSheet(
-            "QFrame { background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px; }"
+            f"QFrame {{ background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; padding: 10px; }}"
         )
         h_layout = QVBoxLayout(header_frame)
         h_layout.setContentsMargins(8, 6, 8, 6)
         h_layout.setSpacing(4)
 
         title_lbl = QLabel(f"<b>📥 Select Chairman's Notes to Download — {meeting_label}</b>")
-        title_lbl.setStyleSheet("font-size: 14px; color: #0F172A;")
+        title_lbl.setStyleSheet(f"font-size: 14px; color: {C.TEXT_PRIMARY};")
         h_layout.addWidget(title_lbl)
 
         count_text = f"Found {len(self.analyzed_files)} candidate Chairman's Notes file(s) in server <code>/Inbox/Chair_Notes</code>"
         sub_lbl = QLabel(count_text)
-        sub_lbl.setStyleSheet("font-size: 12px; color: #475569;")
+        sub_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_SECONDARY};")
         sub_lbl.setTextFormat(Qt.RichText)
         h_layout.addWidget(sub_lbl)
 
@@ -123,7 +124,7 @@ class ChairNotesPickerDialog(QDialog):
             "💡 <b>Pre-selection:</b> The newest file for each chair / track is pre-selected. "
             "Older versions remain unchecked by default. You can customize your selection below."
         )
-        tip_lbl.setStyleSheet("font-size: 11px; color: #0369A1; background: #E0F2FE; border-radius: 4px; padding: 4px 8px;")
+        tip_lbl.setStyleSheet(f"font-size: 11px; color: {C.ACCENT_SKY_DARK}; background: #E0F2FE; border-radius: 4px; padding: 4px 8px;")
         tip_lbl.setTextFormat(Qt.RichText)
         h_layout.addWidget(tip_lbl)
 
@@ -193,7 +194,7 @@ class ChairNotesPickerDialog(QDialog):
 
         v_summary = QVBoxLayout()
         self.summary_label = QLabel("Selected: 0 files")
-        self.summary_label.setStyleSheet("font-weight: bold; color: #1E293B;")
+        self.summary_label.setStyleSheet(f"font-weight: bold; color: {C.TEXT_STRONG};")
         v_summary.addWidget(self.summary_label)
 
         self.overwrite_cb = QCheckBox("Overwrite local files if already downloaded")
@@ -252,14 +253,14 @@ class ChairNotesPickerDialog(QDialog):
             if rec["is_latest_for_chair"]:
                 rec_text = "⭐ Latest Version"
                 rec_item = QTableWidgetItem(rec_text)
-                rec_item.setForeground(QColor("#047857"))  # Green
+                rec_item.setForeground(QColor(C.EMERALD_DARK))  # Green
                 font = rec_item.font()
                 font.setBold(True)
                 rec_item.setFont(font)
             else:
                 rec_text = "Older Version"
                 rec_item = QTableWidgetItem(rec_text)
-                rec_item.setForeground(QColor("#64748B"))  # Slate grey
+                rec_item.setForeground(QColor(C.TEXT_MUTED))  # Slate grey
             rec_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
             rec_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, 3, rec_item)
@@ -269,10 +270,10 @@ class ChairNotesPickerDialog(QDialog):
                 size_kb = rec["local_size"] / 1024.0
                 status_text = f"🟢 Downloaded ({size_kb:.0f} KB)" if size_kb > 0 else "🟢 Downloaded"
                 status_item = QTableWidgetItem(status_text)
-                status_item.setForeground(QColor("#059669"))
+                status_item.setForeground(QColor(C.EMERALD_PRIMARY))
             else:
                 status_item = QTableWidgetItem("☁️ Not Downloaded")
-                status_item.setForeground(QColor("#2563EB"))
+                status_item.setForeground(QColor(C.ACCENT_ALT))
             status_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
             status_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, 4, status_item)

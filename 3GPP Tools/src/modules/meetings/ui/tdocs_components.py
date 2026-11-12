@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QToolTip,
     QWidget,
 )
+from core.ui.theme import C
 
 
 class CheckableComboBox(QComboBox):
@@ -241,7 +242,7 @@ class CheckableComboBox(QComboBox):
     def setAvailability(self, available_values):
         """Grey zero-intersection choices while keeping every option selectable."""
         available = {str(value) for value in (available_values or [])}
-        muted_brush = QBrush(QColor("#94A3B8"))
+        muted_brush = QBrush(QColor(C.TEXT_FAINT))
         normal_brush = QBrush(self.palette().color(QPalette.Text))
 
         for i in range(1, self.model().rowCount()):
@@ -415,102 +416,102 @@ class ComparisonCartWidget(QFrame):
         self.show_launcher_when_empty = show_launcher_when_empty
         self.cmp_thread = None
 
-        self.setStyleSheet("""
-            QFrame#cartFrame {
-                background-color: #F8FAFC;
-                border: 1px solid #CBD5E1;
+        self.setStyleSheet(f"""
+            QFrame#cartFrame {{
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 padding: 0px;
-            }
-            QFrame#cartFrame QLabel {
-                color: #1E293B;
+            }}
+            QFrame#cartFrame QLabel {{
+                color: {C.TEXT_STRONG};
                 border: none;
                 background: transparent;
                 font-size: 11px;
                 padding: 0px 2px;
-            }
-            QPushButton#cartSlotEmptyBtn {
-                background-color: #FFFFFF;
-                color: #64748B;
-                border: 1px dashed #94A3B8;
+            }}
+            QPushButton#cartSlotEmptyBtn {{
+                background-color: {C.BG_CARD};
+                color: {C.TEXT_MUTED};
+                border: 1px dashed {C.TEXT_FAINT};
                 border-radius: 4px;
                 padding: 2px 8px;
                 font-size: 11px;
                 font-weight: 500;
                 min-height: 20px;
                 max-height: 22px;
-            }
-            QPushButton#cartSlotEmptyBtn:hover {
-                background-color: #EFF6FF;
-                color: #1E5C99;
-                border: 1px solid #3B82F6;
-            }
-            QPushButton#cartSlotFilledBtn {
-                background-color: #EBF3FC;
-                color: #1E40AF;
-                border: 1px solid #93C5FD;
+            }}
+            QPushButton#cartSlotEmptyBtn:hover {{
+                background-color: {C.INFO_SOFT};
+                color: {C.ACCENT_PRIMARY};
+                border: 1px solid {C.INFO_ACCENT};
+            }}
+            QPushButton#cartSlotFilledBtn {{
+                background-color: {C.ACCENT_SOFT};
+                color: {C.INFO_DARK};
+                border: 1px solid {C.INFO_BORDER_MEDIUM};
                 border-radius: 4px;
                 padding: 2px 8px;
                 font-size: 11px;
                 font-weight: bold;
                 min-height: 20px;
                 max-height: 22px;
-            }
-            QPushButton#cartSlotFilledBtn:hover {
-                background-color: #DBEAFE;
-                border-color: #2563EB;
-            }
-            QPushButton#cartSwapBtn {
-                background-color: #F1F5F9;
-                color: #475569;
-                border: 1px solid #CBD5E1;
+            }}
+            QPushButton#cartSlotFilledBtn:hover {{
+                background-color: {C.INFO_SOFT_STRONG};
+                border-color: {C.ACCENT_ALT};
+            }}
+            QPushButton#cartSwapBtn {{
+                background-color: {C.BG_CANVAS};
+                color: {C.TEXT_SECONDARY};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 1px 6px;
                 font-size: 11px;
                 font-weight: bold;
                 min-height: 20px;
                 max-height: 22px;
-            }
-            QPushButton#cartSwapBtn:hover {
-                background-color: #E2E8F0;
-                color: #0F172A;
-                border-color: #94A3B8;
-            }
-            QPushButton#cartCompareBtn {
-                background-color: #1E5C99;
-                color: #FFFFFF;
-                border: 1px solid #15426E;
+            }}
+            QPushButton#cartSwapBtn:hover {{
+                background-color: {C.BORDER_SUBTLE};
+                color: {C.TEXT_PRIMARY};
+                border-color: {C.TEXT_FAINT};
+            }}
+            QPushButton#cartCompareBtn {{
+                background-color: {C.ACCENT_PRIMARY};
+                color: {C.BG_CARD};
+                border: 1px solid {C.ACCENT_HOVER};
                 border-radius: 4px;
                 padding: 2px 10px;
                 font-size: 11px;
                 font-weight: bold;
                 min-height: 20px;
                 max-height: 22px;
-            }
-            QPushButton#cartCompareBtn:hover {
-                background-color: #15426E;
-            }
-            QPushButton#cartCompareBtn:disabled {
-                background-color: #E2E8F0;
-                color: #94A3B8;
-                border: 1px solid #CBD5E1;
-            }
-            QPushButton#cartSecondaryBtn {
-                background-color: #FFFFFF;
-                color: #334155;
-                border: 1px solid #CBD5E1;
+            }}
+            QPushButton#cartCompareBtn:hover {{
+                background-color: {C.ACCENT_HOVER};
+            }}
+            QPushButton#cartCompareBtn:disabled {{
+                background-color: {C.BORDER_SUBTLE};
+                color: {C.TEXT_FAINT};
+                border: 1px solid {C.BORDER_STRONG};
+            }}
+            QPushButton#cartSecondaryBtn {{
+                background-color: {C.BG_CARD};
+                color: {C.TEXT_BODY};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 2px 8px;
                 font-size: 11px;
                 font-weight: 600;
                 min-height: 20px;
                 max-height: 22px;
-            }
-            QPushButton#cartSecondaryBtn:hover {
-                background-color: #F1F5F9;
-                border-color: #94A3B8;
-                color: #0F172A;
-            }
+            }}
+            QPushButton#cartSecondaryBtn:hover {{
+                background-color: {C.BG_CANVAS};
+                border-color: {C.TEXT_FAINT};
+                color: {C.TEXT_PRIMARY};
+            }}
         """)
 
         from modules.meetings.core.compare_manager import ComparisonManager
@@ -533,21 +534,21 @@ class ComparisonCartWidget(QFrame):
         btn.setToolTip(
             "Stage your currently active Microsoft Word document (or any open Word document) into the Comparison Cart."
         )
-        btn.setStyleSheet("""
-            QPushButton {
-                background-color: #F8FAFC;
-                color: #475569;
-                border: 1px solid #CBD5E1;
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.BG_SURFACE};
+                color: {C.TEXT_SECONDARY};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 5px;
                 padding: 2px 10px;
                 font-size: 11px;
                 font-weight: 600;
-            }
-            QPushButton:hover {
-                background-color: #EFF6FF;
-                color: #1E5C99;
-                border-color: #93C5FD;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.INFO_SOFT};
+                color: {C.ACCENT_PRIMARY};
+                border-color: {C.INFO_BORDER_MEDIUM};
+            }}
         """)
 
         def _show_launcher_menu():
@@ -724,16 +725,16 @@ class ComparisonCartWidget(QFrame):
 def make_rich_tooltip(title: str, description: str, tip: str = "", shortcut: str = "") -> str:
     """Creates a beautifully styled, structured multi-line HTML card for widget tooltips."""
     import html
-    shortcut_html = f' <span style="color: #64748B; font-size: 11px; font-weight: normal;">({html.escape(shortcut)})</span>' if shortcut else ''
+    shortcut_html = f' <span style="color: {C.TEXT_MUTED}; font-size: 11px; font-weight: normal;">({html.escape(shortcut)})</span>' if shortcut else ''
     tip_html = f'''
-  <div style="margin-top: 6px; padding-top: 4px; border-top: 1px solid #E2E8F0; font-size: 11px; color: #475569;">
+  <div style="margin-top: 6px; padding-top: 4px; border-top: 1px solid {C.BORDER_SUBTLE}; font-size: 11px; color: {C.TEXT_SECONDARY};">
     💡 <b>Tip:</b> {html.escape(tip)}
   </div>''' if tip else ''
 
-    return f'''<div style="font-family: -apple-system, Segoe UI, sans-serif; font-size: 12px; line-height: 1.4; color: #1E293B; max-width: 330px;">
-  <div style="font-weight: bold; font-size: 13px; color: #0F172A; margin-bottom: 3px;">
+    return f'''<div style="font-family: -apple-system, Segoe UI, sans-serif; font-size: 12px; line-height: 1.4; color: {C.TEXT_STRONG}; max-width: 330px;">
+  <div style="font-weight: bold; font-size: 13px; color: {C.TEXT_PRIMARY}; margin-bottom: 3px;">
     {title}{shortcut_html}
   </div>
-  <div style="color: #334155;">{html.escape(description)}</div>{tip_html}
+  <div style="color: {C.TEXT_BODY};">{html.escape(description)}</div>{tip_html}
 </div>'''
 

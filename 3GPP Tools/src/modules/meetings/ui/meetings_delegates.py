@@ -6,6 +6,7 @@ from PyQt5.QtGui import QBrush, QColor, QPen
 from PyQt5.QtWidgets import QMenu, QStyle, QStyledItemDelegate
 
 from core.ui.ui_components import get_wg_colors
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +30,9 @@ class WGTagDelegate(QStyledItemDelegate):
             painter.fillRect(option.rect, option.palette.highlight())
 
         colors = get_wg_colors(wg)
-        bg = colors.get("bg", "#F1F5F9")
-        border = colors.get("border", "#CBD5E1")
-        text_col = colors.get("text", "#475569")
+        bg = colors.get("bg", C.BG_CANVAS)
+        border = colors.get("border", C.BORDER_STRONG)
+        text_col = colors.get("text", C.TEXT_SECONDARY)
 
         if option.state & QStyle.State_MouseOver:
             border_pen = QPen(QColor(text_col), 1.5)
@@ -71,13 +72,13 @@ class TDocsButtonDelegate(QStyledItemDelegate):
         painter.setRenderHint(painter.Antialiasing)
 
         if status == 'na':
-            bg, border, text_col, text = "#F8FAFC", "#E2E8F0", "#94A3B8", "N/A"
+            bg, border, text_col, text = C.BG_SURFACE, C.BORDER_SUBTLE, C.TEXT_FAINT, "N/A"
         elif status == 'open':
-            bg, border, text_col, text = "#ECFDF5", "#A7F3D0", "#065F46", "✔ Open"
+            bg, border, text_col, text = C.WG_RAN_BG, C.WG_RAN_BORDER, C.WG_RAN_TEXT, "✔ Open"
         elif status == 'fetching':
-            bg, border, text_col, text = "#FFFBEB", "#FDE68A", "#B45309", "⏳ Fetching"
+            bg, border, text_col, text = C.WARNING_SOFT, C.WARNING_BORDER, C.WARNING, "⏳ Fetching"
         else:
-            bg, border, text_col, text = "#EBF3FC", "#BFDBFE", "#1E5C99", "⬇ Get"
+            bg, border, text_col, text = C.ACCENT_SOFT, C.INFO_BORDER, C.ACCENT_PRIMARY, "⬇ Get"
 
         if option.state & QStyle.State_MouseOver and status != 'na':
             border = text_col
@@ -128,9 +129,9 @@ class DynamicHoverMenuDelegate(QStyledItemDelegate):
         painter.setFont(font)
 
         if option.state & QStyle.State_MouseOver:
-            painter.setPen(QColor("#1E5C99"))
+            painter.setPen(QColor(C.ACCENT_PRIMARY))
         else:
-            painter.setPen(QColor("#94A3B8"))
+            painter.setPen(QColor(C.TEXT_FAINT))
 
         painter.drawText(option.rect, Qt.AlignCenter, "⋮")
         painter.restore()

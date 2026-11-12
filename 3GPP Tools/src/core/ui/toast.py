@@ -9,6 +9,7 @@ from `core.ui.theme` tokens.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -28,6 +29,8 @@ from PyQt5.QtWidgets import (
 from core.ui.icons import lucide_icon
 from core.ui.theme import C, R, S, T
 from core.ui.ui_components import escape_qt_mnemonic
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -318,3 +321,65 @@ class ToastManager(QObject):
         if watched is self._host and event.type() in (QEvent.Resize, QEvent.Move, QEvent.Show):
             self.reposition()
         return super().eventFilter(watched, event)
+
+
+def notify_toast(
+    widget: Optional[QWidget],
+    title: str,
+    message: str = "",
+    variant: str = "info",
+    actions: Optional[Sequence[Union[ToastAction, Tuple[str, Callable[[], None]]]]] = None,
+    duration_ms: int = 6000,
+) -> Optional[ToastWidget]:
+    """Show a non-blocking shell toast when hosted inside a ToastManager window.
+
+    When running in standalone dialog or headless unit-test contexts without a
+    top-level `show_toast` method, logs the message cleanly without blocking.
+    """
+    host = widget.window() if widget is not None else None
+    if host is not None and callable(getattr(host, "show_toast", None)):
+        return host.show_toast(
+            title=title,
+            message=message,
+            variant=variant,
+            actions=actions,
+            duration_ms=duration_ms,
+        )
+    logger.info("[%s] %s%s", variant.upper(), title, f" — {message}" if message else "")
+    return None
+
+
+def notify_success(
+    widget: Optional[QWidget],
+    title: str,
+    message: str = "",
+    actions: Optional[Sequence[Union[ToastAction, Tuple[str, Callable[[], None]]]]] = None,
+    duration_ms: int = 5500,
+) -> Optional[ToastWidget]:
+    """Convenience helper for non-blocking success notifications."""
+    return notify_toast(
+        widget=widget,
+        title=title,
+        message=message,
+        variant="success",
+        actions=actions,
+        duration_ms=duration_ms,
+    )
+
+
+def notify_info(
+    widget: Optional[QWidget],
+    title: str,
+    message: str = "",
+    actions: Optional[Sequence[Union[ToastAction, Tuple[str, Callable[[], None]]]]] = None,
+    duration_ms: int = 5000,
+) -> Optional[ToastWidget]:
+    """Convenience helper for non-blocking informational notifications."""
+    return notify_toast(
+        widget=widget,
+        title=title,
+        message=message,
+        variant="info",
+        actions=actions,
+        duration_ms=duration_ms,
+    )

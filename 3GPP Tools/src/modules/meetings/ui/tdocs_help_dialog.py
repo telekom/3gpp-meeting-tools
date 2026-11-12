@@ -29,124 +29,125 @@ from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     SEARCH_INPUT_STYLE,
 )
+from core.ui.theme import C
 
 
-HELP_CSS = """
+HELP_CSS = f"""
 <style>
-    body {
+    body {{
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        color: #1E293B;
-        background-color: #FFFFFF;
+        color: {C.TEXT_STRONG};
+        background-color: {C.BG_CARD};
         font-size: 13px;
         line-height: 1.5;
         margin: 12px;
-    }
-    h2 {
-        color: #0F172A;
+    }}
+    h2 {{
+        color: {C.TEXT_PRIMARY};
         font-size: 16px;
         margin-top: 14px;
         margin-bottom: 8px;
-        border-bottom: 1.5px solid #E2E8F0;
+        border-bottom: 1.5px solid {C.BORDER_SUBTLE};
         padding-bottom: 4px;
-    }
-    .lead {
-        color: #475569;
+    }}
+    .lead {{
+        color: {C.TEXT_SECONDARY};
         font-size: 13px;
         margin-bottom: 14px;
-    }
-    .card {
-        background: #F8FAFC;
-        border: 1px solid #E2E8F0;
+    }}
+    .card {{
+        background: {C.BG_SURFACE};
+        border: 1px solid {C.BORDER_SUBTLE};
         border-radius: 6px;
         padding: 10px 14px;
         margin-bottom: 12px;
-    }
-    .card-title {
+    }}
+    .card-title {{
         font-weight: bold;
         font-size: 14px;
-        color: #0F172A;
+        color: {C.TEXT_PRIMARY};
         margin-bottom: 4px;
-    }
-    .badge {
+    }}
+    .badge {{
         display: inline-block;
         padding: 2px 7px;
         font-size: 11px;
         font-weight: 600;
         border-radius: 4px;
         margin-right: 6px;
-    }
-    .badge-blue { background-color: #DBEAFE; color: #1E40AF; border: 1px solid #BFDBFE; }
-    .badge-green { background-color: #DCFCE7; color: #166534; border: 1px solid #BBF7D0; }
-    .badge-amber { background-color: #FEF3C7; color: #92400E; border: 1px solid #FDE68A; }
-    .badge-purple { background-color: #EDE9FE; color: #5B21B6; border: 1px solid #DDD6FE; }
-    .badge-slate { background-color: #F1F5F9; color: #334155; border: 1px solid #CBD5E1; }
+    }}
+    .badge-blue {{ background-color: {C.INFO_SOFT_STRONG}; color: {C.INFO_DARK}; border: 1px solid {C.INFO_BORDER}; }}
+    .badge-green {{ background-color: {C.SUCCESS_SOFT_ALT}; color: {C.SUCCESS_DARK}; border: 1px solid {C.SUCCESS_BORDER}; }}
+    .badge-amber {{ background-color: {C.WARNING_SOFT_ALT}; color: {C.WARNING_DARK}; border: 1px solid {C.WARNING_BORDER}; }}
+    .badge-purple {{ background-color: {C.VIOLET_SOFT}; color: {C.VIOLET_DARK}; border: 1px solid {C.VIOLET_BORDER}; }}
+    .badge-slate {{ background-color: {C.BG_CANVAS}; color: {C.TEXT_BODY}; border: 1px solid {C.BORDER_STRONG}; }}
 
-    kbd {
+    kbd {{
         display: inline-block;
         padding: 2px 6px;
         font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, Courier, monospace;
         font-size: 11px;
         font-weight: 600;
-        color: #1E293B;
-        background-color: #F1F5F9;
-        border: 1px solid #CBD5E1;
+        color: {C.TEXT_STRONG};
+        background-color: {C.BG_CANVAS};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 4px;
         box-shadow: 0 1px 0 rgba(0,0,0,0.1);
         margin: 0 2px;
-    }
+    }}
 
-    table.help-table {
+    table.help-table {{
         width: 100%;
         border-collapse: collapse;
         margin-top: 8px;
         margin-bottom: 14px;
-    }
-    table.help-table th {
-        background-color: #F1F5F9;
-        color: #334155;
+    }}
+    table.help-table th {{
+        background-color: {C.BG_CANVAS};
+        color: {C.TEXT_BODY};
         font-size: 12px;
         font-weight: 600;
         text-align: left;
         padding: 8px 10px;
-        border-bottom: 2px solid #CBD5E1;
-    }
-    table.help-table td {
+        border-bottom: 2px solid {C.BORDER_STRONG};
+    }}
+    table.help-table td {{
         padding: 8px 10px;
-        border-bottom: 1px solid #E2E8F0;
+        border-bottom: 1px solid {C.BORDER_SUBTLE};
         font-size: 12.5px;
         vertical-align: top;
-    }
-    table.help-table tr:hover td {
-        background-color: #F8FAFC;
-    }
+    }}
+    table.help-table tr:hover td {{
+        background-color: {C.BG_SURFACE};
+    }}
 
-    .tip-box {
-        background-color: #F0FDF4;
+    .tip-box {{
+        background-color: {C.SUCCESS_SOFT};
         border-left: 4px solid #22C55E;
         padding: 8px 12px;
         border-radius: 0 6px 6px 0;
         margin-top: 6px;
         font-size: 12px;
-        color: #166534;
-    }
-    .note-box {
-        background-color: #EFF6FF;
-        border-left: 4px solid #3B82F6;
+        color: {C.SUCCESS_DARK};
+    }}
+    .note-box {{
+        background-color: {C.INFO_SOFT};
+        border-left: 4px solid {C.INFO_ACCENT};
         padding: 8px 12px;
         border-radius: 0 6px 6px 0;
         margin-top: 6px;
         font-size: 12px;
-        color: #1E40AF;
-    }
-    .warn-box {
-        background-color: #FFFBEB;
-        border-left: 4px solid #F59E0B;
+        color: {C.INFO_DARK};
+    }}
+    .warn-box {{
+        background-color: {C.WARNING_SOFT};
+        border-left: 4px solid {C.WARNING_ACCENT};
         padding: 8px 12px;
         border-radius: 0 6px 6px 0;
         margin-top: 6px;
         font-size: 12px;
-        color: #92400E;
-    }
+        color: {C.WARNING_DARK};
+    }}
 </style>
 """
 
@@ -237,7 +238,7 @@ def _build_toolbar_tab_html() -> str:
 
 
 def _build_table_tab_html() -> str:
-    return HELP_CSS + """
+    return HELP_CSS + f"""
 <body>
     <h2>🖱️ Table Navigation & Interactive Cell Actions</h2>
     <div class="lead">
@@ -324,9 +325,9 @@ def _build_table_tab_html() -> str:
 
     <div class="note-box">
         💡 <b>Visual Color Highlights:</b>
-        <br>• <span class="badge badge-green">Soft Green Tint (#F0FDF4)</span> : Rows with approved text agreements or agreed contributions.
-        <br>• <span class="badge badge-amber">Soft Amber Tint (#FEFCE8)</span> : Rows with 3GPP Working Assumptions.
-        <br>• <span class="badge badge-blue">Soft Blue Tint (#EFF6FF)</span> : Rows with FFS (For Further Study) or open issues.
+        <br>• <span class="badge badge-green">Soft Green Tint ({C.SUCCESS_SOFT})</span> : Rows with approved text agreements or agreed contributions.
+        <br>• <span class="badge badge-amber">Soft Amber Tint ({C.WARNING_SOFT_LIGHT})</span> : Rows with 3GPP Working Assumptions.
+        <br>• <span class="badge badge-blue">Soft Blue Tint ({C.INFO_SOFT})</span> : Rows with FFS (For Further Study) or open issues.
     </div>
 </body>
 """
@@ -517,9 +518,9 @@ class TDocsHelpDialog(QDialog):
         title_vbox = QVBoxLayout()
         title_vbox.setSpacing(2)
         dlg_title = QLabel("3GPP TDocs Cockpit — Quick Guide & Reference")
-        dlg_title.setStyleSheet("font-size: 17px; font-weight: bold; color: #0F172A;")
+        dlg_title.setStyleSheet(f"font-size: 17px; font-weight: bold; color: {C.TEXT_PRIMARY};")
         dlg_sub = QLabel("Operational tools, double-click actions, search operators, and keyboard shortcuts.")
-        dlg_sub.setStyleSheet("font-size: 12px; color: #64748B;")
+        dlg_sub.setStyleSheet(f"font-size: 12px; color: {C.TEXT_MUTED};")
         title_vbox.addWidget(dlg_title)
         title_vbox.addWidget(dlg_sub)
         header_layout.addLayout(title_vbox)
@@ -540,40 +541,40 @@ class TDocsHelpDialog(QDialog):
         divider = QFrame()
         divider.setFrameShape(QFrame.HLine)
         divider.setFrameShadow(QFrame.Plain)
-        divider.setStyleSheet("color: #E2E8F0; background-color: #E2E8F0; height: 1px;")
+        divider.setStyleSheet(f"color: {C.BORDER_SUBTLE}; background-color: {C.BORDER_SUBTLE}; height: 1px;")
         main_layout.addWidget(divider)
 
         # Tab Widget
         self.tab_widget = QTabWidget()
-        self.tab_widget.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #CBD5E1;
+        self.tab_widget.setStyleSheet(f"""
+            QTabWidget::pane {{
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
-                background-color: #FFFFFF;
+                background-color: {C.BG_CARD};
                 top: -1px;
-            }
-            QTabBar::tab {
-                background: #F1F5F9;
-                color: #475569;
+            }}
+            QTabBar::tab {{
+                background: {C.BG_CANVAS};
+                color: {C.TEXT_SECONDARY};
                 padding: 8px 16px;
                 margin-right: 4px;
                 border-top-left-radius: 6px;
                 border-top-right-radius: 6px;
-                border: 1px solid #CBD5E1;
+                border: 1px solid {C.BORDER_STRONG};
                 border-bottom: none;
                 font-size: 12.5px;
                 font-weight: 500;
-            }
-            QTabBar::tab:selected {
-                background: #FFFFFF;
-                color: #0F172A;
+            }}
+            QTabBar::tab:selected {{
+                background: {C.BG_CARD};
+                color: {C.TEXT_PRIMARY};
                 font-weight: bold;
-                border-bottom: 2px solid #2563EB;
-            }
-            QTabBar::tab:hover:!selected {
-                background: #E2E8F0;
-                color: #1E293B;
-            }
+                border-bottom: 2px solid {C.ACCENT_ALT};
+            }}
+            QTabBar::tab:hover:!selected {{
+                background: {C.BORDER_SUBTLE};
+                color: {C.TEXT_STRONG};
+            }}
         """)
 
         # Tab 1: Toolbar
@@ -604,8 +605,8 @@ class TDocsHelpDialog(QDialog):
 
         # Footer
         footer_layout = QHBoxLayout()
-        tip_lbl = QLabel("💡 <b>Quick Access:</b> Press <kbd style='background:#F1F5F9; padding:1px 5px; border-radius:3px; border:1px solid #CBD5E1;'>F1</kbd> anytime in the TDocs window to open this guide.")
-        tip_lbl.setStyleSheet("font-size: 12px; color: #475569;")
+        tip_lbl = QLabel(f"💡 <b>Quick Access:</b> Press <kbd style='background:{C.BG_CANVAS}; padding:1px 5px; border-radius:3px; border:1px solid {C.BORDER_STRONG};'>F1</kbd> anytime in the TDocs window to open this guide.")
+        tip_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_SECONDARY};")
         footer_layout.addWidget(tip_lbl)
         footer_layout.addStretch()
 

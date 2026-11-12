@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.flow_layout import FlowLayout
+from core.ui.theme import C
 
 
 def get_wg_colors(wg: str) -> Dict[str, str]:
@@ -26,33 +27,33 @@ def get_wg_colors(wg: str) -> Dict[str, str]:
     wg_u = str(wg or "").strip().upper()
     if wg_u.startswith("SA"):
         return {
-            "bg_active": "#DBEAFE",
-            "fg_active": "#1E40AF",
-            "border_active": "#93C5FD",
-            "bg_inactive": "#F8FAFC",
-            "fg_inactive": "#64748B",
-            "border_inactive": "#CBD5E1",
-            "hover": "#EFF6FF",
+            "bg_active": C.INFO_SOFT_STRONG,
+            "fg_active": C.INFO_DARK,
+            "border_active": C.INFO_BORDER_MEDIUM,
+            "bg_inactive": C.BG_SURFACE,
+            "fg_inactive": C.TEXT_MUTED,
+            "border_inactive": C.BORDER_STRONG,
+            "hover": C.INFO_SOFT,
         }
     elif wg_u.startswith("RAN"):
         return {
-            "bg_active": "#EDE9FE",
-            "fg_active": "#5B21B6",
-            "border_active": "#C4B5FD",
-            "bg_inactive": "#F8FAFC",
-            "fg_inactive": "#64748B",
-            "border_inactive": "#CBD5E1",
-            "hover": "#F5F3FF",
+            "bg_active": C.VIOLET_SOFT,
+            "fg_active": C.VIOLET_DARK,
+            "border_active": C.VIOLET_BORDER_STRONG,
+            "bg_inactive": C.BG_SURFACE,
+            "fg_inactive": C.TEXT_MUTED,
+            "border_inactive": C.BORDER_STRONG,
+            "hover": C.VIOLET_SURFACE,
         }
     else:  # CT or others
         return {
-            "bg_active": "#CCFBF1",
-            "fg_active": "#0F766E",
-            "border_active": "#99F6E4",
-            "bg_inactive": "#F8FAFC",
-            "fg_inactive": "#64748B",
-            "border_inactive": "#CBD5E1",
-            "hover": "#F0FDFA",
+            "bg_active": C.TEAL_SOFT,
+            "fg_active": C.TEAL_DARK,
+            "border_active": C.TEAL_BORDER,
+            "bg_inactive": C.BG_SURFACE,
+            "fg_inactive": C.TEXT_MUTED,
+            "border_inactive": C.BORDER_STRONG,
+            "hover": C.TEAL_SURFACE,
         }
 
 
@@ -111,8 +112,8 @@ class WgTogglePill(QPushButton):
                 }}
                 QPushButton:hover {{
                     background-color: {c['hover']};
-                    color: #1E293B;
-                    border-color: #94A3B8;
+                    color: {C.TEXT_STRONG};
+                    border-color: {C.TEXT_FAINT};
                 }}
             """)
 
@@ -124,37 +125,37 @@ class TagPillItem(QFrame):
     def __init__(self, text: str, parent=None):
         super().__init__(parent)
         self.tag_text = text
-        self.setStyleSheet("""
-            QFrame {
-                background-color: #F1F5F9;
-                border: 1px solid #CBD5E1;
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_CANVAS};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 11px;
                 padding: 1px 4px;
-            }
+            }}
         """)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(4)
 
         lbl = QLabel(text)
-        lbl.setStyleSheet("color: #334155; font-size: 11px; font-weight: 500; background: transparent; border: none;")
+        lbl.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 11px; font-weight: 500; background: transparent; border: none;")
         layout.addWidget(lbl)
 
         btn_close = QPushButton("✕")
         btn_close.setCursor(Qt.PointingHandCursor)
         btn_close.setFixedSize(14, 14)
-        btn_close.setStyleSheet("""
-            QPushButton {
-                color: #94A3B8;
+        btn_close.setStyleSheet(f"""
+            QPushButton {{
+                color: {C.TEXT_FAINT};
                 background: transparent;
                 border: none;
                 font-size: 10px;
                 font-weight: bold;
                 padding: 0;
-            }
-            QPushButton:hover {
-                color: #EF4444;
-            }
+            }}
+            QPushButton:hover {{
+                color: {C.DANGER_ACCENT};
+            }}
         """)
         btn_close.clicked.connect(lambda: self.removed.emit(self.tag_text))
         layout.addWidget(btn_close)
@@ -181,16 +182,16 @@ class TagCloudWidget(QFrame):
     def __init__(self, placeholder: str = "Type term and press Enter or comma...", parent=None):
         super().__init__(parent)
         self.setObjectName("TagCloudFrame")
-        self.setStyleSheet("""
-            QFrame#TagCloudFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.setStyleSheet(f"""
+            QFrame#TagCloudFrame {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 padding: 3px;
-            }
-            QFrame#TagCloudFrame:focus-within {
-                border-color: #3B82F6;
-            }
+            }}
+            QFrame#TagCloudFrame:focus-within {{
+                border-color: {C.INFO_ACCENT};
+            }}
         """)
         self._tags: List[str] = []
 
@@ -316,7 +317,7 @@ class AgendaItemPill(QFrame):
                 padding: 0;
             }}
             QPushButton:hover {{
-                color: #EF4444;
+                color: {C.DANGER_ACCENT};
             }}
         """)
         btn_close.clicked.connect(lambda: self.removed.emit(self.wg, self.pattern))
@@ -333,13 +334,13 @@ class AgendaItemPillsWidget(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("AiPillsFrame")
-        self.setStyleSheet("""
-            QFrame#AiPillsFrame {
-                background-color: #FAFAFA;
-                border: 1px solid #E2E8F0;
+        self.setStyleSheet(f"""
+            QFrame#AiPillsFrame {{
+                background-color: {C.BG_ALT_LIGHT};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 6px;
                 padding: 6px;
-            }
+            }}
         """)
         self._rules: Dict[str, List[str]] = {}
         self._active_wgs: List[str] = ["SA2", "RAN2", "CT1"]
@@ -349,7 +350,7 @@ class AgendaItemPillsWidget(QFrame):
         self.main_layout.setSpacing(6)
 
         self.lbl_empty = QLabel("No Agenda Items defined. Use '🔍 Auto-Suggest AIs...' or click '+ Add AI' below.")
-        self.lbl_empty.setStyleSheet("color: #94A3B8; font-size: 11px; font-style: italic; padding: 4px;")
+        self.lbl_empty.setStyleSheet(f"color: {C.TEXT_FAINT}; font-size: 11px; font-style: italic; padding: 4px;")
         self.main_layout.addWidget(self.lbl_empty)
 
         self._rows_container = QWidget()
@@ -434,21 +435,21 @@ class AgendaItemPillsWidget(QFrame):
 
             btn_add = QPushButton("+ Add AI")
             btn_add.setCursor(Qt.PointingHandCursor)
-            btn_add.setStyleSheet("""
-                QPushButton {
-                    background-color: #FFFFFF;
-                    color: #475569;
-                    border: 1px dashed #CBD5E1;
+            btn_add.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {C.BG_CARD};
+                    color: {C.TEXT_SECONDARY};
+                    border: 1px dashed {C.BORDER_STRONG};
                     border-radius: 10px;
                     padding: 2px 8px;
                     font-size: 10px;
                     font-weight: 500;
-                }
-                QPushButton:hover {
-                    background-color: #F1F5F9;
-                    color: #0F172A;
-                    border-color: #94A3B8;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {C.BG_CANVAS};
+                    color: {C.TEXT_PRIMARY};
+                    border-color: {C.TEXT_FAINT};
+                }}
             """)
             btn_add.clicked.connect(lambda _, w=wg: self._on_add_clicked(w))
             flow_layout.addWidget(btn_add)
@@ -498,13 +499,13 @@ class FilterPillButton(QPushButton):
         self.base_label = label
         self._count = count
         self.colors = colors or {
-            "bg_active": "#2563EB",
-            "fg_active": "#FFFFFF",
-            "border_active": "#1D4ED8",
-            "bg_inactive": "#FFFFFF",
-            "fg_inactive": "#475569",
-            "border_inactive": "#CBD5E1",
-            "hover": "#F8FAFC",
+            "bg_active": C.ACCENT_ALT,
+            "fg_active": C.BG_CARD,
+            "border_active": C.INFO,
+            "bg_inactive": C.BG_CARD,
+            "fg_inactive": C.TEXT_SECONDARY,
+            "border_inactive": C.BORDER_STRONG,
+            "hover": C.BG_SURFACE,
         }
         self.setCheckable(True)
         self.setCursor(Qt.PointingHandCursor)
@@ -548,8 +549,8 @@ class FilterPillButton(QPushButton):
                 }}
                 QPushButton:hover {{
                     background-color: {c['hover']};
-                    border-color: #94A3B8;
-                    color: #0F172A;
+                    border-color: {C.TEXT_FAINT};
+                    color: {C.TEXT_PRIMARY};
                 }}
             """)
 

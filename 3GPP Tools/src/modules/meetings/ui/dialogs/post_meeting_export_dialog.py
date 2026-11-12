@@ -14,78 +14,79 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 from modules.meetings.core.agenda_manager import AgendaItem
 from modules.meetings.ui.tdocs_models import TDocsTableModel
 
 
-STYLE_TOGGLE_ACTIVE = """
-    QPushButton {
-        background-color: #2563EB;
-        color: #FFFFFF;
+STYLE_TOGGLE_ACTIVE = f"""
+    QPushButton {{
+        background-color: {C.ACCENT_ALT};
+        color: {C.BG_CARD};
         font-weight: bold;
-        border: 1px solid #1D4ED8;
+        border: 1px solid {C.INFO};
         border-radius: 4px;
         padding: 3px 8px;
         font-size: 11px;
-    }
+    }}
 """
 
-STYLE_TOGGLE_INACTIVE = """
-    QPushButton {
-        background-color: #FFFFFF;
-        color: #475569;
-        border: 1px solid #CBD5E1;
+STYLE_TOGGLE_INACTIVE = f"""
+    QPushButton {{
+        background-color: {C.BG_CARD};
+        color: {C.TEXT_SECONDARY};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 4px;
         padding: 3px 8px;
         font-size: 11px;
-    }
-    QPushButton:hover {
-        background-color: #F1F5F9;
-        color: #1E293B;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {C.BG_CANVAS};
+        color: {C.TEXT_STRONG};
+    }}
 """
 
-STYLE_COMPACT_BTN = """
-    QPushButton {
-        background-color: #F8FAFC;
-        color: #1E293B;
-        border: 1px solid #CBD5E1;
+STYLE_COMPACT_BTN = f"""
+    QPushButton {{
+        background-color: {C.BG_SURFACE};
+        color: {C.TEXT_STRONG};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 4px;
         padding: 3px 8px;
         font-size: 11px;
         font-weight: 500;
-    }
-    QPushButton:hover {
-        background-color: #F1F5F9;
-        border-color: #94A3B8;
-    }
-    QPushButton:pressed {
-        background-color: #E2E8F0;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {C.BG_CANVAS};
+        border-color: {C.TEXT_FAINT};
+    }}
+    QPushButton:pressed {{
+        background-color: {C.BORDER_SUBTLE};
+    }}
 """
 
-STYLE_TREE = """
-    QTreeWidget {
-        background-color: #FFFFFF;
-        border: 1px solid #CBD5E1;
+STYLE_TREE = f"""
+    QTreeWidget {{
+        background-color: {C.BG_CARD};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 6px;
         padding: 4px;
         font-size: 11px;
-        color: #1E293B;
-    }
-    QTreeWidget::item {
+        color: {C.TEXT_STRONG};
+    }}
+    QTreeWidget::item {{
         padding: 3px 2px;
         border-radius: 3px;
-    }
-    QTreeWidget::item:hover {
-        background-color: #F1F5F9;
-    }
-    QTreeWidget::item:selected {
-        background-color: #E0E7FF;
-        color: #1E293B;
-    }
+    }}
+    QTreeWidget::item:hover {{
+        background-color: {C.BG_CANVAS};
+    }}
+    QTreeWidget::item:selected {{
+        background-color: {C.INDIGO_SOFT};
+        color: {C.TEXT_STRONG};
+    }}
 """
 
 
@@ -135,28 +136,28 @@ class PostMeetingExportDialog(QDialog):
         self.setWindowTitle("📑 Post-Meeting Report & Markdown Dossier Export")
         self.resize(960, 650)
         self.setMinimumSize(880, 560)
-        self.setStyleSheet("""
-            QDialog { background-color: #F8FAFC; }
-            QGroupBox {
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {C.BG_SURFACE}; }}
+            QGroupBox {{
                 font-weight: bold;
-                color: #1E293B;
-                border: 1px solid #CBD5E1;
+                color: {C.TEXT_STRONG};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 margin-top: 10px;
                 padding-top: 14px;
-                background-color: #FFFFFF;
-            }
-            QGroupBox::title {
+                background-color: {C.BG_CARD};
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 subcontrol-position: top left;
                 padding: 0 6px;
-                background-color: #FFFFFF;
-            }
-            QLabel { color: #334155; }
-            QRadioButton, QCheckBox {
-                color: #1E293B;
+                background-color: {C.BG_CARD};
+            }}
+            QLabel {{ color: {C.TEXT_BODY}; }}
+            QRadioButton, QCheckBox {{
+                color: {C.TEXT_STRONG};
                 padding: 2px;
-            }
+            }}
         """)
 
         # Extract available meeting Work Items, Agenda Items, and their cross-correlations
@@ -290,13 +291,13 @@ class PostMeetingExportDialog(QDialog):
 
         # --- Header Card ---
         header_frame = QFrame()
-        header_frame.setStyleSheet("""
-            QFrame {
-                background-color: #EFF6FF;
-                border: 1px solid #BFDBFE;
+        header_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.INFO_SOFT};
+                border: 1px solid {C.INFO_BORDER};
                 border-radius: 6px;
                 padding: 6px;
-            }
+            }}
         """)
         header_layout = QVBoxLayout(header_frame)
         header_layout.setContentsMargins(8, 4, 8, 4)
@@ -306,9 +307,9 @@ class PostMeetingExportDialog(QDialog):
         mtg = str(self.mtg_info.get("meeting_number", "")).strip()
         title_text = f"<b>{wg} #{mtg} Post-Meeting Report</b>" if (wg or mtg) else "<b>Post-Meeting Report</b>"
         lbl_title = QLabel(title_text)
-        lbl_title.setStyleSheet("font-size: 13px; color: #1E40AF; font-weight: bold; border: none;")
+        lbl_title.setStyleSheet(f"font-size: 13px; color: {C.INFO_DARK}; font-weight: bold; border: none;")
         lbl_sub = QLabel("Generates a structured, per-release and per-WI Markdown dossier with an executive summary cover page.")
-        lbl_sub.setStyleSheet("font-size: 11px; color: #3B82F6; border: none;")
+        lbl_sub.setStyleSheet(f"font-size: 11px; color: {C.INFO_ACCENT}; border: none;")
         lbl_sub.setWordWrap(True)
 
         header_layout.addWidget(lbl_title)
@@ -633,21 +634,21 @@ class PostMeetingExportDialog(QDialog):
         btn_layout.addWidget(btn_cancel)
 
         btn_start = QPushButton("🚀 Start Export")
-        btn_start.setStyleSheet("""
-            QPushButton {
-                background-color: #2563EB;
-                color: #FFFFFF;
+        btn_start.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.ACCENT_ALT};
+                color: {C.BG_CARD};
                 font-weight: bold;
                 border-radius: 4px;
                 padding: 6px 16px;
-                border: 1px solid #1D4ED8;
-            }
-            QPushButton:hover {
-                background-color: #1D4ED8;
-            }
-            QPushButton:pressed {
-                background-color: #1E40AF;
-            }
+                border: 1px solid {C.INFO};
+            }}
+            QPushButton:hover {{
+                background-color: {C.INFO};
+            }}
+            QPushButton:pressed {{
+                background-color: {C.INFO_DARK};
+            }}
         """)
         btn_start.setDefault(True)
         btn_start.clicked.connect(self._on_start_clicked)
@@ -900,10 +901,10 @@ class PostMeetingExportDialog(QDialog):
         is_custom = self.rb_custom.isChecked()
         if is_custom:
             self.lbl_custom_hint.setText("⚡ <b>Custom Selection:</b> Choose specific Work Items and Agenda Items to export:")
-            self.lbl_custom_hint.setStyleSheet("font-size: 11px; color: #1D4ED8;")
+            self.lbl_custom_hint.setStyleSheet(f"font-size: 11px; color: {C.INFO};")
         else:
             self.lbl_custom_hint.setText("💡 <i>Check any item below or select 'Custom Selection' to customize scope:</i>")
-            self.lbl_custom_hint.setStyleSheet("font-size: 11px; color: #64748B;")
+            self.lbl_custom_hint.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED};")
 
     def _on_scope_radio_toggled(self, checked: bool):
         self._sync_scope_ui_state()
@@ -1064,31 +1065,31 @@ class PostMeetingExportDialog(QDialog):
             self.lbl_estimate.setText(
                 f"📊 <b>Estimated Scope:</b> {total} TDocs across {n_wis} Work Items and {n_ais} Agenda Items{summary_str}"
             )
-            self.lbl_estimate.setStyleSheet("""
-                QLabel {
-                    background-color: #F0FDF4;
-                    border: 1px solid #BBF7D0;
+            self.lbl_estimate.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {C.SUCCESS_SOFT};
+                    border: 1px solid {C.SUCCESS_BORDER};
                     border-radius: 6px;
                     padding: 6px 10px;
                     font-size: 11px;
-                    color: #166534;
+                    color: {C.SUCCESS_DARK};
                     font-weight: 500;
-                }
+                }}
             """)
         else:
             self.lbl_estimate.setText(
                 "⚠️ <b>Estimated Scope:</b> 0 TDocs match current criteria. Adjust scope or document types."
             )
-            self.lbl_estimate.setStyleSheet("""
-                QLabel {
-                    background-color: #FFFBEB;
-                    border: 1px solid #FDE68A;
+            self.lbl_estimate.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {C.WARNING_SOFT};
+                    border: 1px solid {C.WARNING_BORDER};
                     border-radius: 6px;
                     padding: 6px 10px;
                     font-size: 11px;
-                    color: #B45309;
+                    color: {C.WARNING};
                     font-weight: 500;
-                }
+                }}
             """)
 
     # -------------------------------------------------------------------------
@@ -1125,15 +1126,15 @@ class PostMeetingExportDialog(QDialog):
                     f"({md_count} existing TDocs will be preserved and merged into the index)."
                 )
             self.lbl_dest_status.setText(msg)
-            self.lbl_dest_status.setStyleSheet('''
-                QLabel {
-                    background-color: #F0FDF4;
-                    border: 1px solid #BBF7D0;
+            self.lbl_dest_status.setStyleSheet(f'''
+                QLabel {{
+                    background-color: {C.SUCCESS_SOFT};
+                    border: 1px solid {C.SUCCESS_BORDER};
                     border-radius: 4px;
                     padding: 4px 8px;
                     font-size: 11px;
-                    color: #166534;
-                }
+                    color: {C.SUCCESS_DARK};
+                }}
             ''')
             self.lbl_dest_status.setVisible(True)
         else:

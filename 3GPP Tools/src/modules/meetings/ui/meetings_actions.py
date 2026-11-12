@@ -13,6 +13,7 @@ from pathlib import Path
 from PyQt5.QtCore import QDate
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
 
+from core.ui.toast import notify_info, notify_success
 from modules.meetings.core.tdocs.tdocs_merger import TDocsMergerThread
 from modules.meetings.ui.contributions.contribution_dialog import ContributionReportDialog
 
@@ -25,7 +26,7 @@ def open_last_meeting(tab):
         last_id, last_num, last_wg = tab.settings.get_last_meeting()
 
         if not last_id or not last_num:
-            QMessageBox.information(
+            notify_info(
                 tab, "No History", "No recent meeting history found. Please open a meeting first."
             )
             return
@@ -72,10 +73,10 @@ def start_tdocs_caching(tab, docs_url: str, local_path: Path):
 
 def on_tdocs_caching_finished(tab, success: bool, msg: str):
     """Resets UI and displays result of meeting TDoc caching."""
-    tab.update_btn.setText("🔄 Sync All Meetings")
+    tab.update_btn.setText("Sync ▾")
     tab.update_btn.setEnabled(True)
     if success:
-        QMessageBox.information(tab, "Caching Complete", msg)
+        notify_success(tab, "Caching Complete", msg)
     else:
         QMessageBox.warning(tab, "Caching Failed", msg)
 
@@ -124,29 +125,25 @@ def export_merged_tdocs(tab):
 
 def on_merger_finished(tab, success: bool, msg: str):
     """Handles completion of merged TDocs Excel file generation."""
-    tab.btn_export_merged.setText("📥 Export Merged TDocs (Excel)")
+    tab.btn_export_merged.setText("Reports ▾")
     tab.btn_export_merged.setEnabled(True)
 
     if success:
-        QMessageBox.information(tab, "Export Complete", msg)
-        if (
-            QMessageBox.question(
-                tab,
-                "Open File",
-                "Would you like to open the generated Excel file now?",
-                QMessageBox.Yes | QMessageBox.No,
-            )
-            == QMessageBox.Yes
-        ):
-            path_match = re.search(r"Saved to:\n(.*)", msg)
-            if path_match:
-                filepath = path_match.group(1).strip()
+        actions = []
+        path_match = re.search(r"Saved to:\n(.*)", msg)
+        if path_match:
+            filepath = path_match.group(1).strip()
+
+            def _open_merged(fp: str = filepath) -> None:
                 try:
-                    os.startfile(filepath) if hasattr(os, "startfile") else webbrowser.open(
-                        f"file:///{filepath}"
+                    os.startfile(fp) if hasattr(os, "startfile") else webbrowser.open(
+                        f"file:///{fp}"
                     )
                 except Exception as e:
                     logger.error(f"Could not open merged Excel: {e}")
+
+            actions.append(("Open Excel", _open_merged))
+        notify_success(tab, "Merged TDocs Exported", msg, actions=actions, duration_ms=8000)
     else:
         QMessageBox.warning(tab, "Export Failed", msg)
 

@@ -90,6 +90,7 @@ from modules.meetings.ui.tdocs_agenda_controller import (
     open_chair_notes_folder,
     start_window_tdocs_caching,
 )
+from core.ui.theme import C
 
 
 class TDocsWindow(QWidget):
@@ -167,7 +168,7 @@ class TDocsWindow(QWidget):
     def _setup_header(self, layout, title, is_electronic, count):
         header_layout = QHBoxLayout()
         title_lbl = QLabel(f"<b>{title}</b>")
-        title_lbl.setStyleSheet("font-size: 16px; color: #1E293B;")
+        title_lbl.setStyleSheet(f"font-size: 16px; color: {C.TEXT_STRONG};")
         title_lbl.setToolTip("Electronic Meeting (eMeeting)" if is_electronic else "In-Person Meeting (Face-to-Face)")
         title_lbl.setCursor(Qt.WhatsThisCursor)
 
@@ -180,7 +181,7 @@ class TDocsWindow(QWidget):
         self._update_routing_indicator()
 
         self.last_mod_lbl = QLabel(self._get_mod_date_str())
-        self.last_mod_lbl.setStyleSheet("font-size: 11px; color: #64748B; margin-right: 8px; font-style: italic;")
+        self.last_mod_lbl.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED}; margin-right: 8px; font-style: italic;")
 
         self.refresh_btn = QPushButton("🔄 Refresh")
         self.refresh_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -410,7 +411,7 @@ class TDocsWindow(QWidget):
         self.email_btn.setMenu(email_menu)
 
         self.count_lbl = QLabel(f"Showing {count} of {count} TDocs")
-        self.count_lbl.setStyleSheet("font-size: 12px; color: #64748B;")
+        self.count_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_MUTED};")
 
         self.instant_fetch_input = QLineEdit()
         self.instant_fetch_input.setPlaceholderText("Instant Fetch...")
@@ -601,29 +602,29 @@ class TDocsWindow(QWidget):
         self.search_timer.timeout.connect(self._apply_search_filter)
 
         filter_frame = QFrame()
-        filter_frame.setStyleSheet("""
-            QFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        filter_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
-            }
-            QLabel {
+            }}
+            QLabel {{
                 font-weight: bold;
-                color: #475569;
+                color: {C.TEXT_SECONDARY};
                 border: none;
-            }
-            QLineEdit, QComboBox {
+            }}
+            QLineEdit, QComboBox {{
                 padding: 4px 8px;
-                border: 1px solid #CBD5E1;
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
-                background: #FFFFFF;
-            }
-            QComboBox[activeFilter="true"] {
-                background-color: #EFF6FF;
-                border: 1.5px solid #3B82F6;
-                color: #1D4ED8;
+                background: {C.BG_CARD};
+            }}
+            QComboBox[activeFilter="true"] {{
+                background-color: {C.INFO_SOFT};
+                border: 1.5px solid {C.INFO_ACCENT};
+                color: {C.INFO};
                 font-weight: bold;
-            }
+            }}
         """)
         filter_layout = QHBoxLayout(filter_frame)
         filter_layout.setContentsMargins(8, 5, 8, 5)
@@ -695,7 +696,7 @@ class TDocsWindow(QWidget):
             sep = QFrame()
             sep.setFrameShape(QFrame.VLine)
             sep.setFrameShadow(QFrame.Plain)
-            sep.setStyleSheet("color: #CBD5E1; background-color: #E2E8F0; width: 1px; margin: 2px 1px;")
+            sep.setStyleSheet(f"color: {C.BORDER_STRONG}; background-color: {C.BORDER_SUBTLE}; width: 1px; margin: 2px 1px;")
             return sep
 
         filter_layout.addWidget(_make_vsep())
@@ -758,7 +759,7 @@ class TDocsWindow(QWidget):
             filter_layout.addWidget(_make_vsep())
 
         order_lbl = QLabel("Order:")
-        order_lbl.setStyleSheet("font-size: 11px; color: #64748B; font-weight: bold;")
+        order_lbl.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED}; font-weight: bold;")
         filter_layout.addWidget(order_lbl)
 
         self.order_combo = QComboBox()
@@ -782,21 +783,21 @@ class TDocsWindow(QWidget):
         self.btn_reset_filters = QPushButton("✕ Clear")
         self.btn_reset_filters.setToolTip("Reset all search text and active filters to show all TDocs.")
         self.btn_reset_filters.setCursor(Qt.PointingHandCursor)
-        self.btn_reset_filters.setStyleSheet("""
-            QPushButton {
-                background-color: #F8FAFC;
-                color: #64748B;
-                border: 1px solid #CBD5E1;
+        self.btn_reset_filters.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.BG_SURFACE};
+                color: {C.TEXT_MUTED};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 4px 8px;
                 font-size: 11px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #FEE2E2;
-                border-color: #FCA5A5;
-                color: #DC2626;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.DANGER_SOFT_HOVER};
+                border-color: {C.DANGER_BORDER_ALT};
+                color: {C.DANGER_ALT};
+            }}
         """)
         self.btn_reset_filters.clicked.connect(self._clear_all_filters)
         filter_layout.addWidget(self.btn_reset_filters)
@@ -819,19 +820,19 @@ class TDocsWindow(QWidget):
         self.table.doubleClicked.connect(self._show_cell_popup)
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
-        self.table.setStyleSheet("""
-            QTableView {
-                gridline-color: #F1F5F9;
-                border: 1px solid #CBD5E1;
-                background-color: #FFFFFF;
-            }
-            QHeaderView::section {
-                background-color: #F8FAFC;
+        self.table.setStyleSheet(f"""
+            QTableView {{
+                gridline-color: {C.BG_CANVAS};
+                border: 1px solid {C.BORDER_STRONG};
+                background-color: {C.BG_CARD};
+            }}
+            QHeaderView::section {{
+                background-color: {C.BG_SURFACE};
                 padding: 4px;
                 font-weight: bold;
-                border: 1px solid #E2E8F0;
-                color: #1E293B;
-            }
+                border: 1px solid {C.BORDER_SUBTLE};
+                color: {C.TEXT_STRONG};
+            }}
         """)
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
         self.table.verticalHeader().setDefaultSectionSize(48)
@@ -1069,20 +1070,20 @@ class TDocsWindow(QWidget):
 
         if cnt > 0:
             self.btn_meeting_agreements.setText(f"⚖️ Agreements ({cnt})")
-            self.btn_meeting_agreements.setStyleSheet("""
-                QPushButton {
-                    background-color: #F0FDF4;
-                    color: #166534;
-                    border: 1.5px solid #86EFAC;
+            self.btn_meeting_agreements.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {C.SUCCESS_SOFT};
+                    color: {C.SUCCESS_DARK};
+                    border: 1.5px solid {C.SUCCESS_BORDER_MEDIUM};
                     border-radius: 4px;
                     padding: 4px 10px;
                     font-size: 12px;
                     font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #DCFCE7;
+                }}
+                QPushButton:hover {{
+                    background-color: {C.SUCCESS_SOFT_ALT};
                     border-color: #22C55E;
-                }
+                }}
             """)
         else:
             self.btn_meeting_agreements.setText("⚖️ Agreements")
@@ -1214,98 +1215,98 @@ class TDocsWindow(QWidget):
             return
 
         if self.btn_followed_wis.isChecked():
-            self.btn_followed_wis.setStyleSheet("""
-                QPushButton {
-                    background-color: #DBEAFE;
-                    color: #1E40AF;
-                    border: 1.5px solid #3B82F6;
+            self.btn_followed_wis.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {C.INFO_SOFT_STRONG};
+                    color: {C.INFO_DARK};
+                    border: 1.5px solid {C.INFO_ACCENT};
                     border-radius: 4px;
                     padding: 2px;
                     font-size: 13px;
-                }
-                QPushButton:hover {
-                    background-color: #BFDBFE;
-                    border-color: #2563EB;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {C.INFO_BORDER};
+                    border-color: {C.ACCENT_ALT};
+                }}
             """)
         else:
-            self.btn_followed_wis.setStyleSheet("""
-                QPushButton {
-                    background-color: #F8FAFC;
-                    color: #475569;
-                    border: 1px solid #CBD5E1;
+            self.btn_followed_wis.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {C.BG_SURFACE};
+                    color: {C.TEXT_SECONDARY};
+                    border: 1px solid {C.BORDER_STRONG};
                     border-radius: 4px;
                     padding: 2px;
                     font-size: 13px;
-                }
-                QPushButton:hover {
-                    background-color: #F1F5F9;
-                    border-color: #94A3B8;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {C.BG_CANVAS};
+                    border-color: {C.TEXT_FAINT};
+                }}
             """)
 
         if self.btn_starred_wis.isChecked():
-            self.btn_starred_wis.setStyleSheet("""
-                QPushButton {
-                    background-color: #FEF3C7;
-                    color: #92400E;
-                    border: 1.5px solid #F59E0B;
+            self.btn_starred_wis.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {C.WARNING_SOFT_ALT};
+                    color: {C.WARNING_DARK};
+                    border: 1.5px solid {C.WARNING_ACCENT};
                     border-radius: 4px;
                     padding: 2px;
                     font-size: 13px;
-                }
-                QPushButton:hover {
-                    background-color: #FDE68A;
-                    border-color: #D97706;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {C.WARNING_BORDER};
+                    border-color: {C.WARNING_AMBER};
+                }}
             """)
         else:
-            self.btn_starred_wis.setStyleSheet("""
-                QPushButton {
-                    background-color: #F8FAFC;
-                    color: #475569;
-                    border: 1px solid #CBD5E1;
+            self.btn_starred_wis.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {C.BG_SURFACE};
+                    color: {C.TEXT_SECONDARY};
+                    border: 1px solid {C.BORDER_STRONG};
                     border-radius: 4px;
                     padding: 2px;
                     font-size: 13px;
-                }
-                QPushButton:hover {
-                    background-color: #F1F5F9;
-                    border-color: #94A3B8;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {C.BG_CANVAS};
+                    border-color: {C.TEXT_FAINT};
+                }}
             """)
 
         if hasattr(self, "btn_agreements_filter"):
             if self.btn_agreements_filter.isChecked():
-                self.btn_agreements_filter.setStyleSheet("""
-                    QPushButton {
-                        background-color: #DCFCE7;
-                        color: #166534;
+                self.btn_agreements_filter.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {C.SUCCESS_SOFT_ALT};
+                        color: {C.SUCCESS_DARK};
                         border: 1.5px solid #22C55E;
                         border-radius: 4px;
                         padding: 2px;
                         font-size: 13px;
                         font-weight: bold;
-                    }
-                    QPushButton:hover {
-                        background-color: #BBF7D0;
-                        border-color: #16A34A;
-                    }
+                    }}
+                    QPushButton:hover {{
+                        background-color: {C.SUCCESS_BORDER};
+                        border-color: {C.GREEN_ACCENT};
+                    }}
                 """)
             else:
-                self.btn_agreements_filter.setStyleSheet("""
-                    QPushButton {
-                        background-color: #F8FAFC;
-                        color: #475569;
-                        border: 1px solid #CBD5E1;
+                self.btn_agreements_filter.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {C.BG_SURFACE};
+                        color: {C.TEXT_SECONDARY};
+                        border: 1px solid {C.BORDER_STRONG};
                         border-radius: 4px;
                         padding: 2px;
                         font-size: 13px;
-                    }
-                    QPushButton:hover {
-                        background-color: #F1F5F9;
-                        border-color: #94A3B8;
-                    }
+                    }}
+                    QPushButton:hover {{
+                        background-color: {C.BG_CANVAS};
+                        border-color: {C.TEXT_FAINT};
+                    }}
                 """)
 
     def _load_tracked_wi_tokens(self):
@@ -2222,15 +2223,15 @@ class TDocsWindow(QWidget):
 
         if net_state.is_local_active():
             self.routing_indicator.setText("🟢 Local Server")
-            self.routing_indicator.setStyleSheet("color: #065F46; background-color: #D1FAE5; font-weight: bold; padding: 2px 8px; border-radius: 4px;")
+            self.routing_indicator.setStyleSheet(f"color: {C.WG_RAN_TEXT}; background-color: #D1FAE5; font-weight: bold; padding: 2px 8px; border-radius: 4px;")
             self.routing_indicator.setToolTip("Downloads are routed through the high-speed local 10.10.10.10 network.")
         elif is_active:
             self.routing_indicator.setText("🔵 SYNC Folder")
-            self.routing_indicator.setStyleSheet("color: #1E40AF; background-color: #DBEAFE; font-weight: bold; padding: 2px 8px; border-radius: 4px;")
+            self.routing_indicator.setStyleSheet(f"color: {C.INFO_DARK}; background-color: {C.INFO_SOFT_STRONG}; font-weight: bold; padding: 2px 8px; border-radius: 4px;")
             self.routing_indicator.setToolTip("Downloads are routed through the active meeting SYNC folder.")
         else:
             self.routing_indicator.setText("🌐 Standard Web")
-            self.routing_indicator.setStyleSheet("color: #334155; background-color: #F1F5F9; font-weight: bold; padding: 2px 8px; border-radius: 4px;")
+            self.routing_indicator.setStyleSheet(f"color: {C.TEXT_BODY}; background-color: {C.BG_CANVAS}; font-weight: bold; padding: 2px 8px; border-radius: 4px;")
             self.routing_indicator.setToolTip("Downloads are routed through the standard 3GPP web archive.")
 
     def _on_instant_fetch(self):

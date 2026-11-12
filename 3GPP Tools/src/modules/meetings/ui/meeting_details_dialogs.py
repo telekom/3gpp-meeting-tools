@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import QFileDialog
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, BUTTON_STYLE_TOOLBAR_DANGER
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.scraper import ManualMeetingFetcherThread, MEETING_SOURCES
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -112,28 +113,28 @@ class AddMeetingDialog(QDialog):
 
         self.setWindowTitle("➕ Add / Fetch Meeting Manually")
         self.setMinimumWidth(560)
-        self.setStyleSheet("""
-            QGroupBox {
+        self.setStyleSheet(f"""
+            QGroupBox {{
                 font-weight: bold;
-                border: 1px solid #CBD5E1;
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 margin-top: 10px;
                 padding-top: 10px;
-                background-color: #FFFFFF;
-            }
-            QGroupBox::title {
+                background-color: {C.BG_CARD};
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 4px;
-            }
-            QLineEdit, QComboBox {
+            }}
+            QLineEdit, QComboBox {{
                 padding: 5px;
-                border: 1px solid #CBD5E1;
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
-            }
-            QLineEdit:focus, QComboBox:focus {
-                border: 1px solid #1E5C99;
-            }
+            }}
+            QLineEdit:focus, QComboBox:focus {{
+                border: 1px solid {C.ACCENT_PRIMARY};
+            }}
         """)
 
         self._setup_ui()
@@ -169,7 +170,7 @@ class AddMeetingDialog(QDialog):
         search_layout.addLayout(row_layout)
 
         self.lbl_status = QLabel("Enter a Meeting ID, Number, or FTP URL and click 'Fetch Details'.")
-        self.lbl_status.setStyleSheet("color: #64748B; font-size: 11px; margin-top: 2px;")
+        self.lbl_status.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px; margin-top: 2px;")
         search_layout.addWidget(self.lbl_status)
         main_layout.addWidget(search_group)
 
@@ -267,7 +268,7 @@ class AddMeetingDialog(QDialog):
         self.btn_fetch.setEnabled(False)
         self.btn_fetch.setText("⏳ Fetching...")
         self.lbl_status.setText("⏳ Querying 3GPP Portal and FTP archive...")
-        self.lbl_status.setStyleSheet("color: #1E5C99; font-weight: bold;")
+        self.lbl_status.setStyleSheet(f"color: {C.ACCENT_PRIMARY}; font-weight: bold;")
         self.btn_save.setEnabled(False)
 
         self.fetch_thread = ManualMeetingFetcherThread(self.db.db_path, query, selected_wg)
@@ -288,7 +289,7 @@ class AddMeetingDialog(QDialog):
 
         if success:
             self.lbl_status.setText(f"✅ {msg}")
-            self.lbl_status.setStyleSheet("color: #059669; font-weight: bold;")
+            self.lbl_status.setStyleSheet(f"color: {C.EMERALD_PRIMARY}; font-weight: bold;")
             self.current_fetched_data = data
 
             self.edit_wg.setText(data.get("wg_name", ""))
@@ -308,7 +309,7 @@ class AddMeetingDialog(QDialog):
             self.btn_save.setEnabled(True)
         else:
             self.lbl_status.setText(f"⚠️ {msg}")
-            self.lbl_status.setStyleSheet("color: #DC2626; font-weight: bold;")
+            self.lbl_status.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
             QMessageBox.warning(self, "Fetch Failed", f"{msg}\n\nYou can still fill in the fields manually.")
             self.btn_save.setEnabled(True)
 
@@ -353,28 +354,28 @@ class MeetingsConfigDialog(QDialog):
         self.settings = settings
         self.setWindowTitle("⚙️ Meetings Configuration")
         self.setMinimumWidth(520)
-        self.setStyleSheet("""
-            QGroupBox {
+        self.setStyleSheet(f"""
+            QGroupBox {{
                 font-weight: bold;
-                border: 1px solid #CBD5E1;
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 margin-top: 10px;
                 padding-top: 10px;
-                background-color: #FFFFFF;
-            }
-            QGroupBox::title {
+                background-color: {C.BG_CARD};
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 4px;
-            }
-            QLineEdit {
+            }}
+            QLineEdit {{
                 padding: 6px;
-                border: 1px solid #CBD5E1;
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #1E5C99;
-            }
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {C.ACCENT_PRIMARY};
+            }}
         """)
 
         layout = QVBoxLayout(self)
@@ -386,7 +387,7 @@ class MeetingsConfigDialog(QDialog):
         cache_layout = QVBoxLayout(cache_group)
 
         cache_desc = QLabel("Directory where meeting agendas, TDoc lists, and document ZIPs are saved:")
-        cache_desc.setStyleSheet("color: #64748B; font-size: 11px;")
+        cache_desc.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         cache_layout.addWidget(cache_desc)
 
         path_row = QHBoxLayout()
@@ -418,7 +419,7 @@ class MeetingsConfigDialog(QDialog):
         scrape_layout = QVBoxLayout(scrape_group)
 
         scrape_desc = QLabel("Select operations performed during 'Sync All Meetings' or individual syncs:")
-        scrape_desc.setStyleSheet("color: #64748B; font-size: 11px;")
+        scrape_desc.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         scrape_layout.addWidget(scrape_desc)
 
         self.chk_wg = QCheckBox("Check for New Folders (Phase 1: FTP Directory Discovery)")
@@ -453,7 +454,7 @@ class MeetingsConfigDialog(QDialog):
         wi_layout.addWidget(self.chk_auto_enrich_wis)
 
         wi_desc = QLabel("Runs transparently off-thread without slowing down meeting loading or UI interactions.")
-        wi_desc.setStyleSheet("color: #64748B; font-size: 11px;")
+        wi_desc.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         wi_layout.addWidget(wi_desc)
 
         layout.addWidget(wi_group)
@@ -463,7 +464,7 @@ class MeetingsConfigDialog(QDialog):
         danger_layout = QVBoxLayout(danger_group)
 
         danger_desc = QLabel("Permanently erase all meeting records and offline metadata from the local database:")
-        danger_desc.setStyleSheet("color: #64748B; font-size: 11px;")
+        danger_desc.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         danger_layout.addWidget(danger_desc)
 
         danger_btn_row = QHBoxLayout()

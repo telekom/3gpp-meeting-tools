@@ -38,6 +38,7 @@ from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     SEARCH_INPUT_STYLE,
 )
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -123,20 +124,20 @@ class AgreementsTableModel(QAbstractTableModel):
 
         elif role == Qt.BackgroundRole:
             if is_wa:
-                return QColor("#FEFCE8")  # Amber 50
+                return QColor(C.WARNING_SOFT_LIGHT)  # Amber 50
             elif is_ffs:
-                return QColor("#EFF6FF")  # Blue 50
-            return QColor("#F0FDF4")      # Emerald 50
+                return QColor(C.INFO_SOFT)  # Blue 50
+            return QColor(C.SUCCESS_SOFT)      # Emerald 50
 
         elif role == Qt.ForegroundRole:
             if col == 0:
                 if is_wa:
-                    return QColor("#B45309")
+                    return QColor(C.WARNING)
                 elif is_ffs:
-                    return QColor("#1D4ED8")
-                return QColor("#15803D")
+                    return QColor(C.INFO)
+                return QColor(C.SUCCESS)
             elif col == 1:
-                return QColor("#0F172A")
+                return QColor(C.TEXT_PRIMARY)
 
         elif role == Qt.TextAlignmentRole:
             if col in (0, 1, 2, 3):
@@ -231,22 +232,22 @@ class MeetingAgreementsDialog(QDialog):
 
         # 1. Header Ribbon with Title & KPI Chips
         header_frame = QFrame()
-        header_frame.setStyleSheet("""
-            QFrame {
-                background-color: #F8FAFC;
-                border: 1px solid #E2E8F0;
+        header_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 8px;
                 padding: 6px 12px;
-            }
+            }}
         """)
         header_layout = QHBoxLayout(header_frame)
         header_layout.setContentsMargins(4, 4, 4, 4)
 
         title_layout = QVBoxLayout()
         title_lbl = QLabel(f"<b>⚖️ Agreements & Working Assumptions</b> — {self.meeting_name}")
-        title_lbl.setStyleSheet("font-size: 15px; color: #0F172A; font-weight: bold;")
+        title_lbl.setStyleSheet(f"font-size: 15px; color: {C.TEXT_PRIMARY}; font-weight: bold;")
         sub_lbl = QLabel("Chairman's Notes extracted agreements, decisions, and working assumptions")
-        sub_lbl.setStyleSheet("font-size: 11px; color: #64748B;")
+        sub_lbl.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED};")
         title_layout.addWidget(title_lbl)
         title_layout.addWidget(sub_lbl)
         header_layout.addLayout(title_layout)
@@ -287,16 +288,16 @@ class MeetingAgreementsDialog(QDialog):
             self.combo_kind.addItem("📤 Approved LS Only", "LS")
         self.combo_kind.addItem("🟡 Working Assumptions Only", "WA")
         self.combo_kind.addItem("🔵 FFS / Open Issues Only", "FFS")
-        self.combo_kind.setStyleSheet("""
-            QComboBox {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.combo_kind.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 4px 8px;
                 font-size: 12px;
                 font-weight: 500;
-                color: #1E293B;
-            }
+                color: {C.TEXT_STRONG};
+            }}
         """)
         self.combo_kind.currentIndexChanged.connect(self._on_filter_changed)
         filter_layout.addWidget(self.combo_kind)
@@ -324,23 +325,23 @@ class MeetingAgreementsDialog(QDialog):
         self.table.setSelectionMode(QTableView.SingleSelection)
         self.table.setAlternatingRowColors(False)
         self.table.verticalHeader().setVisible(False)
-        self.table.setStyleSheet("""
-            QTableView {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.table.setStyleSheet(f"""
+            QTableView {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
-                gridline-color: #F1F5F9;
-                selection-background-color: #DBEAFE;
+                gridline-color: {C.BG_CANVAS};
+                selection-background-color: {C.INFO_SOFT_STRONG};
                 selection-color: #1E3A8A;
                 font-size: 12px;
-            }
-            QHeaderView::section {
-                background-color: #F8FAFC;
-                color: #475569;
+            }}
+            QHeaderView::section {{
+                background-color: {C.BG_SURFACE};
+                color: {C.TEXT_SECONDARY};
                 font-weight: bold;
                 padding: 6px;
-                border: 1px solid #E2E8F0;
-            }
+                border: 1px solid {C.BORDER_SUBTLE};
+            }}
         """)
 
         header = self.table.horizontalHeader()
@@ -357,12 +358,12 @@ class MeetingAgreementsDialog(QDialog):
 
         # Detail: Rich Viewer Pane
         detail_container = QFrame()
-        detail_container.setStyleSheet("""
-            QFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        detail_container.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
-            }
+            }}
         """)
         detail_layout = QVBoxLayout(detail_container)
         detail_layout.setContentsMargins(10, 8, 10, 8)
@@ -370,7 +371,7 @@ class MeetingAgreementsDialog(QDialog):
 
         detail_bar = QHBoxLayout()
         self.detail_title_lbl = QLabel("<b>Agreement Details</b>")
-        self.detail_title_lbl.setStyleSheet("font-size: 13px; color: #0F172A;")
+        self.detail_title_lbl.setStyleSheet(f"font-size: 13px; color: {C.TEXT_PRIMARY};")
         detail_bar.addWidget(self.detail_title_lbl)
         detail_bar.addStretch()
 
@@ -390,16 +391,16 @@ class MeetingAgreementsDialog(QDialog):
 
         self.viewer = QTextBrowser()
         self.viewer.setOpenExternalLinks(True)
-        self.viewer.setStyleSheet("""
-            QTextBrowser {
-                background-color: #F8FAFC;
-                border: 1px solid #E2E8F0;
+        self.viewer.setStyleSheet(f"""
+            QTextBrowser {{
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 4px;
                 padding: 10px;
                 font-family: 'Segoe UI', Arial, sans-serif;
                 font-size: 13px;
-                color: #0F172A;
-            }
+                color: {C.TEXT_PRIMARY};
+            }}
         """)
         detail_layout.addWidget(self.viewer)
 
@@ -425,7 +426,7 @@ class MeetingAgreementsDialog(QDialog):
         bottom_layout.addStretch()
 
         self.status_count_lbl = QLabel("")
-        self.status_count_lbl.setStyleSheet("font-size: 11px; color: #64748B; font-weight: bold;")
+        self.status_count_lbl.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED}; font-weight: bold;")
         bottom_layout.addWidget(self.status_count_lbl)
 
         btn_close = QPushButton("Close")
@@ -467,21 +468,21 @@ class MeetingAgreementsDialog(QDialog):
             """)
             return lbl
 
-        self.kpi_layout.addWidget(_make_chip("Total", tot, "#F1F5F9", "#334155", "#CBD5E1"))
+        self.kpi_layout.addWidget(_make_chip("Total", tot, C.BG_CANVAS, C.TEXT_BODY, C.BORDER_STRONG))
         if ag_cnt > 0:
-            self.kpi_layout.addWidget(_make_chip("Agreements", ag_cnt, "#DCFCE7", "#166534", "#86EFAC"))
+            self.kpi_layout.addWidget(_make_chip("Agreements", ag_cnt, C.SUCCESS_SOFT_ALT, C.SUCCESS_DARK, C.SUCCESS_BORDER_MEDIUM))
         if pcr_cnt > 0:
-            self.kpi_layout.addWidget(_make_chip("Agreed pCRs", pcr_cnt, "#DCFCE7", "#166534", "#86EFAC"))
+            self.kpi_layout.addWidget(_make_chip("Agreed pCRs", pcr_cnt, C.SUCCESS_SOFT_ALT, C.SUCCESS_DARK, C.SUCCESS_BORDER_MEDIUM))
         if cr_cnt > 0:
-            self.kpi_layout.addWidget(_make_chip("Approved CRs", cr_cnt, "#DCFCE7", "#166534", "#86EFAC"))
+            self.kpi_layout.addWidget(_make_chip("Approved CRs", cr_cnt, C.SUCCESS_SOFT_ALT, C.SUCCESS_DARK, C.SUCCESS_BORDER_MEDIUM))
         if ls_cnt > 0:
-            self.kpi_layout.addWidget(_make_chip("Approved LS", ls_cnt, "#E0E7FF", "#3730A3", "#A5B4FC"))
+            self.kpi_layout.addWidget(_make_chip("Approved LS", ls_cnt, C.INDIGO_SOFT, C.WG_SA_TEXT, "#A5B4FC"))
         if wa_cnt > 0:
-            self.kpi_layout.addWidget(_make_chip("Working Assumptions", wa_cnt, "#FEF3C7", "#92400E", "#FCD34D"))
+            self.kpi_layout.addWidget(_make_chip("Working Assumptions", wa_cnt, C.WARNING_SOFT_ALT, C.WARNING_DARK, C.WARNING_BORDER_STRONG))
         if ffs_cnt > 0:
-            self.kpi_layout.addWidget(_make_chip("FFS / Open", ffs_cnt, "#DBEAFE", "#1E40AF", "#93C5FD"))
+            self.kpi_layout.addWidget(_make_chip("FFS / Open", ffs_cnt, C.INFO_SOFT_STRONG, C.INFO_DARK, C.INFO_BORDER_MEDIUM))
         if ai_cnt > 0:
-            self.kpi_layout.addWidget(_make_chip("AIs Covered", ai_cnt, "#F3E8FF", "#6B21A8", "#D8B4FE"))
+            self.kpi_layout.addWidget(_make_chip("AIs Covered", ai_cnt, "#F3E8FF", C.PURPLE_DARK, "#D8B4FE"))
 
     def _on_filter_changed(self):
         query = self.search_input.text()
@@ -493,7 +494,7 @@ class MeetingAgreementsDialog(QDialog):
             self.table.selectRow(0)
             self._on_table_row_selected(self.model.index(0, 0))
         else:
-            self.viewer.setHtml("<p style='color: #64748B;'><i>No agreements match active search filters.</i></p>")
+            self.viewer.setHtml(f"<p style='color: {C.TEXT_MUTED};'><i>No agreements match active search filters.</i></p>")
 
     def _update_status_count(self):
         curr = self.model.rowCount()
@@ -527,25 +528,25 @@ class MeetingAgreementsDialog(QDialog):
         is_ls = "ls" in kind.lower()
 
         if is_pcr:
-            tag_bg, tag_fg, tag_border = "#DCFCE7", "#166534", "#86EFAC"
+            tag_bg, tag_fg, tag_border = C.SUCCESS_SOFT_ALT, C.SUCCESS_DARK, C.SUCCESS_BORDER_MEDIUM
             tag_label = "📝 3GPP AGREED PSEUDO-CR (pCR)"
         elif is_cr:
-            tag_bg, tag_fg, tag_border = "#DCFCE7", "#166534", "#86EFAC"
+            tag_bg, tag_fg, tag_border = C.SUCCESS_SOFT_ALT, C.SUCCESS_DARK, C.SUCCESS_BORDER_MEDIUM
             tag_label = "📄 3GPP APPROVED CHANGE REQUEST (CR)"
         elif is_ls:
-            tag_bg, tag_fg, tag_border = "#E0E7FF", "#3730A3", "#A5B4FC"
+            tag_bg, tag_fg, tag_border = C.INDIGO_SOFT, C.WG_SA_TEXT, "#A5B4FC"
             tag_label = "📤 3GPP APPROVED OUTGOING LS"
         elif is_wa:
-            tag_bg, tag_fg, tag_border = "#FEF3C7", "#92400E", "#FCD34D"
+            tag_bg, tag_fg, tag_border = C.WARNING_SOFT_ALT, C.WARNING_DARK, C.WARNING_BORDER_STRONG
             tag_label = "🟡 WORKING ASSUMPTION"
         elif is_ffs:
-            tag_bg, tag_fg, tag_border = "#DBEAFE", "#1E40AF", "#93C5FD"
+            tag_bg, tag_fg, tag_border = C.INFO_SOFT_STRONG, C.INFO_DARK, C.INFO_BORDER_MEDIUM
             tag_label = "🔵 FFS / OPEN ISSUE"
         else:
-            tag_bg, tag_fg, tag_border = "#DCFCE7", "#166534", "#86EFAC"
+            tag_bg, tag_fg, tag_border = C.SUCCESS_SOFT_ALT, C.SUCCESS_DARK, C.SUCCESS_BORDER_MEDIUM
             tag_label = "🟢 3GPP TECHNICAL AGREEMENT"
 
-        self.detail_title_lbl.setText(f"<b>Agreement Details:</b> <span style='color: #2563EB;'>{html.escape(tdoc)}</span> (AI {html.escape(ai)})")
+        self.detail_title_lbl.setText(f"<b>Agreement Details:</b> <span style='color: {C.ACCENT_ALT};'>{html.escape(tdoc)}</span> (AI {html.escape(ai)})")
 
         meta_rows = []
         if tdoc and tdoc != "AI Level":
@@ -568,16 +569,16 @@ class MeetingAgreementsDialog(QDialog):
 
         html_content = f"""
         <html>
-        <body style="font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.5; color: #0F172A;">
+        <body style="font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.5; color: {C.TEXT_PRIMARY};">
             <div style="margin-bottom: 8px;">
                 <span style="background-color: {tag_bg}; color: {tag_fg}; border: 1px solid {tag_border}; border-radius: 4px; padding: 2px 8px; font-weight: bold; font-size: 11px;">
                     {tag_label}
                 </span>
             </div>
-            <div style="background-color: #F1F5F9; border-radius: 4px; padding: 6px 10px; margin-bottom: 12px; font-size: 11px; color: #334155;">
+            <div style="background-color: {C.BG_CANVAS}; border-radius: 4px; padding: 6px 10px; margin-bottom: 12px; font-size: 11px; color: {C.TEXT_BODY};">
                 {meta_html}
             </div>
-            <div style="background-color: #FFFFFF; border: 1px solid #CBD5E1; border-left: 4px solid {tag_fg}; border-radius: 4px; padding: 12px 14px; font-size: 13px; white-space: pre-wrap; font-family: 'Consolas', 'Segoe UI', monospace;">{escaped_txt}</div>
+            <div style="background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; border-left: 4px solid {tag_fg}; border-radius: 4px; padding: 12px 14px; font-size: 13px; white-space: pre-wrap; font-family: 'Consolas', 'Segoe UI', monospace;">{escaped_txt}</div>
         </body>
         </html>
         """

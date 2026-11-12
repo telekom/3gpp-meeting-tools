@@ -31,6 +31,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QCheckBox, QMenu, QToolButton, QWidgetAction
 
 from modules.meetings.core.session_plan.session_plan_models import DelegationMember, compute_unique_initials
+from core.ui.theme import C
 
 _ALL_TOKENS = ("ALL", "ALL TEAM", "ALL DELEGATES", "👥 ALL TEAM", "👥 ALL")
 _NOT_FOLLOWED_TOKENS = (
@@ -73,16 +74,16 @@ class DelegateOwnerPicker(QToolButton):
 
         self._menu = QMenu(self)
         self._menu.setStyleSheet(
-            "QMenu { background: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 6px; padding: 4px; }"
-            "QMenu::separator { height: 1px; background: #E2E8F0; margin: 4px 6px; }"
+            f"QMenu {{ background: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px; padding: 4px; }}"
+            f"QMenu::separator {{ height: 1px; background: {C.BORDER_SUBTLE}; margin: 4px 6px; }}"
             "QMenu::item { padding: 4px 12px; border-radius: 4px; }"
-            "QMenu::item:selected { background: #EFF6FF; color: #1E40AF; }"
+            f"QMenu::item:selected {{ background: {C.INFO_SOFT}; color: {C.INFO_DARK}; }}"
         )
         self.setMenu(self._menu)
 
         # "All Team" master checkbox
         self.chk_all = QCheckBox("👥 All Team")
-        self.chk_all.setStyleSheet("QCheckBox { font-weight: 700; color: #1E40AF; padding: 4px 10px; }")
+        self.chk_all.setStyleSheet(f"QCheckBox {{ font-weight: 700; color: {C.INFO_DARK}; padding: 4px 10px; }}")
         self.chk_all.toggled.connect(self._on_all_toggled)
         self._add_widget_action(self.chk_all)
         self._menu.addSeparator()
@@ -217,17 +218,17 @@ class DelegateOwnerPicker(QToolButton):
         members_by_name = {m.name: m for m in self._members}
         is_nf = self._is_not_followed or (owner and owner.upper() in _NOT_FOLLOWED_TOKENS)
         if is_nf:
-            text, fg, bg, bdr, weight = "⛔ Not Followed", "#64748B", "#F1F5F9", "#CBD5E1", 600
+            text, fg, bg, bdr, weight = "⛔ Not Followed", C.TEXT_MUTED, C.BG_CANVAS, C.BORDER_STRONG, 600
         elif not owner:
-            text, fg, bg, bdr, weight = "— Unassigned —", "#64748B", "#FFFFFF", "#CBD5E1", 500
+            text, fg, bg, bdr, weight = "— Unassigned —", C.TEXT_MUTED, C.BG_CARD, C.BORDER_STRONG, 500
         elif owner.upper() in _ALL_TOKENS:
-            text, fg, bg, bdr, weight = "👥 All Team", "#4338CA", "#EEF2FF", "#C7D2FE", 700
+            text, fg, bg, bdr, weight = "👥 All Team", C.INDIGO_DARK, C.WG_SA_BG, C.WG_SA_BORDER, 700
         else:
             names = [p.strip() for p in owner.split(",") if p.strip()]
             first = members_by_name.get(names[0]) if names else None
-            fg = first.color if first else "#334155"
-            bg = first.bg_tint if first else "#F8FAFC"
-            bdr = first.border_tint if first else "#CBD5E1"
+            fg = first.color if first else C.TEXT_BODY
+            bg = first.bg_tint if first else C.BG_SURFACE
+            bdr = first.border_tint if first else C.BORDER_STRONG
             weight = 700
             text = "● " + ", ".join(names) if len(names) <= 2 else f"● {names[0]} +{len(names) - 1}"
         self.setText(f"{text} ▾")

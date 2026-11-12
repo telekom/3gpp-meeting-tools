@@ -67,6 +67,7 @@ from modules.meetings.ui.session_plan.session_plan_dialogs import (
     SessionPlanTrackedTopicsDialog,
 )
 from modules.meetings.ui.tdocs_drop_overlay import DropOverlayWidget
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -405,26 +406,26 @@ class SessionPlanWindow(QWidget):
 
         # Title
         title_lbl = QLabel(f"<b>SA2 #{self.meeting_number}</b>")
-        title_lbl.setStyleSheet("font-size: 16px; color: #0F172A;")
+        title_lbl.setStyleSheet(f"font-size: 16px; color: {C.TEXT_PRIMARY};")
         title_lbl.setToolTip(f"SA WG2 Meeting #{self.meeting_number} ({self.location})")
         ribbon.addWidget(title_lbl)
 
         # Snapshot Combobox
         self.snap_combo = QComboBox()
         self.snap_combo.setMinimumWidth(230)
-        self.snap_combo.setStyleSheet("padding: 4px 8px; font-weight: 600; border-radius: 6px; border: 1px solid #CBD5E1;")
+        self.snap_combo.setStyleSheet(f"padding: 4px 8px; font-weight: 600; border-radius: 6px; border: 1px solid {C.BORDER_STRONG};")
         self.snap_combo.setToolTip("Select or switch between imported session plan snapshots and revisions.")
         self.snap_combo.currentIndexChanged.connect(self._on_snapshot_changed)
         ribbon.addWidget(self.snap_combo)
 
         # Timezone Pill
         self.tz_btn = QPushButton(f"🌍 {self.tz_name}")
-        self.tz_btn.setStyleSheet("""
-            QPushButton {
-                background: #F1F5F9; color: #334155; font-size: 11px; font-weight: 600;
-                padding: 4px 10px; border: 1px solid #CBD5E1; border-radius: 999px;
-            }
-            QPushButton:hover { background: #E2E8F0; }
+        self.tz_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {C.BG_CANVAS}; color: {C.TEXT_BODY}; font-size: 11px; font-weight: 600;
+                padding: 4px 10px; border: 1px solid {C.BORDER_STRONG}; border-radius: 999px;
+            }}
+            QPushButton:hover {{ background: {C.BORDER_SUBTLE}; }}
         """)
         self.tz_btn.setToolTip("Meeting Venue Timezone. Click to change or verify against your Austrian corporate laptop clock.")
         self.tz_btn.clicked.connect(self._open_timezone_dialog)
@@ -432,7 +433,7 @@ class SessionPlanWindow(QWidget):
 
         # Real-time Clock Strip
         self.clock_lbl = QLabel()
-        self.clock_lbl.setStyleSheet("font-size: 11px; color: #64748B; font-weight: 500; margin-left: 8px;")
+        self.clock_lbl.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED}; font-weight: 500; margin-left: 8px;")
         self.clock_lbl.setToolTip("Current physical time at the meeting venue and on your Austrian corporate laptop.")
         ribbon.addWidget(self.clock_lbl)
 
@@ -440,7 +441,7 @@ class SessionPlanWindow(QWidget):
 
         # Action Buttons
         self.import_btn = QPushButton("📥 Import ▾")
-        self.import_btn.setStyleSheet("padding: 5px 12px; font-weight: 600; border-radius: 6px; background: #2563EB; color: #FFFFFF;")
+        self.import_btn.setStyleSheet(f"padding: 5px 12px; font-weight: 600; border-radius: 6px; background: {C.ACCENT_ALT}; color: {C.BG_CARD};")
         self.import_btn.setToolTip("Import a session plan document from URL, TDoc#, local file, or clipboard paste, or drag & drop files directly onto this window.")
         import_menu = QMenu(self)
         import_menu.addAction("🔗 Enter URL or TDoc#...", self._import_via_url).setToolTip("Fetch via 3GPP URL or type a TDoc number (e.g. S2-2610195).")
@@ -450,13 +451,13 @@ class SessionPlanWindow(QWidget):
         ribbon.addWidget(self.import_btn)
 
         self.diff_btn = QPushButton("⇄ Compare")
-        self.diff_btn.setStyleSheet("padding: 5px 10px; font-weight: 500; border-radius: 6px; background: #F1F5F9; border: 1px solid #CBD5E1;")
+        self.diff_btn.setStyleSheet(f"padding: 5px 10px; font-weight: 500; border-radius: 6px; background: {C.BG_CANVAS}; border: 1px solid {C.BORDER_STRONG};")
         self.diff_btn.setToolTip("Compare the active session plan against an earlier revision to see added, removed, rescheduled, or volume-changed sessions.")
         self.diff_btn.clicked.connect(self._open_diff_dialog)
         ribbon.addWidget(self.diff_btn)
 
         self.export_btn = QPushButton("📤 Export ▾")
-        self.export_btn.setStyleSheet("padding: 5px 10px; font-weight: 500; border-radius: 6px; background: #F1F5F9; border: 1px solid #CBD5E1;")
+        self.export_btn.setStyleSheet(f"padding: 5px 10px; font-weight: 500; border-radius: 6px; background: {C.BG_CANVAS}; border: 1px solid {C.BORDER_STRONG};")
         self.export_btn.setToolTip("Export to responsive offline Mobile HTML (no PDF table separator issues!), strict UTC .ics Calendar, or Outlook Email summary.")
         export_menu = QMenu(self)
         export_menu.addAction("🌐 Export Interactive HTML (Overview && Mobile)...", self._export_mobile_html).setToolTip("Generate an interactive, responsive standalone HTML file featuring the 5-Day Overview Grid and Mobile Day Cards with delegate toggling.")
@@ -495,14 +496,14 @@ class SessionPlanWindow(QWidget):
 
         for idx, btn in enumerate([self.btn_grid, self.btn_agenda, self.btn_drafting, self.btn_tracked, self.btn_team]):
             btn.setCheckable(True)
-            btn.setStyleSheet("""
-                QPushButton {
-                    padding: 5px 12px; font-size: 12px; font-weight: 600; border: 1px solid #CBD5E1;
-                    background: #FFFFFF; color: #475569; border-radius: 6px;
-                }
-                QPushButton:checked {
-                    background: #3B82F6; color: #FFFFFF; border-color: #3B82F6;
-                }
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    padding: 5px 12px; font-size: 12px; font-weight: 600; border: 1px solid {C.BORDER_STRONG};
+                    background: {C.BG_CARD}; color: {C.TEXT_SECONDARY}; border-radius: 6px;
+                }}
+                QPushButton:checked {{
+                    background: {C.INFO_ACCENT}; color: {C.BG_CARD}; border-color: {C.INFO_ACCENT};
+                }}
             """)
             self.mode_group.addButton(btn, idx)
             sub_layout.addWidget(btn)
@@ -513,12 +514,12 @@ class SessionPlanWindow(QWidget):
         # Quick-Jump Conflicts Button
         self.btn_conflicts_quick = QPushButton("⚠️ Conflicts (0)")
         self.btn_conflicts_quick.setCursor(Qt.PointingHandCursor)
-        self.btn_conflicts_quick.setStyleSheet("""
-            QPushButton {
-                padding: 5px 10px; font-size: 12px; font-weight: 600; border: 1px solid #FECACA;
-                background: #FEF2F2; color: #B91C1C; border-radius: 6px;
-            }
-            QPushButton:hover { background: #FEE2E2; }
+        self.btn_conflicts_quick.setStyleSheet(f"""
+            QPushButton {{
+                padding: 5px 10px; font-size: 12px; font-weight: 600; border: 1px solid {C.DANGER_BORDER};
+                background: {C.DANGER_SOFT}; color: {C.DANGER}; border-radius: 6px;
+            }}
+            QPushButton:hover {{ background: {C.DANGER_SOFT_HOVER}; }}
         """)
         self.btn_conflicts_quick.setToolTip("Jump directly to the Parallel Stream Conflicts & Coverage Dispatch Board.")
         self.btn_conflicts_quick.clicked.connect(self._jump_to_conflicts_board)
@@ -526,12 +527,12 @@ class SessionPlanWindow(QWidget):
 
         # Quick Track Topics manager
         self.btn_manage_topics = QPushButton("⭐ Track Topics...")
-        self.btn_manage_topics.setStyleSheet("""
-            QPushButton {
-                padding: 5px 10px; font-size: 12px; font-weight: 600; border: 1px solid #DDD6FE;
-                background: #F5F3FF; color: #6D28D9; border-radius: 6px;
-            }
-            QPushButton:hover { background: #EDE9FE; }
+        self.btn_manage_topics.setStyleSheet(f"""
+            QPushButton {{
+                padding: 5px 10px; font-size: 12px; font-weight: 600; border: 1px solid {C.VIOLET_BORDER};
+                background: {C.VIOLET_SURFACE}; color: {C.VIOLET_PRIMARY}; border-radius: 6px;
+            }}
+            QPushButton:hover {{ background: {C.VIOLET_SOFT}; }}
         """)
         self.btn_manage_topics.setToolTip("Select which Agenda Items or Work Items to follow in 'My Topics' and highlight in purple.")
         self.btn_manage_topics.clicked.connect(self._open_manage_topics_dialog)
@@ -545,7 +546,7 @@ class SessionPlanWindow(QWidget):
         self.search_input.setToolTip("Filter sessions and agenda items by AI number (e.g. 20.6.18), topic keyword, room, or convener.")
         self.search_input.setClearButtonEnabled(True)
         self.search_input.setMinimumWidth(260)
-        self.search_input.setStyleSheet("padding: 5px 10px; border: 1px solid #CBD5E1; border-radius: 6px;")
+        self.search_input.setStyleSheet(f"padding: 5px 10px; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px;")
         self.search_input.textChanged.connect(self._apply_search_filter)
         sub_layout.addWidget(self.search_input)
 
@@ -561,47 +562,47 @@ class SessionPlanWindow(QWidget):
 
         # Room & Convener Guide & Stream Toggle Strip
         self.room_strip = QFrame()
-        self.room_strip.setStyleSheet("background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 4px 10px;")
+        self.room_strip.setStyleSheet(f"background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px; padding: 4px 10px;")
         self.room_strip_layout = QHBoxLayout(self.room_strip)
         self.room_strip_layout.setContentsMargins(4, 2, 4, 2)
         self.room_strip_layout.setSpacing(12)
 
         self.btn_toggle_s1 = QCheckBox("🏢 Stream 1: Main Room (B2) [300]")
         self.btn_toggle_s1.setChecked(True)
-        self.btn_toggle_s1.setStyleSheet("QCheckBox { color: #4338CA; font-weight: 600; font-size: 11px; padding: 2px 4px; }")
+        self.btn_toggle_s1.setStyleSheet(f"QCheckBox {{ color: {C.INDIGO_DARK}; font-weight: 600; font-size: 11px; padding: 2px 4px; }}")
         self.btn_toggle_s1.setToolTip("Toggle visibility of Stream 1 (Main Room / Plenary / Single Stream).")
         self.btn_toggle_s1.toggled.connect(self._update_row_visibility)
         self.room_strip_layout.addWidget(self.btn_toggle_s1)
 
         self.btn_toggle_s2 = QCheckBox("🏢 Stream 2: Breakout 1 (B3) [100]")
         self.btn_toggle_s2.setChecked(True)
-        self.btn_toggle_s2.setStyleSheet("QCheckBox { color: #047857; font-weight: 600; font-size: 11px; padding: 2px 4px; }")
+        self.btn_toggle_s2.setStyleSheet(f"QCheckBox {{ color: {C.EMERALD_DARK}; font-weight: 600; font-size: 11px; padding: 2px 4px; }}")
         self.btn_toggle_s2.setToolTip("Toggle visibility of Stream 2 (Breakout 1 / Mike).")
         self.btn_toggle_s2.toggled.connect(self._update_row_visibility)
         self.room_strip_layout.addWidget(self.btn_toggle_s2)
 
         self.btn_toggle_s3 = QCheckBox("🏢 Stream 3: Breakout 2 (D11/D12) [120]")
         self.btn_toggle_s3.setChecked(True)
-        self.btn_toggle_s3.setStyleSheet("QCheckBox { color: #B45309; font-weight: 600; font-size: 11px; padding: 2px 4px; }")
+        self.btn_toggle_s3.setStyleSheet(f"QCheckBox {{ color: {C.WARNING}; font-weight: 600; font-size: 11px; padding: 2px 4px; }}")
         self.btn_toggle_s3.setToolTip("Toggle visibility of Stream 3 (Breakout 2 / Wanqiang).")
         self.btn_toggle_s3.toggled.connect(self._update_row_visibility)
         self.room_strip_layout.addWidget(self.btn_toggle_s3)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.VLine)
-        sep.setStyleSheet("color: #CBD5E1;")
+        sep.setStyleSheet(f"color: {C.BORDER_STRONG};")
         self.room_strip_layout.addWidget(sep)
 
         self.chk_breaks = QCheckBox("☕ Show Breaks")
         self.chk_breaks.setChecked(True)
-        self.chk_breaks.setStyleSheet("QCheckBox { color: #475569; font-weight: 600; font-size: 11px; padding: 2px 4px; }")
+        self.chk_breaks.setStyleSheet(f"QCheckBox {{ color: {C.TEXT_SECONDARY}; font-weight: 600; font-size: 11px; padding: 2px 4px; }}")
         self.chk_breaks.setToolTip("Toggle visibility of Coffee Breaks, Lunch Breaks, and Short Breaks.")
         self.chk_breaks.toggled.connect(self._update_row_visibility)
         self.room_strip_layout.addWidget(self.chk_breaks)
 
         self.chk_hide_empty_breaks = QCheckBox("⚡ Hide Empty Breaks")
         self.chk_hide_empty_breaks.setChecked(True)
-        self.chk_hide_empty_breaks.setStyleSheet("QCheckBox { color: #64748B; font-size: 11px; padding: 2px 4px; }")
+        self.chk_hide_empty_breaks.setStyleSheet(f"QCheckBox {{ color: {C.TEXT_MUTED}; font-size: 11px; padding: 2px 4px; }}")
         self.chk_hide_empty_breaks.setToolTip("When checked, automatically hides break rows that have no scheduled drafting sessions or notes.")
         self.chk_hide_empty_breaks.toggled.connect(self._update_row_visibility)
         self.room_strip_layout.addWidget(self.chk_hide_empty_breaks)
@@ -611,13 +612,13 @@ class SessionPlanWindow(QWidget):
 
         # Delegate Focus / Heatmap Highlight Strip
         self.delegate_strip = QFrame()
-        self.delegate_strip.setStyleSheet("background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 4px 10px;")
+        self.delegate_strip.setStyleSheet(f"background: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px; padding: 4px 10px;")
         self.delegate_strip_layout = QHBoxLayout(self.delegate_strip)
         self.delegate_strip_layout.setContentsMargins(4, 2, 4, 2)
         self.delegate_strip_layout.setSpacing(6)
 
         lbl_f = QLabel("<b>Delegate Focus:</b>")
-        lbl_f.setStyleSheet("font-size: 11px; color: #475569;")
+        lbl_f.setStyleSheet(f"font-size: 11px; color: {C.TEXT_SECONDARY};")
         lbl_f.setToolTip("Tick one or more delegates to highlight their sessions; all other sessions are dimmed.")
         self.delegate_strip_layout.addWidget(lbl_f)
 
@@ -638,8 +639,8 @@ class SessionPlanWindow(QWidget):
         self.delegate_strip_layout.addStretch()
 
         self.lbl_badge_legend = QLabel(
-            "<span style='color:#64748B;'>Badges: <b>●</b> owner · <b>◌</b> dashed = ad-hoc cover · "
-            "<b style='color:#DC2626;'>◯</b> red ring = clash</span>"
+            f"<span style='color:{C.TEXT_MUTED};'>Badges: <b>●</b> owner · <b>◌</b> dashed = ad-hoc cover · "
+            f"<b style='color:{C.DANGER_ALT};'>◯</b> red ring = clash</span>"
         )
         self.lbl_badge_legend.setStyleSheet("font-size: 10px;")
         self.delegate_strip_layout.addWidget(self.lbl_badge_legend)
@@ -653,7 +654,7 @@ class SessionPlanWindow(QWidget):
         self.grid_table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.grid_table.verticalHeader().setDefaultSectionSize(60)
         self.grid_table.setAlternatingRowColors(False)
-        self.grid_table.setStyleSheet("QTableWidget { gridline-color: #E2E8F0; selection-background-color: #E0E7FF; }")
+        self.grid_table.setStyleSheet(f"QTableWidget {{ gridline-color: {C.BORDER_SUBTLE}; selection-background-color: {C.INDIGO_SOFT}; }}")
         self.grid_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.grid_table.customContextMenuRequested.connect(self._on_grid_context_menu)
         self.grid_table.cellDoubleClicked.connect(self._on_grid_cell_double_clicked)
@@ -721,7 +722,7 @@ class SessionPlanWindow(QWidget):
         top_bar.addWidget(QLabel("<b>Delegate Agenda:</b>"))
         self.delegate_agenda_combo = QComboBox()
         self.delegate_agenda_combo.setMinimumWidth(230)
-        self.delegate_agenda_combo.setStyleSheet("padding: 3px 8px; font-weight: 600; border: 1px solid #CBD5E1; border-radius: 6px;")
+        self.delegate_agenda_combo.setStyleSheet(f"padding: 3px 8px; font-weight: 600; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px;")
         self.delegate_agenda_combo.currentIndexChanged.connect(self._on_delegate_agenda_changed)
         top_bar.addWidget(self.delegate_agenda_combo)
 
@@ -754,7 +755,7 @@ class SessionPlanWindow(QWidget):
 
         # 1. Roster Card
         self.team_roster_card = QFrame()
-        self.team_roster_card.setStyleSheet("background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 6px 12px;")
+        self.team_roster_card.setStyleSheet(f"background: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px; padding: 6px 12px;")
         rc_lay = QHBoxLayout(self.team_roster_card)
         rc_lay.setContentsMargins(4, 4, 4, 4)
         rc_lay.setSpacing(10)
@@ -768,7 +769,7 @@ class SessionPlanWindow(QWidget):
         rc_lay.addWidget(self.team_chips_container)
 
         self.btn_add_member = QPushButton("➕ Add Member...")
-        self.btn_add_member.setStyleSheet("padding: 3px 10px; font-size: 11px; font-weight: 600; border: 1px dashed #3B82F6; color: #2563EB; border-radius: 6px; background: #EFF6FF;")
+        self.btn_add_member.setStyleSheet(f"padding: 3px 10px; font-size: 11px; font-weight: 600; border: 1px dashed {C.INFO_ACCENT}; color: {C.ACCENT_ALT}; border-radius: 6px; background: {C.INFO_SOFT};")
         self.btn_add_member.clicked.connect(self._on_add_delegation_member)
         rc_lay.addWidget(self.btn_add_member)
 
@@ -776,19 +777,19 @@ class SessionPlanWindow(QWidget):
 
         # Action Buttons
         self.btn_export_team_email = QPushButton("📧 Export Email Summary...")
-        self.btn_export_team_email.setStyleSheet("padding: 5px 12px; font-weight: 600; font-size: 11px; border-radius: 6px; background: #2563EB; color: #FFFFFF;")
+        self.btn_export_team_email.setStyleSheet(f"padding: 5px 12px; font-weight: 600; font-size: 11px; border-radius: 6px; background: {C.ACCENT_ALT}; color: {C.BG_CARD};")
         self.btn_export_team_email.setToolTip("Generate an executive delegation summary email with color codes, topic distribution, and personal agendas.")
         self.btn_export_team_email.clicked.connect(self._on_export_delegation_email)
         rc_lay.addWidget(self.btn_export_team_email)
 
         self.btn_copy_team_json = QPushButton("📋 Copy Plan JSON")
-        self.btn_copy_team_json.setStyleSheet("padding: 5px 10px; font-size: 11px; border-radius: 6px; border: 1px solid #CBD5E1; background: #F8FAFC;")
+        self.btn_copy_team_json.setStyleSheet(f"padding: 5px 10px; font-size: 11px; border-radius: 6px; border: 1px solid {C.BORDER_STRONG}; background: {C.BG_SURFACE};")
         self.btn_copy_team_json.setToolTip("Copy machine-readable JSON representation of this team plan to clipboard.")
         self.btn_copy_team_json.clicked.connect(self._on_copy_delegation_json)
         rc_lay.addWidget(self.btn_copy_team_json)
 
         self.btn_import_team_plan = QPushButton("📥 Import Team Plan...")
-        self.btn_import_team_plan.setStyleSheet("padding: 5px 10px; font-size: 11px; font-weight: 600; border-radius: 6px; border: 1px solid #CBD5E1; background: #F1F5F9;")
+        self.btn_import_team_plan.setStyleSheet(f"padding: 5px 10px; font-size: 11px; font-weight: 600; border-radius: 6px; border: 1px solid {C.BORDER_STRONG}; background: {C.BG_CANVAS};")
         self.btn_import_team_plan.setToolTip("Import delegation plan from pasted email or exported .json file.")
         self.btn_import_team_plan.clicked.connect(self._on_import_delegation_plan)
         rc_lay.addWidget(self.btn_import_team_plan)
@@ -811,7 +812,7 @@ class SessionPlanWindow(QWidget):
         self.team_ai_search.setPlaceholderText("🔍 Filter AI number, topic, or owner...")
         self.team_ai_search.setClearButtonEnabled(True)
         self.team_ai_search.setMinimumWidth(260)
-        self.team_ai_search.setStyleSheet("padding: 5px 10px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 12px;")
+        self.team_ai_search.setStyleSheet(f"padding: 5px 10px; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px; font-size: 12px;")
         self.team_ai_search.textChanged.connect(self._filter_topic_ownership_table)
         tt_filter_box.addWidget(self.team_ai_search)
 
@@ -833,8 +834,8 @@ class SessionPlanWindow(QWidget):
         self.btn_auto_assign_wis = QPushButton("🎯 Auto-Assign Followed WIs...")
         self.btn_auto_assign_wis.setCursor(Qt.PointingHandCursor)
         self.btn_auto_assign_wis.setStyleSheet(
-            "QPushButton { padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-radius: 6px; border: 1px solid #CBD5E1; background: #F8FAFC; color: #1E293B; }"
-            "QPushButton:hover { background: #EFF6FF; border-color: #3B82F6; color: #1D4ED8; }"
+            f"QPushButton {{ padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-radius: 6px; border: 1px solid {C.BORDER_STRONG}; background: {C.BG_SURFACE}; color: {C.TEXT_STRONG}; }}"
+            f"QPushButton:hover {{ background: {C.INFO_SOFT}; border-color: {C.INFO_ACCENT}; color: {C.INFO}; }}"
         )
         self.btn_auto_assign_wis.setToolTip("Assign topics matching your followed Work Items watchlist to a delegate.")
         self.btn_auto_assign_wis.clicked.connect(self._auto_assign_followed_wis_to_self)
@@ -843,8 +844,8 @@ class SessionPlanWindow(QWidget):
         self.btn_reset_session_overrides = QPushButton("↺ Reset Session Overrides")
         self.btn_reset_session_overrides.setCursor(Qt.PointingHandCursor)
         self.btn_reset_session_overrides.setStyleSheet(
-            "QPushButton { padding: 5px 11px; font-size: 11.5px; font-weight: 600; border-radius: 6px; border: 1px solid #FDE68A; background: #FFFBEB; color: #92400E; }"
-            "QPushButton:hover { background: #FEF3C7; border-color: #F59E0B; }"
+            f"QPushButton {{ padding: 5px 11px; font-size: 11.5px; font-weight: 600; border-radius: 6px; border: 1px solid {C.WARNING_BORDER}; background: {C.WARNING_SOFT}; color: {C.WARNING_DARK}; }}"
+            f"QPushButton:hover {{ background: {C.WARNING_SOFT_ALT}; border-color: {C.WARNING_ACCENT}; }}"
         )
         self.btn_reset_session_overrides.setToolTip(
             "Clear all session-level coverage overrides for this meeting while keeping persistent Default AI Assignments intact."
@@ -854,7 +855,7 @@ class SessionPlanWindow(QWidget):
 
         tt_filter_box.addStretch()
         lbl_persist_hint = QLabel("📌 <i>Default AI Assignments persist across meetings · Session overrides apply to individual slots</i>")
-        lbl_persist_hint.setStyleSheet("font-size: 11px; color: #64748B;")
+        lbl_persist_hint.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED};")
         tt_filter_box.addWidget(lbl_persist_hint)
         tt_lay.addLayout(tt_filter_box)
 
@@ -886,26 +887,26 @@ class SessionPlanWindow(QWidget):
         self.team_topics_table.verticalHeader().setDefaultSectionSize(36)
         self.team_topics_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.team_topics_table.setAlternatingRowColors(True)
-        self.team_topics_table.setStyleSheet("""
-            QHeaderView::section {
-                background-color: #F8FAFC;
-                color: #334155;
+        self.team_topics_table.setStyleSheet(f"""
+            QHeaderView::section {{
+                background-color: {C.BG_SURFACE};
+                color: {C.TEXT_BODY};
                 font-weight: 700;
                 font-size: 11.5px;
                 padding: 6px 8px;
-                border: 1px solid #E2E8F0;
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-top: none;
                 border-left: none;
-            }
-            QTableWidget {
-                gridline-color: #F1F5F9;
-                selection-background-color: #EFF6FF;
-                selection-color: #0F172A;
+            }}
+            QTableWidget {{
+                gridline-color: {C.BG_CANVAS};
+                selection-background-color: {C.INFO_SOFT};
+                selection-color: {C.TEXT_PRIMARY};
                 font-size: 12px;
-            }
-            QTableWidget::item {
+            }}
+            QTableWidget::item {{
                 padding: 4px 8px;
-            }
+            }}
         """)
         tt_lay.addWidget(self.team_topics_table)
         self.team_tabs.addTab(tab_topics, "📋 Topic Ownership Matrix")
@@ -944,26 +945,26 @@ class SessionPlanWindow(QWidget):
         self.team_clashes_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.team_clashes_table.setAlternatingRowColors(True)
         self.team_clashes_table.cellDoubleClicked.connect(self._on_clash_cell_double_clicked)
-        self.team_clashes_table.setStyleSheet("""
-            QHeaderView::section {
-                background-color: #F8FAFC;
-                color: #334155;
+        self.team_clashes_table.setStyleSheet(f"""
+            QHeaderView::section {{
+                background-color: {C.BG_SURFACE};
+                color: {C.TEXT_BODY};
                 font-weight: 700;
                 font-size: 11.5px;
                 padding: 6px 8px;
-                border: 1px solid #E2E8F0;
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-top: none;
                 border-left: none;
-            }
-            QTableWidget {
-                gridline-color: #F1F5F9;
-                selection-background-color: #EFF6FF;
-                selection-color: #0F172A;
+            }}
+            QTableWidget {{
+                gridline-color: {C.BG_CANVAS};
+                selection-background-color: {C.INFO_SOFT};
+                selection-color: {C.TEXT_PRIMARY};
                 font-size: 12px;
-            }
-            QTableWidget::item {
+            }}
+            QTableWidget::item {{
                 padding: 4px 8px;
-            }
+            }}
         """)
         tc_lay.addWidget(self.team_clashes_table)
 
@@ -1173,54 +1174,54 @@ class SessionPlanWindow(QWidget):
                 ai_bullets.append(f"• <b>AI {it.ai_number}:</b> {html.escape(desc)}{tdoc_str}")
 
         tt = f"""<div style='font-family:Segoe UI, sans-serif; font-size:12px; min-width:280px; padding:4px;'>
-            <div style='font-weight:700; font-size:13px; color:#0F172A; margin-bottom:4px;'>
+            <div style='font-weight:700; font-size:13px; color:{C.TEXT_PRIMARY}; margin-bottom:4px;'>
                 📅 {day_name} ({date_str}) · {period} · {half_lbl}
             </div>
-            <div style='color:#475569; font-size:11.5px; margin-bottom:3px;'>
+            <div style='color:{C.TEXT_SECONDARY}; font-size:11.5px; margin-bottom:3px;'>
                 🕒 <b>Time:</b> {time_display}
             </div>
-            <div style='color:#475569; font-size:11.5px; margin-bottom:6px;'>
+            <div style='color:{C.TEXT_SECONDARY}; font-size:11.5px; margin-bottom:6px;'>
                 {room_line}
             </div>
-            <hr style='border:none; border-top:1px solid #E2E8F0; margin:6px 0;'>"""
+            <hr style='border:none; border-top:1px solid {C.BORDER_SUBTLE}; margin:6px 0;'>"""
 
         raw_note = slot.raw_text.strip() if slot.raw_text else ""
         if raw_note:
-            tt += f"""<div style='font-size:10.5px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;'>
+            tt += f"""<div style='font-size:10.5px; font-weight:700; color:{C.TEXT_SECONDARY}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;'>
                 📋 Chair's Slot Note:
             </div>
-            <div style='font-weight:600; font-size:12px; color:#0F172A; margin-bottom:6px;'>
+            <div style='font-weight:600; font-size:12px; color:{C.TEXT_PRIMARY}; margin-bottom:6px;'>
                 {html.escape(raw_note)}
             </div>"""
 
         if ai_bullets:
             count_str = f" ({len(ai_bullets)})" if len(ai_bullets) > 1 else ""
-            tt += f"""<div style='font-size:10.5px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.5px; margin-top:6px; margin-bottom:3px;'>
+            tt += f"""<div style='font-size:10.5px; font-weight:700; color:{C.TEXT_SECONDARY}; text-transform:uppercase; letter-spacing:0.5px; margin-top:6px; margin-bottom:3px;'>
                 📑 Agenda Items Covered{count_str}:
             </div>
-            <div style='color:#334155; font-size:11px; margin-left:4px; line-height:1.45;'>
+            <div style='color:{C.TEXT_BODY}; font-size:11px; margin-left:4px; line-height:1.45;'>
                 {'<br>'.join(ai_bullets)}
             </div>"""
 
         if self._is_slot_tracked(slot):
-            tt += "<div style='margin-top:6px; padding:3px 8px; background:#F5F3FF; border:1px solid #DDD6FE; color:#5B21B6; border-radius:4px; font-weight:600; font-size:11.5px;'>🎯 Tracked in My Topics</div>"
+            tt += f"<div style='margin-top:6px; padding:3px 8px; background:{C.VIOLET_SURFACE}; border:1px solid {C.VIOLET_BORDER}; color:{C.VIOLET_DARK}; border-radius:4px; font-weight:600; font-size:11.5px;'>🎯 Tracked in My Topics</div>"
 
         del_names, is_cov, is_all = self._get_slot_effective_delegates(slot)
         if is_all:
             cov_lbl = " <span style='color:#6366F1; font-weight:normal;'>(Ad-Hoc Coverage)</span>" if is_cov else " <span style='color:#6366F1; font-weight:normal;'>(General / All Team Topic)</span>"
-            tt += f"<div style='margin-top:6px; padding:4px 8px; background:#EEF2FF; border:1px solid #C7D2FE; color:#3730A3; border-radius:4px; font-size:11.5px;'>👥 <b>Delegation:</b> <b>All Team</b>{cov_lbl}</div>"
+            tt += f"<div style='margin-top:6px; padding:4px 8px; background:{C.WG_SA_BG}; border:1px solid {C.WG_SA_BORDER}; color:{C.WG_SA_TEXT}; border-radius:4px; font-size:11.5px;'>👥 <b>Delegation:</b> <b>All Team</b>{cov_lbl}</div>"
         elif del_names:
-            role_lbl = " <span style='color:#64748B; font-weight:normal;'>(Ad-Hoc Coverage)</span>" if is_cov else " <span style='color:#64748B; font-weight:normal;'>(Topic Owner)</span>"
+            role_lbl = f" <span style='color:{C.TEXT_MUTED}; font-weight:normal;'>(Ad-Hoc Coverage)</span>" if is_cov else f" <span style='color:{C.TEXT_MUTED}; font-weight:normal;'>(Topic Owner)</span>"
             badges_html = []
             for dn in del_names:
                 m = self.delegation_plan.members.get(dn) if self.delegation_plan else None
-                col = m.color if m else "#2563EB"
+                col = m.color if m else C.ACCENT_ALT
                 bg_t = m.bg_tint if m else DelegationMember.compute_tint(col, 0.12)
                 bdr_t = m.border_tint if m else DelegationMember.compute_tint(col, 0.35)
                 badges_html.append(f"<span style='background:{bg_t}; border:1px solid {bdr_t}; color:{col}; padding:1px 6px; border-radius:3px; font-weight:700;'>● {html.escape(dn)}</span>")
-            tt += f"<div style='margin-top:6px; padding:4px 8px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:4px; font-size:11.5px;'>👤 <b>Delegation:</b> {' '.join(badges_html)}{role_lbl}</div>"
+            tt += f"<div style='margin-top:6px; padding:4px 8px; background:{C.BG_SURFACE}; border:1px solid {C.BORDER_SUBTLE}; border-radius:4px; font-size:11.5px;'>👤 <b>Delegation:</b> {' '.join(badges_html)}{role_lbl}</div>"
         elif not del_names and is_slot_not_followed(slot, self.delegation_plan):
-            tt += "<div style='margin-top:6px; padding:4px 8px; background:#F1F5F9; border:1px solid #CBD5E1; color:#64748B; border-radius:4px; font-size:11.5px;'>⛔ <b>Delegation:</b> <i>Not Followed (Out of Scope)</i></div>"
+            tt += f"<div style='margin-top:6px; padding:4px 8px; background:{C.BG_CANVAS}; border:1px solid {C.BORDER_STRONG}; color:{C.TEXT_MUTED}; border-radius:4px; font-size:11.5px;'>⛔ <b>Delegation:</b> <i>Not Followed (Out of Scope)</i></div>"
 
         ann = self.annotations.get(slot.slot_key)
         if ann and (ann.comment or ann.assigned_colleague):
@@ -1229,7 +1230,7 @@ class SessionPlanWindow(QWidget):
                 note_items.append(f"“{html.escape(ann.comment)}”")
             if ann.assigned_colleague:
                 note_items.append(f"(Assigned: <b>{html.escape(ann.assigned_colleague)}</b>)")
-            tt += f"<div style='margin-top:6px; padding:4px 8px; background:#FEF3C7; border:1px solid #FDE68A; color:#92400E; border-radius:4px; font-size:11.5px;'>📝 <b>Personal Note:</b> {' '.join(note_items)}</div>"
+            tt += f"<div style='margin-top:6px; padding:4px 8px; background:{C.WARNING_SOFT_ALT}; border:1px solid {C.WARNING_BORDER}; color:{C.WARNING_DARK}; border-radius:4px; font-size:11.5px;'>📝 <b>Personal Note:</b> {' '.join(note_items)}</div>"
 
         tt += "</div>"
         return tt
@@ -1257,7 +1258,7 @@ class SessionPlanWindow(QWidget):
 
         border_style = "dashed" if is_cov else "solid"
         if is_clash:
-            bdr = f"2px {border_style} #DC2626"
+            bdr = f"2px {border_style} {C.DANGER_ALT}"
         else:
             bdr = f"1px {border_style} {member.border_tint}"
 
@@ -1311,7 +1312,7 @@ class SessionPlanWindow(QWidget):
                 all_pill.setToolTip("Whole delegation" + (" (ad-hoc coverage)" if is_cov else " (All Team topic)"))
                 border_style = "dashed" if is_cov else "solid"
                 all_pill.setStyleSheet(
-                    "background: #EEF2FF; color: #4338CA; font-weight: 700; font-size: 9px; "
+                    f"background: {C.WG_SA_BG}; color: {C.INDIGO_DARK}; font-weight: 700; font-size: 9px; "
                     f"border: 1px {border_style} #6366F1; border-radius: 8px; padding: 1px 5px;"
                 )
                 pill_row.addWidget(all_pill)
@@ -1334,8 +1335,8 @@ class SessionPlanWindow(QWidget):
                     more = QLabel(f"+{len(rest)}")
                     more.setToolTip(", ".join(m.name for m in rest))
                     more.setStyleSheet(
-                        "background: #F1F5F9; color: #334155; font-weight: 700; font-size: 9px; "
-                        "border: 1px solid #CBD5E1; border-radius: 9px; padding: 1px 4px;"
+                        f"background: {C.BG_CANVAS}; color: {C.TEXT_BODY}; font-weight: 700; font-size: 9px; "
+                        f"border: 1px solid {C.BORDER_STRONG}; border-radius: 9px; padding: 1px 4px;"
                     )
                     pill_row.addWidget(more)
 
@@ -1344,8 +1345,8 @@ class SessionPlanWindow(QWidget):
                 who = ", ".join(colliding_members)
                 warn_pill.setToolTip(f"Parallel-stream clash for: {who}")
                 warn_pill.setStyleSheet(
-                    "background: #FEF3C7; color: #B45309; font-weight: bold; font-size: 10px; "
-                    "border: 1px solid #F59E0B; border-radius: 8px; padding: 0px 4px;"
+                    f"background: {C.WARNING_SOFT_ALT}; color: {C.WARNING}; font-weight: bold; font-size: 10px; "
+                    f"border: 1px solid {C.WARNING_ACCENT}; border-radius: 8px; padding: 0px 4px;"
                 )
                 pill_row.addWidget(warn_pill)
 
@@ -1370,29 +1371,29 @@ class SessionPlanWindow(QWidget):
                 is_dimmed = True
 
         if is_dimmed:
-            lbl.setStyleSheet("background: #F8FAFC; color: #94A3B8; border: 1px solid #E2E8F0; border-radius: 4px; padding: 3px;")
+            lbl.setStyleSheet(f"background: {C.BG_SURFACE}; color: {C.TEXT_FAINT}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px; padding: 3px;")
         elif is_collision:
-            lbl.setStyleSheet("background: #FFFBEB; color: #92400E; border: 1px solid #F59E0B; border-left: 4px solid #D97706; border-radius: 4px; padding: 4px; font-weight: 500;")
+            lbl.setStyleSheet(f"background: {C.WARNING_SOFT}; color: {C.WARNING_DARK}; border: 1px solid {C.WARNING_ACCENT}; border-left: 4px solid {C.WARNING_AMBER}; border-radius: 4px; padding: 4px; font-weight: 500;")
         elif is_all:
             if is_focused:
-                lbl.setStyleSheet("background: #EEF2FF; color: #0F172A; border: 1.5px solid #4338CA; border-left: 5px solid #4338CA; border-radius: 4px; padding: 4px; font-weight: 600;")
+                lbl.setStyleSheet(f"background: {C.WG_SA_BG}; color: {C.TEXT_PRIMARY}; border: 1.5px solid {C.INDIGO_DARK}; border-left: 5px solid {C.INDIGO_DARK}; border-radius: 4px; padding: 4px; font-weight: 600;")
             else:
-                lbl.setStyleSheet("background: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-left: 4px solid #4338CA; border-radius: 4px; padding: 4px; font-weight: 500;")
+                lbl.setStyleSheet(f"background: {C.BG_CARD}; color: {C.TEXT_PRIMARY}; border: 1px solid {C.BORDER_STRONG}; border-left: 4px solid {C.INDIGO_DARK}; border-radius: 4px; padding: 4px; font-weight: 500;")
         elif assigned_members:
             primary_m = assigned_members[0]
             if is_focused:
-                lbl.setStyleSheet(f"background: {primary_m.bg_tint}; color: #0F172A; border: 1.5px solid {primary_m.color}; border-left: 5px solid {primary_m.color}; border-radius: 4px; padding: 4px; font-weight: 600;")
+                lbl.setStyleSheet(f"background: {primary_m.bg_tint}; color: {C.TEXT_PRIMARY}; border: 1.5px solid {primary_m.color}; border-left: 5px solid {primary_m.color}; border-radius: 4px; padding: 4px; font-weight: 600;")
             else:
-                lbl.setStyleSheet(f"background: #FFFFFF; color: #0F172A; border: 1px solid #CBD5E1; border-left: 4px solid {primary_m.color}; border-radius: 4px; padding: 4px; font-weight: 500;")
+                lbl.setStyleSheet(f"background: {C.BG_CARD}; color: {C.TEXT_PRIMARY}; border: 1px solid {C.BORDER_STRONG}; border-left: 4px solid {primary_m.color}; border-radius: 4px; padding: 4px; font-weight: 500;")
         elif slot.is_drafting:
-            lbl.setStyleSheet("background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; border-radius: 4px; padding: 4px; font-weight: 500;")
+            lbl.setStyleSheet(f"background: {C.DANGER_SOFT}; color: {C.DANGER_DARK}; border: 1px solid {C.DANGER_BORDER}; border-radius: 4px; padding: 4px; font-weight: 500;")
         elif is_not_followed_slot:
-            lbl.setStyleSheet("background: #F8FAFC; color: #64748B; border: 1px dashed #CBD5E1; border-radius: 4px; padding: 4px;")
+            lbl.setStyleSheet(f"background: {C.BG_SURFACE}; color: {C.TEXT_MUTED}; border: 1px dashed {C.BORDER_STRONG}; border-radius: 4px; padding: 4px;")
         elif is_tracked:
-            lbl.setStyleSheet("background: #F5F3FF; color: #5B21B6; border: 1px solid #DDD6FE; border-radius: 4px; padding: 4px; font-weight: 500;")
+            lbl.setStyleSheet(f"background: {C.VIOLET_SURFACE}; color: {C.VIOLET_DARK}; border: 1px solid {C.VIOLET_BORDER}; border-radius: 4px; padding: 4px; font-weight: 500;")
         else:
-            border_c = "#4338CA" if stream_num == 1 else ("#047857" if stream_num == 2 else "#B45309")
-            lbl.setStyleSheet(f"background: #FFFFFF; color: #1E293B; border: 1px solid #E2E8F0; border-left: 3px solid {border_c}; border-radius: 4px; padding: 4px;")
+            border_c = C.INDIGO_DARK if stream_num == 1 else (C.EMERALD_DARK if stream_num == 2 else C.WARNING)
+            lbl.setStyleSheet(f"background: {C.BG_CARD}; color: {C.TEXT_STRONG}; border: 1px solid {C.BORDER_SUBTLE}; border-left: 3px solid {border_c}; border-radius: 4px; padding: 4px;")
 
         lay.addWidget(lbl)
 
@@ -1412,11 +1413,11 @@ class SessionPlanWindow(QWidget):
         lbl.setAlignment(Qt.AlignTop | Qt.AlignLeft)
 
         if slot.is_drafting:
-            lbl.setStyleSheet("background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; border-radius: 4px; padding: 4px; font-weight: 600;")
+            lbl.setStyleSheet(f"background: {C.DANGER_SOFT}; color: {C.DANGER_DARK}; border: 1px solid {C.DANGER_BORDER}; border-radius: 4px; padding: 4px; font-weight: 600;")
         elif slot.is_plenary:
-            lbl.setStyleSheet("background: #EFF6FF; color: #1E40AF; border: 1px solid #BFDBFE; border-radius: 4px; padding: 4px; font-weight: 600;")
+            lbl.setStyleSheet(f"background: {C.INFO_SOFT}; color: {C.INFO_DARK}; border: 1px solid {C.INFO_BORDER}; border-radius: 4px; padding: 4px; font-weight: 600;")
         else:
-            lbl.setStyleSheet("background: #F8FAFC; color: #334155; border: 1px solid #E2E8F0; border-radius: 4px; padding: 4px;")
+            lbl.setStyleSheet(f"background: {C.BG_SURFACE}; color: {C.TEXT_BODY}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px; padding: 4px;")
 
         lay.addWidget(lbl)
 
@@ -1424,14 +1425,14 @@ class SessionPlanWindow(QWidget):
         times = PERIOD_TIMES.get(period, ("12:30", "14:00"))
         time_dual = SessionPlanTimezone.format_dual_time_range(times[0], times[1], self.tz_offset_min)
         tt = f"""<div style='font-family:Segoe UI, sans-serif; font-size:12px; min-width:220px; padding:4px;'>
-            <div style='font-weight:bold; font-size:13px; color:#1E293B; margin-bottom:4px;'>
+            <div style='font-weight:bold; font-size:13px; color:{C.TEXT_STRONG}; margin-bottom:4px;'>
                 ☕ {day_name} · {period}
             </div>
-            <div style='color:#475569; margin-bottom:6px;'>
+            <div style='color:{C.TEXT_SECONDARY}; margin-bottom:6px;'>
                 🕒 <b>Time:</b> {time_dual}
             </div>
-            <hr style='border:none; border-top:1px solid #CBD5E1; margin:6px 0;'>
-            <div style='font-weight:bold; color:#0F172A;'>
+            <hr style='border:none; border-top:1px solid {C.BORDER_STRONG}; margin:6px 0;'>
+            <div style='font-weight:bold; color:{C.TEXT_PRIMARY};'>
                 {html.escape(slot.raw_text)}
             </div>
         </div>"""
@@ -1520,7 +1521,7 @@ class SessionPlanWindow(QWidget):
                         else:
                             item_e = QTableWidgetItem("—")
                             item_e.setTextAlignment(Qt.AlignCenter)
-                            item_e.setForeground(QColor("#CBD5E1"))
+                            item_e.setForeground(QColor(C.BORDER_STRONG))
                             self.grid_table.setItem(row_idx, tu1_col, item_e)
 
                         if tu2_slot:
@@ -1529,13 +1530,13 @@ class SessionPlanWindow(QWidget):
                         else:
                             item_e = QTableWidgetItem("—")
                             item_e.setTextAlignment(Qt.AlignCenter)
-                            item_e.setForeground(QColor("#CBD5E1"))
+                            item_e.setForeground(QColor(C.BORDER_STRONG))
                             self.grid_table.setItem(row_idx, tu2_col, item_e)
                     else:
                         self.grid_table.setSpan(row_idx, tu1_col, 1, 2)
                         item_e = QTableWidgetItem("—")
                         item_e.setTextAlignment(Qt.AlignCenter)
-                        item_e.setForeground(QColor("#E2E8F0"))
+                        item_e.setForeground(QColor(C.BORDER_SUBTLE))
                         self.grid_table.setItem(row_idx, tu1_col, item_e)
 
             elif r_desc.row_type == "break":
@@ -1550,8 +1551,8 @@ class SessionPlanWindow(QWidget):
                     else:
                         item_b = QTableWidgetItem("—")
                         item_b.setTextAlignment(Qt.AlignCenter)
-                        item_b.setForeground(QColor("#CBD5E1"))
-                        item_b.setBackground(QColor("#F8FAFC"))
+                        item_b.setForeground(QColor(C.BORDER_STRONG))
+                        item_b.setBackground(QColor(C.BG_SURFACE))
                         times = PERIOD_TIMES[r_desc.period]
                         item_b.setToolTip(f"{r_desc.period}: {times[0]} – {times[1]} (Break)")
                         self.grid_table.setItem(row_idx, tu1_col, item_b)
@@ -1626,12 +1627,12 @@ class SessionPlanWindow(QWidget):
             matched_slots = scheduled_ais.get(ai_num, [])
             if matched_slots:
                 status_item = QTableWidgetItem(f"🟢 Scheduled ({len(matched_slots)})")
-                status_item.setForeground(QColor("#166534"))
+                status_item.setForeground(QColor(C.SUCCESS_DARK))
                 slot_descs = [f"{s.day_name[:3]} {s.quarter} (Str {s.stream_number})" for s in matched_slots]
                 alloc_item = QTableWidgetItem(", ".join(slot_descs))
             else:
                 status_item = QTableWidgetItem("🔴 Unscheduled")
-                status_item.setForeground(QColor("#991B1B"))
+                status_item.setForeground(QColor(C.DANGER_DARK))
                 alloc_item = QTableWidgetItem("—")
 
             self.agenda_table.setItem(row, 1, item_num)
@@ -1791,7 +1792,7 @@ class SessionPlanWindow(QWidget):
             item_del = QTableWidgetItem(del_txt)
 
             if is_all:
-                item_del.setForeground(QColor("#4338CA"))
+                item_del.setForeground(QColor(C.INDIGO_DARK))
                 f = item_del.font()
                 f.setBold(True)
                 item_del.setFont(f)
@@ -1803,7 +1804,7 @@ class SessionPlanWindow(QWidget):
                     f.setBold(True)
                     item_del.setFont(f)
             elif len(del_names) > 1:
-                item_del.setForeground(QColor("#0F172A"))
+                item_del.setForeground(QColor(C.TEXT_PRIMARY))
                 f = item_del.font()
                 f.setBold(True)
                 item_del.setFont(f)
@@ -1813,8 +1814,8 @@ class SessionPlanWindow(QWidget):
 
             if is_conflict:
                 for itm in [item_day, item_q, item_time, item_str, item_del, item_raw, item_note]:
-                    itm.setBackground(QColor("#FEF3C7"))
-                item_note.setForeground(QColor("#B45309"))
+                    itm.setBackground(QColor(C.WARNING_SOFT_ALT))
+                item_note.setForeground(QColor(C.WARNING))
 
             self.tracked_table.setItem(row, 0, item_day)
             self.tracked_table.setItem(row, 1, item_q)
@@ -1968,25 +1969,25 @@ class SessionPlanWindow(QWidget):
     def _style_focus_buttons(self):
         """Applies active/inactive styling to the focus strip according to the focus set."""
         base = "padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 12px;"
-        active = "border: 1px solid #3B82F6; background: #3B82F6; color: #FFFFFF;"
-        idle = "border: 1px solid #CBD5E1; background: #FFFFFF; color: #334155;"
+        active = f"border: 1px solid {C.INFO_ACCENT}; background: {C.INFO_ACCENT}; color: {C.BG_CARD};"
+        idle = f"border: 1px solid {C.BORDER_STRONG}; background: {C.BG_CARD}; color: {C.TEXT_BODY};"
         self.btn_chip_all.setStyleSheet(f"QPushButton {{ {base} {active if not self.grid_focus_delegates else idle} }}")
 
         self_member = self._self_member()
         if self.btn_chip_me is not None:
             only_me = bool(self_member) and self.grid_focus_delegates == {self_member.name}
-            col = self_member.color if self_member else "#0F172A"
-            style = f"border: 1px solid {col}; background: {col}; color: #FFFFFF;" if only_me else idle
+            col = self_member.color if self_member else C.TEXT_PRIMARY
+            style = f"border: 1px solid {col}; background: {col}; color: {C.BG_CARD};" if only_me else idle
             self.btn_chip_me.setStyleSheet(f"QPushButton {{ {base} {style} }}")
 
         for chk in self.dynamic_delegate_chips:
             name = chk.property("delegate_name")
             m = self.delegation_plan.members.get(name) if self.delegation_plan else None
-            col = m.color if m else "#334155"
-            bg = m.bg_tint if m else "#FFFFFF"
-            bdr = m.border_tint if m else "#CBD5E1"
+            col = m.color if m else C.TEXT_BODY
+            bg = m.bg_tint if m else C.BG_CARD
+            bdr = m.border_tint if m else C.BORDER_STRONG
             if chk.isChecked():
-                bg, bdr = (m.compute_tint(col, 0.22) if m else "#E2E8F0"), col
+                bg, bdr = (m.compute_tint(col, 0.22) if m else C.BORDER_SUBTLE), col
             chk.setStyleSheet(
                 f"QCheckBox {{ {base} padding: 2px 8px 2px 6px; color: {col}; background: {bg}; border: 1px solid {bdr}; }}"
                 f"QCheckBox::indicator {{ width: 12px; height: 12px; }}"
@@ -2129,9 +2130,9 @@ class SessionPlanWindow(QWidget):
             item_slots.setData(Qt.UserRole, len(slots_for_ai))
             item_slots.setToolTip(f"Scheduled slots for AI {ai_num}:\n{slots_summary}")
             if not slots_for_ai:
-                item_slots.setForeground(QColor("#94A3B8"))  # Muted slate for unscheduled
+                item_slots.setForeground(QColor(C.TEXT_FAINT))  # Muted slate for unscheduled
             else:
-                item_slots.setForeground(QColor("#0F172A"))
+                item_slots.setForeground(QColor(C.TEXT_PRIMARY))
                 font_slots = item_slots.font()
                 font_slots.setBold(True)
                 item_slots.setFont(font_slots)
@@ -2148,12 +2149,12 @@ class SessionPlanWindow(QWidget):
 
             if has_clash:
                 status_txt = f"🔴 Collision in parallel stream{override_suffix}"
-                status_col = "#991B1B"
-                status_bg = "#FEF2F2"
+                status_col = C.DANGER_DARK
+                status_bg = C.DANGER_SOFT
             elif to and to.is_not_followed():
                 status_txt = f"⚪ Not Followed{override_suffix}"
-                status_col = "#64748B"
-                status_bg = "#F1F5F9"
+                status_col = C.TEXT_MUTED
+                status_bg = C.BG_CANVAS
             elif owner_name:
                 cov_lbl = "All Team" if to and to.is_all() else (f"{len(owners_list)} delegates" if len(owners_list) > 1 else owner_name)
                 status_txt = (
@@ -2161,16 +2162,16 @@ class SessionPlanWindow(QWidget):
                     if slots_for_ai
                     else f"⚪ Assigned (Default: {cov_lbl})"
                 )
-                status_col = "#065F46"
-                status_bg = "#ECFDF5"
+                status_col = C.WG_RAN_TEXT
+                status_bg = C.WG_RAN_BG
             elif override_slots:
                 status_txt = f"⚡ Covered via {len(override_slots)} session override(s) (No default owner)"
-                status_col = "#1D4ED8"
-                status_bg = "#EFF6FF"
+                status_col = C.INFO
+                status_bg = C.INFO_SOFT
             else:
                 status_txt = "🟡 Unassigned"
-                status_col = "#92400E"
-                status_bg = "#FFFBEB"
+                status_col = C.WARNING_DARK
+                status_bg = C.WARNING_SOFT
 
             item_status = QTableWidgetItem(status_txt)
             item_status.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
@@ -2240,12 +2241,12 @@ class SessionPlanWindow(QWidget):
 
             if has_clash:
                 status_txt = f"🔴 Collision in parallel stream{override_suffix}"
-                status_col = "#991B1B"
-                status_bg = "#FEF2F2"
+                status_col = C.DANGER_DARK
+                status_bg = C.DANGER_SOFT
             elif to and to.is_not_followed():
                 status_txt = f"⚪ Not Followed{override_suffix}"
-                status_col = "#64748B"
-                status_bg = "#F1F5F9"
+                status_col = C.TEXT_MUTED
+                status_bg = C.BG_CANVAS
             elif owner_name:
                 cov_lbl = "All Team" if to and to.is_all() else (f"{len(owners_list)} delegates" if len(owners_list) > 1 else owner_name)
                 status_txt = (
@@ -2253,16 +2254,16 @@ class SessionPlanWindow(QWidget):
                     if slots_for_ai
                     else f"⚪ Assigned (Default: {cov_lbl})"
                 )
-                status_col = "#065F46"
-                status_bg = "#ECFDF5"
+                status_col = C.WG_RAN_TEXT
+                status_bg = C.WG_RAN_BG
             elif override_slots:
                 status_txt = f"⚡ Covered via {len(override_slots)} session override(s) (No default owner)"
-                status_col = "#1D4ED8"
-                status_bg = "#EFF6FF"
+                status_col = C.INFO
+                status_bg = C.INFO_SOFT
             else:
                 status_txt = "🟡 Unassigned"
-                status_col = "#92400E"
-                status_bg = "#FFFBEB"
+                status_col = C.WARNING_DARK
+                status_bg = C.WARNING_SOFT
 
             item_status = self.team_topics_table.item(row, 4)
             if not item_status:
@@ -2348,19 +2349,19 @@ class SessionPlanWindow(QWidget):
             self.btn_conflicts_quick.setText(f"⚠️ Conflicts ({clash_count})")
             if clash_count > 0:
                 self.btn_conflicts_quick.setStyleSheet(
-                    "QPushButton { padding: 5px 10px; font-size: 12px; font-weight: 700; border: 1px solid #FCA5A5; background: #FEF2F2; color: #B91C1C; border-radius: 6px; }"
-                    "QPushButton:hover { background: #FEE2E2; }"
+                    f"QPushButton {{ padding: 5px 10px; font-size: 12px; font-weight: 700; border: 1px solid {C.DANGER_BORDER_ALT}; background: {C.DANGER_SOFT}; color: {C.DANGER}; border-radius: 6px; }}"
+                    f"QPushButton:hover {{ background: {C.DANGER_SOFT_HOVER}; }}"
                 )
             else:
                 self.btn_conflicts_quick.setStyleSheet(
-                    "QPushButton { padding: 5px 10px; font-size: 12px; font-weight: 600; border: 1px solid #A7F3D0; background: #ECFDF5; color: #065F46; border-radius: 6px; }"
+                    f"QPushButton {{ padding: 5px 10px; font-size: 12px; font-weight: 600; border: 1px solid {C.WG_RAN_BORDER}; background: {C.WG_RAN_BG}; color: {C.WG_RAN_TEXT}; border-radius: 6px; }}"
                     "QPushButton:hover { background: #D1FAE5; }"
                 )
 
         if clash_count == 0:
             self.clash_kpi_lbl.setText("✅ No collisions detected! All parallel streams have distinct delegates or single coverage.")
             self.clash_kpi_lbl.setStyleSheet(
-                "background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 6px;"
+                f"background: {C.WG_RAN_BG}; color: {C.WG_RAN_TEXT}; border: 1px solid {C.WG_RAN_BORDER}; font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 6px;"
             )
             self.team_clashes_table.setRowCount(0)
         else:
@@ -2368,7 +2369,7 @@ class SessionPlanWindow(QWidget):
                 f"⚠️ {clash_count} Double-Booking Collision(s) Detected! Appoint an available colleague to cover one of the parallel rooms."
             )
             self.clash_kpi_lbl.setStyleSheet(
-                "background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 6px;"
+                f"background: {C.WARNING_SOFT}; color: {C.WARNING_DARK}; border: 1px solid {C.WARNING_BORDER}; font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 6px;"
             )
             self.team_clashes_table.setRowCount(clash_count)
 
@@ -2426,10 +2427,10 @@ class SessionPlanWindow(QWidget):
                 ]
                 if free_colleagues:
                     free_txt = "🟢 " + ", ".join(free_colleagues)
-                    free_col = "#065F46"
+                    free_col = C.WG_RAN_TEXT
                 else:
                     free_txt = "⚠️ All busy"
-                    free_col = "#991B1B"
+                    free_col = C.DANGER_DARK
                 item_free = QTableWidgetItem(free_txt)
                 item_free.setForeground(QColor(free_col))
                 item_free.setToolTip(
@@ -2440,7 +2441,7 @@ class SessionPlanWindow(QWidget):
 
                 btn_appoint = QPushButton("⚡ Appoint Coverage ▾")
                 btn_appoint.setStyleSheet(
-                    "padding: 3px 8px; font-size: 11px; font-weight: 600; border-radius: 6px; background: #059669; color: #FFFFFF;"
+                    f"padding: 3px 8px; font-size: 11px; font-weight: 600; border-radius: 6px; background: {C.EMERALD_PRIMARY}; color: {C.BG_CARD};"
                 )
                 menu = QMenu(btn_appoint)
                 if free_colleagues:
@@ -2584,13 +2585,13 @@ class SessionPlanWindow(QWidget):
         base = "padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-radius: 6px;"
         if checked:
             self.btn_toggle_scheduled_only.setStyleSheet(
-                f"QPushButton {{ {base} background: #EFF6FF; border: 1.5px solid #2563EB; color: #1D4ED8; }}"
-                f"QPushButton:hover {{ background: #DBEAFE; }}"
+                f"QPushButton {{ {base} background: {C.INFO_SOFT}; border: 1.5px solid {C.ACCENT_ALT}; color: {C.INFO}; }}"
+                f"QPushButton:hover {{ background: {C.INFO_SOFT_STRONG}; }}"
             )
         else:
             self.btn_toggle_scheduled_only.setStyleSheet(
-                f"QPushButton {{ {base} background: #F8FAFC; border: 1px solid #CBD5E1; color: #475569; }}"
-                f"QPushButton:hover {{ background: #F1F5F9; color: #1E293B; border-color: #94A3B8; }}"
+                f"QPushButton {{ {base} background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_STRONG}; color: {C.TEXT_SECONDARY}; }}"
+                f"QPushButton:hover {{ background: {C.BG_CANVAS}; color: {C.TEXT_STRONG}; border-color: {C.TEXT_FAINT}; }}"
             )
 
     def _on_scheduled_only_toggled(self, checked: bool):

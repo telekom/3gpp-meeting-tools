@@ -9,6 +9,7 @@ from PyQt5.QtCore import QAbstractTableModel, Qt, QModelIndex, QSortFilterProxyM
 
 from core.utils.company_sanitizer import CompanySanitizer
 from modules.meetings.core.agenda_manager import AgendaItem
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -352,7 +353,7 @@ class TDocsTableModel(QAbstractTableModel):
                         is_local = True
 
             if is_local:
-                return f'<a href="{tdoc}" style="color: #005A9E; font-weight: bold; text-decoration: underline;">{tdoc}</a>'
+                return f'<a href="{tdoc}" style="color: {C.OFFICE_BLUE}; font-weight: bold; text-decoration: underline;">{tdoc}</a>'
             else:
                 return f'<a href="{tdoc}" style="color: #D83B01; text-decoration: underline;">{tdoc}</a>'
 
@@ -505,23 +506,23 @@ class TDocsTableModel(QAbstractTableModel):
         is_ls = "ls" in kind.lower()
 
         if is_wa:
-            badge_html = '<span style="background-color: #FEF3C7; color: #92400E; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #FCD34D;">⚖️ WORKING ASSUMPTION</span>'
-            title_col = "#92400E"
+            badge_html = f'<span style="background-color: {C.WARNING_SOFT_ALT}; color: {C.WARNING_DARK}; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid {C.WARNING_BORDER_STRONG};">⚖️ WORKING ASSUMPTION</span>'
+            title_col = C.WARNING_DARK
         elif is_ffs:
-            badge_html = '<span style="background-color: #DBEAFE; color: #1E40AF; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #93C5FD;">⚖️ FFS / OPEN ISSUE</span>'
-            title_col = "#1E40AF"
+            badge_html = f'<span style="background-color: {C.INFO_SOFT_STRONG}; color: {C.INFO_DARK}; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid {C.INFO_BORDER_MEDIUM};">⚖️ FFS / OPEN ISSUE</span>'
+            title_col = C.INFO_DARK
         elif is_pcr:
-            badge_html = '<span style="background-color: #DCFCE7; color: #166534; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #86EFAC;">📝 AGREED pCR</span>'
-            title_col = "#166534"
+            badge_html = f'<span style="background-color: {C.SUCCESS_SOFT_ALT}; color: {C.SUCCESS_DARK}; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid {C.SUCCESS_BORDER_MEDIUM};">📝 AGREED pCR</span>'
+            title_col = C.SUCCESS_DARK
         elif is_cr:
-            badge_html = '<span style="background-color: #DCFCE7; color: #166534; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #86EFAC;">📄 APPROVED CR</span>'
-            title_col = "#166534"
+            badge_html = f'<span style="background-color: {C.SUCCESS_SOFT_ALT}; color: {C.SUCCESS_DARK}; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid {C.SUCCESS_BORDER_MEDIUM};">📄 APPROVED CR</span>'
+            title_col = C.SUCCESS_DARK
         elif is_ls:
-            badge_html = '<span style="background-color: #E0E7FF; color: #3730A3; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #A5B4FC;">📤 APPROVED LS</span>'
-            title_col = "#3730A3"
+            badge_html = f'<span style="background-color: {C.INDIGO_SOFT}; color: {C.WG_SA_TEXT}; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #A5B4FC;">📤 APPROVED LS</span>'
+            title_col = C.WG_SA_TEXT
         else:
-            badge_html = '<span style="background-color: #DCFCE7; color: #166534; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid #86EFAC;">⚖️ AGREEMENT</span>'
-            title_col = "#166534"
+            badge_html = f'<span style="background-color: {C.SUCCESS_SOFT_ALT}; color: {C.SUCCESS_DARK}; font-weight: bold; border-radius: 3px; padding: 1px 5px; font-size: 10px; border: 1px solid {C.SUCCESS_BORDER_MEDIUM};">⚖️ AGREEMENT</span>'
+            title_col = C.SUCCESS_DARK
 
         txt = val_str
         if row.get('_agreements'):
@@ -547,9 +548,9 @@ class TDocsTableModel(QAbstractTableModel):
         esc1 = html.escape(line1[:110] + ('...' if len(line1) > 110 else ''))
         if line2:
             esc2 = html.escape(line2[:130] + ('...' if len(line2) > 130 else ''))
-            return f'<div style="line-height: 1.25;"><div>{badge_html} <span style="color: {title_col}; font-weight: bold; font-size: 11px; margin-left: 4px;">{esc1}</span></div><div style="color: #334155; font-size: 11px; margin-top: 1px;">{esc2} <span style="color: #2563EB; font-size: 10px; margin-left: 4px;"><i>(🔍 Double-click to view)</i></span></div></div>'
+            return f'<div style="line-height: 1.25;"><div>{badge_html} <span style="color: {title_col}; font-weight: bold; font-size: 11px; margin-left: 4px;">{esc1}</span></div><div style="color: {C.TEXT_BODY}; font-size: 11px; margin-top: 1px;">{esc2} <span style="color: {C.ACCENT_ALT}; font-size: 10px; margin-left: 4px;"><i>(🔍 Double-click to view)</i></span></div></div>'
         else:
-            return f'<div style="line-height: 1.25;"><div>{badge_html} <span style="color: {title_col}; font-weight: bold; font-size: 11px; margin-left: 4px;">{esc1}</span></div><div style="margin-top: 1px;"><span style="color: #2563EB; font-size: 10px;"><i>(🔍 Double-click to view)</i></span></div></div>'
+            return f'<div style="line-height: 1.25;"><div>{badge_html} <span style="color: {title_col}; font-weight: bold; font-size: 11px; margin-left: 4px;">{esc1}</span></div><div style="margin-top: 1px;"><span style="color: {C.ACCENT_ALT}; font-size: 10px;"><i>(🔍 Double-click to view)</i></span></div></div>'
 
     def _format_agreement_tooltip_html(self, row: dict) -> str:
         """Renders rich HTML agreement card for cell hover tooltips."""
@@ -561,13 +562,13 @@ class TDocsTableModel(QAbstractTableModel):
         is_ffs = "ffs" in kind.lower() or "open issue" in kind.lower()
 
         if is_wa:
-            tag_bg, tag_fg, border, card_bg = "#FEF3C7", "#92400E", "#FCD34D", "#FFFDF0"
+            tag_bg, tag_fg, border, card_bg = C.WARNING_SOFT_ALT, C.WARNING_DARK, C.WARNING_BORDER_STRONG, "#FFFDF0"
             tag_label = "🟡 3GPP Working Assumption"
         elif is_ffs:
-            tag_bg, tag_fg, border, card_bg = "#DBEAFE", "#1E40AF", "#93C5FD", "#F8FAFF"
+            tag_bg, tag_fg, border, card_bg = C.INFO_SOFT_STRONG, C.INFO_DARK, C.INFO_BORDER_MEDIUM, "#F8FAFF"
             tag_label = "🔵 3GPP FFS / Open Issue"
         else:
-            tag_bg, tag_fg, border, card_bg = "#DCFCE7", "#166534", "#86EFAC", "#F0FDF4"
+            tag_bg, tag_fg, border, card_bg = C.SUCCESS_SOFT_ALT, C.SUCCESS_DARK, C.SUCCESS_BORDER_MEDIUM, C.SUCCESS_SOFT
             tag_label = "🟢 3GPP Technical Agreement"
 
         raw_txt = ""
@@ -593,11 +594,11 @@ class TDocsTableModel(QAbstractTableModel):
 <div style="background-color: {card_bg}; border: 1.5px solid {border}; border-radius: 6px; padding: 10px 12px;">
   <div style="margin-bottom: 6px;">
     <span style="background-color: {tag_bg}; color: {tag_fg}; font-weight: bold; border-radius: 4px; padding: 2px 7px; font-size: 11px;">{tag_label}</span>
-    <span style="color: #0F172A; font-weight: bold; font-size: 12px; margin-left: 8px;">{tdoc}</span>
-    <span style="color: #64748B; font-size: 11px;">{meta_str}</span>
+    <span style="color: {C.TEXT_PRIMARY}; font-weight: bold; font-size: 12px; margin-left: 8px;">{tdoc}</span>
+    <span style="color: {C.TEXT_MUTED}; font-size: 11px;">{meta_str}</span>
   </div>
-  <div style="color: #1E293B; font-size: 12px; line-height: 1.45; white-space: pre-wrap; max-height: 320px;">{esc_txt}</div>
-  <div style="color: #64748B; font-size: 10px; margin-top: 8px; border-top: 1px dashed #CBD5E1; padding-top: 5px;">
+  <div style="color: {C.TEXT_STRONG}; font-size: 12px; line-height: 1.45; white-space: pre-wrap; max-height: 320px;">{esc_txt}</div>
+  <div style="color: {C.TEXT_MUTED}; font-size: 10px; margin-top: 8px; border-top: 1px dashed {C.BORDER_STRONG}; padding-top: 5px;">
     💡 <b>Tip:</b> Double-click this cell or click <b>⚖️ Agreements</b> on the toolbar to open the full Agreements Viewer.
   </div>
 </div>
@@ -614,10 +615,10 @@ class TDocsTableModel(QAbstractTableModel):
             if row.get('_has_agreement'):
                 kind = str(row.get('_agreement_kind', 'Agreement')).lower()
                 if "working assumption" in kind:
-                    return QColor("#FEFCE8")
+                    return QColor(C.WARNING_SOFT_LIGHT)
                 elif "ffs" in kind:
-                    return QColor("#EFF6FF")
-                return QColor("#F0FDF4")
+                    return QColor(C.INFO_SOFT)
+                return QColor(C.SUCCESS_SOFT)
             return None
 
         # Render Emails badge column (Precomputed O(1) Lookups)
@@ -644,7 +645,7 @@ class TDocsTableModel(QAbstractTableModel):
             elif role == Qt.TextAlignmentRole:
                 return Qt.AlignCenter
             elif role == Qt.ForegroundRole and unread > 0:
-                return QColor("#005A9E")
+                return QColor(C.OFFICE_BLUE)
             return None
 
         if col_name == "":
@@ -674,10 +675,10 @@ class TDocsTableModel(QAbstractTableModel):
             if col_name == "TDoc Status" and row.get('_has_agreement'):
                 kind = str(row.get('_agreement_kind', 'Agreement')).lower()
                 if "working assumption" in kind:
-                    return QColor("#B45309")
+                    return QColor(C.WARNING)
                 elif "ffs" in kind:
-                    return QColor("#1D4ED8")
-                return QColor("#15803D")
+                    return QColor(C.INFO)
+                return QColor(C.SUCCESS)
             return None
 
         if role == Qt.UserRole + 2:

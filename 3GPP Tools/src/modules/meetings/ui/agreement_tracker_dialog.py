@@ -63,6 +63,7 @@ from modules.meetings.ui.contributions.contribution_widgets import (
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.work_items.core.wi_database import WorkItemsDatabase
 from modules.work_items.core.wi_settings import WorkItemsSettings
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -206,25 +207,25 @@ class AgreementResultsTableModel(QAbstractTableModel):
             kind = str(row.get("Kind", "")).lower()
             if col_name == "Type":
                 if "ffs" in kind or "open issue" in kind:
-                    return QBrush(QColor("#1D4ED8"))
+                    return QBrush(QColor(C.INFO))
                 if "working assumption" in kind:
-                    return QBrush(QColor("#B45309"))
+                    return QBrush(QColor(C.WARNING))
                 if "agreed tdoc" in kind:
-                    return QBrush(QColor("#4338CA"))
-                return QBrush(QColor("#15803D"))
+                    return QBrush(QColor(C.INDIGO_DARK))
+                return QBrush(QColor(C.SUCCESS))
             if col_name in ("Work Item", "Related TDoc"):
-                return QBrush(QColor("#1E5C99"))
+                return QBrush(QColor(C.ACCENT_PRIMARY))
 
         if role == Qt.BackgroundRole:
             kind = str(row.get("Kind", "")).lower()
             if col_name == "Type":
                 if "ffs" in kind or "open issue" in kind:
-                    return QBrush(QColor("#EFF6FF"))
+                    return QBrush(QColor(C.INFO_SOFT))
                 if "working assumption" in kind:
-                    return QBrush(QColor("#FEF3C7"))
+                    return QBrush(QColor(C.WARNING_SOFT_ALT))
                 if "agreed tdoc" in kind:
-                    return QBrush(QColor("#EEF2FF"))
-                return QBrush(QColor("#F0FDF4"))
+                    return QBrush(QColor(C.WG_SA_BG))
+                return QBrush(QColor(C.SUCCESS_SOFT))
 
         if role == Qt.FontRole:
             if col_name in ("Type", "Work Item", "AI"):
@@ -271,7 +272,7 @@ class AgreementTrackerDialog(QDialog):
         left_layout.setSpacing(6)
 
         title_lbl = QLabel("<b>⚖️ Study Item & Agreement Filters</b>")
-        title_lbl.setStyleSheet("font-size: 13px; color: #1E293B;")
+        title_lbl.setStyleSheet(f"font-size: 13px; color: {C.TEXT_STRONG};")
         left_layout.addWidget(title_lbl)
 
         # Working Groups + Quick Presets
@@ -376,7 +377,7 @@ class AgreementTrackerDialog(QDialog):
 
         # Agreement Types to Include
         types_lbl = QLabel("<b>Include Item Types:</b>")
-        types_lbl.setStyleSheet("font-size: 11px; color: #334155; margin-top: 4px;")
+        types_lbl.setStyleSheet(f"font-size: 11px; color: {C.TEXT_BODY}; margin-top: 4px;")
         left_layout.addWidget(types_lbl)
 
         self.chk_agreements = QCheckBox("🟢 Agreements, Working Assumptions && Conclusions")
@@ -401,7 +402,7 @@ class AgreementTrackerDialog(QDialog):
 
         # Source & Cache Options
         src_lbl = QLabel("<b>FTP & Cache Options:</b>")
-        src_lbl.setStyleSheet("font-size: 11px; color: #334155; margin-top: 4px;")
+        src_lbl.setStyleSheet(f"font-size: 11px; color: {C.TEXT_BODY}; margin-top: 4px;")
         left_layout.addWidget(src_lbl)
 
         self.chk_auto_download = QCheckBox("📥 Auto-download Final/EOM Chair Notes from 3GPP FTP")
@@ -465,8 +466,8 @@ class AgreementTrackerDialog(QDialog):
         self.filter_summary_lbl.setWordWrap(True)
         self.filter_summary_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.filter_summary_lbl.setStyleSheet(
-            "QLabel { background-color: #F8FAFC; color: #475569; "
-            "border: 1px solid #E2E8F0; border-radius: 4px; "
+            f"QLabel {{ background-color: {C.BG_SURFACE}; color: {C.TEXT_SECONDARY}; "
+            f"border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px; "
             "padding: 5px 8px; font-size: 11px; }"
         )
         filter_bar.addWidget(self.filter_summary_lbl, stretch=3)
@@ -489,7 +490,7 @@ class AgreementTrackerDialog(QDialog):
         self.log_viewer.setReadOnly(True)
         self.log_viewer.setMaximumHeight(68)
         self.log_viewer.setStyleSheet(
-            "background-color: #0F172A; color: #38BDF8; font-family: Consolas, monospace; font-size: 11px;"
+            f"background-color: {C.TEXT_PRIMARY}; color: #38BDF8; font-family: Consolas, monospace; font-size: 11px;"
         )
         right_layout.addWidget(self.log_viewer)
 
@@ -503,8 +504,8 @@ class AgreementTrackerDialog(QDialog):
         self.table_view.setSelectionBehavior(QTableView.SelectRows)
         self.table_view.setSelectionMode(QTableView.SingleSelection)
         self.table_view.setStyleSheet(
-            "QTableView { border: 1px solid #CBD5E1; gridline-color: #F1F5F9; background-color: #FFFFFF; } "
-            "QTableView::item:selected { background-color: #EBF3FC; color: #1E293B; }"
+            f"QTableView {{ border: 1px solid {C.BORDER_STRONG}; gridline-color: {C.BG_CANVAS}; background-color: {C.BG_CARD}; }} "
+            f"QTableView::item:selected {{ background-color: {C.ACCENT_SOFT}; color: {C.TEXT_STRONG}; }}"
         )
         self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table_view.horizontalHeader().setStretchLastSection(True)
@@ -518,7 +519,7 @@ class AgreementTrackerDialog(QDialog):
         # Bottom Detail Inspector Card
         detail_card = QFrame()
         detail_card.setStyleSheet(
-            "QFrame { background-color: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 6px; }"
+            f"QFrame {{ background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px; }}"
         )
         detail_layout = QVBoxLayout(detail_card)
         detail_layout.setContentsMargins(10, 8, 10, 8)
@@ -526,7 +527,7 @@ class AgreementTrackerDialog(QDialog):
 
         detail_header = QHBoxLayout()
         self.lbl_detail_header = QLabel("<b>🔍 Selected Agreement / Conclusion Details</b>")
-        self.lbl_detail_header.setStyleSheet("color: #1E293B; font-size: 12px; border: none;")
+        self.lbl_detail_header.setStyleSheet(f"color: {C.TEXT_STRONG}; font-size: 12px; border: none;")
         detail_header.addWidget(self.lbl_detail_header)
         detail_header.addStretch()
 
@@ -559,11 +560,11 @@ class AgreementTrackerDialog(QDialog):
         self.detail_browser = QTextBrowser()
         self.detail_browser.setOpenExternalLinks(True)
         self.detail_browser.setStyleSheet(
-            "QTextBrowser { background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 4px; "
-            "padding: 8px; font-size: 12px; color: #0F172A; }"
+            f"QTextBrowser {{ background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px; "
+            f"padding: 8px; font-size: 12px; color: {C.TEXT_PRIMARY}; }}"
         )
         self.detail_browser.setHtml(
-            "<span style='color:#64748B;'>Click any row in the table above to inspect the full agreement text, "
+            f"<span style='color:{C.TEXT_MUTED};'>Click any row in the table above to inspect the full agreement text, "
             "Agenda Item hierarchy, Work Item, and linked TDoc metadata.</span>"
         )
         detail_layout.addWidget(self.detail_browser)
@@ -574,7 +575,7 @@ class AgreementTrackerDialog(QDialog):
         # Footer Bar
         footer_layout = QHBoxLayout()
         self.lbl_count = QLabel("0 agreements loaded.")
-        self.lbl_count.setStyleSheet("color: #64748B; font-weight: bold;")
+        self.lbl_count.setStyleSheet(f"color: {C.TEXT_MUTED}; font-weight: bold;")
 
         self.btn_export_md = QPushButton("📑 Export Study Item Report (.md / .html)...")
         self.btn_export_md.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -882,17 +883,17 @@ class AgreementTrackerDialog(QDialog):
 
         kind = str(row.get("Kind", "Agreement"))
         low_k = kind.lower()
-        badge_bg = "#DCFCE7"
-        badge_fg = "#166534"
+        badge_bg = C.SUCCESS_SOFT_ALT
+        badge_fg = C.SUCCESS_DARK
         if "ffs" in low_k or "open issue" in low_k:
-            badge_bg = "#DBEAFE"
-            badge_fg = "#1E40AF"
+            badge_bg = C.INFO_SOFT_STRONG
+            badge_fg = C.INFO_DARK
         elif "working assumption" in low_k:
-            badge_bg = "#FEF3C7"
-            badge_fg = "#92400E"
+            badge_bg = C.WARNING_SOFT_ALT
+            badge_fg = C.WARNING_DARK
         elif "agreed tdoc" in low_k:
-            badge_bg = "#E0E7FF"
-            badge_fg = "#3730A3"
+            badge_bg = C.INDIGO_SOFT
+            badge_fg = C.WG_SA_TEXT
 
         wg = html.escape(str(row.get("WG", "")))
         mtg = html.escape(str(row.get("Meeting", "")))
@@ -912,7 +913,7 @@ class AgreementTrackerDialog(QDialog):
             # Highlight TDoc IDs inside agreement text
             esc_line = re.sub(
                 r'\b([A-Z][A-Z0-9]{1,3}-\d{4,8}(?:[rR]\d{1,2}[a-zA-Z]?)?)\b',
-                r"<b><span style='color:#1E5C99;'>\1</span></b>",
+                fr"<b><span style='color:{C.ACCENT_PRIMARY};'>\1</span></b>",
                 esc_line,
             )
             formatted_lines.append(esc_line)
@@ -921,8 +922,8 @@ class AgreementTrackerDialog(QDialog):
         tdoc_meta_html = ""
         if tdoc_id:
             tdoc_meta_html = (
-                f"<div style='margin-top:6px; padding:5px 8px; background:#EFF6FF; border-left:3px solid #3B82F6;'>"
-                f"<b>Related TDoc:</b> <span style='color:#1E5C99; font-weight:bold;'>{html.escape(tdoc_id)}</span>"
+                f"<div style='margin-top:6px; padding:5px 8px; background:{C.INFO_SOFT}; border-left:3px solid {C.INFO_ACCENT};'>"
+                f"<b>Related TDoc:</b> <span style='color:{C.ACCENT_PRIMARY}; font-weight:bold;'>{html.escape(tdoc_id)}</span>"
                 f"{f' — {tdoc_title}' if tdoc_title else ''}"
                 f"{f' <i>({src})</i>' if src else ''}"
                 f"</div>"
@@ -935,11 +936,11 @@ class AgreementTrackerDialog(QDialog):
                     {html.escape(kind)}
                 </span>
                 &nbsp;&nbsp;<b>{mtg}</b> ({dt})
-                &nbsp;&nbsp;|&nbsp;&nbsp;<b>Work Item:</b> <span style='color:#1E5C99;'>{wi}</span> {f'({rel})' if rel else ''}
+                &nbsp;&nbsp;|&nbsp;&nbsp;<b>Work Item:</b> <span style='color:{C.ACCENT_PRIMARY};'>{wi}</span> {f'({rel})' if rel else ''}
                 &nbsp;&nbsp;|&nbsp;&nbsp;<b>AI {ai}:</b> {ai_title}
-                &nbsp;&nbsp;|&nbsp;&nbsp;<span style='color:#64748B;'>Source: {cfile}</span>
+                &nbsp;&nbsp;|&nbsp;&nbsp;<span style='color:{C.TEXT_MUTED};'>Source: {cfile}</span>
             </div>
-            <div style='padding:8px 10px; background:#FFFFFF; border:1px solid #E2E8F0; border-radius:4px; line-height:1.45;'>
+            <div style='padding:8px 10px; background:{C.BG_CARD}; border:1px solid {C.BORDER_SUBTLE}; border-radius:4px; line-height:1.45;'>
                 {body_html}
             </div>
             {tdoc_meta_html}
@@ -1254,20 +1255,20 @@ class AgreementTrackerDialog(QDialog):
 <meta charset="utf-8">
 <title>3GPP Study Item & Topic Agreements Dossier</title>
 <style>
-  body {{ font-family: 'Segoe UI', system-ui, sans-serif; background: #F8FAFC; color: #0F172A; margin: 24px auto; max-width: 1120px; padding: 0 20px; }}
-  h1 {{ color: #0F172A; border-bottom: 2px solid #CBD5E1; padding-bottom: 8px; }}
-  .meta {{ background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px; padding: 12px 16px; margin-bottom: 20px; color: #475569; }}
-  .wi-card {{ background: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 8px; padding: 16px 20px; margin-bottom: 24px; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }}
+  body {{ font-family: 'Segoe UI', system-ui, sans-serif; background: {C.BG_SURFACE}; color: {C.TEXT_PRIMARY}; margin: 24px auto; max-width: 1120px; padding: 0 20px; }}
+  h1 {{ color: {C.TEXT_PRIMARY}; border-bottom: 2px solid {C.BORDER_STRONG}; padding-bottom: 8px; }}
+  .meta {{ background: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; padding: 12px 16px; margin-bottom: 20px; color: {C.TEXT_SECONDARY}; }}
+  .wi-card {{ background: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; border-radius: 8px; padding: 16px 20px; margin-bottom: 24px; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }}
   h2 {{ color: #1E3A8A; margin-top: 0; }}
-  h3 {{ color: #334155; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px; margin-top: 18px; }}
-  h4 {{ color: #475569; margin: 12px 0 8px 0; }}
-  .ag-box {{ border-radius: 6px; padding: 10px 14px; margin-bottom: 10px; border-left: 4px solid #16A34A; background: #F0FDF4; }}
-  .ag-blue {{ border-left-color: #2563EB; background: #EFF6FF; }}
-  .ag-amber {{ border-left-color: #D97706; background: #FFFBEB; }}
-  .ag-indigo {{ border-left-color: #4F46E5; background: #EEF2FF; }}
-  .ag-badge {{ font-weight: bold; font-size: 12px; margin-bottom: 4px; color: #1E293B; }}
-  .ag-text {{ font-size: 13px; line-height: 1.5; color: #0F172A; }}
-  .tdoc-ref {{ margin-top: 6px; font-size: 12px; color: #334155; }}
+  h3 {{ color: {C.TEXT_BODY}; border-bottom: 1px solid {C.BORDER_SUBTLE}; padding-bottom: 4px; margin-top: 18px; }}
+  h4 {{ color: {C.TEXT_SECONDARY}; margin: 12px 0 8px 0; }}
+  .ag-box {{ border-radius: 6px; padding: 10px 14px; margin-bottom: 10px; border-left: 4px solid {C.GREEN_ACCENT}; background: {C.SUCCESS_SOFT}; }}
+  .ag-blue {{ border-left-color: {C.ACCENT_ALT}; background: {C.INFO_SOFT}; }}
+  .ag-amber {{ border-left-color: {C.WARNING_AMBER}; background: {C.WARNING_SOFT}; }}
+  .ag-indigo {{ border-left-color: #4F46E5; background: {C.WG_SA_BG}; }}
+  .ag-badge {{ font-weight: bold; font-size: 12px; margin-bottom: 4px; color: {C.TEXT_STRONG}; }}
+  .ag-text {{ font-size: 13px; line-height: 1.5; color: {C.TEXT_PRIMARY}; }}
+  .tdoc-ref {{ margin-top: 6px; font-size: 12px; color: {C.TEXT_BODY}; }}
 </style>
 </head>
 <body>

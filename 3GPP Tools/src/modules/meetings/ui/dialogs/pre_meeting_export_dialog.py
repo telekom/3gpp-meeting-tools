@@ -28,74 +28,75 @@ from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 from core.utils.company_sanitizer import CompanySanitizer
 from modules.meetings.core.agenda_manager import AgendaItem
 from modules.meetings.ui.tdocs_models import TDocsTableModel
+from core.ui.theme import C
 
 
-STYLE_TOGGLE_ACTIVE = """
-    QPushButton {
+STYLE_TOGGLE_ACTIVE = f"""
+    QPushButton {{
         background-color: #0D9488;
-        color: #FFFFFF;
+        color: {C.BG_CARD};
         font-weight: bold;
-        border: 1px solid #0F766E;
+        border: 1px solid {C.TEAL_DARK};
         border-radius: 4px;
         padding: 3px 8px;
         font-size: 11px;
-    }
+    }}
 """
 
-STYLE_TOGGLE_INACTIVE = """
-    QPushButton {
-        background-color: #FFFFFF;
-        color: #475569;
-        border: 1px solid #CBD5E1;
+STYLE_TOGGLE_INACTIVE = f"""
+    QPushButton {{
+        background-color: {C.BG_CARD};
+        color: {C.TEXT_SECONDARY};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 4px;
         padding: 3px 8px;
         font-size: 11px;
-    }
-    QPushButton:hover {
-        background-color: #F0FDFA;
-        color: #0F766E;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {C.TEAL_SURFACE};
+        color: {C.TEAL_DARK};
+    }}
 """
 
-STYLE_COMPACT_BTN = """
-    QPushButton {
-        background-color: #F8FAFC;
-        color: #1E293B;
-        border: 1px solid #CBD5E1;
+STYLE_COMPACT_BTN = f"""
+    QPushButton {{
+        background-color: {C.BG_SURFACE};
+        color: {C.TEXT_STRONG};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 4px;
         padding: 3px 8px;
         font-size: 11px;
         font-weight: 500;
-    }
-    QPushButton:hover {
-        background-color: #F1F5F9;
-        border-color: #94A3B8;
-    }
-    QPushButton:pressed {
-        background-color: #E2E8F0;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {C.BG_CANVAS};
+        border-color: {C.TEXT_FAINT};
+    }}
+    QPushButton:pressed {{
+        background-color: {C.BORDER_SUBTLE};
+    }}
 """
 
-STYLE_TREE = """
-    QTreeWidget {
-        background-color: #FFFFFF;
-        border: 1px solid #CBD5E1;
+STYLE_TREE = f"""
+    QTreeWidget {{
+        background-color: {C.BG_CARD};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 6px;
         padding: 4px;
         font-size: 11px;
-        color: #1E293B;
-    }
-    QTreeWidget::item {
+        color: {C.TEXT_STRONG};
+    }}
+    QTreeWidget::item {{
         padding: 3px 2px;
         border-radius: 3px;
-    }
-    QTreeWidget::item:hover {
-        background-color: #F0FDFA;
-    }
-    QTreeWidget::item:selected {
-        background-color: #CCFBF1;
+    }}
+    QTreeWidget::item:hover {{
+        background-color: {C.TEAL_SURFACE};
+    }}
+    QTreeWidget::item:selected {{
+        background-color: {C.TEAL_SOFT};
         color: #134E4A;
-    }
+    }}
 """
 
 
@@ -145,28 +146,28 @@ class PreMeetingExportDialog(QDialog):
         self.setWindowTitle("🧭 Pre-Meeting Briefing & Markdown Dossier Export")
         self.resize(980, 680)
         self.setMinimumSize(900, 580)
-        self.setStyleSheet("""
-            QDialog { background-color: #F8FAFC; }
-            QGroupBox {
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {C.BG_SURFACE}; }}
+            QGroupBox {{
                 font-weight: bold;
                 color: #134E4A;
-                border: 1px solid #CBD5E1;
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 margin-top: 10px;
                 padding-top: 14px;
-                background-color: #FFFFFF;
-            }
-            QGroupBox::title {
+                background-color: {C.BG_CARD};
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 subcontrol-position: top left;
                 padding: 0 6px;
-                background-color: #FFFFFF;
-            }
-            QLabel { color: #334155; }
-            QRadioButton, QCheckBox {
-                color: #1E293B;
+                background-color: {C.BG_CARD};
+            }}
+            QLabel {{ color: {C.TEXT_BODY}; }}
+            QRadioButton, QCheckBox {{
+                color: {C.TEXT_STRONG};
                 padding: 2px;
-            }
+            }}
         """)
 
         # Extract available meeting Work Items, Agenda Items, companies, and lineage
@@ -332,13 +333,13 @@ class PreMeetingExportDialog(QDialog):
 
         # --- Header Card ---
         header_frame = QFrame()
-        header_frame.setStyleSheet("""
-            QFrame {
-                background-color: #F0FDFA;
-                border: 1px solid #99F6E4;
+        header_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.TEAL_SURFACE};
+                border: 1px solid {C.TEAL_BORDER};
                 border-radius: 6px;
                 padding: 6px;
-            }
+            }}
         """)
         header_layout = QVBoxLayout(header_frame)
         header_layout.setContentsMargins(8, 4, 8, 4)
@@ -348,7 +349,7 @@ class PreMeetingExportDialog(QDialog):
         mtg = str(self.mtg_info.get("meeting_number", "")).strip()
         title_text = f"<b>🧭 {wg} #{mtg} Pre-Meeting Briefing & Dossier Export</b>" if (wg or mtg) else "<b>🧭 Pre-Meeting Briefing & Dossier Export</b>"
         lbl_title = QLabel(title_text)
-        lbl_title.setStyleSheet("font-size: 13px; color: #0F766E; font-weight: bold; border: none;")
+        lbl_title.setStyleSheet(f"font-size: 13px; color: {C.TEAL_DARK}; font-weight: bold; border: none;")
         lbl_sub = QLabel(
             "Generates a structured pre-meeting briefing covering incoming LS, proposed candidate LS replies, "
             "draft CRs/pCRs, and company discussion papers with revision deduplication and contributor analytics."
@@ -502,7 +503,7 @@ class PreMeetingExportDialog(QDialog):
         comp_filter_layout.addWidget(comp_lbl)
 
         self.combo_company = QComboBox()
-        self.combo_company.setStyleSheet("padding: 3px 6px; font-size: 11px; background: white; border: 1px solid #CBD5E1; border-radius: 4px;")
+        self.combo_company.setStyleSheet(f"padding: 3px 6px; font-size: 11px; background: white; border: 1px solid {C.BORDER_STRONG}; border-radius: 4px;")
         self.combo_company.addItem("All Contributors (No Filter)")
         for c in self.meeting_companies:
             self.combo_company.addItem(f"🏢 {c}", c)
@@ -550,7 +551,7 @@ class PreMeetingExportDialog(QDialog):
         # Pre-Meeting Lineage & Reservation Controls
         sep_line = QFrame()
         sep_line.setFrameShape(QFrame.HLine)
-        sep_line.setStyleSheet("color: #E2E8F0; margin: 4px 0;")
+        sep_line.setStyleSheet(f"color: {C.BORDER_SUBTLE}; margin: 4px 0;")
         docs_layout.addWidget(self.chk_ls_in)
         docs_layout.addWidget(self.chk_ls_out)
         docs_layout.addWidget(self.chk_pcr)
@@ -664,21 +665,21 @@ class PreMeetingExportDialog(QDialog):
         btn_layout.addWidget(btn_cancel)
 
         btn_start = QPushButton("🚀 Start Pre-Meeting Export")
-        btn_start.setStyleSheet("""
-            QPushButton {
+        btn_start.setStyleSheet(f"""
+            QPushButton {{
                 background-color: #0D9488;
-                color: #FFFFFF;
+                color: {C.BG_CARD};
                 font-weight: bold;
                 border-radius: 4px;
                 padding: 6px 16px;
-                border: 1px solid #0F766E;
-            }
-            QPushButton:hover {
-                background-color: #0F766E;
-            }
-            QPushButton:pressed {
+                border: 1px solid {C.TEAL_DARK};
+            }}
+            QPushButton:hover {{
+                background-color: {C.TEAL_DARK};
+            }}
+            QPushButton:pressed {{
                 background-color: #115E59;
-            }
+            }}
         """)
         btn_start.setDefault(True)
         btn_start.clicked.connect(self._on_start_clicked)
@@ -908,10 +909,10 @@ class PreMeetingExportDialog(QDialog):
         is_custom = self.rb_custom.isChecked()
         if is_custom:
             self.lbl_custom_hint.setText("⚡ <b>Custom Selection:</b> Choose specific Work Items and Agenda Items to export:")
-            self.lbl_custom_hint.setStyleSheet("font-size: 11px; color: #0F766E;")
+            self.lbl_custom_hint.setStyleSheet(f"font-size: 11px; color: {C.TEAL_DARK};")
         else:
             self.lbl_custom_hint.setText("💡 <i>Check any item below or select 'Custom Selection' to customize scope:</i>")
-            self.lbl_custom_hint.setStyleSheet("font-size: 11px; color: #64748B;")
+            self.lbl_custom_hint.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED};")
 
     def _on_scope_radio_toggled(self, checked: bool):
         self._sync_scope_ui_state()
@@ -1091,31 +1092,31 @@ class PreMeetingExportDialog(QDialog):
                 f"📊 <b>Estimated Pre-Meeting Scope:</b> {total} Active Proposals across {n_wis} Work Items, "
                 f"{n_ais} Agenda Items, and {n_comps} Companies{summary_str}{dedup_note}"
             )
-            self.lbl_estimate.setStyleSheet("""
-                QLabel {
-                    background-color: #F0FDF4;
-                    border: 1px solid #BBF7D0;
+            self.lbl_estimate.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {C.SUCCESS_SOFT};
+                    border: 1px solid {C.SUCCESS_BORDER};
                     border-radius: 6px;
                     padding: 6px 10px;
                     font-size: 11px;
-                    color: #166534;
+                    color: {C.SUCCESS_DARK};
                     font-weight: 500;
-                }
+                }}
             """)
         else:
             self.lbl_estimate.setText(
                 "⚠️ <b>Estimated Scope:</b> 0 TDocs match current criteria. Adjust scope, filters, or document types."
             )
-            self.lbl_estimate.setStyleSheet("""
-                QLabel {
-                    background-color: #FFFBEB;
-                    border: 1px solid #FDE68A;
+            self.lbl_estimate.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {C.WARNING_SOFT};
+                    border: 1px solid {C.WARNING_BORDER};
                     border-radius: 6px;
                     padding: 6px 10px;
                     font-size: 11px;
-                    color: #B45309;
+                    color: {C.WARNING};
                     font-weight: 500;
-                }
+                }}
             """)
 
     def _browse_destination(self):
@@ -1148,15 +1149,15 @@ class PreMeetingExportDialog(QDialog):
                     f"({md_count} existing TDocs will be preserved and merged into the index)."
                 )
             self.lbl_dest_status.setText(msg)
-            self.lbl_dest_status.setStyleSheet("""
-                QLabel {
-                    background-color: #F0FDF4;
-                    border: 1px solid #BBF7D0;
+            self.lbl_dest_status.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {C.SUCCESS_SOFT};
+                    border: 1px solid {C.SUCCESS_BORDER};
                     border-radius: 4px;
                     padding: 4px 8px;
                     font-size: 11px;
-                    color: #166534;
-                }
+                    color: {C.SUCCESS_DARK};
+                }}
             """)
             self.lbl_dest_status.setVisible(True)
         else:

@@ -2,6 +2,7 @@
 from PyQt5.QtCore import pyqtSignal, QRectF, QSize, QEvent, Qt, QPoint
 from PyQt5.QtGui import QTextDocument, QPainter, QColor, QPen
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem, QStyle
+from core.ui.theme import C
 
 
 class HtmlDelegate(QStyledItemDelegate):
@@ -80,7 +81,7 @@ class TDocActionDelegate(QStyledItemDelegate):
             bg_color, border_color, text_color = QColor("#FFF4CE"), QColor("#F3C74C"), QColor("#B85C00")
             text = "⏳ Fetching"
         else:
-            bg_color, border_color, text_color = QColor("#E1F0FF"), QColor("#99C9FF"), QColor("#005A9E")
+            bg_color, border_color, text_color = QColor("#E1F0FF"), QColor("#99C9FF"), QColor(C.OFFICE_BLUE)
             text = "⬇ Download"
 
         if has_revs and state != 'LOADING':
@@ -160,9 +161,9 @@ class AgendaItemDelegate(QStyledItemDelegate):
             pill_rect = QRectF(rect.left() + pill_margin, rect.top() + 24, rect.width() - (2 * pill_margin), pill_h)
 
             if pill_rect.width() > 16:
-                bg_color = QColor("#F1F5F9") if not (options.state & QStyle.State_Selected) else QColor("#DBEAFE")
-                border_color = QColor("#CBD5E1") if not (options.state & QStyle.State_Selected) else QColor("#93C5FD")
-                text_color = QColor("#334155") if not (options.state & QStyle.State_Selected) else QColor("#1E40AF")
+                bg_color = QColor(C.BG_CANVAS) if not (options.state & QStyle.State_Selected) else QColor(C.INFO_SOFT_STRONG)
+                border_color = QColor(C.BORDER_STRONG) if not (options.state & QStyle.State_Selected) else QColor(C.INFO_BORDER_MEDIUM)
+                text_color = QColor(C.TEXT_BODY) if not (options.state & QStyle.State_Selected) else QColor(C.INFO_DARK)
 
                 painter.setBrush(bg_color)
                 painter.setPen(QPen(border_color, 1))
@@ -216,7 +217,7 @@ class SourceCompanyDelegate(QStyledItemDelegate):
             if is_selected
             else options.palette.color(options.palette.Normal, options.palette.Text).name()
         )
-        tentative_color = "#64748B" if is_selected else "#94A3B8"
+        tentative_color = C.TEXT_MUTED if is_selected else C.TEXT_FAINT
 
         import html as _html
         parts = []

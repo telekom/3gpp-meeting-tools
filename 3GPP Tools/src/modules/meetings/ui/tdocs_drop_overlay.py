@@ -9,6 +9,7 @@ from typing import List, Optional
 from PyQt5.QtCore import QRectF, Qt
 from PyQt5.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
 from PyQt5.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from core.ui.theme import C
 
 
 class _OverlayCard(QFrame):
@@ -23,7 +24,7 @@ class _OverlayCard(QFrame):
         painter.setBrush(QBrush(QColor(240, 247, 255, 245)))  # Blue 50 with 96% opacity
 
         # Anti-aliased dashed border
-        pen = QPen(QColor("#2563EB"), 2.0, Qt.DashLine)
+        pen = QPen(QColor(C.ACCENT_ALT), 2.0, Qt.DashLine)
         pen.setDashPattern([8, 5])
         pen.setCapStyle(Qt.RoundCap)
         pen.setJoinStyle(Qt.RoundJoin)
@@ -72,11 +73,11 @@ class DropOverlayWidget(QWidget):
         icon_lbl.setAlignment(Qt.AlignCenter)
 
         text_lbl = QLabel(f"<b>{title}</b>")
-        text_lbl.setStyleSheet("font-size: 15px; color: #0F172A; border: none; background: transparent;")
+        text_lbl.setStyleSheet(f"font-size: 15px; color: {C.TEXT_PRIMARY}; border: none; background: transparent;")
         text_lbl.setAlignment(Qt.AlignCenter)
 
         sub_lbl = QLabel("Supports single or multiple files (smart automatic extraction & parsing)")
-        sub_lbl.setStyleSheet("font-size: 12px; color: #475569; border: none; background: transparent;")
+        sub_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_SECONDARY}; border: none; background: transparent;")
         sub_lbl.setAlignment(Qt.AlignCenter)
 
         badges_row = QHBoxLayout()
@@ -84,16 +85,16 @@ class DropOverlayWidget(QWidget):
         badges_row.setAlignment(Qt.AlignCenter)
         for ext in (supported_exts or [".docx", ".doc", ".htm", ".zip"]):
             b = QLabel(ext)
-            b.setStyleSheet("""
-                QLabel {
-                    background-color: #EFF6FF;
-                    color: #1D4ED8;
-                    border: 1px solid #BFDBFE;
+            b.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {C.INFO_SOFT};
+                    color: {C.INFO};
+                    border: 1px solid {C.INFO_BORDER};
                     border-radius: 4px;
                     font-size: 10px;
                     font-weight: 600;
                     padding: 2px 7px;
-                }
+                }}
             """)
             badges_row.addWidget(b)
 

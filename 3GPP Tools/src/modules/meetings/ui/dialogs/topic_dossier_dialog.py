@@ -46,77 +46,78 @@ from modules.meetings.ui.topic_pills import (
     TagCloudWidget,
     AgendaItemPillsWidget,
 )
+from core.ui.theme import C
 
 ALL_COMMON_WGS = ["SA2", "RAN2", "RAN3", "CT1", "RAN1", "SA3", "CT3", "CT4", "SA1", "SA4", "SA5", "RAN4"]
 
-STYLE_CARD = """
-    QFrame#CardFrame {
-        background-color: #FFFFFF;
-        border: 1px solid #E2E8F0;
+STYLE_CARD = f"""
+    QFrame#CardFrame {{
+        background-color: {C.BG_CARD};
+        border: 1px solid {C.BORDER_SUBTLE};
         border-radius: 8px;
-    }
+    }}
 """
 
-STYLE_PRIMARY_BTN = """
-    QPushButton {
-        background-color: #10B981;
-        color: #FFFFFF;
+STYLE_PRIMARY_BTN = f"""
+    QPushButton {{
+        background-color: {C.EMERALD_ACCENT};
+        color: {C.BG_CARD};
         font-weight: bold;
-        border: 1px solid #059669;
+        border: 1px solid {C.EMERALD_PRIMARY};
         border-radius: 6px;
         padding: 6px 16px;
         font-size: 12px;
-    }
-    QPushButton:hover {
-        background-color: #059669;
-    }
-    QPushButton:disabled {
-        background-color: #94A3B8;
-        border-color: #94A3B8;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {C.EMERALD_PRIMARY};
+    }}
+    QPushButton:disabled {{
+        background-color: {C.TEXT_FAINT};
+        border-color: {C.TEXT_FAINT};
+    }}
 """
 
-STYLE_SECONDARY_BTN = """
-    QPushButton {
-        background-color: #F8FAFC;
-        color: #1E293B;
-        border: 1px solid #CBD5E1;
+STYLE_SECONDARY_BTN = f"""
+    QPushButton {{
+        background-color: {C.BG_SURFACE};
+        color: {C.TEXT_STRONG};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 6px;
         padding: 5px 12px;
         font-size: 11px;
         font-weight: 500;
-    }
-    QPushButton:hover {
-        background-color: #F1F5F9;
-        border-color: #94A3B8;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {C.BG_CANVAS};
+        border-color: {C.TEXT_FAINT};
+    }}
 """
 
-STYLE_MODE_ACTIVE = """
-    QPushButton {
-        background-color: #2563EB;
-        color: #FFFFFF;
+STYLE_MODE_ACTIVE = f"""
+    QPushButton {{
+        background-color: {C.ACCENT_ALT};
+        color: {C.BG_CARD};
         font-weight: bold;
-        border: 1px solid #1D4ED8;
+        border: 1px solid {C.INFO};
         border-radius: 6px;
         padding: 6px 12px;
         font-size: 11px;
-    }
+    }}
 """
 
-STYLE_MODE_INACTIVE = """
-    QPushButton {
-        background-color: #FFFFFF;
-        color: #475569;
-        border: 1px solid #CBD5E1;
+STYLE_MODE_INACTIVE = f"""
+    QPushButton {{
+        background-color: {C.BG_CARD};
+        color: {C.TEXT_SECONDARY};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 6px;
         padding: 6px 12px;
         font-size: 11px;
-    }
-    QPushButton:hover {
-        background-color: #F8FAFC;
-        color: #0F172A;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {C.BG_SURFACE};
+        color: {C.TEXT_PRIMARY};
+    }}
 """
 
 
@@ -381,7 +382,7 @@ class TopicEditorDialog(QDialog):
             id=topic_id,
             name=name,
             description=self.edit_desc.text().strip(),
-            color=self.topic.color if self.topic else "#10B981",
+            color=self.topic.color if self.topic else C.EMERALD_ACCENT,
             target_wgs=wgs,
             cycle_mode=self.topic.cycle_mode if self.topic else "past_n_cycles",
             past_n_cycles=self.topic.past_n_cycles if self.topic else 4,
@@ -429,28 +430,28 @@ class TopicDossierDialog(QDialog):
         left_layout.setSpacing(8)
 
         lbl_topics = QLabel("<b>🗂️ Meta-Topics</b>")
-        lbl_topics.setStyleSheet("font-size: 13px; color: #1E293B;")
+        lbl_topics.setStyleSheet(f"font-size: 13px; color: {C.TEXT_STRONG};")
         left_layout.addWidget(lbl_topics)
 
         self.list_topics = QListWidget()
-        self.list_topics.setStyleSheet("""
-            QListWidget {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.list_topics.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 padding: 4px;
-            }
-            QListWidget::item {
+            }}
+            QListWidget::item {{
                 padding: 8px 10px;
                 border-radius: 4px;
                 margin-bottom: 2px;
-            }
-            QListWidget::item:selected {
-                background-color: #EFF6FF;
-                color: #1D4ED8;
+            }}
+            QListWidget::item:selected {{
+                background-color: {C.INFO_SOFT};
+                color: {C.INFO};
                 font-weight: bold;
-                border: 1px solid #BFDBFE;
-            }
+                border: 1px solid {C.INFO_BORDER};
+            }}
         """)
         self.list_topics.currentRowChanged.connect(self._on_topic_selected)
         left_layout.addWidget(self.list_topics)
@@ -499,11 +500,11 @@ class TopicDossierDialog(QDialog):
 
         # 1. Topic Header
         self.lbl_topic_title = QLabel("Select a Topic")
-        self.lbl_topic_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #0F172A;")
+        self.lbl_topic_title.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {C.TEXT_PRIMARY};")
         right_layout.addWidget(self.lbl_topic_title)
 
         self.lbl_topic_desc = QLabel("Description...")
-        self.lbl_topic_desc.setStyleSheet("color: #64748B; font-size: 11px;")
+        self.lbl_topic_desc.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         self.lbl_topic_desc.setWordWrap(True)
         right_layout.addWidget(self.lbl_topic_desc)
 
@@ -567,7 +568,7 @@ class TopicDossierDialog(QDialog):
         cycle_layout.addWidget(self.date_range_widget, 1, 1)
 
         self.lbl_cohorts_summary = QLabel("Covering: SA2, RAN2, CT1 across 4 meeting rounds")
-        self.lbl_cohorts_summary.setStyleSheet("color: #475569; font-size: 11px;")
+        self.lbl_cohorts_summary.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px;")
         cycle_layout.addWidget(self.lbl_cohorts_summary, 2, 0, 1, 2)
         right_layout.addWidget(cycle_box)
 
@@ -618,7 +619,7 @@ class TopicDossierDialog(QDialog):
         right_layout.addWidget(self.prog_bar)
 
         self.lbl_status = QLabel("Ready")
-        self.lbl_status.setStyleSheet("color: #64748B; font-size: 11px;")
+        self.lbl_status.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         right_layout.addWidget(self.lbl_status)
 
         action_layout = QHBoxLayout()
@@ -779,7 +780,7 @@ class TopicDossierDialog(QDialog):
                 preview_str += "..."
             self.lbl_cohorts_summary.setText(
                 f"Resolved: <b>{len(self.selected_cohorts)} Synchronized Meeting Round(s)</b> ({first_c} → {last_c}) with <b>{total_mtgs} meetings</b> across {', '.join(sorted(self.active_topic.target_wgs))}.<br/>"
-                f"<span style='color: #64748B;'>Recent meetings: {preview_str}</span>"
+                f"<span style='color: {C.TEXT_MUTED};'>Recent meetings: {preview_str}</span>"
             )
         else:
             self.lbl_cohorts_summary.setText("No meetings found matching this timeframe and target WGs.")
@@ -796,10 +797,10 @@ class TopicDossierDialog(QDialog):
             self.lbl_inc_status.setText(
                 "🔄 <b>Existing Corpus Detected:</b> Incremental update mode active (skips already exported TDocs, writes delta feed)."
             )
-            self.lbl_inc_status.setStyleSheet("color: #047857; font-size: 11px;")
+            self.lbl_inc_status.setStyleSheet(f"color: {C.EMERALD_DARK}; font-size: 11px;")
         else:
             self.lbl_inc_status.setText("🆕 <b>New Directory:</b> Initial complete export.")
-            self.lbl_inc_status.setStyleSheet("color: #2563EB; font-size: 11px;")
+            self.lbl_inc_status.setStyleSheet(f"color: {C.ACCENT_ALT}; font-size: 11px;")
 
     def _on_browse_dest(self):
         cur = self.edit_dest_folder.text().strip() or str(get_default_topic_export_base())

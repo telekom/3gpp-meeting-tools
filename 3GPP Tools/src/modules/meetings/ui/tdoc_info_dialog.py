@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -44,53 +45,53 @@ class TDocInfoDialog(QDialog):
         self.setWindowTitle(f"TDoc Details: {tdoc_id}")
         self.resize(650, 720)
         self.setMinimumWidth(580)
-        self.setStyleSheet("""
-            QDialog {
+        self.setStyleSheet(f"""
+            QDialog {{
                 background-color: #F8F9FA;
-            }
-            QFrame#cardFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #E2E8F0;
+            }}
+            QFrame#cardFrame {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 8px;
-            }
-            QLabel {
+            }}
+            QLabel {{
                 font-size: 13px;
                 color: #2D3748;
-            }
-            QPushButton {
+            }}
+            QPushButton {{
                 padding: 6px 14px;
                 font-size: 12px;
                 border-radius: 4px;
                 border: 1px solid #CBD5E0;
-                background-color: #FFFFFF;
+                background-color: {C.BG_CARD};
                 color: #2D3748;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 background-color: #EDF2F7;
                 border-color: #A0AEC0;
-            }
-            QPushButton#primaryActionBtn {
-                background-color: #005A9E;
-                color: #FFFFFF;
-                border: 1px solid #004578;
+            }}
+            QPushButton#primaryActionBtn {{
+                background-color: {C.OFFICE_BLUE};
+                color: {C.BG_CARD};
+                border: 1px solid {C.OFFICE_BLUE_DARK};
                 font-weight: bold;
-            }
-            QPushButton#primaryActionBtn:hover {
-                background-color: #004578;
-            }
-            QPushButton#revChipBtn {
+            }}
+            QPushButton#primaryActionBtn:hover {{
+                background-color: {C.OFFICE_BLUE_DARK};
+            }}
+            QPushButton#revChipBtn {{
                 background-color: #F0F4F8;
                 border: 1px solid #D2E3FC;
                 border-radius: 12px;
                 padding: 3px 10px;
                 font-size: 11px;
-                color: #005A9E;
+                color: {C.OFFICE_BLUE};
                 font-weight: bold;
-            }
-            QPushButton#revChipBtn:hover {
+            }}
+            QPushButton#revChipBtn:hover {{
                 background-color: #E1EFFF;
-                border-color: #005A9E;
-            }
+                border-color: {C.OFFICE_BLUE};
+            }}
         """)
 
         layout = QVBoxLayout(self)
@@ -109,10 +110,10 @@ class TDocInfoDialog(QDialog):
 
         # Document Type Badge
         type_badge = QLabel(f"<b>{tdoc_type}</b>")
-        type_badge.setStyleSheet("""
-            background-color: #EBF8FF;
-            color: #2B6CB0;
-            border: 1px solid #BEE3F8;
+        type_badge.setStyleSheet(f"""
+            background-color: {C.INFO_SOFT_ALT};
+            color: {C.INFO_ALT};
+            border: 1px solid {C.INFO_BORDER_ALT};
             border-radius: 4px;
             padding: 2px 8px;
             font-size: 12px;
@@ -207,7 +208,7 @@ class TDocInfoDialog(QDialog):
         # FTP Download URL
         if self.docs_ftp_url and tdoc_id != "Unknown":
             doc_url = f"{self.docs_ftp_url}/{tdoc_id}.zip"
-            ftp_label = QLabel(f'<a href="{doc_url}" style="color: #005A9E; text-decoration: none;">{doc_url}</a>')
+            ftp_label = QLabel(f'<a href="{doc_url}" style="color: {C.OFFICE_BLUE}; text-decoration: none;">{doc_url}</a>')
             ftp_label.setOpenExternalLinks(True)
             ftp_label.setTextInteractionFlags(Qt.TextBrowserInteraction | Qt.TextSelectableByMouse)
             form.addRow(self._make_key_label("FTP Download:"), ftp_label)
@@ -290,7 +291,7 @@ class TDocInfoDialog(QDialog):
     def _get_status_badge_style(self, status: str) -> str:
         s = status.lower()
         if "agreed" in s or "approved" in s:
-            return "background-color: #E6F4EA; color: #137333; border: 1px solid #CEEAD6; border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: bold;"
+            return f"background-color: {C.SUCCESS_SOFT_MINT}; color: {C.SUCCESS_ALT}; border: 1px solid {C.SUCCESS_BORDER_MINT}; border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: bold;"
         if "noted" in s or "postponed" in s:
             return "background-color: #FEF7E0; color: #B06000; border: 1px solid #FEEFC3; border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: bold;"
         if "revised" in s or "withdrawn" in s:

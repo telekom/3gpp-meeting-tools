@@ -18,6 +18,7 @@ from modules.meetings.ui.dialogs.excel_export_dialog import (
     DEFAULT_SELECTED_COLUMNS,
     ExcelExportDialog,
 )
+from core.ui.theme import C
 
 
 class ReadOnlyViewerDialog(QDialog):
@@ -25,7 +26,7 @@ class ReadOnlyViewerDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.resize(600, 450)
-        self.setStyleSheet("QDialog { background-color: #FAFAFA; }")
+        self.setStyleSheet(f"QDialog {{ background-color: {C.BG_ALT_LIGHT}; }}")
 
         layout = QVBoxLayout(self)
         self.text_edit = QTextEdit()
@@ -37,12 +38,12 @@ class ReadOnlyViewerDialog(QDialog):
         btn_layout = QHBoxLayout()
         copy_btn = QPushButton("📋 Copy All")
         copy_btn.setStyleSheet(
-            "padding: 6px 15px; font-weight: bold; background-color: #005A9E; color: white; border-radius: 4px;")
+            f"padding: 6px 15px; font-weight: bold; background-color: {C.OFFICE_BLUE}; color: white; border-radius: 4px;")
         copy_btn.clicked.connect(lambda: [QApplication.clipboard().setText(text), self.accept()])
 
         close_btn = QPushButton("Close")
         close_btn.setStyleSheet(
-            "padding: 6px 15px; background-color: #E0E0E0; border: 1px solid #CCC; border-radius: 4px;")
+            f"padding: 6px 15px; background-color: {C.BORDER_GRAY}; border: 1px solid #CCC; border-radius: 4px;")
         close_btn.clicked.connect(self.accept)
 
         btn_layout.addStretch()
@@ -64,7 +65,7 @@ class InteractiveNotesDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(f"📝 Notes & Status: {tdoc_id}")
         self.resize(600, 500)
-        self.setStyleSheet("QDialog { background-color: #FAFAFA; }")
+        self.setStyleSheet(f"QDialog {{ background-color: {C.BG_ALT_LIGHT}; }}")
         self.db_save_callback = db_save_callback
         self.tdoc_id = tdoc_id
 
@@ -98,7 +99,7 @@ class InteractiveNotesDialog(QDialog):
         clean_notes = row_data.get("My Notes", "").replace("🔄 [From Base]: ", "").replace("🔄 [From Base]", "").strip()
         self.my_notes.setPlainText(clean_notes)
         self.my_notes.setStyleSheet(
-            "font-size: 13px; padding: 10px; background-color: white; border: 1px solid #005A9E;"
+            f"font-size: 13px; padding: 10px; background-color: white; border: 1px solid {C.OFFICE_BLUE};"
         )
         layout.addWidget(self.my_notes)
 
@@ -129,7 +130,7 @@ class StatisticsSettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("⚙️ Global Tools Configuration")
         self.resize(550, 620)  # Made slightly taller to fit the new settings
-        self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 13px; color: #333; }")
+        self.setStyleSheet(f"QDialog {{ background-color: {C.BG_ALT_LIGHT}; }} QLabel {{ font-size: 13px; color: #333; }}")
 
         self.config_path = get_project_root() / "config" / "stats_config.json"
         self.config = self.load_config()
@@ -219,12 +220,12 @@ class StatisticsSettingsDialog(QDialog):
         btn_layout = QHBoxLayout()
         save_btn = QPushButton("💾 Save && Apply")
         save_btn.setStyleSheet(
-            "padding: 6px 15px; font-weight: bold; background-color: #005A9E; color: white; border-radius: 4px;")
+            f"padding: 6px 15px; font-weight: bold; background-color: {C.OFFICE_BLUE}; color: white; border-radius: 4px;")
         save_btn.clicked.connect(self.save_config)
 
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setStyleSheet(
-            "padding: 6px 15px; background-color: #E0E0E0; border: 1px solid #CCC; border-radius: 4px;")
+            f"padding: 6px 15px; background-color: {C.BORDER_GRAY}; border: 1px solid #CCC; border-radius: 4px;")
         cancel_btn.clicked.connect(self.reject)
 
         btn_layout.addStretch()

@@ -48,6 +48,7 @@ from modules.meetings.core.session_plan.session_plan_models import (
     UserSessionAnnotation,
 )
 from modules.meetings.core.session_plan.session_plan_timezone import SessionPlanTimezone
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ class SessionPlanTimezoneDialog(QDialog):
 
         # Header Info Banner
         info_frame = QFrame()
-        info_frame.setStyleSheet("background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px;")
+        info_frame.setStyleSheet(f"background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px; padding: 10px;")
         info_layout = QVBoxLayout(info_frame)
         info_layout.setSpacing(4)
 
@@ -103,12 +104,12 @@ class SessionPlanTimezoneDialog(QDialog):
         lap_m = abs(self.laptop_offset_min) % 60
         lap_str = f"UTC{lap_sign}{lap_h:02d}:{lap_m:02d}"
         laptop_lbl = QLabel(f"💻 <b>Your Corporate Laptop Clock:</b> {lap_str} (Austrian Time)")
-        laptop_lbl.setStyleSheet("color: #475569;")
+        laptop_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY};")
         info_layout.addWidget(laptop_lbl)
 
         expl = QLabel("3GPP Session Plans are published in <b>Meeting Local Time</b>. Selecting the correct venue timezone ensures live session indicators, reminders, and calendar exports trigger accurately.")
         expl.setWordWrap(True)
-        expl.setStyleSheet("font-size: 11px; color: #64748B; margin-top: 4px;")
+        expl.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED}; margin-top: 4px;")
         info_layout.addWidget(expl)
         layout.addWidget(info_frame)
 
@@ -159,7 +160,7 @@ class SessionPlanTimezoneDialog(QDialog):
         btn_box.addWidget(cancel_btn)
 
         save_btn = QPushButton("✔ Confirm Timezone")
-        save_btn.setStyleSheet("background: #2563EB; color: #FFFFFF; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
+        save_btn.setStyleSheet(f"background: {C.ACCENT_ALT}; color: {C.BG_CARD}; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
         save_btn.clicked.connect(self.accept)
         btn_box.addWidget(save_btn)
         layout.addLayout(btn_box)
@@ -176,12 +177,12 @@ class SessionPlanTimezoneDialog(QDialog):
         diff = self.laptop_offset_min - offset
         if diff == 0:
             self.diff_preview_lbl.setText("✨ Venue timezone matches your Austrian laptop clock (Zero offset).")
-            self.diff_preview_lbl.setStyleSheet("background: #F0FDF4; color: #166534;")
+            self.diff_preview_lbl.setStyleSheet(f"background: {C.SUCCESS_SOFT}; color: {C.SUCCESS_DARK};")
         else:
             diff_h = abs(diff) // 60
             ahead_behind = "ahead of" if diff < 0 else "behind"
             self.diff_preview_lbl.setText(f"🕒 Venue is {diff_h} hour(s) {ahead_behind} your Austrian laptop clock.")
-            self.diff_preview_lbl.setStyleSheet("background: #FFFBEB; color: #B45309;")
+            self.diff_preview_lbl.setStyleSheet(f"background: {C.WARNING_SOFT}; color: {C.WARNING};")
 
     def get_selected_offset(self) -> int:
         data = self.preset_combo.currentData()
@@ -226,12 +227,12 @@ class SessionPlanImportDialog(QDialog):
 
         hint = QLabel("💡 <i>Entering just the TDoc number (e.g. <b>S2-2610195</b>) automatically checks the local on-site meeting server (10.10.10.10), SYNC folder, /INBOX/, and /Docs/.</i>")
         hint.setWordWrap(True)
-        hint.setStyleSheet("font-size: 11px; color: #64748B; margin-top: 4px;")
+        hint.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED}; margin-top: 4px;")
         vbox_url.addWidget(hint)
         vbox_url.addStretch()
 
         btn_url = QPushButton("⬇️ Download && Import")
-        btn_url.setStyleSheet("background: #2563EB; color: #FFFFFF; font-weight: 600; padding: 6px 12px; border-radius: 6px;")
+        btn_url.setStyleSheet(f"background: {C.ACCENT_ALT}; color: {C.BG_CARD}; font-weight: 600; padding: 6px 12px; border-radius: 6px;")
         btn_url.clicked.connect(self._on_import_url)
         vbox_url.addWidget(btn_url)
         tabs.addTab(tab_url, "🔗 URL / TDoc#")
@@ -250,12 +251,12 @@ class SessionPlanImportDialog(QDialog):
         vbox_file.addLayout(hbox_file)
 
         file_hint = QLabel("Supports Word Documents (<b>.docx</b>, <b>.doc</b>), <b>.zip</b> archives, or HTML tables.")
-        file_hint.setStyleSheet("font-size: 11px; color: #64748B;")
+        file_hint.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED};")
         vbox_file.addWidget(file_hint)
         vbox_file.addStretch()
 
         btn_file = QPushButton("📥 Load File")
-        btn_file.setStyleSheet("background: #2563EB; color: #FFFFFF; font-weight: 600; padding: 6px 12px; border-radius: 6px;")
+        btn_file.setStyleSheet(f"background: {C.ACCENT_ALT}; color: {C.BG_CARD}; font-weight: 600; padding: 6px 12px; border-radius: 6px;")
         btn_file.clicked.connect(self._on_import_file)
         vbox_file.addWidget(btn_file)
         tabs.addTab(tab_file, "📂 Browse File")
@@ -269,7 +270,7 @@ class SessionPlanImportDialog(QDialog):
         vbox_paste.addWidget(self.paste_edit)
 
         btn_paste = QPushButton("📋 Parse Pasted Table")
-        btn_paste.setStyleSheet("background: #2563EB; color: #FFFFFF; font-weight: 600; padding: 6px 12px; border-radius: 6px;")
+        btn_paste.setStyleSheet(f"background: {C.ACCENT_ALT}; color: {C.BG_CARD}; font-weight: 600; padding: 6px 12px; border-radius: 6px;")
         btn_paste.clicked.connect(self._on_import_paste)
         vbox_paste.addWidget(btn_paste)
         tabs.addTab(tab_paste, "📋 Paste Table")
@@ -327,7 +328,7 @@ class SessionPlanDiffDialog(QDialog):
 
         # KPI Banner
         kpi_frame = QFrame()
-        kpi_frame.setStyleSheet("background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px;")
+        kpi_frame.setStyleSheet(f"background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px; padding: 10px;")
         kpi_layout = QHBoxLayout(kpi_frame)
 
         moved_count = len(self.diff.moved_items)
@@ -426,7 +427,7 @@ class SessionPlanNoteDialog(QDialog):
         btn_box.addWidget(cancel_btn)
 
         save_btn = QPushButton("💾 Save Note")
-        save_btn.setStyleSheet("background: #2563EB; color: #FFFFFF; font-weight: 600; padding: 6px 12px; border-radius: 6px;")
+        save_btn.setStyleSheet(f"background: {C.ACCENT_ALT}; color: {C.BG_CARD}; font-weight: 600; padding: 6px 12px; border-radius: 6px;")
         save_btn.clicked.connect(self.accept)
         btn_box.addWidget(save_btn)
         layout.addLayout(btn_box)
@@ -465,14 +466,14 @@ class SessionPlanTrackedTopicsDialog(QDialog):
 
         # Header info
         hdr_frame = QFrame()
-        hdr_frame.setStyleSheet("background: #F5F3FF; border: 1px solid #DDD6FE; border-radius: 8px; padding: 10px;")
+        hdr_frame.setStyleSheet(f"background: {C.VIOLET_SURFACE}; border: 1px solid {C.VIOLET_BORDER}; border-radius: 8px; padding: 10px;")
         hdr_layout = QVBoxLayout(hdr_frame)
         hdr_layout.setSpacing(4)
         t_lbl = QLabel("<b>Tracked Topics & Followed Agenda Items</b>")
-        t_lbl.setStyleSheet("color: #5B21B6; font-size: 13px;")
+        t_lbl.setStyleSheet(f"color: {C.VIOLET_DARK}; font-size: 13px;")
         hdr_layout.addWidget(t_lbl)
         desc_lbl = QLabel("Tracked topics are highlighted in purple across the Overview Grid and populate your personal <b>'My Topics'</b> schedule and parallel conflict detector.")
-        desc_lbl.setStyleSheet("color: #6D28D9; font-size: 11px;")
+        desc_lbl.setStyleSheet(f"color: {C.VIOLET_PRIMARY}; font-size: 11px;")
         desc_lbl.setWordWrap(True)
         hdr_layout.addWidget(desc_lbl)
         layout.addWidget(hdr_frame)
@@ -487,7 +488,7 @@ class SessionPlanTrackedTopicsDialog(QDialog):
 
         btn_auto = QPushButton("⭐ Track Followed WIs")
         btn_auto.setToolTip("Automatically check all Agenda Items matching your tracked Work Items watchlist.")
-        btn_auto.setStyleSheet("background: #EDE9FE; color: #6D28D9; font-weight: 600; padding: 4px 10px; border-radius: 6px; border: 1px solid #DDD6FE;")
+        btn_auto.setStyleSheet(f"background: {C.VIOLET_SOFT}; color: {C.VIOLET_PRIMARY}; font-weight: 600; padding: 4px 10px; border-radius: 6px; border: 1px solid {C.VIOLET_BORDER};")
         btn_auto.clicked.connect(self._check_followed_wis)
         filter_layout.addWidget(btn_auto)
 
@@ -503,7 +504,7 @@ class SessionPlanTrackedTopicsDialog(QDialog):
 
         # Checklist
         self.list_widget = QListWidget()
-        self.list_widget.setStyleSheet("QListWidget::item { padding: 4px; border-bottom: 1px solid #F1F5F9; }")
+        self.list_widget.setStyleSheet(f"QListWidget::item {{ padding: 4px; border-bottom: 1px solid {C.BG_CANVAS}; }}")
 
         # Populate with agenda items
         import re
@@ -549,7 +550,7 @@ class SessionPlanTrackedTopicsDialog(QDialog):
         bottom_bar.addWidget(cancel_btn)
 
         save_btn = QPushButton("💾 Save Tracked Topics")
-        save_btn.setStyleSheet("background: #2563EB; color: #FFFFFF; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
+        save_btn.setStyleSheet(f"background: {C.ACCENT_ALT}; color: {C.BG_CARD}; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
         save_btn.clicked.connect(self.accept)
         bottom_bar.addWidget(save_btn)
 
@@ -673,7 +674,7 @@ class DelegationMemberDialog(QDialog):
             btn.setFixedSize(26, 26)
             btn.setCursor(Qt.PointingHandCursor)
             is_active = (col.lower() == self.selected_color.lower())
-            border_style = "2px solid #0F172A" if is_active else "1px solid #CBD5E1"
+            border_style = f"2px solid {C.TEXT_PRIMARY}" if is_active else f"1px solid {C.BORDER_STRONG}"
             btn.setStyleSheet(f"background-color: {col}; border-radius: 13px; border: {border_style};")
             btn.clicked.connect(lambda _, c=col: self._select_palette_color(c))
             swatch_layout.addWidget(btn)
@@ -705,7 +706,7 @@ class DelegationMemberDialog(QDialog):
         btn_box.addWidget(cancel_btn)
 
         save_btn = QPushButton("💾 Save Member")
-        save_btn.setStyleSheet("background: #2563EB; color: #FFFFFF; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
+        save_btn.setStyleSheet(f"background: {C.ACCENT_ALT}; color: {C.BG_CARD}; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
         save_btn.clicked.connect(self._validate_and_accept)
         btn_box.addWidget(save_btn)
         layout.addLayout(btn_box)
@@ -715,9 +716,9 @@ class DelegationMemberDialog(QDialog):
         import re
         for btn in self.swatch_buttons:
             m = re.search(r"background-color:\s*(#[0-9a-fA-F]+)", btn.styleSheet())
-            b_col = m.group(1) if m else "#2563EB"
+            b_col = m.group(1) if m else C.ACCENT_ALT
             is_active = (b_col.lower() == hex_color.lower())
-            border_style = "3px solid #0F172A" if is_active else "1px solid #CBD5E1"
+            border_style = f"3px solid {C.TEXT_PRIMARY}" if is_active else f"1px solid {C.BORDER_STRONG}"
             btn.setStyleSheet(f"background-color: {b_col}; border-radius: 13px; border: {border_style};")
         self._update_preview()
 
@@ -786,7 +787,7 @@ class SessionDispatchDialog(QDialog):
 
         # Slot Info Card
         card = QFrame()
-        card.setStyleSheet("background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px;")
+        card.setStyleSheet(f"background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; padding: 10px;")
         card_lay = QVBoxLayout(card)
         card_lay.setContentsMargins(6, 6, 6, 6)
         card_lay.setSpacing(4)
@@ -840,11 +841,11 @@ class SessionDispatchDialog(QDialog):
             reason_item = QTableWidgetItem(reason_txt)
 
             if not is_free:
-                status_item.setForeground(QColor("#DC2626"))
-                reason_item.setForeground(QColor("#991B1B"))
-                reason_item.setBackground(QColor("#FEF2F2"))
+                status_item.setForeground(QColor(C.DANGER_ALT))
+                reason_item.setForeground(QColor(C.DANGER_DARK))
+                reason_item.setBackground(QColor(C.DANGER_SOFT))
             else:
-                status_item.setForeground(QColor("#16A34A"))
+                status_item.setForeground(QColor(C.GREEN_ACCENT))
 
             self.table.setItem(row, 0, status_item)
             self.table.setItem(row, 1, name_item)
@@ -871,7 +872,7 @@ class SessionDispatchDialog(QDialog):
         btn_box.addWidget(revert_btn)
 
         all_team_btn = QPushButton("👥 Appoint All Team")
-        all_team_btn.setStyleSheet("background: #4F46E5; color: #FFFFFF; font-weight: 600; padding: 6px 12px; border-radius: 6px;")
+        all_team_btn.setStyleSheet(f"background: #4F46E5; color: {C.BG_CARD}; font-weight: 600; padding: 6px 12px; border-radius: 6px;")
         all_team_btn.setToolTip("Appoints all delegates in the roster to attend this session together.")
         all_team_btn.clicked.connect(self._appoint_all_team)
         btn_box.addWidget(all_team_btn)
@@ -882,7 +883,7 @@ class SessionDispatchDialog(QDialog):
         btn_box.addWidget(cancel_btn)
 
         appoint_btn = QPushButton("⚡ Appoint Selected")
-        appoint_btn.setStyleSheet("background: #059669; color: #FFFFFF; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
+        appoint_btn.setStyleSheet(f"background: {C.EMERALD_PRIMARY}; color: {C.BG_CARD}; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
         appoint_btn.clicked.connect(self._validate_and_accept)
         btn_box.addWidget(appoint_btn)
         layout.addLayout(btn_box)
@@ -968,13 +969,13 @@ class MultiDelegateSelectDialog(QDialog):
 
         # Header info
         header_card = QFrame()
-        header_card.setStyleSheet("background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 8px;")
+        header_card.setStyleSheet(f"background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; padding: 8px;")
         h_lay = QVBoxLayout(header_card)
         h_lay.setContentsMargins(6, 6, 6, 6)
         h_lay.addWidget(QLabel("<b>Assign Delegate(s) for Topic:</b>"))
         lbl_top = QLabel(self.topic_title)
         lbl_top.setWordWrap(True)
-        lbl_top.setStyleSheet("color: #334155; font-size: 11px;")
+        lbl_top.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 11px;")
         h_lay.addWidget(lbl_top)
         layout.addWidget(header_card)
 
@@ -995,20 +996,20 @@ class MultiDelegateSelectDialog(QDialog):
 
         # "All Team" master checkbox
         self.chk_all = QCheckBox("👥 All Team (Everyone in Delegation)")
-        self.chk_all.setStyleSheet("font-weight: 700; font-size: 12px; color: #1E40AF; padding: 4px;")
+        self.chk_all.setStyleSheet(f"font-weight: 700; font-size: 12px; color: {C.INFO_DARK}; padding: 4px;")
         self.chk_all.setChecked(is_all_initial)
         self.chk_all.toggled.connect(self._on_all_toggled)
         layout.addWidget(self.chk_all)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet("color: #E2E8F0;")
+        sep.setStyleSheet(f"color: {C.BORDER_SUBTLE};")
         layout.addWidget(sep)
 
         # Scrollable individual member checkboxes
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px;")
+        scroll.setStyleSheet(f"background: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px;")
         member_widget = QWidget()
         member_lay = QVBoxLayout(member_widget)
         member_lay.setContentsMargins(8, 8, 8, 8)
@@ -1057,7 +1058,7 @@ class MultiDelegateSelectDialog(QDialog):
         btn_cancel = QPushButton("Cancel")
         btn_cancel.clicked.connect(self.reject)
         btn_ok = QPushButton("Apply Assignment")
-        btn_ok.setStyleSheet("background: #2563EB; color: #FFFFFF; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
+        btn_ok.setStyleSheet(f"background: {C.ACCENT_ALT}; color: {C.BG_CARD}; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
         btn_ok.clicked.connect(self.accept)
         btn_box.addWidget(btn_cancel)
         btn_box.addWidget(btn_ok)
@@ -1127,7 +1128,7 @@ class DelegationImportDialog(QDialog):
         self.btn_file.clicked.connect(self._browse_file)
         file_box.addWidget(self.btn_file)
         self.file_lbl = QLabel("No file loaded")
-        self.file_lbl.setStyleSheet("color: #64748B; font-style: italic;")
+        self.file_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-style: italic;")
         file_box.addWidget(self.file_lbl)
         file_box.addStretch()
         layout.addLayout(file_box)
@@ -1140,11 +1141,11 @@ class DelegationImportDialog(QDialog):
 
         # Status / Summary Banner
         self.status_banner = QFrame()
-        self.status_banner.setStyleSheet("background: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 6px; padding: 8px;")
+        self.status_banner.setStyleSheet(f"background: {C.BG_CANVAS}; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px; padding: 8px;")
         sb_lay = QVBoxLayout(self.status_banner)
         sb_lay.setContentsMargins(6, 4, 6, 4)
         self.status_lbl = QLabel("⏳ Waiting for plan input...")
-        self.status_lbl.setStyleSheet("color: #475569; font-weight: 500;")
+        self.status_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-weight: 500;")
         sb_lay.addWidget(self.status_lbl)
         layout.addWidget(self.status_banner)
 
@@ -1177,7 +1178,7 @@ class DelegationImportDialog(QDialog):
         btn_box.addWidget(cancel_btn)
 
         self.import_btn = QPushButton("📥 Import Plan")
-        self.import_btn.setStyleSheet("background: #2563EB; color: #FFFFFF; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
+        self.import_btn.setStyleSheet(f"background: {C.ACCENT_ALT}; color: {C.BG_CARD}; font-weight: 600; padding: 6px 14px; border-radius: 6px;")
         self.import_btn.setEnabled(False)
         self.import_btn.clicked.connect(self.accept)
         btn_box.addWidget(self.import_btn)
@@ -1197,7 +1198,7 @@ class DelegationImportDialog(QDialog):
         raw = self.text_edit.toPlainText().strip()
         if not raw:
             self.status_lbl.setText("⏳ Waiting for plan input...")
-            self.status_banner.setStyleSheet("background: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 6px; padding: 8px;")
+            self.status_banner.setStyleSheet(f"background: {C.BG_CANVAS}; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px; padding: 8px;")
             self.import_btn.setEnabled(False)
             self.identity_box.setEnabled(False)
             self.parsed_data = None
@@ -1214,7 +1215,7 @@ class DelegationImportDialog(QDialog):
             self.status_lbl.setText(
                 f"✅ Valid Plan: SA2 #{mtg} · <b>{len(members)}</b> Delegates · <b>{len(topics)}</b> Topic Owners · <b>{len(appts)}</b> Ad-Hoc Coverages"
             )
-            self.status_banner.setStyleSheet("background: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 6px; padding: 8px; color: #065F46;")
+            self.status_banner.setStyleSheet(f"background: {C.WG_RAN_BG}; border: 1px solid {C.WG_RAN_BORDER}; border-radius: 6px; padding: 8px; color: {C.WG_RAN_TEXT};")
             self.import_btn.setEnabled(True)
             self.identity_box.setEnabled(True)
 
@@ -1227,7 +1228,7 @@ class DelegationImportDialog(QDialog):
         else:
             self.parsed_data = None
             self.status_lbl.setText("❌ No valid delegation plan detected in text. Ensure it contains 3GPP-DELEGATION-PLAN payload.")
-            self.status_banner.setStyleSheet("background: #FEF2F2; border: 1px solid #FECACA; border-radius: 6px; padding: 8px; color: #991B1B;")
+            self.status_banner.setStyleSheet(f"background: {C.DANGER_SOFT}; border: 1px solid {C.DANGER_BORDER}; border-radius: 6px; padding: 8px; color: {C.DANGER_DARK};")
             self.import_btn.setEnabled(False)
             self.identity_box.setEnabled(False)
 

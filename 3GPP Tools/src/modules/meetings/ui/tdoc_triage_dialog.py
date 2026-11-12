@@ -15,6 +15,7 @@ from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 from modules.meetings.core.tdocs.tdoc_triage_worker import TDocTriageWorker
 from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
 from modules.meetings.ui.tdocs_dialogs import MY_STATUS_OPTIONS
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -99,20 +100,20 @@ class TDocTriageDialog(QDialog):
         top_strip.addStretch()
 
         self.status_lbl = QLabel("Ready.")
-        self.status_lbl.setStyleSheet("color: #64748B; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-weight: bold;")
         top_strip.addWidget(self.status_lbl)
 
         layout.addLayout(top_strip)
 
         # --- Metadata Card ---
         meta_card = QFrame()
-        meta_card.setStyleSheet("""
-            QFrame {
-                background-color: #F8FAFC;
-                border: 1px solid #E2E8F0;
+        meta_card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 6px;
                 padding: 6px;
-            }
+            }}
         """)
         meta_layout = QVBoxLayout(meta_card)
         meta_layout.setSpacing(4)
@@ -120,26 +121,26 @@ class TDocTriageDialog(QDialog):
 
         title_line = QHBoxLayout()
         tdoc_badge = QLabel(f"<b>{self.tdoc_id}</b>")
-        tdoc_badge.setStyleSheet("font-size: 14px; color: #005A9E; font-weight: bold;")
+        tdoc_badge.setStyleSheet(f"font-size: 14px; color: {C.OFFICE_BLUE}; font-weight: bold;")
         title_line.addWidget(tdoc_badge)
 
         doc_type = str(self.tdoc_data.get("Type", "CR"))
         type_lbl = QLabel(f"[{doc_type}]")
-        type_lbl.setStyleSheet("color: #64748B; font-weight: bold;")
+        type_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-weight: bold;")
         title_line.addWidget(type_lbl)
 
         ai_str = str(self.tdoc_data.get("Agenda Item", "N/A"))
         ai_lbl = QLabel(f"AI: <b>{ai_str}</b>")
-        ai_lbl.setStyleSheet("color: #334155; font-size: 12px;")
+        ai_lbl.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 12px;")
         title_line.addWidget(ai_lbl)
 
         src_str = str(self.tdoc_data.get("Source", "Unknown"))
         src_lbl = QLabel(f"Source: <b>{src_str}</b>")
-        src_lbl.setStyleSheet("color: #334155; font-size: 12px;")
+        src_lbl.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 12px;")
         title_line.addWidget(src_lbl)
 
         if self.tdoc_url:
-            url_link = QLabel(f'<a href="{self.tdoc_url}" style="color: #2563EB; font-weight: bold; text-decoration: none;">📥 3GPP Server ZIP</a>')
+            url_link = QLabel(f'<a href="{self.tdoc_url}" style="color: {C.ACCENT_ALT}; font-weight: bold; text-decoration: none;">📥 3GPP Server ZIP</a>')
             url_link.setOpenExternalLinks(True)
             url_link.setToolTip(f"Open or download original 3GPP archive:\n{self.tdoc_url}")
             title_line.addWidget(url_link)
@@ -150,7 +151,7 @@ class TDocTriageDialog(QDialog):
         title_txt = str(self.tdoc_data.get("Title", "No Title Available")).strip()
         doc_title_lbl = QLabel(title_txt)
         doc_title_lbl.setWordWrap(True)
-        doc_title_lbl.setStyleSheet("color: #475569; font-size: 12px;")
+        doc_title_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 12px;")
         meta_layout.addWidget(doc_title_lbl)
 
         layout.addWidget(meta_card)
@@ -159,16 +160,16 @@ class TDocTriageDialog(QDialog):
         self.output_text = QPlainTextEdit()
         self.output_text.setReadOnly(False)
         self.output_text.setPlaceholderText("Streaming AI triage analysis...")
-        self.output_text.setStyleSheet("""
-            QPlainTextEdit {
+        self.output_text.setStyleSheet(f"""
+            QPlainTextEdit {{
                 font-family: 'Segoe UI', Arial, sans-serif;
                 font-size: 13px;
                 line-height: 1.5;
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 10px;
-            }
+            }}
         """)
         layout.addWidget(self.output_text, stretch=1)
 
@@ -201,15 +202,15 @@ class TDocTriageDialog(QDialog):
         self.trace_text.setReadOnly(True)
         self.trace_text.setMaximumHeight(260)
         self.trace_text.setPlaceholderText("Processing steps and the exact Ollama HTTP payload/stream will appear here.")
-        self.trace_text.setStyleSheet("""
-            QPlainTextEdit {
+        self.trace_text.setStyleSheet(f"""
+            QPlainTextEdit {{
                 font-family: Consolas, 'Courier New', monospace;
                 font-size: 10px;
-                background-color: #F8FAFC;
-                border: 1px solid #CBD5E1;
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 6px;
-            }
+            }}
         """)
         self.trace_text.setVisible(False)
         layout.addWidget(self.trace_text)
@@ -227,7 +228,7 @@ class TDocTriageDialog(QDialog):
         self.status_combo.setCurrentText(
             curr_status if curr_status in MY_STATUS_OPTIONS else "⚪ Neutral"
         )
-        self.status_combo.setStyleSheet("padding: 4px 8px; background: white; border: 1px solid #CBD5E1;")
+        self.status_combo.setStyleSheet(f"padding: 4px 8px; background: white; border: 1px solid {C.BORDER_STRONG};")
         btn_bar.addWidget(self.status_combo)
 
         btn_bar.addSpacing(10)
@@ -237,13 +238,13 @@ class TDocTriageDialog(QDialog):
         self.save_notes_btn.setToolTip('Append the current AI triage result to My Notes and save the selected personal status.')
         self.save_notes_btn.setObjectName("primaryBtn")
         self.save_notes_btn.setEnabled(False)
-        self.save_notes_btn.setStyleSheet("""
-            QPushButton {
+        self.save_notes_btn.setStyleSheet(f"""
+            QPushButton {{
                 background-color: #0C6B0C; color: white; font-weight: bold;
                 border-radius: 4px; padding: 6px 14px;
-            }
-            QPushButton:hover { background-color: #095209; }
-            QPushButton:disabled { background-color: #E2E8F0; color: #94A3B8; }
+            }}
+            QPushButton:hover {{ background-color: #095209; }}
+            QPushButton:disabled {{ background-color: {C.BORDER_SUBTLE}; color: {C.TEXT_FAINT}; }}
         """)
         self.save_notes_btn.clicked.connect(self._save_to_notes)
         btn_bar.addWidget(self.save_notes_btn)
@@ -293,11 +294,11 @@ class TDocTriageDialog(QDialog):
             elif "qwen2.5:7b" in models:
                 self.model_combo.setCurrentText("qwen2.5:7b")
             self.status_lbl.setText(f"🟢 Connected ({len(models)} models)")
-            self.status_lbl.setStyleSheet("color: #16A34A; font-weight: bold;")
+            self.status_lbl.setStyleSheet(f"color: {C.GREEN_ACCENT}; font-weight: bold;")
             self.regen_btn.setEnabled(True)
         else:
             self.status_lbl.setText("🔴 Ollama Offline")
-            self.status_lbl.setStyleSheet("color: #DC2626; font-weight: bold;")
+            self.status_lbl.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
             self.regen_btn.setEnabled(False)
 
     def _start_triage(self):
@@ -310,7 +311,7 @@ class TDocTriageDialog(QDialog):
         self.trace_text.clear()
         self._append_trace("STEP", "Initializing triage worker")
         self.status_lbl.setText("⏳ Initializing triage worker...")
-        self.status_lbl.setStyleSheet("color: #2563EB; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.ACCENT_ALT}; font-weight: bold;")
         self.cancel_btn.setEnabled(True)
         self.regen_btn.setEnabled(False)
         self.save_notes_btn.setEnabled(False)
@@ -397,7 +398,7 @@ class TDocTriageDialog(QDialog):
 
     def _handle_complete(self, full_text: str):
         self.status_lbl.setText("✅ Completed")
-        self.status_lbl.setStyleSheet("color: #16A34A; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.GREEN_ACCENT}; font-weight: bold;")
         self.cancel_btn.setEnabled(False)
         self.regen_btn.setEnabled(True)
         self.save_notes_btn.setEnabled(True)
@@ -405,7 +406,7 @@ class TDocTriageDialog(QDialog):
     def _handle_failed(self, err_msg: str):
         logger.warning(f"[AI Triage Dialog] Worker failed/cancelled for {self.tdoc_id}: {err_msg}")
         self.status_lbl.setText("⚠️ Failed / Cancelled")
-        self.status_lbl.setStyleSheet("color: #DC2626; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
         self.cancel_btn.setEnabled(False)
         self.regen_btn.setEnabled(True)
         if self.output_text.toPlainText().strip():
@@ -454,11 +455,11 @@ class TDocTriageDialog(QDialog):
         self.notes_updated.emit(self.tdoc_id, selected_status, combined_notes)
 
         self.save_notes_btn.setText("✅ Saved to Notes!")
-        self.save_notes_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #15803D; color: white; font-weight: bold;
+        self.save_notes_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.SUCCESS}; color: white; font-weight: bold;
                 border-radius: 4px; padding: 6px 14px;
-            }
+            }}
         """)
 
     def _copy_summary(self):

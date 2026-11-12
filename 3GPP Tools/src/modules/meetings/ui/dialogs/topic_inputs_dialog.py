@@ -35,85 +35,86 @@ from modules.meetings.core.topic_decision import (
 )
 from modules.meetings.core.topic_manager import MetaTopicDefinition
 from modules.meetings.ui.topic_pills import FilterPillButton, get_wg_colors
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
-STYLE_PRIMARY_BTN = """
-    QPushButton {
-        background-color: #10B981;
-        color: #FFFFFF;
+STYLE_PRIMARY_BTN = f"""
+    QPushButton {{
+        background-color: {C.EMERALD_ACCENT};
+        color: {C.BG_CARD};
         font-weight: bold;
-        border: 1px solid #059669;
+        border: 1px solid {C.EMERALD_PRIMARY};
         border-radius: 6px;
         padding: 6px 14px;
         font-size: 11px;
-    }
-    QPushButton:hover {
-        background-color: #059669;
-    }
-    QPushButton:disabled {
-        background-color: #94A3B8;
-        border-color: #94A3B8;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {C.EMERALD_PRIMARY};
+    }}
+    QPushButton:disabled {{
+        background-color: {C.TEXT_FAINT};
+        border-color: {C.TEXT_FAINT};
+    }}
 """
 
-STYLE_SECONDARY_BTN = """
-    QPushButton {
-        background-color: #F8FAFC;
-        color: #1E293B;
-        border: 1px solid #CBD5E1;
+STYLE_SECONDARY_BTN = f"""
+    QPushButton {{
+        background-color: {C.BG_SURFACE};
+        color: {C.TEXT_STRONG};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 6px;
         padding: 5px 12px;
         font-size: 11px;
         font-weight: 500;
-    }
-    QPushButton:hover {
-        background-color: #F1F5F9;
-        border-color: #94A3B8;
-    }
-    QPushButton:disabled {
-        color: #94A3B8;
-        background-color: #F8FAFC;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {C.BG_CANVAS};
+        border-color: {C.TEXT_FAINT};
+    }}
+    QPushButton:disabled {{
+        color: {C.TEXT_FAINT};
+        background-color: {C.BG_SURFACE};
+    }}
 """
 
-STYLE_TABLE = """
-    QTableWidget {
-        background-color: #FFFFFF;
-        border: 1px solid #CBD5E1;
+STYLE_TABLE = f"""
+    QTableWidget {{
+        background-color: {C.BG_CARD};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 6px;
-        gridline-color: #F1F5F9;
+        gridline-color: {C.BG_CANVAS};
         font-size: 11px;
-    }
-    QHeaderView::section {
-        background-color: #F8FAFC;
-        color: #475569;
+    }}
+    QHeaderView::section {{
+        background-color: {C.BG_SURFACE};
+        color: {C.TEXT_SECONDARY};
         font-weight: bold;
         font-size: 11px;
         border: none;
-        border-bottom: 1px solid #E2E8F0;
+        border-bottom: 1px solid {C.BORDER_SUBTLE};
         padding: 6px;
-    }
-    QTableWidget::item {
+    }}
+    QTableWidget::item {{
         padding: 4px 6px;
-    }
-    QTableWidget::item:selected {
-        background-color: #EFF6FF;
-        color: #1D4ED8;
-    }
+    }}
+    QTableWidget::item:selected {{
+        background-color: {C.INFO_SOFT};
+        color: {C.INFO};
+    }}
 """
 
 BADGE_COLORS = {
-    "Text Agreement": ("#DCFCE7", "#166534"),
-    "Approved pCR": ("#ECFDF5", "#065F46"),
-    "Approved CR": ("#D1FAE5", "#047857"),
-    "Endorsed WF": ("#DBEAFE", "#1E40AF"),
-    "Working Assumption": ("#FEF3C7", "#92400E"),
-    "Agreed LS": ("#EDE9FE", "#5B21B6"),
-    "LS in": ("#F3E8FF", "#6B21A8"),
-    "LS out": ("#E0E7FF", "#3730A3"),
-    "Discussion": ("#F1F5F9", "#334155"),
-    "Work Plan": ("#FEE2E2", "#991B1B"),
+    "Text Agreement": (C.SUCCESS_SOFT_ALT, C.SUCCESS_DARK),
+    "Approved pCR": (C.WG_RAN_BG, C.WG_RAN_TEXT),
+    "Approved CR": ("#D1FAE5", C.EMERALD_DARK),
+    "Endorsed WF": (C.INFO_SOFT_STRONG, C.INFO_DARK),
+    "Working Assumption": (C.WARNING_SOFT_ALT, C.WARNING_DARK),
+    "Agreed LS": (C.VIOLET_SOFT, C.VIOLET_DARK),
+    "LS in": ("#F3E8FF", C.PURPLE_DARK),
+    "LS out": (C.INDIGO_SOFT, C.WG_SA_TEXT),
+    "Discussion": (C.BG_CANVAS, C.TEXT_BODY),
+    "Work Plan": (C.DANGER_SOFT_HOVER, C.DANGER_DARK),
 }
 
 
@@ -325,27 +326,27 @@ class TopicInputsViewerDialog(QDialog):
 
         # 1. Header Card with topic overview and timeframe
         header_card = QFrame()
-        header_card.setStyleSheet("background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px;")
+        header_card.setStyleSheet(f"background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px;")
         h_layout = QVBoxLayout(header_card)
         h_layout.setContentsMargins(12, 10, 12, 10)
         h_layout.setSpacing(6)
 
         top_row = QHBoxLayout()
         lbl_title = QLabel(f"🌐 <b>Topic:</b> {self.topic.name}")
-        lbl_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #0F172A;")
+        lbl_title.setStyleSheet(f"font-size: 15px; font-weight: bold; color: {C.TEXT_PRIMARY};")
         top_row.addWidget(lbl_title)
 
         top_row.addStretch()
 
         lbl_timeframe = QLabel(f"🗓️ <b>Scope:</b> {self.timeframe_label}")
-        lbl_timeframe.setStyleSheet("color: #475569; font-size: 11px; background-color: #E2E8F0; border-radius: 4px; padding: 3px 8px;")
+        lbl_timeframe.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px; background-color: {C.BORDER_SUBTLE}; border-radius: 4px; padding: 3px 8px;")
         top_row.addWidget(lbl_timeframe)
         h_layout.addLayout(top_row)
 
         desc_text = self.topic.description or "Cross-WG topic correlation"
         wgs_str = ", ".join(sorted(self.topic.target_wgs))
-        lbl_desc = QLabel(f"<b>Target WGs:</b> <span style='color: #0369A1;'>{wgs_str}</span> | {desc_text}")
-        lbl_desc.setStyleSheet("color: #64748B; font-size: 11px;")
+        lbl_desc = QLabel(f"<b>Target WGs:</b> <span style='color: {C.ACCENT_SKY_DARK};'>{wgs_str}</span> | {desc_text}")
+        lbl_desc.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         lbl_desc.setWordWrap(True)
         h_layout.addWidget(lbl_desc)
 
@@ -353,29 +354,29 @@ class TopicInputsViewerDialog(QDialog):
 
         # 2. Metric KPI Cards Strip
         kpi_frame = QFrame()
-        kpi_frame.setStyleSheet("background-color: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 6px;")
+        kpi_frame.setStyleSheet(f"background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px;")
         kpi_layout = QHBoxLayout(kpi_frame)
         kpi_layout.setContentsMargins(10, 8, 10, 8)
         kpi_layout.setSpacing(16)
 
         self.kpi_total = QLabel("📊 Total Inputs: <b>0</b>")
-        self.kpi_total.setStyleSheet("color: #1E293B; font-size: 12px;")
+        self.kpi_total.setStyleSheet(f"color: {C.TEXT_STRONG}; font-size: 12px;")
         kpi_layout.addWidget(self.kpi_total)
 
         self.kpi_decisions = QLabel("🟢 Decisions: <b>0</b>")
-        self.kpi_decisions.setStyleSheet("color: #047857; font-size: 12px;")
+        self.kpi_decisions.setStyleSheet(f"color: {C.EMERALD_DARK}; font-size: 12px;")
         kpi_layout.addWidget(self.kpi_decisions)
 
         self.kpi_ls = QLabel("📬 Liaisons: <b>0</b>")
-        self.kpi_ls.setStyleSheet("color: #6B21A8; font-size: 12px;")
+        self.kpi_ls.setStyleSheet(f"color: {C.PURPLE_DARK}; font-size: 12px;")
         kpi_layout.addWidget(self.kpi_ls)
 
         self.kpi_disc = QLabel("📄 Discussions: <b>0</b>")
-        self.kpi_disc.setStyleSheet("color: #475569; font-size: 12px;")
+        self.kpi_disc.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 12px;")
         kpi_layout.addWidget(self.kpi_disc)
 
         self.kpi_wgs = QLabel("👥 WGs: <b>0</b>")
-        self.kpi_wgs.setStyleSheet("color: #0284C7; font-size: 12px;")
+        self.kpi_wgs.setStyleSheet(f"color: {C.ACCENT_SKY}; font-size: 12px;")
         kpi_layout.addWidget(self.kpi_wgs)
 
         kpi_layout.addStretch()
@@ -389,26 +390,26 @@ class TopicInputsViewerDialog(QDialog):
 
         # Progress bar strip (indeterminate/step during collection)
         self.prog_frame = QFrame()
-        self.prog_frame.setStyleSheet("background-color: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 6px;")
+        self.prog_frame.setStyleSheet(f"background-color: {C.INFO_SOFT}; border: 1px solid {C.INFO_BORDER}; border-radius: 6px;")
         p_layout = QHBoxLayout(self.prog_frame)
         p_layout.setContentsMargins(10, 6, 10, 6)
         self.lbl_prog_status = QLabel("Scanning meeting records...")
-        self.lbl_prog_status.setStyleSheet("color: #1E40AF; font-size: 11px; font-weight: bold;")
+        self.lbl_prog_status.setStyleSheet(f"color: {C.INFO_DARK}; font-size: 11px; font-weight: bold;")
         p_layout.addWidget(self.lbl_prog_status, 1)
         self.prog_bar = QProgressBar()
         self.prog_bar.setFixedHeight(12)
         self.prog_bar.setRange(0, 100)
         self.prog_bar.setTextVisible(False)
-        self.prog_bar.setStyleSheet("""
-            QProgressBar { border: 1px solid #93C5FD; border-radius: 3px; background-color: #DBEAFE; }
-            QProgressBar::chunk { background-color: #3B82F6; border-radius: 2px; }
+        self.prog_bar.setStyleSheet(f"""
+            QProgressBar {{ border: 1px solid {C.INFO_BORDER_MEDIUM}; border-radius: 3px; background-color: {C.INFO_SOFT_STRONG}; }}
+            QProgressBar::chunk {{ background-color: {C.INFO_ACCENT}; border-radius: 2px; }}
         """)
         p_layout.addWidget(self.prog_bar, 1)
         layout.addWidget(self.prog_frame)
 
         # 3. Interactive Filter Strip & Quick-Filter Pill Bars
         filter_frame = QFrame()
-        filter_frame.setStyleSheet("background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px;")
+        filter_frame.setStyleSheet(f"background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px;")
         filter_layout = QVBoxLayout(filter_frame)
         filter_layout.setContentsMargins(10, 8, 10, 8)
         filter_layout.setSpacing(8)
@@ -461,7 +462,7 @@ class TopicInputsViewerDialog(QDialog):
         wg_row = QHBoxLayout()
         wg_row.setSpacing(6)
         lbl_wg_title = QLabel("<b>Working Group:</b>")
-        lbl_wg_title.setStyleSheet("font-size: 11px; color: #475569;")
+        lbl_wg_title.setStyleSheet(f"font-size: 11px; color: {C.TEXT_SECONDARY};")
         lbl_wg_title.setFixedWidth(90)
         wg_row.addWidget(lbl_wg_title)
 
@@ -490,7 +491,7 @@ class TopicInputsViewerDialog(QDialog):
         cat_row = QHBoxLayout()
         cat_row.setSpacing(6)
         lbl_cat_title = QLabel("<b>Category:</b>")
-        lbl_cat_title.setStyleSheet("font-size: 11px; color: #475569;")
+        lbl_cat_title.setStyleSheet(f"font-size: 11px; color: {C.TEXT_SECONDARY};")
         lbl_cat_title.setFixedWidth(90)
         cat_row.addWidget(lbl_cat_title)
 
@@ -500,12 +501,12 @@ class TopicInputsViewerDialog(QDialog):
 
         cat_defs = [
             ("All Inputs", "All Inputs", None, None),
-            ("🟢 Decisions Only (Agreements, pCRs, CRs)", "🟢 Decisions", 0, {"bg_active": "#10B981", "fg_active": "#FFFFFF", "border_active": "#059669", "bg_inactive": "#FFFFFF", "fg_inactive": "#047857", "border_inactive": "#A7F3D0", "hover": "#ECFDF5"}),
-            ("Text Agreements Only", "📝 Agreements", 0, {"bg_active": "#10B981", "fg_active": "#FFFFFF", "border_active": "#059669", "bg_inactive": "#FFFFFF", "fg_inactive": "#065F46", "border_inactive": "#A7F3D0", "hover": "#ECFDF5"}),
-            ("Approved pCRs Only", "📑 Approved pCRs", 0, {"bg_active": "#059669", "fg_active": "#FFFFFF", "border_active": "#047857", "bg_inactive": "#FFFFFF", "fg_inactive": "#065F46", "border_inactive": "#6EE7B7", "hover": "#ECFDF5"}),
-            ("Approved CRs Only", "✅ Approved CRs", 0, {"bg_active": "#047857", "fg_active": "#FFFFFF", "border_active": "#065F46", "bg_inactive": "#FFFFFF", "fg_inactive": "#047857", "border_inactive": "#6EE7B7", "hover": "#ECFDF5"}),
-            ("📬 Liaison Statements Only", "📬 Liaisons", 0, {"bg_active": "#7C3AED", "fg_active": "#FFFFFF", "border_active": "#6D28D9", "bg_inactive": "#FFFFFF", "fg_inactive": "#6B21A8", "border_inactive": "#DDD6FE", "hover": "#F5F3FF"}),
-            ("📄 Discussion Papers Only", "📄 Discussions", 0, {"bg_active": "#64748B", "fg_active": "#FFFFFF", "border_active": "#475569", "bg_inactive": "#FFFFFF", "fg_inactive": "#334155", "border_inactive": "#CBD5E1", "hover": "#F8FAFC"}),
+            ("🟢 Decisions Only (Agreements, pCRs, CRs)", "🟢 Decisions", 0, {"bg_active": C.EMERALD_ACCENT, "fg_active": C.BG_CARD, "border_active": C.EMERALD_PRIMARY, "bg_inactive": C.BG_CARD, "fg_inactive": C.EMERALD_DARK, "border_inactive": C.WG_RAN_BORDER, "hover": C.WG_RAN_BG}),
+            ("Text Agreements Only", "📝 Agreements", 0, {"bg_active": C.EMERALD_ACCENT, "fg_active": C.BG_CARD, "border_active": C.EMERALD_PRIMARY, "bg_inactive": C.BG_CARD, "fg_inactive": C.WG_RAN_TEXT, "border_inactive": C.WG_RAN_BORDER, "hover": C.WG_RAN_BG}),
+            ("Approved pCRs Only", "📑 Approved pCRs", 0, {"bg_active": C.EMERALD_PRIMARY, "fg_active": C.BG_CARD, "border_active": C.EMERALD_DARK, "bg_inactive": C.BG_CARD, "fg_inactive": C.WG_RAN_TEXT, "border_inactive": "#6EE7B7", "hover": C.WG_RAN_BG}),
+            ("Approved CRs Only", "✅ Approved CRs", 0, {"bg_active": C.EMERALD_DARK, "fg_active": C.BG_CARD, "border_active": C.WG_RAN_TEXT, "bg_inactive": C.BG_CARD, "fg_inactive": C.EMERALD_DARK, "border_inactive": "#6EE7B7", "hover": C.WG_RAN_BG}),
+            ("📬 Liaison Statements Only", "📬 Liaisons", 0, {"bg_active": "#7C3AED", "fg_active": C.BG_CARD, "border_active": C.VIOLET_PRIMARY, "bg_inactive": C.BG_CARD, "fg_inactive": C.PURPLE_DARK, "border_inactive": C.VIOLET_BORDER, "hover": C.VIOLET_SURFACE}),
+            ("📄 Discussion Papers Only", "📄 Discussions", 0, {"bg_active": C.TEXT_MUTED, "fg_active": C.BG_CARD, "border_active": C.TEXT_SECONDARY, "bg_inactive": C.BG_CARD, "fg_inactive": C.TEXT_BODY, "border_inactive": C.BORDER_STRONG, "hover": C.BG_SURFACE}),
         ]
 
         for cat_key, cat_label, init_cnt, custom_col in cat_defs:
@@ -523,10 +524,10 @@ class TopicInputsViewerDialog(QDialog):
 
         # 4. Tabbed Visualizations
         self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane { border: 1px solid #CBD5E1; border-radius: 6px; background-color: #FFFFFF; }
-            QTabBar::tab { padding: 6px 14px; font-weight: bold; font-size: 11px; }
-            QTabBar::tab:selected { background-color: #FFFFFF; color: #10B981; border-bottom: 2px solid #10B981; }
+        self.tabs.setStyleSheet(f"""
+            QTabWidget::pane {{ border: 1px solid {C.BORDER_STRONG}; border-radius: 6px; background-color: {C.BG_CARD}; }}
+            QTabBar::tab {{ padding: 6px 14px; font-weight: bold; font-size: 11px; }}
+            QTabBar::tab:selected {{ background-color: {C.BG_CARD}; color: {C.EMERALD_ACCENT}; border-bottom: 2px solid {C.EMERALD_ACCENT}; }}
         """)
 
         # Tab 1: Decisions Table
@@ -561,17 +562,17 @@ class TopicInputsViewerDialog(QDialog):
 
         # 5. Collapsible Agreement & Decision Detail Reader Drawer
         self.drawer_widget = QFrame()
-        self.drawer_widget.setStyleSheet("background-color: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 8px;")
+        self.drawer_widget.setStyleSheet(f"background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_STRONG}; border-radius: 8px;")
         drawer_layout = QVBoxLayout(self.drawer_widget)
         drawer_layout.setContentsMargins(10, 8, 10, 8)
         drawer_layout.setSpacing(6)
 
         hdr_layout = QHBoxLayout()
         self.lbl_drawer_title = QLabel("📖 Decision & Agreement Detail Reader")
-        self.lbl_drawer_title.setStyleSheet("font-weight: bold; font-size: 12px; color: #1E293B;")
+        self.lbl_drawer_title.setStyleSheet(f"font-weight: bold; font-size: 12px; color: {C.TEXT_STRONG};")
 
         self.lbl_drawer_provenance = QLabel("")
-        self.lbl_drawer_provenance.setStyleSheet("background-color: #DCFCE7; color: #166534; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #BBF7D0;")
+        self.lbl_drawer_provenance.setStyleSheet(f"background-color: {C.SUCCESS_SOFT_ALT}; color: {C.SUCCESS_DARK}; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid {C.SUCCESS_BORDER};")
         self.lbl_drawer_provenance.setVisible(False)
 
         self.btn_copy_agreement_text = QPushButton("📋 Copy Verbatim Text")
@@ -594,16 +595,16 @@ class TopicInputsViewerDialog(QDialog):
         self.detail_text_edit.setReadOnly(True)
         self.detail_text_edit.setMinimumHeight(90)
         self.detail_text_edit.setMaximumHeight(220)
-        self.detail_text_edit.setStyleSheet("""
-            QTextEdit {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.detail_text_edit.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 padding: 8px;
                 font-family: 'Segoe UI', Arial, sans-serif;
                 font-size: 11px;
-                color: #1E293B;
-            }
+                color: {C.TEXT_STRONG};
+            }}
         """)
         self.detail_text_edit.setPlaceholderText("Select a decision, contribution, or liaison statement from the table above to read the full text, verbatim agreement wording, and technical provenance.")
         drawer_layout.addWidget(self.detail_text_edit)
@@ -895,7 +896,7 @@ class TopicInputsViewerDialog(QDialog):
                 badge_item = QTableWidgetItem(badge_text)
                 badge_item.setTextAlignment(Qt.AlignCenter)
                 badge_item.setToolTip(tip_text)
-                bg_color, fg_color = BADGE_COLORS.get(d.decision_type, ("#F1F5F9", "#1E293B"))
+                bg_color, fg_color = BADGE_COLORS.get(d.decision_type, (C.BG_CANVAS, C.TEXT_STRONG))
                 badge_item.setBackground(QColor(bg_color))
                 badge_item.setForeground(QColor(fg_color))
                 font = badge_item.font()
@@ -923,7 +924,7 @@ class TopicInputsViewerDialog(QDialog):
                 tid_item = QTableWidgetItem(tid_str)
                 tid_item.setTextAlignment(Qt.AlignCenter)
                 if d.tdoc_id:
-                    tid_item.setForeground(QColor("#0369A1"))
+                    tid_item.setForeground(QColor(C.ACCENT_SKY_DARK))
                     f = tid_item.font()
                     f.setBold(True)
                     tid_item.setFont(f)
@@ -977,7 +978,7 @@ class TopicInputsViewerDialog(QDialog):
                 # 0: TDoc ID
                 tid_item = QTableWidgetItem(c.get("tdoc_id", ""))
                 tid_item.setTextAlignment(Qt.AlignCenter)
-                tid_item.setForeground(QColor("#0369A1"))
+                tid_item.setForeground(QColor(C.ACCENT_SKY_DARK))
                 f = tid_item.font()
                 f.setBold(True)
                 tid_item.setFont(f)
@@ -999,7 +1000,7 @@ class TopicInputsViewerDialog(QDialog):
                 t_type = c.get("type", "")
                 t_item = QTableWidgetItem(t_type)
                 t_item.setTextAlignment(Qt.AlignCenter)
-                bg, fg = BADGE_COLORS.get(t_type, ("#FFFFFF", "#334155"))
+                bg, fg = BADGE_COLORS.get(t_type, (C.BG_CARD, C.TEXT_BODY))
                 t_item.setBackground(QColor(bg))
                 t_item.setForeground(QColor(fg))
                 self.table_contributions.setItem(row, 5, t_item)
@@ -1008,7 +1009,7 @@ class TopicInputsViewerDialog(QDialog):
                 status_item = QTableWidgetItem(c.get("status", ""))
                 status_item.setTextAlignment(Qt.AlignCenter)
                 if any(s in c.get("status", "").lower() for s in ("approved", "agreed", "endorsed")):
-                    status_item.setForeground(QColor("#15803D"))
+                    status_item.setForeground(QColor(C.SUCCESS))
                     f_s = status_item.font()
                     f_s.setBold(True)
                     status_item.setFont(f_s)
@@ -1056,7 +1057,7 @@ class TopicInputsViewerDialog(QDialog):
                 dir_text = "📥 LS IN" if is_in else "📤 LS OUT"
                 dir_item = QTableWidgetItem(dir_text)
                 dir_item.setTextAlignment(Qt.AlignCenter)
-                bg, fg = BADGE_COLORS.get("LS in" if is_in else "LS out", ("#F3E8FF", "#6B21A8"))
+                bg, fg = BADGE_COLORS.get("LS in" if is_in else "LS out", ("#F3E8FF", C.PURPLE_DARK))
                 dir_item.setBackground(QColor(bg))
                 dir_item.setForeground(QColor(fg))
                 f = dir_item.font()
@@ -1067,7 +1068,7 @@ class TopicInputsViewerDialog(QDialog):
                 # TDoc
                 tid_item = QTableWidgetItem(c.get("tdoc_id", ""))
                 tid_item.setTextAlignment(Qt.AlignCenter)
-                tid_item.setForeground(QColor("#0369A1"))
+                tid_item.setForeground(QColor(C.ACCENT_SKY_DARK))
                 self.table_ls.setItem(row, 1, tid_item)
 
                 self.table_ls.setItem(row, 2, QTableWidgetItem(c.get("wg", "")))
@@ -1109,13 +1110,13 @@ class TopicInputsViewerDialog(QDialog):
 
         if d.decision_type in ("Text Agreement", "Working Assumption"):
             prov_text = f"🟢 {d.decision_type} (Chairman's Notes)"
-            prov_style = "background-color: #DCFCE7; color: #166534; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #BBF7D0;"
+            prov_style = f"background-color: {C.SUCCESS_SOFT_ALT}; color: {C.SUCCESS_DARK}; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid {C.SUCCESS_BORDER};"
         elif d.decision_type in ("Approved pCR", "Approved CR"):
             prov_text = f"🟢 {d.decision_type} (Approved Document)"
-            prov_style = "background-color: #ECFDF5; color: #065F46; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #A7F3D0;"
+            prov_style = f"background-color: {C.WG_RAN_BG}; color: {C.WG_RAN_TEXT}; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid {C.WG_RAN_BORDER};"
         else:
             prov_text = f"{d.badge_icon} {d.decision_type}"
-            prov_style = "background-color: #F1F5F9; color: #334155; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #CBD5E1;"
+            prov_style = f"background-color: {C.BG_CANVAS}; color: {C.TEXT_BODY}; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid {C.BORDER_STRONG};"
 
         self.lbl_drawer_provenance.setText(prov_text)
         self.lbl_drawer_provenance.setStyleSheet(prov_style)
@@ -1139,17 +1140,17 @@ class TopicInputsViewerDialog(QDialog):
 
         if d.decision_type in ("Text Agreement", "Working Assumption"):
             html_lines.append(
-                "<div style='background-color:#F0FDF4; border-left:3px solid #16A34A; padding:4px 8px; margin-bottom:8px; font-size:11px; color:#166534;'>"
+                f"<div style='background-color:{C.SUCCESS_SOFT}; border-left:3px solid {C.GREEN_ACCENT}; padding:4px 8px; margin-bottom:8px; font-size:11px; color:{C.SUCCESS_DARK};'>"
                 "<b>Binding Consensus:</b> In 3GPP RAN Working Groups, only the verbatim text below recorded in the Chairman's Notes represents formal consensus. Cited background proposal was Noted.</div>"
             )
         elif d.decision_type in ("Approved pCR", "Approved CR"):
             html_lines.append(
-                f"<div style='background-color:#ECFDF5; border-left:3px solid #059669; padding:4px 8px; margin-bottom:8px; font-size:11px; color:#065F46;'>"
+                f"<div style='background-color:{C.WG_RAN_BG}; border-left:3px solid {C.EMERALD_PRIMARY}; padding:4px 8px; margin-bottom:8px; font-size:11px; color:{C.WG_RAN_TEXT};'>"
                 f"<b>Approved Specification Change:</b> The full document attachment of <b>{d.tdoc_id}</b> was formally approved as a baseline change for <code>{d.target_spec}</code>.</div>"
             )
 
         verbatim_html = d.title_or_summary.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
-        html_lines.append(f"<div style='background-color:#FFFFFF; border:1px solid #CBD5E1; border-radius:4px; padding:8px; font-family:Consolas, monospace; font-size:11px; line-height:1.4;'>{verbatim_html}</div>")
+        html_lines.append(f"<div style='background-color:{C.BG_CARD}; border:1px solid {C.BORDER_STRONG}; border-radius:4px; padding:8px; font-family:Consolas, monospace; font-size:11px; line-height:1.4;'>{verbatim_html}</div>")
 
         self.detail_text_edit.setHtml("".join(html_lines))
 
@@ -1168,7 +1169,7 @@ class TopicInputsViewerDialog(QDialog):
         self._current_detail_text = "\n".join(text_parts)
 
         self.lbl_drawer_provenance.setText(f"📄 {c.get('type', 'TDoc')} ({c.get('status', 'N/A')})")
-        self.lbl_drawer_provenance.setStyleSheet("background-color: #F1F5F9; color: #334155; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #CBD5E1;")
+        self.lbl_drawer_provenance.setStyleSheet(f"background-color: {C.BG_CANVAS}; color: {C.TEXT_BODY}; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid {C.BORDER_STRONG};")
         self.lbl_drawer_provenance.setVisible(True)
 
         meta_parts = [
@@ -1185,11 +1186,11 @@ class TopicInputsViewerDialog(QDialog):
 
         html_lines = [
             f"<p style='margin:0 0 4px 0; font-size:11px;'>{' &nbsp;|&nbsp; '.join(meta_parts)}</p>",
-            f"<p style='margin:0 0 6px 0; font-size:12px; font-weight:bold; color:#1E293B;'>{c.get('title')}</p>",
+            f"<p style='margin:0 0 6px 0; font-size:12px; font-weight:bold; color:{C.TEXT_STRONG};'>{c.get('title')}</p>",
         ]
         if abstract:
             abs_html = abstract.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
-            html_lines.append(f"<div style='background-color:#FFFFFF; border:1px solid #CBD5E1; border-radius:4px; padding:8px; font-size:11px;'><b>Abstract / Remarks:</b><br/>{abs_html}</div>")
+            html_lines.append(f"<div style='background-color:{C.BG_CARD}; border:1px solid {C.BORDER_STRONG}; border-radius:4px; padding:8px; font-size:11px;'><b>Abstract / Remarks:</b><br/>{abs_html}</div>")
 
         self.detail_text_edit.setHtml("".join(html_lines))
 
@@ -1213,7 +1214,7 @@ class TopicInputsViewerDialog(QDialog):
         dir_text = "📥 LS IN" if is_in else "📤 LS OUT"
 
         self.lbl_drawer_provenance.setText(f"{dir_text} ({c.get('status', 'N/A')})")
-        self.lbl_drawer_provenance.setStyleSheet("background-color: #EDE9FE; color: #5B21B6; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #DDD6FE;")
+        self.lbl_drawer_provenance.setStyleSheet(f"background-color: {C.VIOLET_SOFT}; color: {C.VIOLET_DARK}; font-weight: bold; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid {C.VIOLET_BORDER};")
         self.lbl_drawer_provenance.setVisible(True)
 
         meta_parts = [
@@ -1224,8 +1225,8 @@ class TopicInputsViewerDialog(QDialog):
         ]
         html_lines = [
             f"<p style='margin:0 0 4px 0; font-size:11px;'>{' &nbsp;|&nbsp; '.join(meta_parts)}</p>",
-            f"<p style='margin:0 0 6px 0; font-size:12px; font-weight:bold; color:#1E293B;'>{c.get('title')}</p>",
-            f"<p style='margin:0; font-size:11px; color:#475569;'><b>Reply To:</b> <code>{reply_to}</code> &nbsp;|&nbsp; <b>Reply In:</b> <code>{reply_in}</code></p>",
+            f"<p style='margin:0 0 6px 0; font-size:12px; font-weight:bold; color:{C.TEXT_STRONG};'>{c.get('title')}</p>",
+            f"<p style='margin:0; font-size:11px; color:{C.TEXT_SECONDARY};'><b>Reply To:</b> <code>{reply_to}</code> &nbsp;|&nbsp; <b>Reply In:</b> <code>{reply_in}</code></p>",
         ]
         self.detail_text_edit.setHtml("".join(html_lines))
 

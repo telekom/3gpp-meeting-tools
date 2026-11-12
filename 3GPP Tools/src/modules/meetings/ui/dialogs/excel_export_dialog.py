@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.utils.paths import get_project_root
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ class ExcelExportDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("📊 Export TDocs to Excel")
         self.resize(540, 680)
-        self.setStyleSheet("QDialog { background-color: #FAFAFA; } QLabel { font-size: 12px; color: #333; }")
+        self.setStyleSheet(f"QDialog {{ background-color: {C.BG_ALT_LIGHT}; }} QLabel {{ font-size: 12px; color: #333; }}")
 
         self.visible_count = visible_count
         self.total_count = total_count
@@ -127,7 +128,7 @@ class ExcelExportDialog(QDialog):
         btn_box.setSpacing(6)
 
         btn_style = "QPushButton { padding: 5px 10px; font-size: 11px; background: white; border: 1px solid #CCC; border-radius: 4px; } QPushButton:hover { background: #EAEAEA; }"
-        btn_preset_style = "QPushButton { padding: 5px 8px; font-size: 11px; font-weight: bold; background: #FDF5F8; color: #E20074; border: 1px solid #E20074; border-radius: 4px; } QPushButton:hover { background: #FCE8F0; }"
+        btn_preset_style = f"QPushButton {{ padding: 5px 8px; font-size: 11px; font-weight: bold; background: #FDF5F8; color: {C.ACCENT_BRAND_PINK}; border: 1px solid {C.ACCENT_BRAND_PINK}; border-radius: 4px; }} QPushButton:hover {{ background: #FCE8F0; }}"
 
         btn_up = QPushButton("▲ Move Up")
         btn_up.setToolTip('Move the selected export column one position upward.')
@@ -222,11 +223,11 @@ class ExcelExportDialog(QDialog):
         btn_layout = QHBoxLayout()
         export_btn = QPushButton("📊 Export to Excel")
         export_btn.setToolTip('Export the chosen rows and columns to a formatted Excel workbook.')
-        export_btn.setStyleSheet("padding: 7px 20px; font-weight: bold; background-color: #005A9E; color: white; border-radius: 4px;")
+        export_btn.setStyleSheet(f"padding: 7px 20px; font-weight: bold; background-color: {C.OFFICE_BLUE}; color: white; border-radius: 4px;")
         export_btn.clicked.connect(self._on_export_clicked)
 
         cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet("padding: 7px 15px; background-color: #E0E0E0; border: 1px solid #CCC; border-radius: 4px;")
+        cancel_btn.setStyleSheet(f"padding: 7px 15px; background-color: {C.BORDER_GRAY}; border: 1px solid #CCC; border-radius: 4px;")
         cancel_btn.clicked.connect(self.reject)
 
         btn_layout.addStretch()
@@ -240,7 +241,7 @@ class ExcelExportDialog(QDialog):
         company = self.edit_company.text().strip() or "Company"
         if enabled:
             self.lbl_preview.setText(f"Export headers: 'Status ({company})' and 'Comments ({company})'")
-            self.lbl_preview.setStyleSheet("font-size: 11px; color: #E20074; font-style: italic; margin-left: 20px;")
+            self.lbl_preview.setStyleSheet(f"font-size: 11px; color: {C.ACCENT_BRAND_PINK}; font-style: italic; margin-left: 20px;")
         else:
             self.lbl_preview.setText("Export headers: 'My Status' and 'My Notes' (no company attribution)")
             self.lbl_preview.setStyleSheet("font-size: 11px; color: #666; font-style: italic; margin-left: 20px;")

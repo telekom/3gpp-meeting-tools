@@ -75,7 +75,7 @@ python -m main_tools
 │   │   ├── ai/                    # OllamaClient, health monitoring, OllamaConfigDialog
 │   │   ├── config/                # Global application constants and paths
 │   │   ├── network/               # NetworkSession singleton, RFC 1918 proxy bypassing
-│   │   ├── ui/                    # Centralized theme tokens (`theme.py`), Lucide SVG icons (`icons.py`), grouped NavRail (`nav_rail.py`), BottomDrawer (`bottom_drawer.py`), Smart Toast (`toast.py`), QSettings shell state (`shell_state.py`), hex migrator, base components, ModernDropZone, global QSS, panels
+│   │   ├── ui/                    # Centralized theme tokens (`theme.py`), Lucide SVG icons (`icons.py`), grouped NavRail (`nav_rail.py`), 2-tier `PageRibbonCard` (`page_ribbon.py`), BottomDrawer (`bottom_drawer.py`), Smart Toast (`toast.py`, `notify_success`), QSettings shell state (`shell_state.py`), hex migrator, base components, ModernDropZone, global QSS, panels
 │   │   ├── utils/                 # Path resolution, Java runtime detection, 3GPP Portal URL generators, helpers
 │   │   └── queue_manager.py       # Multi-threaded background conversion & sync task queue
 │   ├── db/                        # Persistent SQLite databases (3gpp_data.db, etc.)
@@ -486,7 +486,8 @@ The project intentionally separates domain data into distinct SQLite databases l
 - **Responsive App Shell (`src/main_window.py`, `src/core/ui/`):**
   - `NavRail` (`nav_rail.py`) + Lucide SVG icons (`icons.py`) drive the hidden `QTabWidget` (`self.tabs`, preserving all `.tabs.` API callers) with responsive breakpoint hysteresis (`<940 px` collapse / `>=970 px` expand), rail footer `Help & Docs` + `Settings` menus, and shortcuts (`Ctrl+1..9` tabs, `Ctrl+\` rail toggle, `Ctrl+J` drawer toggle, `F1` docs).
   - `BottomDrawer` (`bottom_drawer.py`) wraps `ConsolePanel` and `QueuePanel`, toggled from `SystemStatusBar` with live queue/unread-error badges; system tool shortcuts live in `SystemStatusBar.system_menu` and `Settings`.
-  - `ToastManager` (`toast.py`) renders non-blocking completion notifications (`[Open]`, `[Show in Folder]`) on `QueueManager` successes.
+  - `ToastManager` (`toast.py`) renders non-blocking completion notifications (`[Open]`, `[Show in Folder]`) on `QueueManager` successes, with `notify_success()` / `notify_info()` helpers for tabs to replace modal `QMessageBox.information` success popups.
+  - `PageRibbonCard` (`page_ribbon.py`) provides the shared 2-tier carded header & responsive `FlowLayout` filter bar (`apply_lucide_icon`, `make_filter_label`) adopted across Phase 2 tabs (starting with `MeetingsTab` + `table_card` footer container).
   - `shell_state.py` persists window geometry (screen-clamped), rail/drawer/splitter states, and last active tab via `QSettings`.
 - **Design Tokens & Raw-Hex Governance (`src/core/ui/theme.py`):** All new UI code and migrated modules must reference tokens from `core.ui.theme` (`C`, `T`, `R`, `S`, `B`) rather than hardcoded `#RRGGBB` literals. Enforced by `tests/test_ui_hex_lint.py` (zero tolerance in new/migrated files; no-growth ratchet on legacy allowlisted files). Use `py -3.14 -m core.ui.hex_migrator <path> --dry-run --diff` to preview automated token substitutions.
 - **Reuse Common Styles:** Prefer shared design tokens and style constants in `src/core/ui/ui_components.py` (e.g., `BUTTON_STYLE_TOOLBAR_SECONDARY`, `CARD_FRAME_STYLE`, `BADGE_STYLE_*`, `TABLE_STYLE_CLEAN`) over ad-hoc inline stylesheets.

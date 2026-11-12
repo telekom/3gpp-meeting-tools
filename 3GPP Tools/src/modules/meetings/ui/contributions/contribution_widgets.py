@@ -14,6 +14,7 @@ from core.ui.ui_components import (
 )
 from core.utils.company_sanitizer import CompanySanitizer
 from modules.work_items.core.wi_database import WorkItemsDatabase
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -22,29 +23,29 @@ class KPICard(QFrame):
 
     def __init__(self, title: str, default_val: str = "-", subtitle: str = "", parent=None):
         super().__init__(parent)
-        self.setStyleSheet("""
-            QFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
-            }
-            QLabel#kpiTitle {
-                color: #64748B;
+            }}
+            QLabel#kpiTitle {{
+                color: {C.TEXT_MUTED};
                 font-size: 10px;
                 font-weight: bold;
                 border: none;
-            }
-            QLabel#kpiValue {
-                color: #1E5C99;
+            }}
+            QLabel#kpiValue {{
+                color: {C.ACCENT_PRIMARY};
                 font-size: 16px;
                 font-weight: bold;
                 border: none;
-            }
-            QLabel#kpiSub {
-                color: #94A3B8;
+            }}
+            QLabel#kpiSub {{
+                color: {C.TEXT_FAINT};
                 font-size: 10px;
                 border: none;
-            }
+            }}
         """)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 6, 10, 6)
@@ -73,30 +74,30 @@ class FilterTokenChip(QFrame):
     def __init__(self, token_text: str, parent=None):
         super().__init__(parent)
         self.token_text = token_text
-        self.setStyleSheet("""
-            QFrame {
-                background-color: #EBF3FC;
-                border: 1px solid #BFDBFE;
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.ACCENT_SOFT};
+                border: 1px solid {C.INFO_BORDER};
                 border-radius: 12px;
                 padding: 1px 6px;
-            }
-            QLabel {
-                color: #1E5C99;
+            }}
+            QLabel {{
+                color: {C.ACCENT_PRIMARY};
                 font-size: 11px;
                 font-weight: bold;
                 border: none;
-            }
-            QPushButton {
+            }}
+            QPushButton {{
                 background: transparent;
                 border: none;
-                color: #64748B;
+                color: {C.TEXT_MUTED};
                 font-weight: bold;
                 font-size: 11px;
                 padding: 0px 2px;
-            }
-            QPushButton:hover {
-                color: #DC2626;
-            }
+            }}
+            QPushButton:hover {{
+                color: {C.DANGER_ALT};
+            }}
         """)
 
         layout = QHBoxLayout(self)
@@ -297,7 +298,7 @@ class CompanySelectorWidget(QWidget):
         layout.addLayout(actions_layout)
 
         match_frame = QFrame()
-        match_frame.setStyleSheet("QFrame { background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 4px; padding: 4px; }")
+        match_frame.setStyleSheet(f"QFrame {{ background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px; padding: 4px; }}")
         match_layout = QVBoxLayout(match_frame)
         match_layout.setContentsMargins(4, 4, 4, 4)
         match_layout.setSpacing(2)

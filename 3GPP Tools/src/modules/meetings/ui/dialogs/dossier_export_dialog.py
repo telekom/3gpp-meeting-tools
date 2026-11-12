@@ -29,42 +29,43 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
+from core.ui.theme import C
 
-STYLE_COMPACT_BTN = """
-    QPushButton {
-        background-color: #F8FAFC;
-        color: #1E293B;
-        border: 1px solid #CBD5E1;
+STYLE_COMPACT_BTN = f"""
+    QPushButton {{
+        background-color: {C.BG_SURFACE};
+        color: {C.TEXT_STRONG};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 4px;
         padding: 4px 10px;
         font-size: 11px;
         font-weight: 500;
-    }
-    QPushButton:hover {
-        background-color: #F1F5F9;
-        border-color: #94A3B8;
-    }
-    QPushButton:pressed {
-        background-color: #E2E8F0;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {C.BG_CANVAS};
+        border-color: {C.TEXT_FAINT};
+    }}
+    QPushButton:pressed {{
+        background-color: {C.BORDER_SUBTLE};
+    }}
 """
 
-STYLE_PRIMARY_BTN = """
-    QPushButton {
-        background-color: #005A9E;
-        color: #FFFFFF;
+STYLE_PRIMARY_BTN = f"""
+    QPushButton {{
+        background-color: {C.OFFICE_BLUE};
+        color: {C.BG_CARD};
         font-weight: bold;
         border-radius: 4px;
         padding: 7px 18px;
         font-size: 12px;
-        border: 1px solid #004578;
-    }
-    QPushButton:hover {
-        background-color: #004578;
-    }
-    QPushButton:pressed {
+        border: 1px solid {C.OFFICE_BLUE_DARK};
+    }}
+    QPushButton:hover {{
+        background-color: {C.OFFICE_BLUE_DARK};
+    }}
+    QPushButton:pressed {{
         background-color: #00335A;
-    }
+    }}
 """
 
 
@@ -103,8 +104,8 @@ class DossierExportDialog(QDialog):
         mtg_str = f"{wg} #{mtg}" if wg or mtg else "Current Meeting"
 
         header_lbl = QLabel(
-            f"<h3 style='margin:0 0 4px 0; color:#005A9E;'>📑 Compile Technical Dossier</h3>"
-            f"<span style='color:#475569; font-size:12px;'>"
+            f"<h3 style='margin:0 0 4px 0; color:{C.OFFICE_BLUE};'>📑 Compile Technical Dossier</h3>"
+            f"<span style='color:{C.TEXT_SECONDARY}; font-size:12px;'>"
             f"Ready to compile <b>{self.tdocs_count} {self.scope_label}</b> TDoc(s) from <b>{mtg_str}</b> "
             f"into a structured, navigable technical dossier."
             f"</span>"

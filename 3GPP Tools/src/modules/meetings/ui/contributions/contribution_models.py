@@ -6,6 +6,7 @@ and filter match explanations.
 """
 from PyQt5.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PyQt5.QtGui import QBrush, QColor, QFont
+from core.ui.theme import C
 
 
 class ContributionResultsTableModel(QAbstractTableModel):
@@ -47,9 +48,9 @@ class ContributionResultsTableModel(QAbstractTableModel):
             value = str(row_dict.get(col_name, "") or "").strip()
             if value:
                 if role == Qt.BackgroundRole:
-                    return QBrush(QColor("#EBF3FC" if col_name == "Type" else "#F1F5F9"))
+                    return QBrush(QColor(C.ACCENT_SOFT if col_name == "Type" else C.BG_CANVAS))
                 if role == Qt.ForegroundRole:
-                    return QBrush(QColor("#1E5C99" if col_name == "Type" else "#475569"))
+                    return QBrush(QColor(C.ACCENT_PRIMARY if col_name == "Type" else C.TEXT_SECONDARY))
                 if role == Qt.FontRole:
                     font = QFont()
                     font.setBold(True)
@@ -60,18 +61,18 @@ class ContributionResultsTableModel(QAbstractTableModel):
         match_origin = str(row_dict.get("_Filter Match", ""))
         if col_name == "Related WIs" and "WI" in match_origin:
             if role == Qt.BackgroundRole:
-                return QBrush(QColor("#EFF6FF"))
+                return QBrush(QColor(C.INFO_SOFT))
             if role == Qt.ForegroundRole:
-                return QBrush(QColor("#1D4ED8"))
+                return QBrush(QColor(C.INFO))
             if role == Qt.FontRole:
                 font = QFont()
                 font.setBold(True)
                 return font
         if col_name == "Agenda Item" and "AI" in match_origin:
             if role == Qt.BackgroundRole:
-                return QBrush(QColor("#F5F3FF"))
+                return QBrush(QColor(C.VIOLET_SURFACE))
             if role == Qt.ForegroundRole:
-                return QBrush(QColor("#6D28D9"))
+                return QBrush(QColor(C.VIOLET_PRIMARY))
             if role == Qt.FontRole:
                 font = QFont()
                 font.setBold(True)
@@ -81,7 +82,7 @@ class ContributionResultsTableModel(QAbstractTableModel):
             status = str(row_dict.get(col_name, "") or "").strip().lower()
             if role == Qt.BackgroundRole:
                 if "agreed" in status or "approved" in status:
-                    return QBrush(QColor("#E6F4EA"))
+                    return QBrush(QColor(C.SUCCESS_SOFT_MINT))
                 if "noted" in status or "postponed" in status:
                     return QBrush(QColor("#FEF7E0"))
                 if any(term in status for term in ("withdrawn", "rejected", "not agreed", "not-agreed")):
@@ -90,7 +91,7 @@ class ContributionResultsTableModel(QAbstractTableModel):
                     return QBrush(QColor("#F1F3F4"))
             if role == Qt.ForegroundRole:
                 if "agreed" in status or "approved" in status:
-                    return QBrush(QColor("#137333"))
+                    return QBrush(QColor(C.SUCCESS_ALT))
                 if "noted" in status or "postponed" in status:
                     return QBrush(QColor("#B06000"))
                 if any(term in status for term in ("withdrawn", "rejected", "not agreed", "not-agreed")):

@@ -17,70 +17,71 @@ from PyQt5.QtWidgets import (
 
 from modules.meetings.core.ai_suggester import AgendaItemSuggester, DiscoveredAi
 from modules.meetings.core.meetings_db import MeetingsDatabase
+from core.ui.theme import C
 
-STYLE_PRIMARY_BTN = """
-    QPushButton {
-        background-color: #10B981;
-        color: #FFFFFF;
+STYLE_PRIMARY_BTN = f"""
+    QPushButton {{
+        background-color: {C.EMERALD_ACCENT};
+        color: {C.BG_CARD};
         font-weight: bold;
-        border: 1px solid #059669;
+        border: 1px solid {C.EMERALD_PRIMARY};
         border-radius: 6px;
         padding: 6px 16px;
         font-size: 12px;
-    }
-    QPushButton:hover {
-        background-color: #059669;
-    }
-    QPushButton:disabled {
-        background-color: #94A3B8;
-        border-color: #94A3B8;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {C.EMERALD_PRIMARY};
+    }}
+    QPushButton:disabled {{
+        background-color: {C.TEXT_FAINT};
+        border-color: {C.TEXT_FAINT};
+    }}
 """
 
-STYLE_SECONDARY_BTN = """
-    QPushButton {
-        background-color: #F8FAFC;
-        color: #1E293B;
-        border: 1px solid #CBD5E1;
+STYLE_SECONDARY_BTN = f"""
+    QPushButton {{
+        background-color: {C.BG_SURFACE};
+        color: {C.TEXT_STRONG};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 6px;
         padding: 5px 12px;
         font-size: 11px;
         font-weight: 500;
-    }
-    QPushButton:hover {
-        background-color: #F1F5F9;
-        border-color: #94A3B8;
-    }
-    QPushButton:disabled {
-        color: #94A3B8;
-        background-color: #F8FAFC;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {C.BG_CANVAS};
+        border-color: {C.TEXT_FAINT};
+    }}
+    QPushButton:disabled {{
+        color: {C.TEXT_FAINT};
+        background-color: {C.BG_SURFACE};
+    }}
 """
 
-STYLE_TABLE = """
-    QTableWidget {
-        background-color: #FFFFFF;
-        border: 1px solid #CBD5E1;
+STYLE_TABLE = f"""
+    QTableWidget {{
+        background-color: {C.BG_CARD};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 6px;
-        gridline-color: #F1F5F9;
-    }
-    QHeaderView::section {
-        background-color: #F8FAFC;
-        color: #475569;
+        gridline-color: {C.BG_CANVAS};
+    }}
+    QHeaderView::section {{
+        background-color: {C.BG_SURFACE};
+        color: {C.TEXT_SECONDARY};
         font-weight: bold;
         font-size: 11px;
         border: none;
-        border-bottom: 1px solid #E2E8F0;
+        border-bottom: 1px solid {C.BORDER_SUBTLE};
         padding: 5px;
-    }
-    QTableWidget::item {
+    }}
+    QTableWidget::item {{
         padding: 4px;
         font-size: 11px;
-    }
-    QTableWidget::item:selected {
-        background-color: #EFF6FF;
-        color: #1D4ED8;
-    }
+    }}
+    QTableWidget::item:selected {{
+        background-color: {C.INFO_SOFT};
+        color: {C.INFO};
+    }}
 """
 
 
@@ -175,7 +176,7 @@ class AiSuggestionDialog(QDialog):
             "<b>Auto-Discover Agenda Items (AIs):</b> Scans recent meeting agendas across your target WGs "
             "for matching Agenda Items based on topic keywords and Work Item codes."
         )
-        lbl_info.setStyleSheet("color: #334155; font-size: 12px;")
+        lbl_info.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 12px;")
         lbl_info.setWordWrap(True)
         layout.addWidget(lbl_info)
 
@@ -183,19 +184,19 @@ class AiSuggestionDialog(QDialog):
         if self.inferred_summary:
             banner_frame = QFrame()
             banner_frame.setStyleSheet(
-                "background-color: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 6px; padding: 6px 10px;"
+                f"background-color: {C.WG_RAN_BG}; border: 1px solid {C.WG_RAN_BORDER}; border-radius: 6px; padding: 6px 10px;"
             )
             b_layout = QHBoxLayout(banner_frame)
             b_layout.setContentsMargins(6, 4, 6, 4)
             lbl_banner = QLabel(f"💡 <b>Inferred from known AI:</b> {self.inferred_summary}")
-            lbl_banner.setStyleSheet("color: #065F46; font-size: 11px;")
+            lbl_banner.setStyleSheet(f"color: {C.WG_RAN_TEXT}; font-size: 11px;")
             lbl_banner.setWordWrap(True)
             b_layout.addWidget(lbl_banner)
             layout.addWidget(banner_frame)
 
         # Query Parameter Strip
         param_frame = QFrame()
-        param_frame.setStyleSheet("background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px;")
+        param_frame.setStyleSheet(f"background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px;")
         p_layout = QHBoxLayout(param_frame)
         p_layout.setContentsMargins(10, 8, 10, 8)
         p_layout.setSpacing(10)
@@ -219,21 +220,21 @@ class AiSuggestionDialog(QDialog):
 
         # Progress bar strip (asynchronous scanning)
         self.prog_frame = QFrame()
-        self.prog_frame.setStyleSheet("background-color: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 6px;")
+        self.prog_frame.setStyleSheet(f"background-color: {C.INFO_SOFT}; border: 1px solid {C.INFO_BORDER}; border-radius: 6px;")
         prog_layout = QHBoxLayout(self.prog_frame)
         prog_layout.setContentsMargins(10, 6, 10, 6)
         prog_layout.setSpacing(10)
         self.lbl_scan_status = QLabel("Ready to scan.")
-        self.lbl_scan_status.setStyleSheet("color: #1E40AF; font-size: 11px; font-weight: bold;")
+        self.lbl_scan_status.setStyleSheet(f"color: {C.INFO_DARK}; font-size: 11px; font-weight: bold;")
         prog_layout.addWidget(self.lbl_scan_status, 1)
         self.prog_bar = QProgressBar()
         self.prog_bar.setFixedHeight(14)
         self.prog_bar.setRange(0, 100)
         self.prog_bar.setValue(0)
         self.prog_bar.setTextVisible(False)
-        self.prog_bar.setStyleSheet("""
-            QProgressBar { border: 1px solid #93C5FD; border-radius: 3px; background-color: #DBEAFE; }
-            QProgressBar::chunk { background-color: #3B82F6; border-radius: 2px; }
+        self.prog_bar.setStyleSheet(f"""
+            QProgressBar {{ border: 1px solid {C.INFO_BORDER_MEDIUM}; border-radius: 3px; background-color: {C.INFO_SOFT_STRONG}; }}
+            QProgressBar::chunk {{ background-color: {C.INFO_ACCENT}; border-radius: 2px; }}
         """)
         prog_layout.addWidget(self.prog_bar, 1)
         layout.addWidget(self.prog_frame)
@@ -241,10 +242,10 @@ class AiSuggestionDialog(QDialog):
 
         # WG Tabs
         self.tab_widget = QTabWidget()
-        self.tab_widget.setStyleSheet("""
-            QTabWidget::pane { border: 1px solid #CBD5E1; border-radius: 6px; background-color: #FFFFFF; }
-            QTabBar::tab { padding: 6px 14px; font-weight: bold; font-size: 11px; }
-            QTabBar::tab:selected { background-color: #FFFFFF; color: #10B981; border-bottom: 2px solid #10B981; }
+        self.tab_widget.setStyleSheet(f"""
+            QTabWidget::pane {{ border: 1px solid {C.BORDER_STRONG}; border-radius: 6px; background-color: {C.BG_CARD}; }}
+            QTabBar::tab {{ padding: 6px 14px; font-weight: bold; font-size: 11px; }}
+            QTabBar::tab:selected {{ background-color: {C.BG_CARD}; color: {C.EMERALD_ACCENT}; border-bottom: 2px solid {C.EMERALD_ACCENT}; }}
         """)
         layout.addWidget(self.tab_widget, 1)
 
@@ -270,11 +271,11 @@ class AiSuggestionDialog(QDialog):
 
         # Bottom Preview Bar
         preview_frame = QFrame()
-        preview_frame.setStyleSheet("background-color: #F1F5F9; border-radius: 6px; padding: 6px 10px;")
+        preview_frame.setStyleSheet(f"background-color: {C.BG_CANVAS}; border-radius: 6px; padding: 6px 10px;")
         pv_layout = QVBoxLayout(preview_frame)
         pv_layout.setContentsMargins(6, 4, 6, 4)
         self.lbl_preview = QLabel("<b>Generated Rule:</b> <i>Select AIs above to preview...</i>")
-        self.lbl_preview.setStyleSheet("color: #1E293B; font-size: 11px;")
+        self.lbl_preview.setStyleSheet(f"color: {C.TEXT_STRONG}; font-size: 11px;")
         self.lbl_preview.setWordWrap(True)
         pv_layout.addWidget(self.lbl_preview)
         layout.addWidget(preview_frame)
@@ -367,7 +368,7 @@ class AiSuggestionDialog(QDialog):
         if not items:
             lbl_empty = QLabel(f"<i>No matching Agenda Items found in recent {wg} meetings.</i>")
             lbl_empty.setAlignment(Qt.AlignCenter)
-            lbl_empty.setStyleSheet("color: #94A3B8; font-size: 12px; margin-top: 40px;")
+            lbl_empty.setStyleSheet(f"color: {C.TEXT_FAINT}; font-size: 12px; margin-top: 40px;")
             v_layout.addWidget(lbl_empty)
             return container
 
