@@ -110,6 +110,33 @@ class TestIconsAndNavRail(unittest.TestCase):
         self.assertEqual(help_btn.text(), "Help && Docs")
         self.assertEqual(settings_btn.text(), "Settings")
 
+    def test_drag_drop_ui_allows_laptop_width_and_collapses_rail(self):
+        from core.ui.shell_state import create_shell_settings
+        from main_window import DragDropUI
+
+        s = create_shell_settings()
+        backup = {k: s.value(k) for k in s.allKeys()}
+        try:
+            win = DragDropUI()
+            win.show()
+            self.app.processEvents()
+
+            self.assertLessEqual(win.minimumWidth(), 820)
+            win.resize(900, 680)
+            self.app.processEvents()
+            self.assertLessEqual(win.width(), 900)
+            self.assertTrue(win.nav_rail.is_collapsed)
+
+            win.resize(1680, 960)
+            self.app.processEvents()
+            self.assertFalse(win.nav_rail.is_collapsed)
+            win.close()
+        finally:
+            s.clear()
+            for k, v in backup.items():
+                s.setValue(k, v)
+            s.sync()
+
 
 if __name__ == "__main__":
     unittest.main()

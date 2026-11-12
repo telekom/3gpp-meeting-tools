@@ -11,7 +11,7 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QKeySequence, QTextCursor
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QStatusBar, QApplication,
-    QDialog, QTabWidget, QPushButton, QShortcut, QLabel, QMessageBox, QMenu
+    QDialog, QTabWidget, QPushButton, QShortcut, QLabel, QMessageBox, QMenu, QSizePolicy
 )
 
 from core.config.config import HELP_URL
@@ -55,6 +55,7 @@ class DragDropUI(QMainWindow):
         super().__init__()
         self.setWindowTitle("3GPP Delegate Tools")
         self.setWindowIcon(create_app_icon())
+        self.setMinimumSize(780, 560)
         self.resize(1160, 780)
 
         self.jar_path = get_puml2visio_asset_path(PLANTUML_JAR_NAME)
@@ -152,6 +153,9 @@ class DragDropUI(QMainWindow):
         self.tabs.setObjectName("shellWorkspaceTabs")
         self.tabs.setDocumentMode(True)
         self.tabs.tabBar().hide()
+        # Allow window to shrink cleanly to laptop screens without largest child tab clamping min width
+        self.tabs.setMinimumSize(0, 0)
+        self.tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.tabs.setStyleSheet(
             f"QTabWidget#shellWorkspaceTabs::pane {{ border: none; background: {C.BG_CANVAS}; top: 0px; }}"
         )
