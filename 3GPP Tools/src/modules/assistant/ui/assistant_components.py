@@ -33,113 +33,114 @@ from core.ui.ui_components import (
     TREE_STYLE_CLEAN,
 )
 from modules.assistant.core.agent_models import Evidence, EvidenceSourceType, ResearchActivity
+from core.ui.theme import C
 
 # =========================================================================
 # Stylesheet Constants
 # =========================================================================
 
-PROMPT_INPUT_STYLE = """
-QPlainTextEdit {
-    background-color: #FFFFFF;
-    border: 1px solid #CBD5E1;
+PROMPT_INPUT_STYLE = f"""
+QPlainTextEdit {{
+    background-color: {C.BG_CARD};
+    border: 1px solid {C.BORDER_STRONG};
     border-radius: 6px;
     padding: 6px 8px;
     font-family: "Segoe UI", Arial, sans-serif;
     font-size: 13px;
-    color: #1E293B;
-}
-QPlainTextEdit:focus {
-    border: 1.5px solid #1E5C99;
-}
+    color: {C.TEXT_STRONG};
+}}
+QPlainTextEdit:focus {{
+    border: 1.5px solid {C.ACCENT_PRIMARY};
+}}
 """
 
-STATUS_PILL_ONLINE = """
-QPushButton {
-    background-color: #ECFDF5;
-    color: #047857;
-    border: 1px solid #A7F3D0;
+STATUS_PILL_ONLINE = f"""
+QPushButton {{
+    background-color: {C.WG_RAN_BG};
+    color: {C.EMERALD_DARK};
+    border: 1px solid {C.WG_RAN_BORDER};
     border-radius: 12px;
     padding: 3px 10px;
     font-size: 11px;
     font-weight: 600;
-}
-QPushButton:hover {
-    background-color: #D1FAE5;
-    border-color: #6EE7B7;
-}
+}}
+QPushButton:hover {{
+    background-color: {C.EMERALD_SOFT};
+    border-color: {C.EMERALD_BORDER};
+}}
 """
 
-STATUS_PILL_OFFLINE = """
-QPushButton {
-    background-color: #FEF2F2;
-    color: #B91C1C;
-    border: 1px solid #FECACA;
+STATUS_PILL_OFFLINE = f"""
+QPushButton {{
+    background-color: {C.DANGER_SOFT};
+    color: {C.DANGER};
+    border: 1px solid {C.DANGER_BORDER};
     border-radius: 12px;
     padding: 3px 10px;
     font-size: 11px;
     font-weight: 600;
-}
-QPushButton:hover {
-    background-color: #FEE2E2;
-    border-color: #FCA5A5;
-}
+}}
+QPushButton:hover {{
+    background-color: {C.DANGER_SOFT_HOVER};
+    border-color: {C.DANGER_BORDER_ALT};
+}}
 """
 
-STATUS_PILL_NEUTRAL = """
-QPushButton {
-    background-color: #F1F5F9;
-    color: #475569;
-    border: 1px solid #E2E8F0;
+STATUS_PILL_NEUTRAL = f"""
+QPushButton {{
+    background-color: {C.BG_CANVAS};
+    color: {C.TEXT_SECONDARY};
+    border: 1px solid {C.BORDER_SUBTLE};
     border-radius: 12px;
     padding: 3px 10px;
     font-size: 11px;
     font-weight: 600;
-}
-QPushButton:hover {
-    background-color: #E2E8F0;
-}
+}}
+QPushButton:hover {{
+    background-color: {C.BORDER_SUBTLE};
+}}
 """
 
-STARTER_CHIP_STYLE = """
-QPushButton {
-    background-color: #F8FAFC;
-    color: #334155;
-    border: 1px solid #CBD5E1;
+STARTER_CHIP_STYLE = f"""
+QPushButton {{
+    background-color: {C.BG_SURFACE};
+    color: {C.TEXT_BODY};
+    border: 1px solid {C.BORDER_STRONG};
     border-radius: 14px;
     padding: 5px 12px;
     font-size: 12px;
     text-align: left;
-}
-QPushButton:hover {
-    background-color: #EBF3FC;
-    color: #1E5C99;
-    border-color: #1E5C99;
-}
-QPushButton:pressed {
-    background-color: #DFEDFA;
-}
+}}
+QPushButton:hover {{
+    background-color: {C.ACCENT_SOFT};
+    color: {C.ACCENT_PRIMARY};
+    border-color: {C.ACCENT_PRIMARY};
+}}
+QPushButton:pressed {{
+    background-color: {C.ACCENT_SOFT_HOVER};
+}}
 """
 
-CARD_FRAME_STYLE = """
-QFrame#assistantCardFrame {
-    background-color: #FFFFFF;
-    border: 1px solid #E2E8F0;
+CARD_FRAME_STYLE = f"""
+QFrame#assistantCardFrame {{
+    background-color: {C.BG_CARD};
+    border: 1px solid {C.BORDER_SUBTLE};
     border-radius: 8px;
-}
+}}
 """
 
-CARD_HEADER_STYLE = """
-QFrame#assistantCardHeader {
-    background-color: #F8FAFC;
-    border-bottom: 1px solid #E2E8F0;
+CARD_HEADER_STYLE = f"""
+QFrame#assistantCardHeader {{
+    background-color: {C.BG_SURFACE};
+    border-bottom: 1px solid {C.BORDER_SUBTLE};
     border-top-left-radius: 7px;
     border-top-right-radius: 7px;
-}
+}}
 """
 
-BADGE_SPEC_TEXT = "background-color: #EEF2FF; color: #4338CA; border: 1px solid #C7D2FE; border-radius: 4px; padding: 2px 6px; font-weight: bold; font-size: 11px;"
-BADGE_PROTOCOL = "background-color: #ECFDF5; color: #047857; border: 1px solid #A7F3D0; border-radius: 4px; padding: 2px 6px; font-weight: bold; font-size: 11px;"
-BADGE_CATALOGUE = "background-color: #F1F5F9; color: #475569; border: 1px solid #CBD5E1; border-radius: 4px; padding: 2px 6px; font-weight: bold; font-size: 11px;"
+BADGE_SPEC_TEXT = f"background-color: {C.WG_SA_BG}; color: {C.INDIGO_DARK}; border: 1px solid {C.WG_SA_BORDER}; border-radius: 4px; padding: 2px 6px; font-weight: bold; font-size: 11px;"
+BADGE_PROTOCOL = f"background-color: {C.WG_RAN_BG}; color: {C.EMERALD_DARK}; border: 1px solid {C.WG_RAN_BORDER}; border-radius: 4px; padding: 2px 6px; font-weight: bold; font-size: 11px;"
+BADGE_CATALOGUE = f"background-color: {C.BG_CANVAS}; color: {C.TEXT_SECONDARY}; border: 1px solid {C.BORDER_STRONG}; border-radius: 4px; padding: 2px 6px; font-weight: bold; font-size: 11px;"
 
 
 # =========================================================================
@@ -201,7 +202,7 @@ class StarterChipsWidget(QWidget):
         layout.setAlignment(Qt.AlignCenter)
 
         title = QLabel("💡 <b>Suggested 3GPP Research Queries</b>")
-        title.setStyleSheet("font-size: 13px; color: #475569;")
+        title.setStyleSheet(f"font-size: 13px; color: {C.TEXT_SECONDARY};")
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
 
@@ -251,14 +252,14 @@ def render_markdown_to_html(md: str, valid_evidence_ids: Optional[Set[str]] = No
         data_rows = rows[2:] if ("---" in rows[1] or ":---" in rows[1]) else rows[1:]
 
         th_html = "".join(
-            f'<th style="background:#F8FAFC; color:#475569; font-weight:bold; font-size:12px; border:1px solid #CBD5E1; padding:5px 8px; text-align:left;">{h}</th>'
+            f'<th style="background:{C.BG_SURFACE}; color:{C.TEXT_SECONDARY}; font-weight:bold; font-size:12px; border:1px solid {C.BORDER_STRONG}; padding:5px 8px; text-align:left;">{h}</th>'
             for h in headers
         )
         tr_rows = []
         for r in data_rows:
             cols = [c.strip() for c in r.strip("|").split("|")]
             td_html = "".join(
-                f'<td style="border:1px solid #E2E8F0; padding:4px 8px; font-size:12px; color:#1E293B;">{c}</td>'
+                f'<td style="border:1px solid {C.BORDER_SUBTLE}; padding:4px 8px; font-size:12px; color:{C.TEXT_STRONG};">{c}</td>'
                 for c in cols
             )
             tr_rows.append(f"<tr>{td_html}</tr>")
@@ -268,16 +269,16 @@ def render_markdown_to_html(md: str, valid_evidence_ids: Optional[Set[str]] = No
     text = re.sub(r"(?:^\|.+\|\r?\n(?:^\|[-:\s|]+\|\r?\n)?(?:^\|.+\|\r?\n?)+)", _render_table, text, flags=re.MULTILINE)
 
     # 4. Headings
-    text = re.sub(r"^###\s+(.+)$", r'<h4 style="margin:8px 0 4px 0; color:#1E293B; font-size:13px; font-weight:bold;">\1</h4>', text, flags=re.MULTILINE)
-    text = re.sub(r"^##\s+(.+)$", r'<h3 style="margin:10px 0 4px 0; color:#1E293B; font-size:14px; font-weight:bold;">\1</h3>', text, flags=re.MULTILINE)
-    text = re.sub(r"^#\s+(.+)$", r'<h2 style="margin:12px 0 6px 0; color:#1E293B; font-size:15px; font-weight:bold;">\1</h2>', text, flags=re.MULTILINE)
+    text = re.sub(r"^###\s+(.+)$", fr'<h4 style="margin:8px 0 4px 0; color:{C.TEXT_STRONG}; font-size:13px; font-weight:bold;">\1</h4>', text, flags=re.MULTILINE)
+    text = re.sub(r"^##\s+(.+)$", fr'<h3 style="margin:10px 0 4px 0; color:{C.TEXT_STRONG}; font-size:14px; font-weight:bold;">\1</h3>', text, flags=re.MULTILINE)
+    text = re.sub(r"^#\s+(.+)$", fr'<h2 style="margin:12px 0 6px 0; color:{C.TEXT_STRONG}; font-size:15px; font-weight:bold;">\1</h2>', text, flags=re.MULTILINE)
 
     # 5. Bold, Italic, and Inline code
     text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
     text = re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", r"<i>\1</i>", text)
     text = re.sub(
         r"`([^`]+)`",
-        r'<code style="background:#F1F5F9; color:#0F172A; padding:1px 4px; border-radius:3px; font-family:Consolas,monospace; font-size:12px;">\1</code>',
+        fr'<code style="background:{C.BG_CANVAS}; color:{C.TEXT_PRIMARY}; padding:1px 4px; border-radius:3px; font-family:Consolas,monospace; font-size:12px;">\1</code>',
         text,
     )
 
@@ -323,13 +324,13 @@ def render_markdown_to_html(md: str, valid_evidence_ids: Optional[Set[str]] = No
         h = re.sub(
             r"\b(E\d+)\b",
             lambda m: (
-                f'<a href="evidence:{m.group(1)}" style="color:#0369A1; text-decoration:none; font-weight:bold; background:#E0F2FE; padding:1px 5px; border-radius:4px; border:1px solid #BAE6FD;">{m.group(1)}</a>'
+                f'<a href="evidence:{m.group(1)}" style="color:{C.ACCENT_SKY_DARK}; text-decoration:none; font-weight:bold; background:{C.SKY_SOFT}; padding:1px 5px; border-radius:4px; border:1px solid {C.SKY_BORDER};">{m.group(1)}</a>'
                 if m.group(1) in valid_ids
                 else m.group(1)
             ),
             inner,
         )
-        return f'<span style="color:#0369A1; font-weight:bold;">[</span>{h}<span style="color:#0369A1; font-weight:bold;">]</span>'
+        return f'<span style="color:{C.ACCENT_SKY_DARK}; font-weight:bold;">[</span>{h}<span style="color:{C.ACCENT_SKY_DARK}; font-weight:bold;">]</span>'
 
     text = re.sub(r"\[([^\[\]]*?\bE\d+\b[^\[\]]*?)\]", _highlight_citations, text)
 
@@ -337,8 +338,8 @@ def render_markdown_to_html(md: str, valid_evidence_ids: Optional[Set[str]] = No
     for i, (lang, code) in enumerate(code_blocks):
         escaped_code = html.escape(code.strip())
         block_html = (
-            f'<div style="margin:8px 0; background:#F8FAFC; border-radius:6px; padding:8px 12px; border:1px solid #CBD5E1;">'
-            f'<pre style="margin:0; font-family:Consolas,monospace; font-size:12px; color:#1E293B; white-space:pre-wrap;">{escaped_code}</pre>'
+            f'<div style="margin:8px 0; background:{C.BG_SURFACE}; border-radius:6px; padding:8px 12px; border:1px solid {C.BORDER_STRONG};">'
+            f'<pre style="margin:0; font-family:Consolas,monospace; font-size:12px; color:{C.TEXT_STRONG}; white-space:pre-wrap;">{escaped_code}</pre>'
             f"</div>"
         )
         text = text.replace(f"__CODE_BLOCK_{i}__", block_html)
@@ -353,12 +354,12 @@ def render_user_message_card(content: str, timestamp: str = "") -> str:
     escaped = html.escape(content).replace("\n", "<br>")
     time_str = timestamp or ""
     return f"""
-    <div style="margin: 8px 0; padding: 10px 14px; background-color: #F0F7FF; border: 1px solid #BAE6FD; border-radius: 8px;">
+    <div style="margin: 8px 0; padding: 10px 14px; background-color: {C.BLUE_TINT_SOFT}; border: 1px solid {C.SKY_BORDER}; border-radius: 8px;">
       <div style="margin-bottom: 5px;">
-        <span style="font-weight: bold; color: #0369A1; font-size: 12px;">👤 You</span>
-        <span style="color: #94A3B8; font-size: 11px; float: right;">{time_str}</span>
+        <span style="font-weight: bold; color: {C.ACCENT_SKY_DARK}; font-size: 12px;">👤 You</span>
+        <span style="color: {C.TEXT_FAINT}; font-size: 11px; float: right;">{time_str}</span>
       </div>
-      <div style="color: #0F172A; font-size: 13px; line-height: 1.45; white-space: pre-wrap;">{escaped}</div>
+      <div style="color: {C.TEXT_PRIMARY}; font-size: 13px; line-height: 1.45; white-space: pre-wrap;">{escaped}</div>
     </div>
     """
 
@@ -373,18 +374,18 @@ def render_assistant_message_card(
     """Renders a grounded Assistant response into a styled card with markdown and clickable citations."""
     rendered_body = render_markdown_to_html(answer, valid_evidence_ids)
     time_str = timestamp or ""
-    kpi_html = f'<span style="background:#F1F5F9; color:#475569; font-size:11px; padding:1px 6px; border-radius:4px; margin-left:8px; border:1px solid #E2E8F0;">{kpi_badge}</span>' if kpi_badge else ""
+    kpi_html = f'<span style="background:{C.BG_CANVAS}; color:{C.TEXT_SECONDARY}; font-size:11px; padding:1px 6px; border-radius:4px; margin-left:8px; border:1px solid {C.BORDER_SUBTLE};">{kpi_badge}</span>' if kpi_badge else ""
 
     return f"""
-    <div style="margin: 8px 0; padding: 12px 16px; background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px;">
-      <div style="margin-bottom: 8px; border-bottom: 1px solid #F1F5F9; padding-bottom: 6px;">
-        <span style="font-weight: bold; color: #1E293B; font-size: 13px;">🤖 3GPP Assistant</span>
+    <div style="margin: 8px 0; padding: 12px 16px; background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px;">
+      <div style="margin-bottom: 8px; border-bottom: 1px solid {C.BG_CANVAS}; padding-bottom: 6px;">
+        <span style="font-weight: bold; color: {C.TEXT_STRONG}; font-size: 13px;">🤖 3GPP Assistant</span>
         {kpi_html}
-        <span style="color: #94A3B8; font-size: 11px; float: right;">{time_str}</span>
+        <span style="color: {C.TEXT_FAINT}; font-size: 11px; float: right;">{time_str}</span>
       </div>
-      <div style="color: #1E293B; font-size: 13px; line-height: 1.5;">{rendered_body}</div>
-      <div style="margin-top: 10px; padding-top: 6px; border-top: 1px solid #F8FAFC; text-align: right;">
-        <a href="copy_msg:{msg_index}" style="color: #64748B; font-size: 11px; text-decoration: none; background-color: #F8FAFC; padding: 3px 8px; border: 1px solid #E2E8F0; border-radius: 4px;">📋 Copy Answer</a>
+      <div style="color: {C.TEXT_STRONG}; font-size: 13px; line-height: 1.5;">{rendered_body}</div>
+      <div style="margin-top: 10px; padding-top: 6px; border-top: 1px solid {C.BG_SURFACE}; text-align: right;">
+        <a href="copy_msg:{msg_index}" style="color: {C.TEXT_MUTED}; font-size: 11px; text-decoration: none; background-color: {C.BG_SURFACE}; padding: 3px 8px; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px;">📋 Copy Answer</a>
       </div>
     </div>
     """
@@ -393,9 +394,9 @@ def render_assistant_message_card(
 def render_system_message_card(message: str, error: bool = False) -> str:
     """Renders system notifications or errors as clean colored notice banners."""
     escaped = html.escape(message)
-    bg = "#FEF2F2" if error else "#F8FAFC"
-    border = "#FECACA" if error else "#E2E8F0"
-    color = "#B91C1C" if error else "#475569"
+    bg = C.DANGER_SOFT if error else C.BG_SURFACE
+    border = C.DANGER_BORDER if error else C.BORDER_SUBTLE
+    color = C.DANGER if error else C.TEXT_SECONDARY
     icon = "⚠️" if error else "ℹ️"
     return f"""
     <div style="margin: 6px 0; padding: 8px 12px; background-color: {bg}; border: 1px solid {border}; border-radius: 6px; color: {color}; font-size: 12px;">
@@ -435,7 +436,7 @@ class EvidenceInspectorWidget(QFrame):
         hdr.addWidget(self.badge)
 
         self.title_label = QLabel("No evidence selected")
-        self.title_label.setStyleSheet("font-weight: bold; color: #1E293B; font-size: 12px;")
+        self.title_label.setStyleSheet(f"font-weight: bold; color: {C.TEXT_STRONG}; font-size: 12px;")
         hdr.addWidget(self.title_label, stretch=1)
 
         self.spec_search_btn = QPushButton("🔎 Spec Search")
@@ -469,16 +470,16 @@ class EvidenceInspectorWidget(QFrame):
 
         # Excerpt Browser
         self.content_browser = QTextBrowser()
-        self.content_browser.setStyleSheet("""
-            QTextBrowser {
-                background-color: #F8FAFC;
-                border: 1px solid #E2E8F0;
+        self.content_browser.setStyleSheet(f"""
+            QTextBrowser {{
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 4px;
                 font-family: Consolas, 'Courier New', monospace;
                 font-size: 12px;
-                color: #1E293B;
+                color: {C.TEXT_STRONG};
                 padding: 6px;
-            }
+            }}
         """)
         self.content_browser.setPlaceholderText(
             "Select an evidence item from the list above or click an [E#] citation in the chat to view its retrieved content."
@@ -599,7 +600,7 @@ class ActivityTimelineWidget(QWidget):
         header = QHBoxLayout()
         header.setContentsMargins(2, 0, 2, 0)
         self.step_label = QLabel("0 steps executed")
-        self.step_label.setStyleSheet("font-weight: 600; color: #475569; font-size: 11px;")
+        self.step_label.setStyleSheet(f"font-weight: 600; color: {C.TEXT_SECONDARY}; font-size: 11px;")
         header.addWidget(self.step_label)
         header.addStretch()
 
@@ -614,32 +615,32 @@ class ActivityTimelineWidget(QWidget):
         self.progress_bar.setFixedHeight(4)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setRange(0, 0)  # Indeterminate pulse
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
                 border: none;
-                background-color: #E2E8F0;
+                background-color: {C.BORDER_SUBTLE};
                 border-radius: 2px;
-            }
-            QProgressBar::chunk {
-                background-color: #1E5C99;
+            }}
+            QProgressBar::chunk {{
+                background-color: {C.ACCENT_PRIMARY};
                 border-radius: 2px;
-            }
+            }}
         """)
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
         # Browser
         self.browser = QTextBrowser()
-        self.browser.setStyleSheet("""
-            QTextBrowser {
-                background-color: #FFFFFF;
-                border: 1px solid #E2E8F0;
+        self.browser.setStyleSheet(f"""
+            QTextBrowser {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 6px;
                 font-family: "Segoe UI", Arial, sans-serif;
                 font-size: 12px;
-                color: #1E293B;
+                color: {C.TEXT_STRONG};
                 padding: 6px;
-            }
+            }}
         """)
         layout.addWidget(self.browser, stretch=1)
 
@@ -657,13 +658,13 @@ class ActivityTimelineWidget(QWidget):
         eid_html = ""
         if eids:
             eid_chips = " ".join(
-                f'<span style="background:#E0F2FE; color:#0369A1; font-weight:bold; padding:1px 4px; border-radius:3px; font-size:10px;">{eid}</span>'
+                f'<span style="background:{C.SKY_SOFT}; color:{C.ACCENT_SKY_DARK}; font-weight:bold; padding:1px 4px; border-radius:3px; font-size:10px;">{eid}</span>'
                 for eid in eids
             )
             eid_html = f" &nbsp;{eid_chips}"
 
         item_html = f"""
-        <div style="margin: 3px 0; padding: 4px 6px; border-left: 2px solid #CBD5E1; background-color: #F8FAFC;">
+        <div style="margin: 3px 0; padding: 4px 6px; border-left: 2px solid {C.BORDER_STRONG}; background-color: {C.BG_SURFACE};">
           <span style="font-size: 13px;">{icon}</span> <b>{msg}</b>{eid_html}
         </div>
         """
@@ -693,32 +694,32 @@ class DiagnosticsTraceWidget(QWidget):
 
         # KPI Metrics Strip
         kpi_card = QFrame()
-        kpi_card.setStyleSheet("""
-            QFrame {
-                background-color: #F8FAFC;
-                border: 1px solid #E2E8F0;
+        kpi_card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 6px;
                 padding: 4px 8px;
-            }
+            }}
         """)
         kpi_layout = QHBoxLayout(kpi_card)
         kpi_layout.setContentsMargins(4, 2, 4, 2)
         kpi_layout.setSpacing(12)
 
         self.kpi_latency = QLabel("⏱️ Latency: 0.0s")
-        self.kpi_latency.setStyleSheet("color: #475569; font-size: 11px; font-weight: 600;")
+        self.kpi_latency.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px; font-weight: 600;")
         kpi_layout.addWidget(self.kpi_latency)
 
         self.kpi_prompt_tokens = QLabel("📥 Prompt: 0 tok")
-        self.kpi_prompt_tokens.setStyleSheet("color: #475569; font-size: 11px;")
+        self.kpi_prompt_tokens.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px;")
         kpi_layout.addWidget(self.kpi_prompt_tokens)
 
         self.kpi_eval_tokens = QLabel("📤 Eval: 0 tok")
-        self.kpi_eval_tokens.setStyleSheet("color: #475569; font-size: 11px;")
+        self.kpi_eval_tokens.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px;")
         kpi_layout.addWidget(self.kpi_eval_tokens)
 
         self.kpi_speed = QLabel("⚡ Speed: 0 tok/s")
-        self.kpi_speed.setStyleSheet("color: #047857; font-size: 11px; font-weight: 600;")
+        self.kpi_speed.setStyleSheet(f"color: {C.EMERALD_DARK}; font-size: 11px; font-weight: 600;")
         kpi_layout.addWidget(self.kpi_speed)
 
         kpi_layout.addStretch()
@@ -739,16 +740,16 @@ class DiagnosticsTraceWidget(QWidget):
         self.browser = QPlainTextEdit()
         self.browser.setReadOnly(True)
         self.browser.setLineWrapMode(QPlainTextEdit.NoWrap)
-        self.browser.setStyleSheet("""
-            QPlainTextEdit {
-                background-color: #1E293B;
-                color: #E2E8F0;
+        self.browser.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: {C.TEXT_STRONG};
+                color: {C.BORDER_SUBTLE};
                 font-family: Consolas, 'Courier New', monospace;
                 font-size: 11px;
-                border: 1px solid #334155;
+                border: 1px solid {C.TEXT_BODY};
                 border-radius: 6px;
                 padding: 6px;
-            }
+            }}
         """)
         self.browser.setPlaceholderText("Raw Ollama REST requests and responses will be recorded here.")
         layout.addWidget(self.browser, stretch=1)

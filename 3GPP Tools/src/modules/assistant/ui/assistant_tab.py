@@ -14,6 +14,8 @@ from PyQt5.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon
+from core.ui.toast import notify_info, notify_success
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_DANGER,
     BUTTON_STYLE_TOOLBAR_SECONDARY,
@@ -41,6 +43,7 @@ from modules.assistant.ui.assistant_components import (
     render_user_message_card,
 )
 from modules.assistant.ui.assistant_worker import AgentResearchWorker
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -91,23 +94,7 @@ class AssistantTab(QWidget):
         # ---------------------------------------------------------------------
         # Top Header Ribbon (Model Status, Session Actions, Layout Switcher)
         # ---------------------------------------------------------------------
-        header_card = QFrame()
-        header_card.setObjectName("assistantCardHeader")
-        header_card.setStyleSheet("""
-            QFrame#assistantCardHeader {
-                background-color: #F8FAFC;
-                border: 1px solid #E2E8F0;
-                border-radius: 6px;
-                padding: 4px;
-            }
-        """)
-        header_layout = QHBoxLayout(header_card)
-        header_layout.setContentsMargins(8, 4, 8, 4)
-        header_layout.setSpacing(8)
-
-        title = QLabel("🤖 3GPP Assistant")
-        title.setStyleSheet("font-weight: bold; font-size: 13px; color: #1E293B;")
-        header_layout.addWidget(title)
+        self.ribbon_card = PageRibbonCard("3GPP Assistant", parent=self)
 
         # Model status pill
         self.model_status_btn = QPushButton("⚪ Ollama: Checking...")
@@ -115,43 +102,45 @@ class AssistantTab(QWidget):
         self.model_status_btn.setCursor(Qt.PointingHandCursor)
         self.model_status_btn.setToolTip("Click to configure Ollama settings.")
         self.model_status_btn.clicked.connect(self._on_open_ollama_settings)
-        header_layout.addWidget(self.model_status_btn)
+        self.ribbon_card.add_primary_widget(self.model_status_btn)
 
         self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("color: #64748B; font-weight: 500; font-size: 12px;")
-        header_layout.addWidget(self.status_label)
+        self.status_label.setStyleSheet(f"color: {C.TEXT_MUTED}; font-weight: 500; font-size: 12px;")
+        self.ribbon_card.add_primary_widget(self.status_label)
 
-        header_layout.addStretch()
-
-        # Session Action Buttons
-        self.new_chat_btn = QPushButton("➕ New Chat")
+        # Session Action Buttons (Utility strip)
+        self.new_chat_btn = QPushButton("New Chat")
         self.new_chat_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.new_chat_btn, "plus")
         self.new_chat_btn.setToolTip("Clear the conversation and begin a new research session.")
         self.new_chat_btn.clicked.connect(self._on_new_chat)
-        header_layout.addWidget(self.new_chat_btn)
+        self.ribbon_card.add_utility_widget(self.new_chat_btn)
 
-        self.copy_chat_btn = QPushButton("📋 Copy Chat")
+        self.copy_chat_btn = QPushButton("Copy Chat")
         self.copy_chat_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.copy_chat_btn, "copy")
         self.copy_chat_btn.setToolTip("Copy the full conversation transcript and citations to the clipboard.")
         self.copy_chat_btn.clicked.connect(self._on_copy_conversation)
-        header_layout.addWidget(self.copy_chat_btn)
+        self.ribbon_card.add_utility_widget(self.copy_chat_btn)
 
-        self.export_chat_btn = QPushButton("💾 Export...")
+        self.export_chat_btn = QPushButton("Export...")
         self.export_chat_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.export_chat_btn, "download")
         self.export_chat_btn.setToolTip("Export the research conversation to a Markdown (.md) file.")
         self.export_chat_btn.clicked.connect(self._on_export_markdown)
-        header_layout.addWidget(self.export_chat_btn)
+        self.ribbon_card.add_utility_widget(self.export_chat_btn)
 
         # Layout Switcher Button
         self.layout_toggle_btn = QPushButton("⬒ Bottom Split")
         self.layout_toggle_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.layout_toggle_btn, "columns")
         self.layout_toggle_btn.setCheckable(True)
         self.layout_toggle_btn.setChecked(True)  # True = Side-by-Side (Horizontal)
         self.layout_toggle_btn.setToolTip("Toggle between Side-by-Side and Bottom Split layouts.")
         self.layout_toggle_btn.clicked.connect(self._toggle_layout)
-        header_layout.addWidget(self.layout_toggle_btn)
+        self.ribbon_card.add_utility_widget(self.layout_toggle_btn)
 
-        layout.addWidget(header_card)
+        layout.addWidget(self.ribbon_card)
 
         # ---------------------------------------------------------------------
         # Main Splitter (Left: Chat & Input, Right: Research Cockpit Drawer)
@@ -181,14 +170,14 @@ class AssistantTab(QWidget):
         self.conversation_browser = QTextBrowser()
         self.conversation_browser.setOpenExternalLinks(False)
         self.conversation_browser.anchorClicked.connect(self._on_anchor_clicked)
-        self.conversation_browser.setStyleSheet("""
-            QTextBrowser {
-                background-color: #FFFFFF;
+        self.conversation_browser.setStyleSheet(f"""
+            QTextBrowser {{
+                background-color: {C.BG_CARD};
                 border: none;
                 font-family: "Segoe UI", Arial, sans-serif;
                 font-size: 13px;
-                color: #1E293B;
-            }
+                color: {C.TEXT_STRONG};
+            }}
         """)
         self.conversation_browser.setPlaceholderText(
             "Ask a 3GPP question. The Assistant will research local specification "
@@ -216,19 +205,21 @@ class AssistantTab(QWidget):
         input_action_bar.setSpacing(6)
 
         self.char_count_label = QLabel("0 chars")
-        self.char_count_label.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        self.char_count_label.setStyleSheet(f"color: {C.TEXT_FAINT}; font-size: 11px;")
         input_action_bar.addWidget(self.char_count_label)
 
-        self.clear_input_btn = QPushButton("✕ Clear")
+        self.clear_input_btn = QPushButton("Clear")
         self.clear_input_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.clear_input_btn, "rotate-ccw")
         self.clear_input_btn.setEnabled(False)
         self.clear_input_btn.clicked.connect(self.question_input.clear)
         input_action_bar.addWidget(self.clear_input_btn)
 
         input_action_bar.addStretch()
 
-        self.send_btn = QPushButton("Send ↵")
+        self.send_btn = QPushButton("Send")
         self.send_btn.setObjectName("primaryBtn")
+        apply_lucide_icon(self.send_btn, "send", color=C.TEXT_ON_ACCENT)
         self.send_btn.clicked.connect(self._on_send)
         input_action_bar.addWidget(self.send_btn)
 
@@ -247,29 +238,29 @@ class AssistantTab(QWidget):
         # Right / Research Cockpit Drawer (Tabbed Sources, Activity, Trace)
         # ---------------------------------------------------------------------
         self.cockpit_tabs = QTabWidget()
-        self.cockpit_tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #E2E8F0;
+        self.cockpit_tabs.setStyleSheet(f"""
+            QTabWidget::pane {{
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 6px;
-                background-color: #FFFFFF;
+                background-color: {C.BG_CARD};
                 top: -1px;
-            }
-            QTabBar::tab {
-                background-color: #F8FAFC;
-                border: 1px solid #E2E8F0;
+            }}
+            QTabBar::tab {{
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_SUBTLE};
                 padding: 6px 12px;
                 margin-right: 2px;
                 border-top-left-radius: 4px;
                 border-top-right-radius: 4px;
                 font-weight: 600;
                 font-size: 12px;
-                color: #64748B;
-            }
-            QTabBar::tab:selected {
-                background-color: #FFFFFF;
-                color: #1E5C99;
-                border-bottom: 1px solid #FFFFFF;
-            }
+                color: {C.TEXT_MUTED};
+            }}
+            QTabBar::tab:selected {{
+                background-color: {C.BG_CARD};
+                color: {C.ACCENT_PRIMARY};
+                border-bottom: 1px solid {C.BG_CARD};
+            }}
         """)
 
         # Tab 1: Sources & Evidence Inspector
@@ -447,7 +438,7 @@ class AssistantTab(QWidget):
 
     def _on_copy_conversation(self) -> None:
         if not self._conversation:
-            QMessageBox.information(self, "Copy Chat", "Conversation transcript is currently empty.")
+            notify_info(self, "Copy Chat", "Conversation transcript is currently empty.")
             return
         lines = ["# 3GPP Research Assistant Transcript\n"]
         for msg in self._conversation:
@@ -462,6 +453,7 @@ class AssistantTab(QWidget):
         full_text = "\n".join(lines)
         QApplication.clipboard().setText(full_text)
         self.status_label.setText("Transcript copied!")
+        notify_success(self, "Transcript Copied", "Conversation transcript copied to clipboard.")
         QTimer.singleShot(
             2500,
             lambda: self.status_label.setText(
@@ -471,7 +463,7 @@ class AssistantTab(QWidget):
 
     def _on_export_markdown(self) -> None:
         if not self._conversation:
-            QMessageBox.information(self, "Export Transcript", "Conversation transcript is currently empty.")
+            notify_info(self, "Export Transcript", "Conversation transcript is currently empty.")
             return
         filename, _ = QFileDialog.getSaveFileName(
             self,
@@ -497,6 +489,11 @@ class AssistantTab(QWidget):
         try:
             Path(filename).write_text("\n".join(lines), encoding="utf-8")
             self.status_label.setText("Exported successfully!")
+            notify_success(
+                self,
+                "Transcript Exported",
+                f"Saved Markdown transcript to {Path(filename).name}",
+            )
             QTimer.singleShot(
                 2500,
                 lambda: self.status_label.setText(

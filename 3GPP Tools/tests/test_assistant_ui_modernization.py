@@ -199,6 +199,22 @@ class TestAssistantTabIntegration(unittest.TestCase):
         self.assertEqual(self.tab.sources_tree.topLevelItemCount(), 0)
         self.assertFalse(self.tab.starter_chips.isHidden())
 
+    def test_phase2_ribbon_and_icons(self):
+        from core.ui.page_ribbon import PageRibbonCard
+
+        self.assertIsInstance(self.tab.ribbon_card, PageRibbonCard)
+        for btn in (
+            self.tab.new_chat_btn,
+            self.tab.copy_chat_btn,
+            self.tab.export_chat_btn,
+            self.tab.layout_toggle_btn,
+            self.tab.clear_input_btn,
+            self.tab.send_btn,
+        ):
+            self.assertFalse(btn.icon().isNull())
+        # Empty copy uses non-blocking notify_info toast without raising
+        self.tab._on_copy_conversation()
+
 
 if __name__ == "__main__":
     unittest.main()

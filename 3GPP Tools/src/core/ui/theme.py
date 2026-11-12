@@ -164,6 +164,9 @@ class ThemeColors:
     DIFF_ADDED_BG = "#E8F5E9"
     DIFF_REMOVED_BG = "#FFEBEE"
     DIFF_MODIFIED_BG = "#FFF9C4"
+    EMERALD_SOFT = "#D1FAE5"
+    EMERALD_BORDER = "#6EE7B7"
+    BLUE_TINT_SOFT = "#F0F7FF"
 
 
 class ThemeTypography:
@@ -343,6 +346,9 @@ HEX_TO_TOKEN: Dict[str, str] = {
     "#E8F5E9": "DIFF_ADDED_BG",
     "#FFEBEE": "DIFF_REMOVED_BG",
     "#FFF9C4": "DIFF_MODIFIED_BG",
+    "#D1FAE5": "EMERALD_SOFT",
+    "#6EE7B7": "EMERALD_BORDER",
+    "#F0F7FF": "BLUE_TINT_SOFT",
 }
 
 
