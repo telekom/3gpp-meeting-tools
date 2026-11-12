@@ -75,7 +75,7 @@ python -m main_tools
 │   │   ├── ai/                    # OllamaClient, health monitoring, OllamaConfigDialog
 │   │   ├── config/                # Global application constants and paths
 │   │   ├── network/               # NetworkSession singleton, RFC 1918 proxy bypassing
-│   │   ├── ui/                    # Base components, ModernDropZone, global QSS style, console/queue panels
+│   │   ├── ui/                    # Centralized theme tokens (`theme.py`), hex migrator, base components, ModernDropZone, global QSS, panels
 │   │   ├── utils/                 # Path resolution, Java runtime detection, 3GPP Portal URL generators, helpers
 │   │   └── queue_manager.py       # Multi-threaded background conversion & sync task queue
 │   ├── db/                        # Persistent SQLite databases (3gpp_data.db, etc.)
@@ -483,8 +483,9 @@ The project intentionally separates domain data into distinct SQLite databases l
 - Avoid dumping massive raw payloads (e.g., complete multi-megabyte specification clauses) into logs; log lengths and concise identifiers instead.
 
 ### 5.6. UI Consistency, Styling & Code Reuse
+- **Design Tokens & Raw-Hex Governance (`src/core/ui/theme.py`):** All new UI code and migrated modules must reference tokens from `core.ui.theme` (`C`, `T`, `R`, `S`, `B`) rather than hardcoded `#RRGGBB` literals. Enforced by `tests/test_ui_hex_lint.py` (zero tolerance in new/migrated files; no-growth ratchet on legacy allowlisted files). Use `py -3.14 -m core.ui.hex_migrator <path> --dry-run --diff` to preview automated token substitutions.
 - **Reuse Common Styles:** Prefer shared design tokens and style constants in `src/core/ui/ui_components.py` (e.g., `BUTTON_STYLE_TOOLBAR_SECONDARY`, `CARD_FRAME_STYLE`, `BADGE_STYLE_*`, `TABLE_STYLE_CLEAN`) over ad-hoc inline stylesheets.
-- **Support Interactive States:** Checkable buttons or toggleable controls must properly define interactive pseudo-states (such as `QPushButton:checked` and `QPushButton:checked:hover`) using the application's unified palette (`#EBF3FC` background, `#1E5C99` / `#395396` border and text).
+- **Support Interactive States:** Checkable buttons or toggleable controls must properly define interactive pseudo-states (such as `QPushButton:checked` and `QPushButton:checked:hover`) using the application's unified palette (`C.ACCENT_SOFT` / `C.ACCENT_PRIMARY`).
 - **Functionality & Component Reuse:** Always reuse existing core infrastructure, dialogs, network managers, and utility functions across feature modules rather than duplicating logic.
 
 ### 5.7. Protected Drop-In Files & External Components
