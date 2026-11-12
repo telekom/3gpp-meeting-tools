@@ -98,7 +98,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **Decoupled Architecture & Visio-Independent PlantUML:**
   * Operates fully independently of Microsoft Visio. PlantUML editing, live SVG/PNG previews, and automated JAR updates function properly even when Microsoft Visio is not installed on the system.
 * **☕ Centralized Java Runtime & PlantUML Maintenance Center:**
-  * Single, dedicated maintenance dialog (`JavaMaintenanceDialog`) accessible via the `☕ Java` button in the Console Panel.
+  * Single, dedicated maintenance dialog (`JavaMaintenanceDialog`) accessible via **Settings ▾ → ☕ Java & PlantUML Engine...** or the Status Bar **System ▾** menu.
   * Live runtime inspection displaying version, vendor, architecture (64-Bit), executable path, and active profile (`Modern` vs `Legacy`).
   * **Zero-Admin Portable Java:** Choose between automatic discovery and a custom portable JRE folder. Easily use Java on locked-down corporate PCs without administrator privileges or `.msi` installers.
   * **Integrated PlantUML Updater:** Inspect local JAR versions and trigger background online updates directly inside the dialog.
@@ -220,7 +220,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ---
 
 ### 🗄️ Database Maintenance, Inspection & Compaction Hub (`DatabaseMaintenanceDialog`)
-* **System-Level Database & Storage Hub:** Integrated `🗄️ Database` tool accessible directly from the bottom Console Panel.
+* **System-Level Database & Storage Hub:** Integrated `🗄️ Database` tool accessible via **System ▾** on the Status Bar or **Settings ▾** in the navigation rail footer.
 * **Executive KPI Metric Cards:** Real-time top KPI dashboard displaying Total Storage (MB/GB), Reclaimable Space (calculating SQLite unused freelist pages via `PRAGMA freelist_count * page_size`), WAL Log Status, and Total User Tables across all active database schemas.
 * **Two-Tier Storage Ledger:** Displays clean domain-specific icons (📋 Core Data, 📡 Protocol Specs, 🔍 Search Index, 📜 Change History), full database titles, and secondary subtitles showing filenames and storage purpose with zero text truncation.
 * **Read-Only SQLite Schema & Data Inspector (`DatabaseInspectorDialog`):** Click **🔍 Inspect** on any tracked database to launch a dedicated browser displaying all tables and views, live row counts, SQL DDL creation schemas, column data types, PRAGMA diagnostics (page size, freelist page count, journal mode), and interactive paginated table data without needing external database tools.
@@ -232,7 +232,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 ---
 
 ### 🖥️ COM Process & Task Manager (`ProcessManagerDialog`)
-* **Dedicated Office Process Management:** Integrated `🖥️ Task Manager` tool accessible directly from the bottom Console Panel.
+* **Dedicated Office Process Management:** Integrated `🖥️ Task Manager` tool accessible via **System ▾** on the Status Bar or **Settings ▾** in the navigation rail footer.
 * **Active Process & Document Inspection:** Tracks live instances of Microsoft Word (`WINWORD.EXE`), PowerPoint (`POWERPNT.EXE`), and Visio (`VISIO.EXE`), displaying process IDs and all currently open document titles.
 * **Safe Document-Level Closing:** Inspect open documents in Word and PowerPoint and cleanly close specific files via COM automation without killing the host application.
 * **Session Preservation & Selective Keep-Open:** Uncheck documents you wish to keep open during automated comparison or slicing workflows; the system respects user exclusions.
@@ -240,8 +240,14 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 
 ---
 
+### 🧭 Grouped Shell Navigation, Collapsible Console Drawer & Smart Toasts
+* **Grouped Navigation Rail (`NavRail`):** Collapsible sidebar organized into **Authoring & Office** (`PlantUML`, `Visio & Office`, `Word Tools`), **3GPP Standards** (`Specifications`, `Spec Search`, `Protocols`), and **Delegate & AI** (`Meetings`, `Work Items`, `Assistant`), with crisp Lucide SVG icons, responsive auto-collapse on narrow windows (`<940 px`), and keyboard shortcuts <kbd>Ctrl+1</kbd>…<kbd>Ctrl+9</kbd> (<kbd>Ctrl+\\</kbd> to toggle the rail).
+* **Collapsible Console & Queue Drawer (<kbd>Ctrl+J</kbd>):** Slide-up bottom drawer toggled from the Status Bar badge pill showing active queued item counts and unread error badges (auto-clears unread errors upon opening).
+* **Non-Blocking Smart Toasts:** Floating completion notifications in the bottom-right corner with 1-click `[Open]` and `[Show in Folder]` actions for converted/exported files.
+* **Persistent Workspace Layout (`QSettings`):** Automatically saves and restores window size/position (clamped safely to connected monitors), navigation rail collapse preference, drawer state/height, and active workspace tab across restarts.
+
 ### 📖 Help & Configurable Useful Links Menu
-* **Tab-Bar Dropdown Menu (`📖 Help ▾`):** Integrated directly into the top-right corner of the main tab bar, providing instant 1-click access to curated 3GPP developer tools, specification viewers, and official portals.
+* **Rail Footer Help & Settings Menus (`Help & Docs`, `Settings`):** Anchored cleanly at the bottom of the navigation rail for instant access to curated 3GPP developer tools, external portals, and system preferences regardless of the active workspace.
 * **Curated Community Tools & Portals:**
   * **3GPP Guru Viewer (F-17):** Fast web-based 3GPP specification viewer with syntax highlighting and cross-clause hyperlinks (`https://3gpp.guru/`).
   * **SpecViewer:** Release-by-release 3GPP specification browser with clause search and diffing (`https://specviewer.org/`).

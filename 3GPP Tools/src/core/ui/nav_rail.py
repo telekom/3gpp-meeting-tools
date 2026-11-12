@@ -106,10 +106,12 @@ class NavRail(QFrame):
         self.brand_badge = QLabel("3GPP")
         self.brand_badge.setObjectName("navRailBrandBadge")
         self.brand_badge.setAlignment(Qt.AlignCenter)
+        self.brand_badge.setFocusPolicy(Qt.NoFocus)
         header_row.addWidget(self.brand_badge)
 
         self.brand_title = QLabel("Delegate Tools")
         self.brand_title.setObjectName("navRailBrandTitle")
+        self.brand_title.setFocusPolicy(Qt.NoFocus)
         header_row.addWidget(self.brand_title, 1)
 
         self.toggle_btn = QPushButton()
@@ -117,7 +119,7 @@ class NavRail(QFrame):
         self.toggle_btn.setCursor(Qt.PointingHandCursor)
         self.toggle_btn.setIcon(lucide_icon("panel-left-close", color=C.TEXT_MUTED, active_color=C.TEXT_PRIMARY, size=16))
         self.toggle_btn.setIconSize(QSize(16, 16))
-        self.toggle_btn.setToolTip("Collapse sidebar")
+        self.toggle_btn.setToolTip("Collapse sidebar (Ctrl+\\)")
         self.toggle_btn.setAccessibleName("Toggle Navigation Rail")
         self.toggle_btn.clicked.connect(self.toggle_collapsed)
         header_row.addWidget(self.toggle_btn)
@@ -341,6 +343,11 @@ class NavRail(QFrame):
         self.style().unpolish(btn)
         self.style().polish(btn)
 
+    def ordered_focus_widgets(self) -> List[QWidget]:
+        """Return interactive rail controls in top-to-bottom keyboard tab order."""
+        nav_btns = [self._buttons_by_index[idx] for idx in sorted(self._buttons_by_index)]
+        return [self.toggle_btn, *nav_btns, *self._footer_buttons]
+
     def set_collapsed(self, collapsed: bool, manual: bool = False) -> None:
         """Explicitly set collapsed state (optionally recording manual user pin)."""
         if manual:
@@ -385,7 +392,7 @@ class NavRail(QFrame):
         self.toggle_btn.setIcon(
             lucide_icon(toggle_icon, color=C.TEXT_MUTED, active_color=C.TEXT_PRIMARY, size=16)
         )
-        self.toggle_btn.setToolTip("Expand sidebar" if collapsed else "Collapse sidebar")
+        self.toggle_btn.setToolTip("Expand sidebar (Ctrl+\\)" if collapsed else "Collapse sidebar (Ctrl+\\)")
 
         for hdr in self._group_headers:
             hdr.setVisible(not collapsed)

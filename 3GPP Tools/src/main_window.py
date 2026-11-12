@@ -381,7 +381,47 @@ class DragDropUI(QMainWindow):
         # Floating non-blocking Toast notification overlay manager
         self.toast_manager = ToastManager(self)
 
+        # Keyboard shortcuts (Ctrl+1..9, Ctrl+J, Ctrl+\) & predictable tab focus order
+        self._setup_shortcuts_and_focus()
+
         logging.info("🏁 [STARTUP:UI] _setup_ui() layout complete.")
+
+    def _setup_shortcuts_and_focus(self):
+        """Register shell keyboard shortcuts (`Ctrl+1..9`, `Ctrl+J`, `Ctrl+\\`) and tab focus order."""
+        self.nav_shortcuts = []
+        for idx in range(min(9, self.tabs.count())):
+            sc = QShortcut(QKeySequence(f"Ctrl+{idx + 1}"), self)
+            sc.setContext(Qt.WindowShortcut)
+            sc.activated.connect(lambda tab_idx=idx: self._activate_tab_by_shortcut(tab_idx))
+            self.nav_shortcuts.append(sc)
+
+        self.drawer_shortcut = QShortcut(QKeySequence("Ctrl+J"), self)
+        self.drawer_shortcut.setContext(Qt.WindowShortcut)
+        self.drawer_shortcut.activated.connect(self.toggle_bottom_drawer)
+
+        self.rail_shortcut = QShortcut(QKeySequence("Ctrl+\\"), self)
+        self.rail_shortcut.setContext(Qt.WindowShortcut)
+        self.rail_shortcut.activated.connect(self.nav_rail.toggle_collapsed)
+
+        focus_chain = [
+            *self.nav_rail.ordered_focus_widgets(),
+            self.tabs,
+            self.bottom_drawer.close_btn,
+            self.status_bar.ollama_indicator,
+            self.status_bar.mcp_indicator,
+            self.status_bar.proxy_indicator,
+            self.status_bar.system_btn,
+            self.status_bar.drawer_toggle_btn,
+        ]
+        for prev_w, next_w in zip(focus_chain, focus_chain[1:]):
+            QWidget.setTabOrder(prev_w, next_w)
+
+    def _activate_tab_by_shortcut(self, index: int):
+        """Switch active workspace tab via Ctrl+1..9 when shell navigation is enabled."""
+        if self.tabs.isEnabled() and 0 <= index < self.tabs.count():
+            self.tabs.setCurrentIndex(index)
+            if hasattr(self, "nav_rail"):
+                self.nav_rail.set_active_index(index)
 
     def toggle_bottom_drawer(self):
         """Toggle the bottom Console & Queue drawer cleanly."""
