@@ -5,11 +5,12 @@ from PyQt5.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PyQt5.QtGui import QBrush, QColor
 
 from modules.nas.core.nas_db import parse_version_tuple
+from core.ui.theme import C
 
 # Pre-allocated brush constants to eliminate GC overhead during rendering
-BRUSH_ADDED = QBrush(QColor("#E8F5E9"))  # Soft Green
-BRUSH_REMOVED = QBrush(QColor("#FFEBEE"))  # Soft Red
-BRUSH_MODIFIED = QBrush(QColor("#FFF9C4"))  # Soft Yellow
+BRUSH_ADDED = QBrush(QColor(C.DIFF_ADDED_BG))  # Soft Green
+BRUSH_REMOVED = QBrush(QColor(C.DIFF_REMOVED_BG))  # Soft Red
+BRUSH_MODIFIED = QBrush(QColor(C.DIFF_MODIFIED_BG))  # Soft Yellow
 
 
 class NASEvolutionMatrixModel(QAbstractTableModel):

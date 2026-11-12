@@ -27,6 +27,7 @@ from core.ui.ui_components import get_wg_colors
 from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
 from modules.nas.core.nas_exporter import copy_definition_to_clipboard
 from modules.nas.ui.nas_dialogs import get_spec_metadata, get_spec_title, get_spec_tooltip
+from core.ui.theme import C
 
 
 class NASMessageItemDelegate(QStyledItemDelegate):
@@ -52,14 +53,14 @@ class NASMessageItemDelegate(QStyledItemDelegate):
 
         # 1. Background rendering
         if is_selected:
-            bg_brush = QBrush(QColor("#EBF3FC"))
-            border_pen = QPen(QColor("#1E5C99"), 1.2)
+            bg_brush = QBrush(QColor(C.ACCENT_SOFT))
+            border_pen = QPen(QColor(C.ACCENT_PRIMARY), 1.2)
         elif is_hovered:
-            bg_brush = QBrush(QColor("#F8FAFC"))
-            border_pen = QPen(QColor("#E2E8F0"), 1)
+            bg_brush = QBrush(QColor(C.BG_SURFACE))
+            border_pen = QPen(QColor(C.BORDER_SUBTLE), 1)
         else:
-            bg_brush = QBrush(QColor("#FFFFFF"))
-            border_pen = QPen(QColor("#F1F5F9"), 0.8)
+            bg_brush = QBrush(QColor(C.BG_CARD))
+            border_pen = QPen(QColor(C.BG_CANVAS), 0.8)
 
         bg_path = QPainterPath()
         bg_rect = QRectF(rect.x() + 2, rect.y() + 1, rect.width() - 4, rect.height() - 2)
@@ -73,7 +74,7 @@ class NASMessageItemDelegate(QStyledItemDelegate):
             accent_path = QPainterPath()
             accent_rect = QRectF(rect.x() + 2, rect.y() + 2, 3.5, rect.height() - 4)
             accent_path.addRoundedRect(accent_rect, 1.5, 1.5)
-            painter.fillPath(accent_path, QBrush(QColor("#1E5C99")))
+            painter.fillPath(accent_path, QBrush(QColor(C.ACCENT_PRIMARY)))
 
         # 2. Extract item metadata
         msg_name = str(index.data(Qt.DisplayRole) or "")
@@ -100,12 +101,12 @@ class NASMessageItemDelegate(QStyledItemDelegate):
 
             pill_path = QPainterPath()
             pill_path.addRoundedRect(QRectF(pill_x, pill_y, pill_w, pill_h), 9.0, 9.0)
-            painter.fillPath(pill_path, QBrush(QColor("#F1F5F9")))
-            painter.setPen(QPen(QColor("#CBD5E1"), 1))
+            painter.fillPath(pill_path, QBrush(QColor(C.BG_CANVAS)))
+            painter.setPen(QPen(QColor(C.BORDER_STRONG), 1))
             painter.drawPath(pill_path)
 
             painter.setFont(clause_font)
-            painter.setPen(QColor("#475569"))
+            painter.setPen(QColor(C.TEXT_SECONDARY))
             painter.drawText(
                 QRect(pill_x, pill_y, pill_w, pill_h),
                 Qt.AlignCenter,
@@ -115,7 +116,7 @@ class NASMessageItemDelegate(QStyledItemDelegate):
 
         # 4. Draw Right-aligned Specification / WG Chip
         if spec_num:
-            wg_colors = get_wg_colors(wg) if wg else {"bg": "#F8FAFC", "text": "#334155", "border": "#CBD5E1"}
+            wg_colors = get_wg_colors(wg) if wg else {"bg": C.BG_SURFACE, "text": C.TEXT_BODY, "border": C.BORDER_STRONG}
             spec_font = QFont(option.font)
             spec_font.setPointSize(9)
             spec_font.setBold(True)
@@ -130,12 +131,12 @@ class NASMessageItemDelegate(QStyledItemDelegate):
             if chip_x > rect.x() + 100:  # Only draw if enough horizontal room
                 chip_path = QPainterPath()
                 chip_path.addRoundedRect(QRectF(chip_x, chip_y, chip_w, chip_h), 3.0, 3.0)
-                painter.fillPath(chip_path, QBrush(QColor(wg_colors.get("bg", "#F8FAFC"))))
-                painter.setPen(QPen(QColor(wg_colors.get("border", "#CBD5E1")), 1))
+                painter.fillPath(chip_path, QBrush(QColor(wg_colors.get("bg", C.BG_SURFACE))))
+                painter.setPen(QPen(QColor(wg_colors.get("border", C.BORDER_STRONG)), 1))
                 painter.drawPath(chip_path)
 
                 painter.setFont(spec_font)
-                painter.setPen(QColor(wg_colors.get("text", "#334155")))
+                painter.setPen(QColor(wg_colors.get("text", C.TEXT_BODY)))
                 painter.drawText(
                     QRect(chip_x, chip_y, chip_w, chip_h),
                     Qt.AlignCenter,
@@ -148,7 +149,7 @@ class NASMessageItemDelegate(QStyledItemDelegate):
         name_font.setPointSize(10)
         name_font.setBold(is_selected)
         painter.setFont(name_font)
-        painter.setPen(QColor("#0F172A") if not is_selected else QColor("#1E5C99"))
+        painter.setPen(QColor(C.TEXT_PRIMARY) if not is_selected else QColor(C.ACCENT_PRIMARY))
 
         left_x = rect.x() + (10 if not is_selected else 12)
         avail_w = max(40, right_cursor - left_x)
@@ -180,26 +181,26 @@ class NASVersionTreeWidget(QTreeWidget):
         self.setHeaderHidden(True)
         self.setAlternatingRowColors(True)
         self.setIndentation(14)
-        self.setStyleSheet("""
-            QTreeWidget {
-                border: 1px solid #CBD5E1;
+        self.setStyleSheet(f"""
+            QTreeWidget {{
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
-                background-color: #FFFFFF;
+                background-color: {C.BG_CARD};
                 padding: 2px;
                 outline: none;
-            }
-            QTreeWidget::item {
+            }}
+            QTreeWidget::item {{
                 padding: 3px 2px;
                 min-height: 22px;
                 border-radius: 3px;
-            }
-            QTreeWidget::item:hover {
-                background-color: #F8FAFC;
-            }
-            QTreeWidget::item:selected {
-                background-color: #EBF3FC;
-                color: #0F172A;
-            }
+            }}
+            QTreeWidget::item:hover {{
+                background-color: {C.BG_SURFACE};
+            }}
+            QTreeWidget::item:selected {{
+                background-color: {C.ACCENT_SOFT};
+                color: {C.TEXT_PRIMARY};
+            }}
         """)
 
         self.itemChanged.connect(self._on_item_changed)
@@ -261,8 +262,8 @@ class NASVersionTreeWidget(QTreeWidget):
         bold_font = QFont(base_font)
         bold_font.setBold(True)
 
-        text_color_header = QBrush(QColor("#0F172A"))
-        text_color_item = QBrush(QColor("#334155"))
+        text_color_header = QBrush(QColor(C.TEXT_PRIMARY))
+        text_color_item = QBrush(QColor(C.TEXT_BODY))
 
         # Master toggle item
         all_item = QTreeWidgetItem(self)
@@ -473,21 +474,21 @@ class NASVersionTreeWidget(QTreeWidget):
         item_type = data.get("type")
 
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
+        menu.setStyleSheet(f"""
+            QMenu {{
                 font-size: 11px;
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 padding: 4px;
-            }
-            QMenu::item {
+            }}
+            QMenu::item {{
                 padding: 5px 18px 5px 10px;
                 border-radius: 3px;
-            }
-            QMenu::item:selected {
-                background-color: #EBF3FC;
-                color: #1E5C99;
-            }
+            }}
+            QMenu::item:selected {{
+                background-color: {C.ACCENT_SOFT};
+                color: {C.ACCENT_PRIMARY};
+            }}
         """)
 
         if item_type == "version":
@@ -599,12 +600,12 @@ class NASInspectorWidget(QFrame):
         self._updating_combo: bool = False
 
         self.setObjectName("cardFrame")
-        self.setStyleSheet("""
-            QFrame#cardFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        self.setStyleSheet(f"""
+            QFrame#cardFrame {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
-            }
+            }}
         """)
 
         self._setup_ui()
@@ -619,32 +620,32 @@ class NASInspectorWidget(QFrame):
 
         # 1. Header Toolbar
         header_frame = QFrame()
-        header_frame.setStyleSheet("""
-            QFrame {
-                background-color: #F8FAFC;
-                border-bottom: 1px solid #E2E8F0;
+        header_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_SURFACE};
+                border-bottom: 1px solid {C.BORDER_SUBTLE};
                 border-top-left-radius: 6px;
                 border-top-right-radius: 6px;
                 padding: 4px 8px;
-            }
+            }}
         """)
         insp_header = QHBoxLayout(header_frame)
         insp_header.setContentsMargins(6, 4, 6, 4)
         insp_header.setSpacing(8)
 
         card_title = QLabel("🔍 Field & Structure Inspector:")
-        card_title.setStyleSheet("font-weight: bold; color: #1E293B; font-size: 11px;")
+        card_title.setStyleSheet(f"font-weight: bold; color: {C.TEXT_STRONG}; font-size: 11px;")
         insp_header.addWidget(card_title)
 
         self.title_lbl = QLabel("No Selection")
-        self.title_lbl.setStyleSheet("""
+        self.title_lbl.setStyleSheet(f"""
             font-weight: bold;
-            color: #0284C7;
+            color: {C.ACCENT_SKY};
             font-size: 11px;
-            background-color: #E0F2FE;
+            background-color: {C.SKY_SOFT};
             padding: 2px 8px;
             border-radius: 4px;
-            border: 1px solid #BAE6FD;
+            border: 1px solid {C.SKY_BORDER};
         """)
         insp_header.addWidget(self.title_lbl)
 
@@ -654,39 +655,39 @@ class NASInspectorWidget(QFrame):
         self.usage_btn.setVisible(False)
         self.usage_btn.setCursor(Qt.PointingHandCursor)
         self.usage_btn.setToolTip("View other messages that contain this Information Element")
-        self.usage_btn.setStyleSheet("""
-            QPushButton {
+        self.usage_btn.setStyleSheet(f"""
+            QPushButton {{
                 font-size: 11px;
                 font-weight: bold;
-                color: #0369A1;
-                background-color: #E0F2FE;
-                border: 1px solid #BAE6FD;
+                color: {C.ACCENT_SKY_DARK};
+                background-color: {C.SKY_SOFT};
+                border: 1px solid {C.SKY_BORDER};
                 border-radius: 4px;
                 padding: 2px 8px;
-            }
-            QPushButton:hover {
-                background-color: #BAE6FD;
-                border-color: #0284C7;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.SKY_BORDER};
+                border-color: {C.ACCENT_SKY};
+            }}
         """)
         self.usage_btn.clicked.connect(self._show_usage_menu)
         insp_header.addWidget(self.usage_btn)
 
         self.version_combo = QComboBox()
         self.version_combo.setToolTip("Switch specification release for this definition")
-        self.version_combo.setStyleSheet("""
-            QComboBox {
+        self.version_combo.setStyleSheet(f"""
+            QComboBox {{
                 font-weight: bold;
                 font-size: 11px;
                 padding: 2px 8px;
-                border: 1px solid #CBD5E1;
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
-                background-color: #FFFFFF;
+                background-color: {C.BG_CARD};
                 min-width: 120px;
-            }
-            QComboBox:hover {
-                border-color: #0284C7;
-            }
+            }}
+            QComboBox:hover {{
+                border-color: {C.ACCENT_SKY};
+            }}
         """)
         self.version_combo.currentIndexChanged.connect(self._on_version_changed)
         insp_header.addWidget(self.version_combo)
@@ -695,44 +696,44 @@ class NASInspectorWidget(QFrame):
         self.copy_btn.setCursor(Qt.PointingHandCursor)
         self.copy_btn.setToolTip("Copy definition to clipboard (Word-compatible rich text, Markdown, plain text, or citation)")
         self.copy_btn.setEnabled(False)
-        self.copy_btn.setStyleSheet("""
-            QPushButton {
+        self.copy_btn.setStyleSheet(f"""
+            QPushButton {{
                 font-size: 11px;
                 font-weight: 500;
-                color: #334155;
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+                color: {C.TEXT_BODY};
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 2px 8px;
-            }
-            QPushButton:hover {
-                background-color: #F1F5F9;
-                color: #0F172A;
-                border-color: #94A3B8;
-            }
-            QPushButton:disabled {
-                color: #94A3B8;
-                background-color: #F8FAFC;
-                border-color: #E2E8F0;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.BG_CANVAS};
+                color: {C.TEXT_PRIMARY};
+                border-color: {C.TEXT_FAINT};
+            }}
+            QPushButton:disabled {{
+                color: {C.TEXT_FAINT};
+                background-color: {C.BG_SURFACE};
+                border-color: {C.BORDER_SUBTLE};
+            }}
         """)
 
         copy_menu = QMenu(self)
-        copy_menu.setStyleSheet("""
-            QMenu {
+        copy_menu.setStyleSheet(f"""
+            QMenu {{
                 font-size: 11px;
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 padding: 4px;
-            }
-            QMenu::item {
+            }}
+            QMenu::item {{
                 padding: 5px 18px 5px 10px;
                 border-radius: 3px;
-            }
-            QMenu::item:selected {
-                background-color: #EBF3FC;
-                color: #1E5C99;
-            }
+            }}
+            QMenu::item:selected {{
+                background-color: {C.ACCENT_SOFT};
+                color: {C.ACCENT_PRIMARY};
+            }}
         """)
         act_cp_word = copy_menu.addAction("📋 Copy for Word / Outlook (Rich Text)")
         act_cp_word.triggered.connect(lambda: self._copy_formatted(mode="word"))
@@ -751,26 +752,26 @@ class NASInspectorWidget(QFrame):
         self.open_spec_btn.setCursor(Qt.PointingHandCursor)
         self.open_spec_btn.setToolTip("Open this specification release in Microsoft Word at this clause")
         self.open_spec_btn.setEnabled(False)
-        self.open_spec_btn.setStyleSheet("""
-            QPushButton {
+        self.open_spec_btn.setStyleSheet(f"""
+            QPushButton {{
                 font-size: 11px;
                 font-weight: 500;
-                color: #1E5C99;
-                background-color: #F0F9FF;
-                border: 1px solid #BAE6FD;
+                color: {C.ACCENT_PRIMARY};
+                background-color: {C.SKY_SURFACE};
+                border: 1px solid {C.SKY_BORDER};
                 border-radius: 4px;
                 padding: 2px 8px;
-            }
-            QPushButton:hover {
-                background-color: #E0F2FE;
-                border-color: #0284C7;
-                color: #0369A1;
-            }
-            QPushButton:disabled {
-                color: #94A3B8;
-                background-color: #F8FAFC;
-                border-color: #E2E8F0;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.SKY_SOFT};
+                border-color: {C.ACCENT_SKY};
+                color: {C.ACCENT_SKY_DARK};
+            }}
+            QPushButton:disabled {{
+                color: {C.TEXT_FAINT};
+                background-color: {C.BG_SURFACE};
+                border-color: {C.BORDER_SUBTLE};
+            }}
         """)
         self.open_spec_btn.clicked.connect(self._on_open_spec_btn_clicked)
         insp_header.addWidget(self.open_spec_btn)
@@ -787,12 +788,12 @@ class NASInspectorWidget(QFrame):
         empty_layout.setSpacing(6)
 
         empty_icon = QLabel("🔍")
-        empty_icon.setStyleSheet("font-size: 26px; color: #94A3B8;")
+        empty_icon.setStyleSheet(f"font-size: 26px; color: {C.TEXT_FAINT};")
         empty_icon.setAlignment(Qt.AlignCenter)
         empty_layout.addWidget(empty_icon)
 
         empty_title = QLabel("Information Element & Field Inspector")
-        empty_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #334155;")
+        empty_title.setStyleSheet(f"font-weight: bold; font-size: 13px; color: {C.TEXT_BODY};")
         empty_title.setAlignment(Qt.AlignCenter)
         empty_layout.addWidget(empty_title)
 
@@ -800,7 +801,7 @@ class NASInspectorWidget(QFrame):
             "Click on any Information Element or field in the Evolution Matrix above\n"
             "to inspect its bit-level octet layout, ASN.1 syntax, and field descriptions."
         )
-        empty_sub.setStyleSheet("font-size: 11px; color: #64748B; line-height: 1.4;")
+        empty_sub.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED}; line-height: 1.4;")
         empty_sub.setAlignment(Qt.AlignCenter)
         empty_layout.addWidget(empty_sub)
 
@@ -814,12 +815,12 @@ class NASInspectorWidget(QFrame):
         self.text_area.anchorClicked.connect(self._on_anchor_clicked)
         self.text_area.setContextMenuPolicy(Qt.CustomContextMenu)
         self.text_area.customContextMenuRequested.connect(self._show_text_area_context_menu)
-        self.text_area.setStyleSheet("""
-            QTextBrowser {
+        self.text_area.setStyleSheet(f"""
+            QTextBrowser {{
                 border: none;
                 padding: 8px;
-                background-color: #FFFFFF;
-            }
+                background-color: {C.BG_CARD};
+            }}
         """)
         self.stack.addWidget(self.text_area)
 
@@ -855,21 +856,21 @@ class NASInspectorWidget(QFrame):
     def _show_text_area_context_menu(self, pos: QPoint):
         """Context menu inside definition text browser offering formatted Word/Markdown export."""
         menu = self.text_area.createStandardContextMenu()
-        menu.setStyleSheet("""
-            QMenu {
+        menu.setStyleSheet(f"""
+            QMenu {{
                 font-size: 11px;
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 padding: 4px;
-            }
-            QMenu::item {
+            }}
+            QMenu::item {{
                 padding: 5px 18px 5px 10px;
                 border-radius: 3px;
-            }
-            QMenu::item:selected {
-                background-color: #EBF3FC;
-                color: #1E5C99;
-            }
+            }}
+            QMenu::item:selected {{
+                background-color: {C.ACCENT_SOFT};
+                color: {C.ACCENT_PRIMARY};
+            }}
         """)
         menu.addSeparator()
         act_cp_word = menu.addAction("📋 Copy Definition for Word / Outlook")
@@ -921,21 +922,21 @@ class NASInspectorWidget(QFrame):
         self.open_spec_btn.setToolTip(f"Open TS {spec}{ver_tag} at Clause {clause} in Microsoft Word")
 
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
+        menu.setStyleSheet(f"""
+            QMenu {{
                 font-size: 11px;
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 padding: 4px;
-            }
-            QMenu::item {
+            }}
+            QMenu::item {{
                 padding: 5px 18px 5px 10px;
                 border-radius: 3px;
-            }
-            QMenu::item:selected {
-                background-color: #EBF3FC;
-                color: #1E5C99;
-            }
+            }}
+            QMenu::item:selected {{
+                background-color: {C.ACCENT_SOFT};
+                color: {C.ACCENT_PRIMARY};
+            }}
         """)
 
         act_word = QAction(f"📝 Open TS {spec}{ver_tag} in Word (Clause {clause or 'definition'})", self)
@@ -1054,17 +1055,17 @@ class NASInspectorWidget(QFrame):
             ext_clause = match_explicit.group(2)
             ext_meta = get_spec_metadata(ext_spec)
             html_output = (
-                f'<h2 style="color: #0369A1; margin-top: 2px; margin-bottom: 8px; '
-                f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
+                f'<h2 style="color: {C.ACCENT_SKY_DARK}; margin-top: 2px; margin-bottom: 8px; '
+                f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid {C.BORDER_SUBTLE}; padding-bottom: 4px;">'
                 f'{html.escape(ie_name)} (TS {html.escape(ext_spec)} Clause {html.escape(ext_clause)})</h2>'
-                f'<div style="margin-top: 10px; border: 1px solid #FCD34D; background-color: #FFFBEB; border-radius: 6px; padding: 12px; border-left: 4px solid #F59E0B; font-family: Segoe UI, sans-serif;">'
-                f'<div style="font-weight: bold; color: #92400E; font-size: 12px; margin-bottom: 4px;">'
+                f'<div style="margin-top: 10px; border: 1px solid {C.WARNING_BORDER_STRONG}; background-color: {C.WARNING_SOFT}; border-radius: 6px; padding: 12px; border-left: 4px solid {C.WARNING_ACCENT}; font-family: Segoe UI, sans-serif;">'
+                f'<div style="font-weight: bold; color: {C.WARNING_DARK}; font-size: 12px; margin-bottom: 4px;">'
                 f'ℹ️ Cross-Specification Reference: TS {html.escape(ext_spec)} — {html.escape(ext_meta.get("title", ""))} (Clause {html.escape(ext_clause)})'
                 f'</div>'
-                f'<div style="color: #78350F; font-size: 11px; line-height: 1.5;">'
+                f'<div style="color: {C.WARNING_BROWN_DEEP}; font-size: 11px; line-height: 1.5;">'
                 f'This UE policy structure is defined in <b>3GPP TS {html.escape(ext_spec)} Clause {html.escape(ext_clause)}</b>, which is not currently present in your local database.<br/>'
                 f'<p style="margin-top: 8px; margin-bottom: 2px;">'
-                f'<a href="action:import:{ext_spec}:0" style="display: inline-block; background-color: #0284C7; color: #FFFFFF; padding: 4px 12px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 11px;">'
+                f'<a href="action:import:{ext_spec}:0" style="display: inline-block; background-color: {C.ACCENT_SKY}; color: {C.BG_CARD}; padding: 4px 12px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 11px;">'
                 f'📥 Import TS {html.escape(ext_spec)} from 3GPP Archive'
                 f'</a>'
                 f'</p>'
@@ -1147,18 +1148,18 @@ class NASInspectorWidget(QFrame):
                     c_ver = cross_def.get("version", "")
                     c_cl = cross_def.get("clause", target_clause)
                     cross_html = (
-                        f'<div style="margin-top: 14px; border: 1.5px solid #0284C7; background-color: #F0F9FF; border-radius: 6px; padding: 12px;">'
-                        f'<div style="margin-bottom: 10px; border-bottom: 1px solid #BAE6FD; padding-bottom: 6px;">'
-                        f'<span style="font-size: 12px; font-weight: bold; color: #0369A1;">'
-                        f'<a href="action:open_spec:{target_spec}:{c_ver}:{c_cl}" style="color: #0369A1; text-decoration: underline;" title="Click to open TS {target_spec} v{c_ver} in Word">'
+                        f'<div style="margin-top: 14px; border: 1.5px solid {C.ACCENT_SKY}; background-color: {C.SKY_SURFACE}; border-radius: 6px; padding: 12px;">'
+                        f'<div style="margin-bottom: 10px; border-bottom: 1px solid {C.SKY_BORDER}; padding-bottom: 6px;">'
+                        f'<span style="font-size: 12px; font-weight: bold; color: {C.ACCENT_SKY_DARK};">'
+                        f'<a href="action:open_spec:{target_spec}:{c_ver}:{c_cl}" style="color: {C.ACCENT_SKY_DARK}; text-decoration: underline;" title="Click to open TS {target_spec} v{c_ver} in Word">'
                         f'🔗 Cross-Referenced from TS {target_spec} v{c_ver} (Clause {c_cl}) [Open Word]'
                         f'</a>'
                         f'</span>'
-                        f'<span style="font-size: 10px; color: #0284C7; margin-left: 8px; background-color: #E0F2FE; padding: 2px 6px; border-radius: 3px; border: 1px solid #7DD3FC;">'
+                        f'<span style="font-size: 10px; color: {C.ACCENT_SKY}; margin-left: 8px; background-color: {C.SKY_SOFT}; padding: 2px 6px; border-radius: 3px; border: 1px solid {C.SKY_BORDER_STRONG};">'
                         f'v{c_ver}'
                         f'</span>'
                         f'</div>'
-                        f'<div style="background-color: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 4px; padding: 10px;">'
+                        f'<div style="background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; border-radius: 4px; padding: 10px;">'
                         f'{cross_body}'
                         f'</div>'
                         f'</div>'
@@ -1166,14 +1167,14 @@ class NASInspectorWidget(QFrame):
                     base_html += cross_html
                 else:
                     missing_html = (
-                        f'<div style="margin-top: 14px; border: 1px solid #FCD34D; background-color: #FFFBEB; border-radius: 6px; padding: 10px; border-left: 4px solid #F59E0B; font-family: Segoe UI, sans-serif;">'
-                        f'<div style="font-weight: bold; color: #92400E; font-size: 12px; margin-bottom: 4px;">'
+                        f'<div style="margin-top: 14px; border: 1px solid {C.WARNING_BORDER_STRONG}; background-color: {C.WARNING_SOFT}; border-radius: 6px; padding: 10px; border-left: 4px solid {C.WARNING_ACCENT}; font-family: Segoe UI, sans-serif;">'
+                        f'<div style="font-weight: bold; color: {C.WARNING_DARK}; font-size: 12px; margin-bottom: 4px;">'
                         f'ℹ️ Cross-Specification Reference: TS {target_spec} (Clause {target_clause})'
                         f'</div>'
-                        f'<div style="color: #78350F; font-size: 11px; line-height: 1.5;">'
+                        f'<div style="color: {C.WARNING_BROWN_DEEP}; font-size: 11px; line-height: 1.5;">'
                         f'This Information Element references <b>TS {target_spec} (Release {major_ver})</b>, which is not currently present in your local database.<br/>'
                         f'<p style="margin-top: 6px; margin-bottom: 2px;">'
-                        f'<a href="action:import:{target_spec}:{major_ver}" style="display: inline-block; background-color: #0284C7; color: #FFFFFF; padding: 4px 12px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 11px;">'
+                        f'<a href="action:import:{target_spec}:{major_ver}" style="display: inline-block; background-color: {C.ACCENT_SKY}; color: {C.BG_CARD}; padding: 4px 12px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 11px;">'
                         f'📥 Import TS {target_spec} (Rel-{major_ver}) from 3GPP Archive'
                         f'</a>'
                         f'</p>'
@@ -1203,8 +1204,8 @@ class NASInspectorWidget(QFrame):
         meta = get_spec_metadata(spec_number) if spec_number else {}
         spec_title = f" ({meta.get('acronym', f'TS {spec_number}')})" if spec_number else ""
         header_html = (
-            f'<h2 style="color: #0369A1; margin-top: 2px; margin-bottom: 8px; '
-            f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
+            f'<h2 style="color: {C.ACCENT_SKY_DARK}; margin-top: 2px; margin-bottom: 8px; '
+            f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid {C.BORDER_SUBTLE}; padding-bottom: 4px;">'
             f'{html.escape(ie_name)}{spec_title}</h2>'
         )
 
@@ -1219,9 +1220,9 @@ class NASInspectorWidget(QFrame):
 
         asn1_html = (
             f'<div style="margin-bottom: 10px;">'
-            f'<div style="font-size: 11px; font-weight: bold; color: #475569; margin-bottom: 3px;">Inline ASN.1 Definition:</div>'
-            f'<pre style="background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 8px; '
-            f'border-radius: 4px; font-family: Consolas, monospace; font-size: 11px; color: #0F172A; '
+            f'<div style="font-size: 11px; font-weight: bold; color: {C.TEXT_SECONDARY}; margin-bottom: 3px;">Inline ASN.1 Definition:</div>'
+            f'<pre style="background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; padding: 8px; '
+            f'border-radius: 4px; font-family: Consolas, monospace; font-size: 11px; color: {C.TEXT_PRIMARY}; '
             f'white-space: pre-wrap; margin: 0;">{html.escape(formatted_asn1)}</pre>'
             f'</div>'
         )
@@ -1230,10 +1231,10 @@ class NASInspectorWidget(QFrame):
         if field_description and field_description.strip():
             desc_html = (
                 f'<div style="margin-top: 8px;">'
-                f'<div style="font-size: 11px; font-weight: bold; color: #475569; margin-bottom: 4px;">'
+                f'<div style="font-size: 11px; font-weight: bold; color: {C.TEXT_SECONDARY}; margin-bottom: 4px;">'
                 f'Field Description & Semantics:</div>'
-                f'<div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-left: 3px solid #0284C7; '
-                f'padding: 8px; border-radius: 3px; font-family: Segoe UI, sans-serif; font-size: 11px; color: #334155; line-height: 1.4;">'
+                f'<div style="background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-left: 3px solid {C.ACCENT_SKY}; '
+                f'padding: 8px; border-radius: 3px; font-family: Segoe UI, sans-serif; font-size: 11px; color: {C.TEXT_BODY}; line-height: 1.4;">'
                 f'{html.escape(field_description)}'
                 f'</div>'
                 f'</div>'
@@ -1263,26 +1264,26 @@ class NASInspectorWidget(QFrame):
         spec_num = self._current_ie_spec
 
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
+        menu.setStyleSheet(f"""
+            QMenu {{
                 font-size: 11px;
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 padding: 4px;
-            }
-            QMenu::item {
+            }}
+            QMenu::item {{
                 padding: 4px 20px 4px 10px;
                 border-radius: 3px;
-            }
-            QMenu::item:selected {
-                background-color: #E0F2FE;
-                color: #0369A1;
-            }
-            QMenu::separator {
+            }}
+            QMenu::item:selected {{
+                background-color: {C.SKY_SOFT};
+                color: {C.ACCENT_SKY_DARK};
+            }}
+            QMenu::separator {{
                 height: 1px;
-                background-color: #E2E8F0;
+                background-color: {C.BORDER_SUBTLE};
                 margin: 4px 0;
-            }
+            }}
         """)
 
         header_title = f"Messages referencing {name or clause}"

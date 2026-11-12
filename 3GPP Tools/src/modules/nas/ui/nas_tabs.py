@@ -31,6 +31,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon
+from core.ui.toast import notify_info
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     BUTTON_STYLE_TOOLBAR_WARNING,
@@ -73,65 +75,66 @@ from modules.nas.ui.nas_ingest_controller import (
 )
 from modules.specifications.core.database import SpecsDatabase
 from modules.spec_search.core.spec_doc_resolver import SpecDocResolver
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
 RE_SPEC_FROM_COL = re.compile(r"(?:24|25|29|36|37|38)\.[0-9]{3}")
 RE_CLAUSE_FROM_REF = re.compile(r"((?:9|8|7|6|5|4|D\.6)(?:\.[0-9A-Za-z]+)+)")
 
-TOGGLE_BUTTON_STYLE = """
-    QPushButton {
+TOGGLE_BUTTON_STYLE = f"""
+    QPushButton {{
         font-size: 11px;
         font-weight: bold;
-        color: #64748B;
-        background-color: #F8FAFC;
-        border: 1px solid #CBD5E1;
+        color: {C.TEXT_MUTED};
+        background-color: {C.BG_SURFACE};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 4px;
         padding: 3px 8px;
-    }
-    QPushButton:hover {
-        color: #1E5C99;
-        background-color: #EBF3FC;
-        border-color: #1E5C99;
-    }
-    QPushButton:checked {
-        color: #1E5C99;
-        background-color: #EBF3FC;
-        border: 1.5px solid #1E5C99;
-    }
-    QPushButton:checked:hover {
-        color: #1E5C99;
-        background-color: #DCEBFA;
-        border: 1.5px solid #1E5C99;
-    }
+    }}
+    QPushButton:hover {{
+        color: {C.ACCENT_PRIMARY};
+        background-color: {C.ACCENT_SOFT};
+        border-color: {C.ACCENT_PRIMARY};
+    }}
+    QPushButton:checked {{
+        color: {C.ACCENT_PRIMARY};
+        background-color: {C.ACCENT_SOFT};
+        border: 1.5px solid {C.ACCENT_PRIMARY};
+    }}
+    QPushButton:checked:hover {{
+        color: {C.ACCENT_PRIMARY};
+        background-color: {C.ACCENT_SOFT_PRESSED};
+        border: 1.5px solid {C.ACCENT_PRIMARY};
+    }}
 """
 
-TINY_HEADER_BTN_STYLE = """
-    QPushButton {
+TINY_HEADER_BTN_STYLE = f"""
+    QPushButton {{
         font-size: 10px;
         font-weight: 500;
-        color: #475569;
-        background-color: #FFFFFF;
-        border: 1px solid #CBD5E1;
+        color: {C.TEXT_SECONDARY};
+        background-color: {C.BG_CARD};
+        border: 1px solid {C.BORDER_STRONG};
         border-radius: 3px;
         padding: 1px 7px;
-    }
-    QPushButton:hover {
-        background-color: #F1F5F9;
-        color: #0F172A;
-        border-color: #94A3B8;
-    }
-    QPushButton:pressed {
-        background-color: #E2E8F0;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {C.BG_CANVAS};
+        color: {C.TEXT_PRIMARY};
+        border-color: {C.TEXT_FAINT};
+    }}
+    QPushButton:pressed {{
+        background-color: {C.BORDER_SUBTLE};
+    }}
 """
 
-RIBBON_BADGE_STYLE = """
-    background-color: #F1F5F9;
-    color: #334155;
+RIBBON_BADGE_STYLE = f"""
+    background-color: {C.BG_CANVAS};
+    color: {C.TEXT_BODY};
     font-size: 11px;
     font-weight: 600;
-    border: 1px solid #E2E8F0;
+    border: 1px solid {C.BORDER_SUBTLE};
     border-radius: 11px;
     padding: 3px 10px;
 """
@@ -204,67 +207,60 @@ class NASTab(QWidget):
         layout.setSpacing(8)
 
         # ---------------------------------------------------------------------
-        # 1. Top Action Bar: Primary Ingestion, Stats Ribbon, and Manage Menu
+        # 1. Top Action Bar: 2-Tier Ribbon Card (Ingestion, Stats, Manage Menu)
         # ---------------------------------------------------------------------
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(8)
+        self.ribbon_card = PageRibbonCard("Protocols", parent=self)
 
-        self.fetch_btn = QPushButton("📥 Import from Specs DB")
+        self.fetch_btn = QPushButton("Import from Specs DB")
+        self.fetch_btn.setObjectName("primaryBtn")
         self.fetch_btn.setCursor(Qt.PointingHandCursor)
-        self.fetch_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.fetch_btn, "download", color=C.TEXT_ON_ACCENT)
         self.fetch_btn.clicked.connect(self._on_fetch_from_specs_db_clicked)
-        toolbar.addWidget(self.fetch_btn)
+        self.ribbon_card.add_primary_widget(self.fetch_btn)
 
-        self.import_file_btn = QPushButton("📁 Import Local .docx")
+        self.import_file_btn = QPushButton("Import Local .docx")
         self.import_file_btn.setCursor(Qt.PointingHandCursor)
         self.import_file_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.import_file_btn, "upload")
         self.import_file_btn.clicked.connect(self._on_import_local_file_clicked)
-        toolbar.addWidget(self.import_file_btn)
+        self.ribbon_card.add_primary_widget(self.import_file_btn)
 
-        # Subtle separator between actions and metrics
-        sep = QFrame()
-        sep.setFrameShape(QFrame.VLine)
-        sep.setFrameShadow(QFrame.Sunken)
-        sep.setStyleSheet("color: #CBD5E1;")
-        toolbar.addWidget(sep)
-
-        # Live Database KPI Stats Ribbon
+        # Live Database KPI Stats Ribbon + Manage Menu (Utility strip)
         self.stats_specs_lbl = QLabel("📦 0 Specs")
         self.stats_specs_lbl.setStyleSheet(RIBBON_BADGE_STYLE)
-        toolbar.addWidget(self.stats_specs_lbl)
+        self.ribbon_card.add_utility_widget(self.stats_specs_lbl)
 
         self.stats_vers_lbl = QLabel("🏷️ 0 Versions")
         self.stats_vers_lbl.setStyleSheet(RIBBON_BADGE_STYLE)
-        toolbar.addWidget(self.stats_vers_lbl)
+        self.ribbon_card.add_utility_widget(self.stats_vers_lbl)
 
         self.stats_msgs_lbl = QLabel("📨 0 Items")
         self.stats_msgs_lbl.setStyleSheet(RIBBON_BADGE_STYLE)
-        toolbar.addWidget(self.stats_msgs_lbl)
-
-        toolbar.addStretch()
+        self.ribbon_card.add_utility_widget(self.stats_msgs_lbl)
 
         # Manage / Maintenance Dropdown Menu
-        self.manage_btn = QPushButton("⚙️ Manage ▾")
+        self.manage_btn = QPushButton("Manage ▾")
         self.manage_btn.setCursor(Qt.PointingHandCursor)
         self.manage_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.manage_btn, "sliders")
 
         manage_menu = QMenu(self)
-        manage_menu.setStyleSheet("""
-            QMenu {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        manage_menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 padding: 4px;
                 font-size: 12px;
-            }
-            QMenu::item {
+            }}
+            QMenu::item {{
                 padding: 6px 18px 6px 10px;
                 border-radius: 4px;
-            }
-            QMenu::item:selected {
-                background-color: #EBF3FC;
-                color: #1E5C99;
-            }
+            }}
+            QMenu::item:selected {{
+                background-color: {C.ACCENT_SOFT};
+                color: {C.ACCENT_PRIMARY};
+            }}
         """)
 
         act_reload_checked = QAction("🔄 Reload Checked Version(s)...", self)
@@ -282,9 +278,9 @@ class NASTab(QWidget):
         manage_menu.addAction(act_wipe)
 
         self.manage_btn.setMenu(manage_menu)
-        toolbar.addWidget(self.manage_btn)
+        self.ribbon_card.add_utility_widget(self.manage_btn)
 
-        layout.addLayout(toolbar)
+        layout.addWidget(self.ribbon_card)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
@@ -304,33 +300,33 @@ class NASTab(QWidget):
         # Specification Versions Card Frame
         ver_card = QFrame()
         ver_card.setObjectName("cardFrame")
-        ver_card.setStyleSheet("""
-            QFrame#cardFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        ver_card.setStyleSheet(f"""
+            QFrame#cardFrame {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
-            }
+            }}
         """)
         ver_card_layout = QVBoxLayout(ver_card)
         ver_card_layout.setContentsMargins(0, 0, 0, 0)
         ver_card_layout.setSpacing(0)
 
         ver_header = QFrame()
-        ver_header.setStyleSheet("""
-            QFrame {
-                background-color: #F8FAFC;
-                border-bottom: 1px solid #E2E8F0;
+        ver_header.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_SURFACE};
+                border-bottom: 1px solid {C.BORDER_SUBTLE};
                 border-top-left-radius: 6px;
                 border-top-right-radius: 6px;
                 padding: 4px 8px;
-            }
+            }}
         """)
         ver_header_layout = QHBoxLayout(ver_header)
         ver_header_layout.setContentsMargins(6, 4, 6, 4)
         ver_header_layout.setSpacing(6)
 
         ver_title = QLabel("🏷️ Specification Releases")
-        ver_title.setStyleSheet("font-weight: bold; font-size: 11px; color: #1E293B;")
+        ver_title.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {C.TEXT_STRONG};")
         ver_header_layout.addWidget(ver_title)
         ver_header_layout.addStretch()
 
@@ -372,43 +368,43 @@ class NASTab(QWidget):
         # Protocol Library Card Frame
         msg_card = QFrame()
         msg_card.setObjectName("cardFrame")
-        msg_card.setStyleSheet("""
-            QFrame#cardFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        msg_card.setStyleSheet(f"""
+            QFrame#cardFrame {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
-            }
+            }}
         """)
         msg_card_layout = QVBoxLayout(msg_card)
         msg_card_layout.setContentsMargins(0, 0, 0, 0)
         msg_card_layout.setSpacing(0)
 
         msg_header = QFrame()
-        msg_header.setStyleSheet("""
-            QFrame {
-                background-color: #F8FAFC;
-                border-bottom: 1px solid #E2E8F0;
+        msg_header.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_SURFACE};
+                border-bottom: 1px solid {C.BORDER_SUBTLE};
                 border-top-left-radius: 6px;
                 border-top-right-radius: 6px;
                 padding: 4px 8px;
-            }
+            }}
         """)
         msg_header_layout = QHBoxLayout(msg_header)
         msg_header_layout.setContentsMargins(6, 4, 6, 4)
         msg_header_layout.setSpacing(6)
 
         msg_card_title = QLabel("📨 Protocol Library")
-        msg_card_title.setStyleSheet("font-weight: bold; font-size: 11px; color: #1E293B;")
+        msg_card_title.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {C.TEXT_STRONG};")
         msg_header_layout.addWidget(msg_card_title)
         msg_header_layout.addStretch()
 
         self.msg_count_lbl = QLabel("0 items")
-        self.msg_count_lbl.setStyleSheet("""
-            color: #64748B;
+        self.msg_count_lbl.setStyleSheet(f"""
+            color: {C.TEXT_MUTED};
             font-size: 10px;
             font-weight: bold;
-            background-color: #F1F5F9;
-            border: 1px solid #E2E8F0;
+            background-color: {C.BG_CANVAS};
+            border: 1px solid {C.BORDER_SUBTLE};
             border-radius: 9px;
             padding: 1px 7px;
         """)
@@ -481,14 +477,14 @@ class NASTab(QWidget):
         self.msg_list.itemClicked.connect(self._on_message_clicked)
         self.msg_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.msg_list.customContextMenuRequested.connect(self._on_msg_list_context_menu)
-        self.msg_list.setStyleSheet("""
-            QListWidget {
-                border: 1px solid #CBD5E1;
+        self.msg_list.setStyleSheet(f"""
+            QListWidget {{
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
-                background-color: #FFFFFF;
+                background-color: {C.BG_CARD};
                 padding: 2px;
                 outline: none;
-            }
+            }}
         """)
         msg_body_layout.addWidget(self.msg_list)
         msg_card_layout.addWidget(msg_body)
@@ -501,33 +497,33 @@ class NASTab(QWidget):
 
         matrix_card = QFrame()
         matrix_card.setObjectName("cardFrame")
-        matrix_card.setStyleSheet("""
-            QFrame#cardFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+        matrix_card.setStyleSheet(f"""
+            QFrame#cardFrame {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
-            }
+            }}
         """)
         matrix_card_layout = QVBoxLayout(matrix_card)
         matrix_card_layout.setContentsMargins(0, 0, 0, 0)
         matrix_card_layout.setSpacing(0)
 
         matrix_header_frame = QFrame()
-        matrix_header_frame.setStyleSheet("""
-            QFrame {
-                background-color: #F8FAFC;
-                border-bottom: 1px solid #E2E8F0;
+        matrix_header_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_SURFACE};
+                border-bottom: 1px solid {C.BORDER_SUBTLE};
                 border-top-left-radius: 6px;
                 border-top-right-radius: 6px;
                 padding: 4px 8px;
-            }
+            }}
         """)
         matrix_header_layout = QHBoxLayout(matrix_header_frame)
         matrix_header_layout.setContentsMargins(6, 4, 6, 4)
         matrix_header_layout.setSpacing(8)
 
         self.matrix_title = QLabel("Select a Message to View Evolution Matrix")
-        self.matrix_title.setStyleSheet("font-weight: bold; font-size: 12px; color: #1E293B;")
+        self.matrix_title.setStyleSheet(f"font-weight: bold; font-size: 12px; color: {C.TEXT_STRONG};")
         matrix_header_layout.addWidget(self.matrix_title)
 
         # Diff Legend Pill Bar
@@ -535,15 +531,15 @@ class NASTab(QWidget):
         diff_legend.setSpacing(4)
 
         lbl_added = QLabel("🟢 Added")
-        lbl_added.setStyleSheet("background-color: #E8F5E9; color: #166534; font-size: 10px; font-weight: bold; border: 1px solid #BBF7D0; border-radius: 3px; padding: 1px 5px;")
+        lbl_added.setStyleSheet(f"background-color: {C.DIFF_ADDED_BG}; color: {C.SUCCESS_DARK}; font-size: 10px; font-weight: bold; border: 1px solid {C.SUCCESS_BORDER}; border-radius: 3px; padding: 1px 5px;")
         diff_legend.addWidget(lbl_added)
 
         lbl_mod = QLabel("🟡 Modified")
-        lbl_mod.setStyleSheet("background-color: #FEF9C3; color: #854D0E; font-size: 10px; font-weight: bold; border: 1px solid #FEF08A; border-radius: 3px; padding: 1px 5px;")
+        lbl_mod.setStyleSheet(f"background-color: {C.WARNING_YELLOW_SOFT}; color: {C.WARNING_YELLOW_TEXT}; font-size: 10px; font-weight: bold; border: 1px solid {C.HIGHLIGHT_YELLOW}; border-radius: 3px; padding: 1px 5px;")
         diff_legend.addWidget(lbl_mod)
 
         lbl_rem = QLabel("🔴 Removed")
-        lbl_rem.setStyleSheet("background-color: #FEE2E2; color: #991B1B; font-size: 10px; font-weight: bold; border: 1px solid #FECACA; border-radius: 3px; padding: 1px 5px;")
+        lbl_rem.setStyleSheet(f"background-color: {C.DANGER_SOFT_HOVER}; color: {C.DANGER_DARK}; font-size: 10px; font-weight: bold; border: 1px solid {C.DANGER_BORDER}; border-radius: 3px; padding: 1px 5px;")
         diff_legend.addWidget(lbl_rem)
 
         matrix_header_layout.addLayout(diff_legend)
@@ -562,30 +558,31 @@ class NASTab(QWidget):
         self.interface_combo.currentIndexChanged.connect(lambda _: self._rebuild_matrix_model())
         matrix_header_layout.addWidget(self.interface_combo)
 
-        self.open_spec_btn = QPushButton("📖 Open Spec ▾")
+        self.open_spec_btn = QPushButton("Open Spec ▾")
         self.open_spec_btn.setCursor(Qt.PointingHandCursor)
         self.open_spec_btn.setToolTip("Open active 3GPP specification document in Microsoft Word (Clause copied to clipboard)")
-        self.open_spec_btn.setStyleSheet("""
-            QPushButton {
+        self.open_spec_btn.setStyleSheet(f"""
+            QPushButton {{
                 font-size: 11px;
                 font-weight: 500;
-                color: #1E5C99;
-                background-color: #F0F9FF;
-                border: 1px solid #BAE6FD;
+                color: {C.ACCENT_PRIMARY};
+                background-color: {C.SKY_SURFACE};
+                border: 1px solid {C.SKY_BORDER};
                 border-radius: 4px;
                 padding: 2px 8px;
-            }
-            QPushButton:hover {
-                background-color: #E0F2FE;
-                border-color: #0284C7;
-                color: #0369A1;
-            }
-            QPushButton:disabled {
-                color: #94A3B8;
-                background-color: #F8FAFC;
-                border-color: #E2E8F0;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.SKY_SOFT};
+                border-color: {C.ACCENT_SKY};
+                color: {C.ACCENT_SKY_DARK};
+            }}
+            QPushButton:disabled {{
+                color: {C.TEXT_FAINT};
+                background-color: {C.BG_SURFACE};
+                border-color: {C.BORDER_SUBTLE};
+            }}
         """)
+        apply_lucide_icon(self.open_spec_btn, "book-open", color=C.ACCENT_PRIMARY)
         self.open_spec_btn.setEnabled(False)
         self.open_spec_btn.clicked.connect(self._on_open_spec_btn_clicked)
         matrix_header_layout.addWidget(self.open_spec_btn)
@@ -593,45 +590,46 @@ class NASTab(QWidget):
         self.copy_matrix_btn = QPushButton("📋 Copy Table ▾")
         self.copy_matrix_btn.setCursor(Qt.PointingHandCursor)
         self.copy_matrix_btn.setToolTip("Copy entire evolution matrix to clipboard (Word-compatible table, Markdown table, or TSV)")
-        self.copy_matrix_btn.setStyleSheet("""
-            QPushButton {
+        self.copy_matrix_btn.setStyleSheet(f"""
+            QPushButton {{
                 font-size: 11px;
                 font-weight: 500;
-                color: #334155;
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+                color: {C.TEXT_BODY};
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 2px 8px;
-            }
-            QPushButton:hover {
-                background-color: #F1F5F9;
-                color: #0F172A;
-                border-color: #94A3B8;
-            }
-            QPushButton:disabled {
-                color: #94A3B8;
-                background-color: #F8FAFC;
-                border-color: #E2E8F0;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {C.BG_CANVAS};
+                color: {C.TEXT_PRIMARY};
+                border-color: {C.TEXT_FAINT};
+            }}
+            QPushButton:disabled {{
+                color: {C.TEXT_FAINT};
+                background-color: {C.BG_SURFACE};
+                border-color: {C.BORDER_SUBTLE};
+            }}
         """)
+        apply_lucide_icon(self.copy_matrix_btn, "copy")
         self.copy_matrix_btn.setEnabled(False)
 
         copy_matrix_menu = QMenu(self)
-        copy_matrix_menu.setStyleSheet("""
-            QMenu {
+        copy_matrix_menu.setStyleSheet(f"""
+            QMenu {{
                 font-size: 11px;
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 padding: 4px;
-            }
-            QMenu::item {
+            }}
+            QMenu::item {{
                 padding: 5px 18px 5px 10px;
                 border-radius: 3px;
-            }
-            QMenu::item:selected {
-                background-color: #EBF3FC;
-                color: #1E5C99;
-            }
+            }}
+            QMenu::item:selected {{
+                background-color: {C.ACCENT_SOFT};
+                color: {C.ACCENT_PRIMARY};
+            }}
         """)
         act_cp_word = copy_matrix_menu.addAction("📋 Copy for Word / Outlook (Rich Table)")
         act_cp_word.triggered.connect(lambda: self._copy_matrix_formatted(mode="word"))
@@ -649,27 +647,27 @@ class NASTab(QWidget):
         # Message Context Info Banner (Direction pill + concise prose summary)
         self.msg_context_banner = QFrame()
         self.msg_context_banner.setObjectName("msgContextBanner")
-        self.msg_context_banner.setStyleSheet("""
-            QFrame#msgContextBanner {
-                background-color: #F8FAFC;
-                border-bottom: 1px solid #E2E8F0;
-            }
+        self.msg_context_banner.setStyleSheet(f"""
+            QFrame#msgContextBanner {{
+                background-color: {C.BG_SURFACE};
+                border-bottom: 1px solid {C.BORDER_SUBTLE};
+            }}
         """)
         msg_ctx_layout = QHBoxLayout(self.msg_context_banner)
         msg_ctx_layout.setContentsMargins(10, 5, 10, 5)
         msg_ctx_layout.setSpacing(8)
 
         self.msg_direction_badge = QLabel()
-        self.msg_direction_badge.setStyleSheet("""
-            QLabel {
-                background-color: #E0F2FE;
-                color: #0369A1;
+        self.msg_direction_badge.setStyleSheet(f"""
+            QLabel {{
+                background-color: {C.SKY_SOFT};
+                color: {C.ACCENT_SKY_DARK};
                 font-size: 11px;
                 font-weight: bold;
-                border: 1px solid #BAE6FD;
+                border: 1px solid {C.SKY_BORDER};
                 border-radius: 4px;
                 padding: 2px 8px;
-            }
+            }}
         """)
         self.msg_direction_badge.setVisible(False)
         msg_ctx_layout.addWidget(self.msg_direction_badge, 0, Qt.AlignTop)
@@ -677,7 +675,7 @@ class NASTab(QWidget):
         self.msg_description_lbl = QLabel()
         self.msg_description_lbl.setWordWrap(True)
         self.msg_description_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.msg_description_lbl.setStyleSheet("color: #334155; font-size: 11px; line-height: 1.35;")
+        self.msg_description_lbl.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 11px; line-height: 1.35;")
         self.msg_description_lbl.setVisible(False)
         msg_ctx_layout.addWidget(self.msg_description_lbl, 1)
 
@@ -698,7 +696,7 @@ class NASTab(QWidget):
         matrix_empty_layout.addWidget(m_empty_icon)
 
         m_empty_title = QLabel("Select a Protocol Message or Information Element")
-        m_empty_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #1E293B;")
+        m_empty_title.setStyleSheet(f"font-weight: bold; font-size: 13px; color: {C.TEXT_STRONG};")
         m_empty_title.setAlignment(Qt.AlignCenter)
         matrix_empty_layout.addWidget(m_empty_title)
 
@@ -706,7 +704,7 @@ class NASTab(QWidget):
             "Choose a message or IE from the library on the left to inspect its evolution across 3GPP releases.\n"
             "Field presence, ASN.1 syntax, and format changes will be diff-highlighted here."
         )
-        m_empty_sub.setStyleSheet("font-size: 11px; color: #64748B; line-height: 1.4;")
+        m_empty_sub.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED}; line-height: 1.4;")
         m_empty_sub.setAlignment(Qt.AlignCenter)
         matrix_empty_layout.addWidget(m_empty_sub)
 
@@ -718,27 +716,27 @@ class NASTab(QWidget):
         self.matrix_table.setSelectionMode(QTableView.SingleSelection)
         self.matrix_table.verticalHeader().setDefaultSectionSize(24)
         self.matrix_table.verticalHeader().setVisible(False)
-        self.matrix_table.setStyleSheet("""
-            QTableView {
+        self.matrix_table.setStyleSheet(f"""
+            QTableView {{
                 border: none;
-                gridline-color: #F1F5F9;
-                background-color: #FFFFFF;
-                alternate-background-color: #F8FAFC;
-            }
-            QTableView::item:selected {
-                background-color: #EBF3FC;
-                color: #0F172A;
-            }
-            QHeaderView::section {
-                background-color: #F8FAFC;
-                color: #334155;
+                gridline-color: {C.BG_CANVAS};
+                background-color: {C.BG_CARD};
+                alternate-background-color: {C.BG_SURFACE};
+            }}
+            QTableView::item:selected {{
+                background-color: {C.ACCENT_SOFT};
+                color: {C.TEXT_PRIMARY};
+            }}
+            QHeaderView::section {{
+                background-color: {C.BG_SURFACE};
+                color: {C.TEXT_BODY};
                 font-weight: bold;
                 font-size: 11px;
                 border: none;
-                border-bottom: 1px solid #CBD5E1;
-                border-right: 1px solid #E2E8F0;
+                border-bottom: 1px solid {C.BORDER_STRONG};
+                border-right: 1px solid {C.BORDER_SUBTLE};
                 padding: 4px 6px;
-            }
+            }}
         """)
 
         h_header = self.matrix_table.horizontalHeader()
@@ -1381,18 +1379,18 @@ class NASTab(QWidget):
         if not msg_defs and (msg_desc or msg_dir):
             spec_num = self._current_message_spec or str(m_data.get("spec_number", "") or "")
             synth_html = (
-                f'<h2 style="color: #0284C7; margin-top: 4px; margin-bottom: 6px; '
-                f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px;">'
+                f'<h2 style="color: {C.ACCENT_SKY}; margin-top: 4px; margin-bottom: 6px; '
+                f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid {C.BORDER_SUBTLE}; padding-bottom: 4px;">'
                 f'{html.escape(msg_name)}{f" (Clause {html.escape(eff_clause)})" if eff_clause else ""}</h2>'
             )
             if msg_dir:
                 synth_html += (
-                    f'<p style="margin: 4px 0; line-height: 1.4; color: #0369A1; font-weight: bold; font-size: 11px;">'
+                    f'<p style="margin: 4px 0; line-height: 1.4; color: {C.ACCENT_SKY_DARK}; font-weight: bold; font-size: 11px;">'
                     f'Direction: {html.escape(msg_dir)}</p>'
                 )
             if msg_desc:
                 synth_html += (
-                    f'<p style="margin: 4px 0; line-height: 1.4; color: #334155; font-size: 11px;">'
+                    f'<p style="margin: 4px 0; line-height: 1.4; color: {C.TEXT_BODY}; font-size: 11px;">'
                     f'{html.escape(msg_desc)}</p>'
                 )
             msg_defs = [{
@@ -1514,21 +1512,21 @@ class NASTab(QWidget):
         clause = str(item.data(Qt.UserRole + 3) or "").strip()
 
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
+        menu.setStyleSheet(f"""
+            QMenu {{
                 font-size: 11px;
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 padding: 4px;
-            }
-            QMenu::item {
+            }}
+            QMenu::item {{
                 padding: 5px 18px 5px 10px;
                 border-radius: 3px;
-            }
-            QMenu::item:selected {
-                background-color: #EBF3FC;
-                color: #1E5C99;
-            }
+            }}
+            QMenu::item:selected {{
+                background-color: {C.ACCENT_SOFT};
+                color: {C.ACCENT_PRIMARY};
+            }}
         """)
 
         clause_tag = f" (Clause {clause})" if clause else ""
@@ -1628,21 +1626,21 @@ class NASTab(QWidget):
 
     def _build_open_spec_menu(self, spec_num: str, clause: Optional[str] = None) -> QMenu:
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
+        menu.setStyleSheet(f"""
+            QMenu {{
                 font-size: 11px;
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 padding: 4px;
-            }
-            QMenu::item {
+            }}
+            QMenu::item {{
                 padding: 5px 18px 5px 10px;
                 border-radius: 3px;
-            }
-            QMenu::item:selected {
-                background-color: #EBF3FC;
-                color: #1E5C99;
-            }
+            }}
+            QMenu::item:selected {{
+                background-color: {C.ACCENT_SOFT};
+                color: {C.ACCENT_PRIMARY};
+            }}
         """)
 
         checked = self.version_tree.get_checked_versions_info()
@@ -1743,7 +1741,7 @@ class NASTab(QWidget):
                 clean_spec = checked[0].get("spec_number", "")
 
         if not clean_spec:
-            QMessageBox.information(
+            notify_info(
                 self,
                 "No Specification Selected",
                 "Please select a message, Information Element, or specification first.",

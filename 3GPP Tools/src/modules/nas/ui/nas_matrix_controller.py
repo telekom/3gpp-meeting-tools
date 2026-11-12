@@ -4,6 +4,7 @@ from typing import Any, List, Optional
 
 from PyQt5.QtCore import QModelIndex, QPoint, Qt
 from PyQt5.QtWidgets import QAction, QMenu
+from core.ui.theme import C
 
 RE_SPEC_FROM_COL = re.compile(r"(?:24|25|29|36|37|38)\.[0-9]{3}")
 RE_EXPLICIT_SPEC_REF = re.compile(r"^TS\s+((?:24|25|29|36|37|38)\.[0-9]{3})\s+([0-9A-Za-z\.]+)$", re.IGNORECASE)
@@ -160,21 +161,21 @@ def show_matrix_context_menu(tab: Any, pos: QPoint) -> None:
             target_version = m_ver.group(1)
 
     menu = QMenu(tab)
-    menu.setStyleSheet("""
-        QMenu {
+    menu.setStyleSheet(f"""
+        QMenu {{
             font-size: 11px;
-            background-color: #FFFFFF;
-            border: 1px solid #CBD5E1;
+            background-color: {C.BG_CARD};
+            border: 1px solid {C.BORDER_STRONG};
             padding: 4px;
-        }
-        QMenu::item {
+        }}
+        QMenu::item {{
             padding: 5px 18px 5px 10px;
             border-radius: 3px;
-        }
-        QMenu::item:selected {
-            background-color: #EBF3FC;
-            color: #1E5C99;
-        }
+        }}
+        QMenu::item:selected {{
+            background-color: {C.ACCENT_SOFT};
+            color: {C.ACCENT_PRIMARY};
+        }}
     """)
 
     filter_term = ie_name if ie_name else clause

@@ -15,6 +15,7 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 
 from PyQt5.QtCore import QMimeData
 from PyQt5.QtWidgets import QApplication
+from core.ui.theme import C
 
 
 # -----------------------------------------------------------------------------
@@ -34,33 +35,33 @@ def build_matrix_html(
     """
     clean_headers = [str(h or "").replace("\n", " ").strip() for h in headers]
     html_parts = [
-        '<div style="font-family: Calibri, \'Segoe UI\', Arial, sans-serif; font-size: 10pt; color: #1E293B;">'
+        f'<div style="font-family: Calibri, \'Segoe UI\', Arial, sans-serif; font-size: 10pt; color: {C.TEXT_STRONG};">'
     ]
 
     if title and title.strip():
         html_parts.append(
-            f'<div style="margin-bottom: 8px; font-weight: bold; color: #0369A1; font-size: 11pt;">'
+            f'<div style="margin-bottom: 8px; font-weight: bold; color: {C.ACCENT_SKY_DARK}; font-size: 11pt;">'
             f'{html.escape(title.strip())}</div>'
         )
 
     html_parts.append(
-        '<table style="border-collapse: collapse; width: 100%; border: 1px solid #CBD5E1; '
+        f'<table style="border-collapse: collapse; width: 100%; border: 1px solid {C.BORDER_STRONG}; '
         'font-family: Calibri, \'Segoe UI\', Arial, sans-serif; font-size: 9.5pt;">'
     )
 
     # Table Header
-    html_parts.append('<thead><tr style="background-color: #F1F5F9; color: #0F172A; font-weight: bold; border-bottom: 2px solid #94A3B8;">')
+    html_parts.append(f'<thead><tr style="background-color: {C.BG_CANVAS}; color: {C.TEXT_PRIMARY}; font-weight: bold; border-bottom: 2px solid {C.TEXT_FAINT};">')
     for c_idx, h in enumerate(clean_headers):
         align = "text-align: center;" if c_idx >= 3 else "text-align: left;"
         html_parts.append(
-            f'<th style="border: 1px solid #CBD5E1; padding: 6px 10px; {align} font-weight: bold; background-color: #F1F5F9;">'
+            f'<th style="border: 1px solid {C.BORDER_STRONG}; padding: 6px 10px; {align} font-weight: bold; background-color: {C.BG_CANVAS};">'
             f'{html.escape(h)}</th>'
         )
     html_parts.append('</tr></thead><tbody>')
 
     # Table Body
     for r_idx, row in enumerate(rows):
-        bg_row = "#FFFFFF" if r_idx % 2 == 0 else "#F8FAFC"
+        bg_row = C.BG_CARD if r_idx % 2 == 0 else C.BG_SURFACE
         html_parts.append(f'<tr style="background-color: {bg_row};">')
         for c_idx, val in enumerate(row):
             cell_bg = ""
@@ -79,7 +80,7 @@ def build_matrix_html(
                 val_esc = ("&nbsp;" * leading_spaces) + html.escape(val_str.lstrip(" "))
 
             html_parts.append(
-                f'<td style="border: 1px solid #CBD5E1; padding: 4px 8px; {align} {cell_bg}">{val_esc}</td>'
+                f'<td style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; {align} {cell_bg}">{val_esc}</td>'
             )
         html_parts.append('</tr>')
 
@@ -232,11 +233,11 @@ def build_definition_word_html(
     citation_title = f"3GPP {spec_ver} — {name_str}{cl_str}".strip(" —") if spec_ver else f"{name_str}{cl_str}"
 
     # Clean action URLs for external pasting
-    clean_body = re.sub(r'href="action:[^"]*"', 'style="color: #0369A1; text-decoration: underline;"', html_content)
+    clean_body = re.sub(r'href="action:[^"]*"', f'style="color: {C.ACCENT_SKY_DARK}; text-decoration: underline;"', html_content)
 
-    return f"""<div style="font-family: Calibri, 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #1E293B; max-width: 850px;">
-  <div style="margin-bottom: 12px; padding: 8px 12px; background-color: #F1F5F9; border-left: 4px solid #0284C7; border-radius: 4px;">
-    <strong style="color: #0369A1; font-size: 12pt;">{html.escape(citation_title)}</strong>
+    return f"""<div style="font-family: Calibri, 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: {C.TEXT_STRONG}; max-width: 850px;">
+  <div style="margin-bottom: 12px; padding: 8px 12px; background-color: {C.BG_CANVAS}; border-left: 4px solid {C.ACCENT_SKY}; border-radius: 4px;">
+    <strong style="color: {C.ACCENT_SKY_DARK}; font-size: 12pt;">{html.escape(citation_title)}</strong>
   </div>
   <div style="padding-left: 2px;">
     {clean_body}
@@ -329,8 +330,8 @@ def build_definition_markdown(
                 return
 
             if (
-                "border-left: 4px solid #0284C7" in style
-                or "border: 1.5px solid #0284C7" in style
+                f"border-left: 4px solid {C.ACCENT_SKY}" in style
+                or f"border: 1.5px solid {C.ACCENT_SKY}" in style
                 or "Cross-Referenced" in node.get_text()
                 or "Cross-Specification Reference" in node.get_text()
             ):

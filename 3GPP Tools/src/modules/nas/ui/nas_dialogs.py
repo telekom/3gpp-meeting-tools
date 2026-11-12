@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
 from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
 from modules.nas.core.nas_threads import find_cached_spec_file
 from modules.specifications.core.database import SpecsDatabase
+from core.ui.theme import C
 
 
 PROTOCOL_SPEC_CATALOG: Dict[str, Dict[str, str]] = {
@@ -315,21 +316,21 @@ class NASVersionSelectDialog(QDialog):
 
         # Explanatory card banner describing the selected specification
         self.spec_info_frame = QFrame()
-        self.spec_info_frame.setStyleSheet("""
-            QFrame {
-                background-color: #F8FAFC;
-                border: 1px solid #E2E8F0;
-                border-left: 4px solid #1E5C99;
+        self.spec_info_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_SUBTLE};
+                border-left: 4px solid {C.ACCENT_PRIMARY};
                 border-radius: 4px;
                 padding: 6px 10px;
-            }
+            }}
         """)
         spec_info_layout = QVBoxLayout(self.spec_info_frame)
         spec_info_layout.setContentsMargins(4, 2, 4, 2)
         self.spec_info_title = QLabel()
-        self.spec_info_title.setStyleSheet("font-weight: bold; font-size: 12px; color: #0F172A;")
+        self.spec_info_title.setStyleSheet(f"font-weight: bold; font-size: 12px; color: {C.TEXT_PRIMARY};")
         self.spec_info_desc = QLabel()
-        self.spec_info_desc.setStyleSheet("font-size: 11px; color: #475569;")
+        self.spec_info_desc.setStyleSheet(f"font-size: 11px; color: {C.TEXT_SECONDARY};")
         self.spec_info_desc.setWordWrap(True)
         spec_info_layout.addWidget(self.spec_info_title)
         spec_info_layout.addWidget(self.spec_info_desc)
@@ -339,7 +340,7 @@ class NASVersionSelectDialog(QDialog):
             "Select one or more versions from the specification archive (use Ctrl+Click or Shift+Click).\n"
             "Files not currently cached locally will be downloaded automatically from the 3GPP FTP server."
         )
-        info_lbl.setStyleSheet("color: #64748B; font-size: 11px; padding-bottom: 2px;")
+        info_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px; padding-bottom: 2px;")
         layout.addWidget(info_lbl)
 
         self.table = QTableWidget()
@@ -349,15 +350,15 @@ class NASVersionSelectDialog(QDialog):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.ExtendedSelection)
         self.table.itemDoubleClicked.connect(self._on_item_double_clicked)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #CBD5E1;
+        self.table.setStyleSheet(f"""
+            QTableWidget {{
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
-                gridline-color: #F1F5F9;
-            }
-            QTableWidget::item {
+                gridline-color: {C.BG_CANVAS};
+            }}
+            QTableWidget::item {{
                 padding: 4px;
-            }
+            }}
         """)
         layout.addWidget(self.table)
 

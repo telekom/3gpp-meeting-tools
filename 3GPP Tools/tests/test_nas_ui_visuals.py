@@ -267,7 +267,15 @@ class TestNASUiVisuals(unittest.TestCase):
             self.assertEqual(matched[0]["message_name"], "AMFConfigurationUpdate")
 
             # Verify NASTab UI updates banner & inspector when message is clicked
+            from core.ui.page_ribbon import PageRibbonCard
+
             tab = NASTab(nas_db_path=db_path)
+            self.assertIsInstance(tab.ribbon_card, PageRibbonCard)
+            self.assertFalse(tab.fetch_btn.icon().isNull())
+            self.assertFalse(tab.import_file_btn.icon().isNull())
+            self.assertFalse(tab.manage_btn.icon().isNull())
+            self.assertFalse(tab.open_spec_btn.icon().isNull())
+            self.assertFalse(tab.copy_matrix_btn.icon().isNull())
             tab.selected_version_ids = [ver_id]
 
             item = QListWidgetItem("AMFConfigurationUpdate")
