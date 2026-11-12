@@ -18,7 +18,9 @@ from core.config.useful_links import populate_help_menu, get_useful_links_config
 from core.network.session import NetworkConfigDialog, NetworkSession, ProxyProfileManager
 from core.network.wifi_monitor import WifiMonitorThread
 from core.queue_manager import QueueManager
+from core.ui.icons import lucide_icon
 from core.ui.nav_rail import NavRail
+from core.ui.theme import C
 from core.ui.ui_components import ProxyDialog, create_app_icon
 from core.ui.ui_panels import (
     ConsolePanel, QueuePanel, ProcessManagerDialog, DatabaseMaintenanceDialog, GuiLogHandler
@@ -292,45 +294,34 @@ class DragDropUI(QMainWindow):
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self.nav_rail.set_active_index(self.tabs.currentIndex())
 
-        # Tab corner help dropdown menu
-        self.help_btn = QPushButton("📖 Help ▾")
-        self.help_btn.setObjectName("helpDropdownBtn")
-        self.help_btn.setStyleSheet("""
-            QPushButton#helpDropdownBtn {
-                border: 1px solid #CBD5E1;
-                background-color: #F8FAFC;
-                color: #1E293B;
-                font-weight: 600;
-                font-size: 12px;
-                padding: 0px 14px;
-                min-height: 26px;
-                max-height: 26px;
-                border-radius: 5px;
-                margin-right: 8px;
-                margin-top: 3px;
-                margin-bottom: 4px;
-            }
-            QPushButton#helpDropdownBtn:hover {
-                background-color: #EEF2F6;
-                border-color: #94A3B8;
-                color: #0F172A;
-            }
-            QPushButton#helpDropdownBtn::menu-indicator {
-                image: none;
-                width: 0px;
-            }
-        """)
-        self.help_btn.setCursor(Qt.PointingHandCursor)
-        self.help_btn.setToolTip("Useful 3GPP tools, external portals, and application documentation (F1 for Docs)")
+        # Navigation rail footer: Help & Resources + Settings menus
+        self.help_btn = QPushButton("Help && Docs")
+        self.help_btn.setObjectName("navRailFooterBtn")
+        self.help_btn.setIcon(
+            lucide_icon("help-circle", color=C.TEXT_SECONDARY, active_color=C.ACCENT_PRIMARY, size=16)
+        )
+        self.help_btn.setToolTip("Useful 3GPP tools, external portals, and documentation (F1)")
 
-        # Create dynamic Help & Resources dropdown menu
+        # Dynamic Help & Resources dropdown menu
         self.help_menu = QMenu(self)
         self.help_menu.setToolTipsVisible(True)
         self.help_menu.aboutToShow.connect(self._rebuild_help_menu)
         self.help_btn.setMenu(self.help_menu)
         self._rebuild_help_menu()
 
+        self.settings_btn = QPushButton("Settings")
+        self.settings_btn.setObjectName("navRailFooterBtn")
+        self.settings_btn.setIcon(
+            lucide_icon("settings", color=C.TEXT_SECONDARY, active_color=C.ACCENT_PRIMARY, size=16)
+        )
+        self.settings_btn.setToolTip("Configure AI, Proxy, Network, Java, Databases, and System Tools")
+        self.settings_menu = QMenu(self)
+        self.settings_menu.setToolTipsVisible(True)
+        self._populate_settings_menu()
+        self.settings_btn.setMenu(self.settings_menu)
+
         self.nav_rail.register_footer_button(self.help_btn, "Help && Docs")
+        self.nav_rail.register_footer_button(self.settings_btn, "Settings")
 
         self.help_shortcut = QShortcut(QKeySequence("F1"), self)
         self.help_shortcut.activated.connect(self.open_documentation)
@@ -566,6 +557,20 @@ class DragDropUI(QMainWindow):
             pass
 
     # --- UI INTERACTION LOGIC ---
+    def _populate_settings_menu(self):
+        """Populates the rail footer Settings & System Tools dropdown menu."""
+        self.settings_menu.clear()
+        self.settings_menu.addAction("🦙 Ollama AI Settings...", self.open_ollama_settings)
+        self.settings_menu.addAction("🛡️ Proxy Settings...", self.open_proxy_settings)
+        self.settings_menu.addAction("🌐 Network Profiles && Connectivity...", lambda: NetworkConfigDialog(self).exec_())
+        self.settings_menu.addAction("☕ Java && PlantUML Engine...", self.open_java_maintenance)
+        self.settings_menu.addSeparator()
+        self.settings_menu.addAction("🗄️ Database Maintenance...", self.open_db_maintenance)
+        self.settings_menu.addAction("🖥️ COM Task Manager...", self.open_task_manager)
+        self.settings_menu.addAction("🤖 MCP Server && AI Cockpit...", self.open_mcp_monitor)
+        self.settings_menu.addSeparator()
+        self.settings_menu.addAction("📝 Edit Useful Links Config...", self.edit_useful_links_config)
+
     def _rebuild_help_menu(self):
         populate_help_menu(
             self.help_menu,

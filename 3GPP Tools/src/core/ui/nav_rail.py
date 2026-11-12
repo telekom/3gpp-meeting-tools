@@ -286,6 +286,10 @@ class NavRail(QFrame):
             QPushButton#navRailItemBtn:checked:hover {{
                 background-color: {C.ACCENT_SOFT_HOVER};
             }}
+            QPushButton#navRailFooterBtn::menu-indicator {{
+                image: none;
+                width: 0px;
+            }}
             QPushButton#navRailItemBtn[collapsed="true"], QPushButton#navRailFooterBtn[collapsed="true"] {{
                 text-align: center;
                 padding: 7px 0px;

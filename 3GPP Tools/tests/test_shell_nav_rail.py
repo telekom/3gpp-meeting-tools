@@ -87,6 +87,29 @@ class TestIconsAndNavRail(unittest.TestCase):
         rail.apply_responsive_width(1200)
         self.assertTrue(rail.is_collapsed)
 
+    def test_footer_buttons_register_and_collapse(self):
+        from PyQt5.QtWidgets import QMenu, QPushButton
+
+        rail = NavRail()
+        help_btn = QPushButton("Help && Docs")
+        help_btn.setMenu(QMenu(rail))
+        settings_btn = QPushButton("Settings")
+        settings_btn.setMenu(QMenu(rail))
+
+        rail.register_footer_button(help_btn, "Help && Docs")
+        rail.register_footer_button(settings_btn, "Settings")
+        self.assertEqual(help_btn.text(), "Help && Docs")
+        self.assertEqual(settings_btn.text(), "Settings")
+
+        rail.set_collapsed(True, manual=True)
+        self.assertEqual(help_btn.text(), "")
+        self.assertEqual(settings_btn.text(), "")
+        self.assertEqual(help_btn.property("collapsed"), "true")
+
+        rail.set_collapsed(False, manual=True)
+        self.assertEqual(help_btn.text(), "Help && Docs")
+        self.assertEqual(settings_btn.text(), "Settings")
+
 
 if __name__ == "__main__":
     unittest.main()

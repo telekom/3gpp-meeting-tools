@@ -32,7 +32,6 @@ LEGACY_UI_HEX_ALLOWLIST: Dict[str, int] = {
     "src/core/ui/process_manager_dialog.py": 8,
     "src/core/ui/system_status_bar.py": 38,
     "src/core/ui/ui_panels.py": 10,
-    "src/main_window.py": 6,
     "src/modules/assistant/ui/assistant_components.py": 104,
     "src/modules/assistant/ui/assistant_tab.py": 15,
     "src/modules/emails/ui/config_dialog.py": 5,
