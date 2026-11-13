@@ -767,7 +767,7 @@ class NASTab(QWidget):
         right_splitter.setSizes([380, 320])
         main_splitter.addWidget(right_splitter)
         main_splitter.setSizes([320, 680])
-        layout.addWidget(main_splitter)
+        layout.addWidget(main_splitter, 1)
 
     # -------------------------------------------------------------------------
     # Quick Spec Tree Helpers
@@ -1608,13 +1608,13 @@ class NASTab(QWidget):
 
         if not spec_num:
             self.open_spec_btn.setEnabled(False)
-            self.open_spec_btn.setText("📖 Open Spec")
+            self.open_spec_btn.setText("Open Spec ▾")
             self.open_spec_btn.setToolTip("Select a message or specification to open its document")
             self.open_spec_btn.setMenu(None)
             return
 
         self.open_spec_btn.setEnabled(True)
-        self.open_spec_btn.setText(f"📖 Open TS {spec_num} ▾")
+        self.open_spec_btn.setText(f"Open TS {spec_num} ▾")
         tip = f"Open 3GPP TS {spec_num}"
         if clause:
             tip += f" at Clause {clause}"

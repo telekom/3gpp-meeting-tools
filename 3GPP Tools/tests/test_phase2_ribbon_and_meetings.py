@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QSizePolicy
 
 from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon
 from core.ui.toast import ToastManager, notify_info, notify_success
@@ -37,6 +37,10 @@ class TestPageRibbonAndToastHelpers(unittest.TestCase):
     def test_page_ribbon_tiers_and_lucide_icons(self) -> None:
         ribbon = PageRibbonCard("Test Workspace", "Subtitle hint")
         self.assertIsNotNone(ribbon.title_label)
+        self.assertEqual(ribbon.sizePolicy().verticalPolicy(), QSizePolicy.Maximum)
+        self.assertEqual(ribbon.tier1_widget.objectName(), "ribbonTier1")
+        self.assertEqual(ribbon.primary_container.objectName(), "ribbonPrimaryContainer")
+        self.assertEqual(ribbon.tier2_widget.objectName(), "ribbonTier2")
         self.assertTrue(ribbon.tier2_widget.isHidden())
 
         btn = QPushButton("Run")

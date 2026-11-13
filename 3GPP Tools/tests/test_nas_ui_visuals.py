@@ -271,6 +271,11 @@ class TestNASUiVisuals(unittest.TestCase):
 
             tab = NASTab(nas_db_path=db_path)
             self.assertIsInstance(tab.ribbon_card, PageRibbonCard)
+            tab.resize(1280, 800)
+            tab.show()
+            app.processEvents()
+            self.assertLessEqual(tab.ribbon_card.height(), 80)
+            self.assertLessEqual(tab.stats_specs_lbl.height(), 36)
             self.assertFalse(tab.fetch_btn.icon().isNull())
             self.assertFalse(tab.import_file_btn.icon().isNull())
             self.assertFalse(tab.manage_btn.icon().isNull())

@@ -610,7 +610,7 @@ class SpecSearchTab(QWidget):
                 color: {C.TEXT_PRIMARY};
             }}
         """)
-        matrix_layout.addWidget(self.spec_results_tabs)
+        matrix_layout.addWidget(self.spec_results_tabs, 1)
         self.right_splitter.addWidget(matrix_widget)
 
         self.inspector = SpecClauseInspector()
@@ -630,7 +630,7 @@ class SpecSearchTab(QWidget):
         self.right_splitter.setSizes([380, 260])
         self.main_splitter.addWidget(self.right_splitter)
         self.main_splitter.setSizes([300, 750])
-        layout.addWidget(self.main_splitter)
+        layout.addWidget(self.main_splitter, 1)
 
     # -------------------------------------------------------------------------
     # Configuration Persistence
