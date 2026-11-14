@@ -24,7 +24,8 @@ from PyQt5.QtWidgets import (
 
 from core.ui.flow_layout import FlowLayout
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
-from core.utils.paths import get_project_root, to_extended_path
+from core.utils.folder_opener import open_folder as _open_folder
+from core.utils.paths import get_project_root, to_extended_path, strip_extended_path
 from modules.meetings.core.cohort_resolver import (
     MeetingCohort,
     MeetingCohortResolver,
@@ -90,6 +91,11 @@ STYLE_SECONDARY_BTN = f"""
     QPushButton:hover {{
         background-color: {C.BG_CANVAS};
         border-color: {C.TEXT_FAINT};
+    }}
+    QPushButton:disabled {{
+        color: {C.TEXT_FAINT};
+        background-color: {C.BG_SURFACE};
+        border-color: {C.BORDER_SUBTLE};
     }}
 """
 
@@ -789,7 +795,17 @@ class TopicDossierDialog(QDialog):
         folder_str = self.edit_dest_folder.text().strip()
         if not folder_str:
             self.lbl_inc_status.setText("⚠️ Please specify a destination folder.")
+            self.btn_open_folder.setEnabled(False)
+            self.btn_open_folder.setToolTip("Destination folder is empty.")
             return
+
+        folder_exists = os.path.isdir(to_extended_path(folder_str))
+        self.btn_open_folder.setEnabled(folder_exists)
+        self.btn_open_folder.setToolTip(
+            f"Open in File Explorer: {folder_str}"
+            if folder_exists
+            else "Destination folder does not exist yet. Run an export first."
+        )
 
         p = Path(folder_str)
         manifest_p = p / ".export_manifest.json"
@@ -927,14 +943,29 @@ class TopicDossierDialog(QDialog):
         self.prog_bar.setVisible(False)
         if success:
             self.lbl_status.setText("Export completed successfully!")
-            self.btn_open_folder.setEnabled(True)
             self.last_target_dir = target_dir
+            self._check_incremental_status()
+            if target_dir and os.path.isdir(to_extended_path(target_dir)):
+                self.btn_open_folder.setEnabled(True)
             QMessageBox.information(self, "Export Complete", msg)
         else:
             self.lbl_status.setText("Export failed.")
             QMessageBox.critical(self, "Export Error", msg)
 
     def _on_open_output(self):
-        target = getattr(self, "last_target_dir", self.edit_dest_folder.text().strip())
-        if target and os.path.isdir(target):
-            os.startfile(target)
+        dest_text = self.edit_dest_folder.text().strip()
+        last_dir = str(getattr(self, "last_target_dir", "") or "").strip()
+        target = dest_text if (dest_text and os.path.isdir(to_extended_path(dest_text))) else (last_dir or dest_text)
+        if not target:
+            QMessageBox.warning(self, "No Folder", "No destination folder is selected.")
+            return
+        clean_target = os.path.normpath(strip_extended_path(target))
+        if os.path.isdir(to_extended_path(clean_target)):
+            _open_folder(Path(clean_target))
+        else:
+            self.btn_open_folder.setEnabled(False)
+            QMessageBox.information(
+                self,
+                "Folder Not Found",
+                f"Output folder does not exist yet:\n{clean_target}\n\nPlease run 'Export / Update Topic Dossier' first.",
+            )

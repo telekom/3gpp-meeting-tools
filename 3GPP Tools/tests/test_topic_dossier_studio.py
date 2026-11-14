@@ -1309,6 +1309,33 @@ class TestTopicDossierRefactorAndDigests(unittest.TestCase):
         delta2 = (root / "deltas" / "delta_session_2.md").read_text(encoding="utf-8")
         self.assertIn("No new decisions recorded in this session", delta2)
 
+    def test_open_output_folder_button_state_and_action(self):
+        from unittest.mock import MagicMock, patch
+        from PyQt5.QtWidgets import QApplication
+        from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
+
+        app = QApplication.instance() or QApplication([])
+        dlg = TopicDossierDialog(meetings_db=MagicMock(), parent=None)
+
+        # Nonexistent folder -> disabled
+        missing_dir = self.temp_dir / "nonexistent_topic_dir"
+        dlg.edit_dest_folder.setText(str(missing_dir))
+        self.assertFalse(dlg.btn_open_folder.isEnabled())
+
+        # Existing folder (with or without prior export in current session) -> enabled & opens destination
+        existing_dir = self.temp_dir / "existing_topic_dir"
+        existing_dir.mkdir(parents=True, exist_ok=True)
+        dlg.last_target_dir = str(self.temp_dir / "other_stale_dir")  # stale previous topic path
+        dlg.edit_dest_folder.setText(str(existing_dir))
+        self.assertTrue(dlg.btn_open_folder.isEnabled())
+
+        with patch("modules.meetings.ui.dialogs.topic_dossier_dialog._open_folder") as mock_open:
+            dlg._on_open_output()
+            mock_open.assert_called_once()
+            self.assertEqual(mock_open.call_args[0][0].resolve(), existing_dir.resolve())
+
+        dlg.close()
+
 
 if __name__ == "__main__":
     unittest.main()
