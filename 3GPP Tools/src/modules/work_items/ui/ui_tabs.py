@@ -720,6 +720,39 @@ class WorkItemsTab(QWidget):
         self._update_active_tags()
         self.refresh_table(reset_pagination=True)
 
+    def ensure_loaded(self):
+        """Ensure Work Items table is populated."""
+        if self.table_model.rowCount() == 0:
+            self.refresh_table(reset_pagination=True)
+
+    def focus_work_item(self, query: str):
+        """Search and select a Work Item, broadening status/tracking filters if hidden."""
+        clean = (query or "").strip()
+        if not clean:
+            return
+
+        self.search_timer.stop()
+        self.search_input.blockSignals(True)
+        self.search_input.setText(clean)
+        self.search_input.blockSignals(False)
+        self.refresh_table(reset_pagination=True)
+
+        if self.table_model.rowCount() == 0:
+            self._clear_all_filters()
+            all_idx = self.status_combo.findData("all")
+            if all_idx >= 0:
+                self.status_combo.blockSignals(True)
+                self.status_combo.setCurrentIndex(all_idx)
+                self.status_combo.blockSignals(False)
+            self.search_input.blockSignals(True)
+            self.search_input.setText(clean)
+            self.search_input.blockSignals(False)
+            self.refresh_table(reset_pagination=True)
+
+        if self.table_model.rowCount() > 0:
+            self.table.selectRow(0)
+            self.table.scrollTo(self.table_model.index(0, 0))
+
     def _on_scroll(self, value):
         max_val = self.table.verticalScrollBar().maximum()
         if value >= max_val - 5 and not self._is_loading_chunk:

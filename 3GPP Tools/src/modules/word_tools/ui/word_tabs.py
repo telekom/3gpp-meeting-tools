@@ -380,6 +380,26 @@ class WordExtractorTab(QWidget):
     def _on_op_combo_changed(self, index: int):
         self.set_active_operation(index)
 
+    def open_workbench(self, key_or_index):
+        """Switch Word Tools to the named workbench card or stack index."""
+        key_map = {
+            "doc_to_docx": 0,
+            "visio": 1,
+            "headings": 2,
+            "excerpt": 3,
+            "slice": 3,
+            "compare": 4,
+            "converter": 5,
+            "markdown": 6,
+            "cr_pcr": 7,
+            "sanitizer": 8,
+        }
+        if isinstance(key_or_index, int):
+            idx = key_or_index
+        else:
+            idx = key_map.get(str(key_or_index).strip().lower(), 4)
+        self.set_active_operation(idx)
+
     def _update_nav_pills(self, active_index: int):
         for btn, idx in self._nav_buttons:
             is_active = (idx == active_index)

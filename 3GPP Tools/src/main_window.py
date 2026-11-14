@@ -20,6 +20,11 @@ from core.network.session import NetworkConfigDialog, NetworkSession, ProxyProfi
 from core.network.wifi_monitor import WifiMonitorThread
 from core.queue_manager import QueueManager
 from core.ui.bottom_drawer import BottomDrawer
+from core.ui.command_palette import (
+    CommandPaletteDialog,
+    DynamicPaletteSearcher,
+    build_static_command_items,
+)
 from core.ui.icons import lucide_icon
 from core.ui.nav_rail import NavRail
 from core.ui.right_side_panel import MODE_ASSISTANT, MODE_SPEC_SEARCH, RightSidePanel
@@ -320,6 +325,8 @@ class DragDropUI(QMainWindow):
 
         # Sync hidden QTabWidget <-> NavRail and trigger lazy loading
         self.nav_rail.tab_selected.connect(self.tabs.setCurrentIndex)
+        if hasattr(self.nav_rail, "command_palette_requested") and hasattr(self, "open_command_palette"):
+            self.nav_rail.command_palette_requested.connect(self.open_command_palette)
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self.nav_rail.set_active_index(self.tabs.currentIndex())
 
@@ -467,6 +474,11 @@ class DragDropUI(QMainWindow):
         self.rail_shortcut = QShortcut(QKeySequence("Ctrl+\\"), self)
         self.rail_shortcut.setContext(Qt.WindowShortcut)
         self.rail_shortcut.activated.connect(self.nav_rail.toggle_collapsed)
+
+        if hasattr(self, "open_command_palette"):
+            self.command_palette_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
+            self.command_palette_shortcut.setContext(Qt.WindowShortcut)
+            self.command_palette_shortcut.activated.connect(self.open_command_palette)
 
         if hasattr(self, "toggle_right_panel"):
             self.assistant_dock_shortcut = QShortcut(QKeySequence("Ctrl+Shift+A"), self)
@@ -679,9 +691,44 @@ class DragDropUI(QMainWindow):
         self.tabs.setCurrentWidget(self.specs_tab)
         self.specs_tab.select_and_show_spec(spec_number, version)
 
+    def open_command_palette(self):
+        """Launch the modal Ctrl+K quick switcher & command palette."""
+        if not hasattr(self, "_palette_searcher") or self._palette_searcher is None:
+            root_db = get_project_root() / "db"
+            self._palette_searcher = DynamicPaletteSearcher(
+                db_path=root_db / "3gpp_data.db",
+                protocol_db_path=root_db / "3gpp_protocol_data.db",
+                on_open_spec=lambda s: self._navigate_from_search_to_specs(s, ""),
+                on_open_meeting=self._open_meeting_from_palette,
+                on_open_work_item=self._open_work_item_from_palette,
+                on_open_protocol=self._navigate_from_assistant_to_protocols,
+            )
+        dlg = CommandPaletteDialog(
+            build_static_command_items(self),
+            dynamic_searcher=self._palette_searcher.search,
+            parent=self,
+        )
+        dlg.exec_()
+
+    def _open_meeting_from_palette(self, query_or_tdoc: str):
+        """Switch to Meetings tab and filter-safely focus the requested meeting/TDoc."""
+        if hasattr(self, "meetings_tab"):
+            self.tabs.setCurrentWidget(self.meetings_tab)
+            if hasattr(self.meetings_tab, "focus_meeting"):
+                self.meetings_tab.focus_meeting(query_or_tdoc)
+
+    def _open_work_item_from_palette(self, query: str):
+        """Switch to Work Items tab and filter-safely focus the requested WI."""
+        if hasattr(self, "work_items_tab"):
+            self.tabs.setCurrentWidget(self.work_items_tab)
+            if hasattr(self.work_items_tab, "focus_work_item"):
+                self.work_items_tab.focus_work_item(query)
+
     def _navigate_from_assistant_to_protocols(self, protocol: str, message: str):
         """Switches to Protocols tab and selects the requested message."""
         self.tabs.setCurrentWidget(self.nas_tab)
+        if hasattr(self.nas_tab, "ensure_loaded"):
+            self.nas_tab.ensure_loaded()
         if message and hasattr(self.nas_tab, "_jump_to_message"):
             self.nas_tab._jump_to_message(message)
 

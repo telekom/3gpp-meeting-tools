@@ -69,6 +69,7 @@ class NavRail(QFrame):
 
     tab_selected = pyqtSignal(int)
     collapsed_changed = pyqtSignal(bool)
+    command_palette_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -130,6 +131,20 @@ class NavRail(QFrame):
         top_sep.setObjectName("navRailSeparator")
         top_sep.setFrameShape(QFrame.HLine)
         root.addWidget(top_sep)
+
+        # Quick Global Command Palette trigger (excluded from ordered_focus_widgets)
+        self.cmdk_btn = QPushButton("Search...   Ctrl+K", self)
+        self.cmdk_btn.setObjectName("navRailCmdkBtn")
+        self.cmdk_btn.setProperty("fullLabel", "Search...   Ctrl+K")
+        self.cmdk_btn.setProperty("collapsed", "false")
+        self.cmdk_btn.setCursor(Qt.PointingHandCursor)
+        self.cmdk_btn.setIcon(
+            lucide_icon("search", color=C.TEXT_MUTED, active_color=C.ACCENT_PRIMARY, size=15)
+        )
+        self.cmdk_btn.setIconSize(QSize(15, 15))
+        self.cmdk_btn.setToolTip("Open Quick Switch & Search Command Palette (Ctrl+K)")
+        self.cmdk_btn.clicked.connect(self.command_palette_requested.emit)
+        root.addWidget(self.cmdk_btn)
 
         # --- Scrollable Grouped Destinations ---
         scroll = QScrollArea()
@@ -248,6 +263,27 @@ class NavRail(QFrame):
             QPushButton#navRailToggleBtn:hover {{
                 background-color: {C.BG_MUTED};
                 border-color: {C.BORDER_STRONG};
+            }}
+            QPushButton#navRailCmdkBtn {{
+                text-align: left;
+                background-color: {C.BG_CARD};
+                color: {C.TEXT_MUTED};
+                border: 1px solid {C.BORDER_SUBTLE};
+                border-radius: {R.MD}px;
+                padding: 5px 9px;
+                min-height: 20px;
+                font-family: {T.FONT_FAMILY_UI};
+                font-size: {T.SIZE_CAPTION}px;
+                font-weight: 500;
+            }}
+            QPushButton#navRailCmdkBtn:hover {{
+                background-color: {C.BG_HOVER};
+                color: {C.TEXT_PRIMARY};
+                border-color: {C.ACCENT_PRIMARY};
+            }}
+            QPushButton#navRailCmdkBtn[collapsed="true"] {{
+                text-align: center;
+                padding: 6px 0px;
             }}
             QFrame#navRailSeparator, QFrame#navRailGroupDivider {{
                 color: {C.BORDER_SUBTLE};
@@ -397,6 +433,13 @@ class NavRail(QFrame):
             lucide_icon(toggle_icon, color=C.TEXT_MUTED, active_color=C.TEXT_PRIMARY, size=16)
         )
         self.toggle_btn.setToolTip("Expand sidebar (Ctrl+\\)" if collapsed else "Collapse sidebar (Ctrl+\\)")
+
+        if hasattr(self, "cmdk_btn"):
+            full_cmdk = self.cmdk_btn.property("fullLabel") or "Search...   Ctrl+K"
+            self.cmdk_btn.setText("" if collapsed else full_cmdk)
+            self.cmdk_btn.setProperty("collapsed", "true" if collapsed else "false")
+            self.style().unpolish(self.cmdk_btn)
+            self.style().polish(self.cmdk_btn)
 
         for hdr in self._group_headers:
             hdr.setVisible(not collapsed)

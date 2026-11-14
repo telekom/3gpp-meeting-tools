@@ -727,6 +727,48 @@ class MeetingsTab(QWidget):
 
         self.refresh_table()
 
+    def ensure_loaded(self):
+        """Ensure initial meetings table state is loaded (safe idempotent hook)."""
+        if self.table_model.rowCount() == 0:
+            self.refresh_table()
+
+    def focus_meeting(self, query_or_tdoc: str):
+        """Focus a meeting or TDoc, broadening active WG/date filters if needed."""
+        import re
+
+        clean = (query_or_tdoc or "").strip()
+        if not clean:
+            return
+
+        if re.match(r"^[A-Z0-9]{2,4}-\d{6,8}$", clean, re.IGNORECASE):
+            self.global_tdoc_input.setText(clean)
+            if hasattr(self, "search_controller") and hasattr(
+                self.search_controller, "on_tdoc_input_changed"
+            ):
+                self.search_controller.on_tdoc_input_changed(clean)
+            owning = self.db.find_meeting_by_tdoc(clean)
+            if owning and owning.get("meeting_number"):
+                clean = str(owning["meeting_number"])
+
+        self.search_input.blockSignals(True)
+        self.search_input.setText(clean)
+        self.search_input.blockSignals(False)
+        self.refresh_table()
+
+        if self.table_model.rowCount() == 0:
+            self.enable_dates_cb.blockSignals(True)
+            self.enable_dates_cb.setChecked(False)
+            self.enable_dates_cb.blockSignals(False)
+            self._reset_filters()
+            self.search_input.blockSignals(True)
+            self.search_input.setText(clean)
+            self.search_input.blockSignals(False)
+            self.refresh_table()
+
+        if self.table_model.rowCount() > 0:
+            self.table.selectRow(0)
+            self.table.scrollTo(self.table_model.index(0, 0))
+
     def _on_table_double_clicked(self, index):
         if not index.isValid():
             return
