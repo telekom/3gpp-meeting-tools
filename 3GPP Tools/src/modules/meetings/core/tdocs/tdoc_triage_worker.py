@@ -228,11 +228,17 @@ class TDocTriageWorker(QThread):
                         f"[AI Triage] Direct OpenXML conversion failed for {tdoc_id} ({conv_err}). "
                         f"Falling back to Word COM extraction..."
                     )
+                    from core.utils.office_printer_guard import (
+                        configure_word_safe_printer,
+                        temporary_virtual_default_printer,
+                    )
                     pythoncom.CoInitialize()
-                    word_app = win32com.client.DispatchEx("Word.Application")
-                    word_app.Visible = False
-                    word_app.DisplayAlerts = 0
-                    raw_markdown = self._extract_from_word(word_app, doc_path, doc_type)
+                    with temporary_virtual_default_printer():
+                        word_app = win32com.client.DispatchEx("Word.Application")
+                        word_app.Visible = False
+                        word_app.DisplayAlerts = 0
+                        configure_word_safe_printer(word_app)
+                        raw_markdown = self._extract_from_word(word_app, doc_path, doc_type)
                     if raw_markdown and not raw_markdown.strip().startswith(f"# {tdoc_id}"):
                         raw_source = self.tdoc_data.get('Source', '')
                         source_header_lines = CompanySanitizer.format_source_markdown_header_lines(raw_source)

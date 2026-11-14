@@ -105,78 +105,84 @@ class WordComparatorThread(QThread):
                 os.chmod(temp_path_b, stat.S_IWRITE)
 
             logger.info("⏳ Step 3: Spawning Native Word Diff Engine...")
-            word = win32com.client.Dispatch("Word.Application")
-
-            try:
-                original_security = word.AutomationSecurity
-                word.AutomationSecurity = 3  # msoAutomationSecurityForceDisable
-            except Exception:
-                pass
-
-            # Disable alerts so InsertFile doesn't throw hidden "conversion" popups
-            word.DisplayAlerts = 0
-
-            logger.info("⏳ Step 4: Bypassing corporate locks via Skeleton Key...")
-
-            def process_sandbox_doc(filepath, label, original_filename, is_remote=False):
-                logger.info(f"   ➔ Extracting Doc {label} into unlocked container...")
-
-                save_dir = temp_dir / f"unlocked_{label}"
-                save_dir.mkdir(parents=True, exist_ok=True)
-                out_path = save_dir / original_filename
-
-                if is_remote:
-                    src_doc = word.Documents.Open(
-                        FileName=str(filepath),
-                        ConfirmConversions=False,
-                        ReadOnly=True,
-                        AddToRecentFiles=False,
-                    )
-                    if src_doc.Revisions.Count > 0:
-                        src_doc.Revisions.AcceptAll()
-                    from modules.word_tools.core.sensitivity_label import set_sensitivity_label
-                    set_sensitivity_label(src_doc)
-                    src_doc.SaveAs(FileName=str(out_path))
-                    return src_doc
-
-                # 1. Create a pristine, completely unlocked blank document
-                doc = word.Documents.Add()
-
-                # 2. Insert the locked file's contents natively.
-                doc.Content.InsertFile(FileName=str(filepath))
-
-                # 3. Accept all revisions safely
-                if doc.Revisions.Count > 0:
-                    doc.Revisions.AcceptAll()
-
-                # ---> NEW: Apply Sensitivity Label BEFORE saving to prevent IT popup blockers!
-                from modules.word_tools.core.sensitivity_label import set_sensitivity_label
-                set_sensitivity_label(doc)
-
-                # 4. Save the document using the exact original filename
-                doc.SaveAs(FileName=str(out_path))
-                return doc
-
-            # Process both documents safely, passing the original filenames down
-            doc_original = process_sandbox_doc(temp_path_a, "A", file_a_name, is_remote=is_url_a)
-            doc_revised = process_sandbox_doc(temp_path_b, "B", file_b_name, is_remote=is_url_b)
-
-            logger.info("⏳ Step 5: Executing CompareDocuments engine...")
-
-            # Restore alerts for the user
-            word.DisplayAlerts = -1
-
-            # Execute comparison using the exact kwargs you verified
-            cmp_doc = word.CompareDocuments(
-                OriginalDocument=doc_original,
-                RevisedDocument=doc_revised,
-                Destination=2,
-                IgnoreAllComparisonWarnings=True,
-                CompareFormatting=True,
-                CompareCaseChanges=True,
-                CompareWhitespace=True,
-                CompareFields=True
+            from core.utils.office_printer_guard import (
+                configure_word_safe_printer,
+                temporary_virtual_default_printer,
             )
+            with temporary_virtual_default_printer(log=logger):
+                word = win32com.client.Dispatch("Word.Application")
+                configure_word_safe_printer(word, log=logger)
+
+                try:
+                    original_security = word.AutomationSecurity
+                    word.AutomationSecurity = 3  # msoAutomationSecurityForceDisable
+                except Exception:
+                    pass
+
+                # Disable alerts so InsertFile doesn't throw hidden "conversion" popups
+                word.DisplayAlerts = 0
+
+                logger.info("⏳ Step 4: Bypassing corporate locks via Skeleton Key...")
+
+                def process_sandbox_doc(filepath, label, original_filename, is_remote=False):
+                    logger.info(f"   ➔ Extracting Doc {label} into unlocked container...")
+
+                    save_dir = temp_dir / f"unlocked_{label}"
+                    save_dir.mkdir(parents=True, exist_ok=True)
+                    out_path = save_dir / original_filename
+
+                    if is_remote:
+                        src_doc = word.Documents.Open(
+                            FileName=str(filepath),
+                            ConfirmConversions=False,
+                            ReadOnly=True,
+                            AddToRecentFiles=False,
+                        )
+                        if src_doc.Revisions.Count > 0:
+                            src_doc.Revisions.AcceptAll()
+                        from modules.word_tools.core.sensitivity_label import set_sensitivity_label
+                        set_sensitivity_label(src_doc)
+                        src_doc.SaveAs(FileName=str(out_path))
+                        return src_doc
+
+                    # 1. Create a pristine, completely unlocked blank document
+                    doc = word.Documents.Add()
+
+                    # 2. Insert the locked file's contents natively.
+                    doc.Content.InsertFile(FileName=str(filepath))
+
+                    # 3. Accept all revisions safely
+                    if doc.Revisions.Count > 0:
+                        doc.Revisions.AcceptAll()
+
+                    # ---> NEW: Apply Sensitivity Label BEFORE saving to prevent IT popup blockers!
+                    from modules.word_tools.core.sensitivity_label import set_sensitivity_label
+                    set_sensitivity_label(doc)
+
+                    # 4. Save the document using the exact original filename
+                    doc.SaveAs(FileName=str(out_path))
+                    return doc
+
+                # Process both documents safely, passing the original filenames down
+                doc_original = process_sandbox_doc(temp_path_a, "A", file_a_name, is_remote=is_url_a)
+                doc_revised = process_sandbox_doc(temp_path_b, "B", file_b_name, is_remote=is_url_b)
+
+                logger.info("⏳ Step 5: Executing CompareDocuments engine...")
+
+                # Restore alerts for the user
+                word.DisplayAlerts = -1
+
+                # Execute comparison using the exact kwargs you verified
+                cmp_doc = word.CompareDocuments(
+                    OriginalDocument=doc_original,
+                    RevisedDocument=doc_revised,
+                    Destination=2,
+                    IgnoreAllComparisonWarnings=True,
+                    CompareFormatting=True,
+                    CompareCaseChanges=True,
+                    CompareWhitespace=True,
+                    CompareFields=True
+                )
 
             if not self.keep_open:
                 logger.info("⏳ Step 6: Closing source documents...")

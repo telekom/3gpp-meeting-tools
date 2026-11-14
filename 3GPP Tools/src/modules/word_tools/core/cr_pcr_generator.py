@@ -778,57 +778,59 @@ class CrPcrGeneratorEngine:
         com_dead = False
 
         try:
+            from core.utils.office_printer_guard import temporary_virtual_default_printer
             pythoncom.CoInitialize()
             com_initialized = True
-            word = win32com.client.DispatchEx("Word.Application")
-            WordExcerptEngine._configure_word(word)
+            with temporary_virtual_default_printer(log=logger):
+                word = win32com.client.DispatchEx("Word.Application")
+                WordExcerptEngine._configure_word(word)
 
-            doc = word.Documents.Open(
-                os.path.normpath(str(base_doc_path)),
-                ReadOnly=False,
-                AddToRecentFiles=False,
-            )
+                doc = word.Documents.Open(
+                    os.path.normpath(str(base_doc_path)),
+                    ReadOnly=False,
+                    AddToRecentFiles=False,
+                )
 
-            # Unprotect and pre-label to prevent enterprise editing lockouts
-            try:
-                if doc.ProtectionType != -1:
-                    doc.Unprotect()
-            except Exception:
-                pass
+                # Unprotect and pre-label to prevent enterprise editing lockouts
+                try:
+                    if doc.ProtectionType != -1:
+                        doc.Unprotect()
+                except Exception:
+                    pass
 
-            try:
-                set_sensitivity_label(doc)
-            except Exception as label_exc:
-                logger.warning("Pre-labeling in COM encountered an issue: %s", label_exc)
+                try:
+                    set_sensitivity_label(doc)
+                except Exception as label_exc:
+                    logger.warning("Pre-labeling in COM encountered an issue: %s", label_exc)
 
-            # Insert each fragment at its corresponding anchor
-            for idx, frag_path in enumerate(fragment_paths):
-                anchor_text = f"{{{{CHANGE_BLOCK_ANCHOR_{idx}}}}}"
-                rng = doc.Content
-                find = rng.Find
-                find.ClearFormatting()
-                find.Text = anchor_text
-                found = find.Execute()
-                if found:
-                    rng.Text = ""  # Clear placeholder anchor text
-                    rng.InsertFile(FileName=os.path.normpath(str(frag_path)))
-                else:
-                    logger.warning("Could not locate anchor %s in base document.", anchor_text)
+                # Insert each fragment at its corresponding anchor
+                for idx, frag_path in enumerate(fragment_paths):
+                    anchor_text = f"{{{{CHANGE_BLOCK_ANCHOR_{idx}}}}}"
+                    rng = doc.Content
+                    find = rng.Find
+                    find.ClearFormatting()
+                    find.Text = anchor_text
+                    found = find.Execute()
+                    if found:
+                        rng.Text = ""  # Clear placeholder anchor text
+                        rng.InsertFile(FileName=os.path.normpath(str(frag_path)))
+                    else:
+                        logger.warning("Could not locate anchor %s in base document.", anchor_text)
 
-            # Update fields so DOCPROPERTY numbers render
-            try:
-                doc.Fields.Update()
-            except Exception:
-                pass
+                # Update fields so DOCPROPERTY numbers render
+                try:
+                    doc.Fields.Update()
+                except Exception:
+                    pass
 
-            # Promote all 3GPP styles in live Word model
-            promote_3gpp_styles_in_word(doc)
+                # Promote all 3GPP styles in live Word model
+                promote_3gpp_styles_in_word(doc)
 
-            doc.Save()
-            doc.Close(SaveChanges=False)
-            doc = None
-            word.Quit(SaveChanges=0)
-            word = None
+                doc.Save()
+                doc.Close(SaveChanges=False)
+                doc = None
+                word.Quit(SaveChanges=0)
+                word = None
 
         except Exception as exc:
             com_dead = WordExcerptEngine._is_rpc_disconnect(exc)

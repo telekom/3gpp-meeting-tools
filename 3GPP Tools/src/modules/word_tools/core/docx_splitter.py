@@ -184,24 +184,31 @@ class DocxSplitter:
             from modules.word_tools.core.sensitivity_label import set_sensitivity_label
             from modules.word_tools.core.styles_3gpp import ensure_3gpp_package_styles, promote_3gpp_styles_in_word
 
+            from core.utils.office_printer_guard import (
+                configure_word_safe_printer,
+                temporary_virtual_default_printer,
+            )
+
             pythoncom.CoInitialize()
             com_initialized = True
-            word = win32com.client.DispatchEx("Word.Application")
-            word.Visible = False
-            word.DisplayAlerts = 0
+            with temporary_virtual_default_printer(log=logger):
+                word = win32com.client.DispatchEx("Word.Application")
+                word.Visible = False
+                word.DisplayAlerts = 0
+                configure_word_safe_printer(word, log=logger)
 
-            doc = word.Documents.Open(
-                os.path.normpath(str(file_path)),
-                ReadOnly=False,
-                AddToRecentFiles=False,
-            )
-            set_sensitivity_label(doc)
-            promote_3gpp_styles_in_word(doc)
-            doc.Save()
-            doc.Close(SaveChanges=False)
-            doc = None
-            word.Quit(SaveChanges=0)
-            word = None
+                doc = word.Documents.Open(
+                    os.path.normpath(str(file_path)),
+                    ReadOnly=False,
+                    AddToRecentFiles=False,
+                )
+                set_sensitivity_label(doc)
+                promote_3gpp_styles_in_word(doc)
+                doc.Save()
+                doc.Close(SaveChanges=False)
+                doc = None
+                word.Quit(SaveChanges=0)
+                word = None
 
             try:
                 import gc

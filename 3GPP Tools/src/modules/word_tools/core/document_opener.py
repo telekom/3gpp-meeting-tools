@@ -558,30 +558,36 @@ def ensure_readable_word_document(
             # try headless Word COM read-only open
             if is_locked:
                 try:
-                    log(f"⏳ Attempting headless Word COM snapshot for locked file '{path.name}'...")
-                    word_headless = win32com.client.DispatchEx("Word.Application")
-                    word_headless.Visible = False
-                    word_headless.DisplayAlerts = 0
-                    doc = word_headless.Documents.Open(
-                        FileName=str(path),
-                        ConfirmConversions=False,
-                        ReadOnly=True,
-                        AddToRecentFiles=False,
+                    from core.utils.office_printer_guard import (
+                        configure_word_safe_printer,
+                        temporary_virtual_default_printer,
                     )
-                    temp_dir = Path(tempfile.gettempdir()) / "3gpp_word_snapshots"
-                    temp_dir.mkdir(parents=True, exist_ok=True)
-                    safe_base = "".join(c if c.isalnum() or c in "._- " else "_" for c in path.stem).strip() or "Doc"
-                    snap_name = f"Snapshot_{safe_base}_{os.getpid()}{path.suffix}"
-                    snap_path = temp_dir / snap_name
-                    try:
-                        doc.SaveCopyAs(str(snap_path))
-                    except Exception:
+                    log(f"⏳ Attempting headless Word COM snapshot for locked file '{path.name}'...")
+                    with temporary_virtual_default_printer(log=logger):
+                        word_headless = win32com.client.DispatchEx("Word.Application")
+                        word_headless.Visible = False
+                        word_headless.DisplayAlerts = 0
+                        configure_word_safe_printer(word_headless, log=logger)
+                        doc = word_headless.Documents.Open(
+                            FileName=str(path),
+                            ConfirmConversions=False,
+                            ReadOnly=True,
+                            AddToRecentFiles=False,
+                        )
+                        temp_dir = Path(tempfile.gettempdir()) / "3gpp_word_snapshots"
+                        temp_dir.mkdir(parents=True, exist_ok=True)
+                        safe_base = "".join(c if c.isalnum() or c in "._- " else "_" for c in path.stem).strip() or "Doc"
+                        snap_name = f"Snapshot_{safe_base}_{os.getpid()}{path.suffix}"
+                        snap_path = temp_dir / snap_name
                         try:
-                            doc.SaveAs2(FileName=str(snap_path), AddToRecentFiles=False)
+                            doc.SaveCopyAs(str(snap_path))
                         except Exception:
-                            pass
-                    doc.Close(SaveChanges=False)
-                    word_headless.Quit()
+                            try:
+                                doc.SaveAs2(FileName=str(snap_path), AddToRecentFiles=False)
+                            except Exception:
+                                pass
+                        doc.Close(SaveChanges=False)
+                        word_headless.Quit()
                     if snap_path.is_file() and snap_path.stat().st_size > 0:
                         log(f"✅ Created unlocked snapshot via Word COM: {snap_name}")
                         return snap_path, snap_path

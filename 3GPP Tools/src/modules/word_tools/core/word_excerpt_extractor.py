@@ -21,6 +21,10 @@ from docx.text.paragraph import Paragraph
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.paths import get_temp_root, to_extended_path
+from core.utils.office_printer_guard import (
+    configure_word_safe_printer,
+    temporary_virtual_default_printer,
+)
 from modules.word_tools.core.sensitivity_label import set_sensitivity_label
 from modules.word_tools.core.styles_3gpp import ensure_3gpp_package_styles
 from modules.word_tools.core.word_excerpt_naming import (
@@ -355,12 +359,14 @@ class WordExcerptEngine:
     def _configure_word(word):
         word.Visible = False
         word.DisplayAlerts = 0
+        configure_word_safe_printer(word, log=logger)
         try:
             word.AutomationSecurity = 3
             word.Options.ConfirmConversions = False
             word.Options.DoNotPromptForConvert = True
             word.Options.WarnBeforeSavingPrintingSendingMarkup = False
             word.Options.SaveInterval = 0
+            word.Options.PrintBackground = False
         except Exception:
             pass
 
@@ -388,25 +394,26 @@ class WordExcerptEngine:
         doc = None
         server_dead = False
         try:
-            word = win32com.client.DispatchEx("Word.Application")
-            WordExcerptEngine._configure_word(word)
-            logger.info("   -> Reopening finalized excerpt for sensitivity labeling...")
-            doc = word.Documents.Open(
-                os.path.normpath(str(output)),
-                ReadOnly=False,
-                AddToRecentFiles=False,
-            )
-            set_sensitivity_label(doc)
-            try:
-                from modules.word_tools.core.styles_3gpp import promote_3gpp_styles_in_word
-                promote_3gpp_styles_in_word(doc)
-            except Exception as e:
-                logger.debug("Failed promoting 3GPP styles during labeling: %s", e)
-            doc.Save()
-            doc.Close(SaveChanges=False)
-            doc = None
-            word.Quit(SaveChanges=0)
-            word = None
+            with temporary_virtual_default_printer(log=logger):
+                word = win32com.client.DispatchEx("Word.Application")
+                WordExcerptEngine._configure_word(word)
+                logger.info("   -> Reopening finalized excerpt for sensitivity labeling...")
+                doc = word.Documents.Open(
+                    os.path.normpath(str(output)),
+                    ReadOnly=False,
+                    AddToRecentFiles=False,
+                )
+                set_sensitivity_label(doc)
+                try:
+                    from modules.word_tools.core.styles_3gpp import promote_3gpp_styles_in_word
+                    promote_3gpp_styles_in_word(doc)
+                except Exception as e:
+                    logger.debug("Failed promoting 3GPP styles during labeling: %s", e)
+                doc.Save()
+                doc.Close(SaveChanges=False)
+                doc = None
+                word.Quit(SaveChanges=0)
+                word = None
             logger.info("   -> Sensitivity label applied successfully.")
         except Exception as exc:
             server_dead = WordExcerptEngine._is_rpc_disconnect(exc)
@@ -466,49 +473,50 @@ class WordExcerptEngine:
         try:
             pythoncom.CoInitialize()
             com_initialized = True
-            word = win32com.client.DispatchEx("Word.Application")
-            WordExcerptEngine._configure_word(word)
+            with temporary_virtual_default_printer(log=logger):
+                word = win32com.client.DispatchEx("Word.Application")
+                WordExcerptEngine._configure_word(word)
 
-            logger.info("   -> Opening first excerpt fragment as merge base: %s", fragments[0].name)
-            dest = word.Documents.Open(
-                os.path.normpath(str(working)),
-                ReadOnly=False,
-                AddToRecentFiles=False,
-            )
-
-            # -----------------------------------------------------------------
-            # FIX: Unprotect and Pre-apply Sensitivity Label on the Merge Base
-            # -----------------------------------------------------------------
-            # Corporate enterprise policies (Microsoft Purview) lock unlabeled
-            # documents for editing upon open. Pre-applying the label and unlocking
-            # protection here ensures rng.InsertFile() never throws error -2146823683.
-            try:
-                if dest.ProtectionType != -1:
-                    dest.Unprotect()
-            except Exception:
-                pass
-
-            try:
-                set_sensitivity_label(dest)
-            except Exception as label_exc:
-                logger.warning("   -> Pre-labeling merge base encountered an issue (will retry at finalization): %s",
-                               label_exc)
-
-            for index, fragment in enumerate(fragments[1:], start=2):
-                logger.info(
-                    "   -> Appending excerpt fragment %d/%d: %s",
-                    index, len(fragments), fragment.name,
+                logger.info("   -> Opening first excerpt fragment as merge base: %s", fragments[0].name)
+                dest = word.Documents.Open(
+                    os.path.normpath(str(working)),
+                    ReadOnly=False,
+                    AddToRecentFiles=False,
                 )
-                rng = dest.Range(dest.Content.End - 1, dest.Content.End - 1)
-                rng.InsertFile(FileName=os.path.normpath(str(fragment)))
 
-            # The merge base already has a filename, so ordinary Save() is enough.
-            # Avoid SaveAs2(), which proved unstable in managed Word environments.
-            dest.Save()
-            dest.Close(SaveChanges=False)
-            dest = None
-            word.Quit(SaveChanges=0)
-            word = None
+                # -----------------------------------------------------------------
+                # FIX: Unprotect and Pre-apply Sensitivity Label on the Merge Base
+                # -----------------------------------------------------------------
+                # Corporate enterprise policies (Microsoft Purview) lock unlabeled
+                # documents for editing upon open. Pre-applying the label and unlocking
+                # protection here ensures rng.InsertFile() never throws error -2146823683.
+                try:
+                    if dest.ProtectionType != -1:
+                        dest.Unprotect()
+                except Exception:
+                    pass
+
+                try:
+                    set_sensitivity_label(dest)
+                except Exception as label_exc:
+                    logger.warning("   -> Pre-labeling merge base encountered an issue (will retry at finalization): %s",
+                                   label_exc)
+
+                for index, fragment in enumerate(fragments[1:], start=2):
+                    logger.info(
+                        "   -> Appending excerpt fragment %d/%d: %s",
+                        index, len(fragments), fragment.name,
+                    )
+                    rng = dest.Range(dest.Content.End - 1, dest.Content.End - 1)
+                    rng.InsertFile(FileName=os.path.normpath(str(fragment)))
+
+                # The merge base already has a filename, so ordinary Save() is enough.
+                # Avoid SaveAs2(), which proved unstable in managed Word environments.
+                dest.Save()
+                dest.Close(SaveChanges=False)
+                dest = None
+                word.Quit(SaveChanges=0)
+                word = None
 
             if not working.exists() or working.stat().st_size == 0:
                 raise RuntimeError("Microsoft Word returned without producing the merged excerpt.")

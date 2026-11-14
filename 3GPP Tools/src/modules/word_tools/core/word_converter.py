@@ -17,6 +17,10 @@ import win32com.client
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.paths import to_extended_path
+from core.utils.office_printer_guard import (
+    configure_word_safe_printer,
+    temporary_virtual_default_printer,
+)
 from core.network.session import NetworkSession
 from core.utils.utils import get_proxies
 from modules.word_tools.core.sensitivity_label import set_sensitivity_label
@@ -241,49 +245,51 @@ def _export_pdf_with_word_once(source: Path, target: Path) -> None:
             except OSError:
                 pass
 
-        word = win32com.client.DispatchEx("Word.Application")
-        word.Visible = False
-        word.DisplayAlerts = 0
+        with temporary_virtual_default_printer(log=logger):
+            word = win32com.client.DispatchEx("Word.Application")
+            word.Visible = False
+            word.DisplayAlerts = 0
+            configure_word_safe_printer(word, log=logger)
 
-        try:
-            word.AutomationSecurity = 1
-            word.Options.ConfirmConversions = False
-            word.Options.DoNotPromptForConvert = True
-            word.Options.WarnBeforeSavingPrintingSendingMarkup = False
-            word.Options.SaveInterval = 0
-            word.Options.UpdateFieldsAtPrint = False
-            word.Options.UpdateLinksAtPrint = False
-            word.Options.PrintBackground = False
-        except Exception:
-            pass
+            try:
+                word.AutomationSecurity = 1
+                word.Options.ConfirmConversions = False
+                word.Options.DoNotPromptForConvert = True
+                word.Options.WarnBeforeSavingPrintingSendingMarkup = False
+                word.Options.SaveInterval = 0
+                word.Options.UpdateFieldsAtPrint = False
+                word.Options.UpdateLinksAtPrint = False
+                word.Options.PrintBackground = False
+            except Exception:
+                pass
 
-        doc = word.Documents.Open(
-            FileName=os.path.normpath(str(source)),
-            ConfirmConversions=False,
-            ReadOnly=True,
-            AddToRecentFiles=False,
-        )
-
-        try:
-            set_sensitivity_label(doc)
-        except Exception:
-            pass
-
-        with _suppress_faulthandler_for_word_com():
-            doc.ExportAsFixedFormat(
-                OutputFileName=os.path.normpath(str(target)),
-                ExportFormat=WD_FORMAT_PDF,
-                OpenAfterExport=False,
-                OptimizeFor=0,
-                IncludeDocProps=True,
-                CreateBookmarks=1,
+            doc = word.Documents.Open(
+                FileName=os.path.normpath(str(source)),
+                ConfirmConversions=False,
+                ReadOnly=True,
+                AddToRecentFiles=False,
             )
 
-        try:
-            while word.BackgroundPrintingStatus > 0:
-                time.sleep(0.05)
-        except Exception:
-            pass
+            try:
+                set_sensitivity_label(doc)
+            except Exception:
+                pass
+
+            with _suppress_faulthandler_for_word_com():
+                doc.ExportAsFixedFormat(
+                    OutputFileName=os.path.normpath(str(target)),
+                    ExportFormat=WD_FORMAT_PDF,
+                    OpenAfterExport=False,
+                    OptimizeFor=0,
+                    IncludeDocProps=True,
+                    CreateBookmarks=1,
+                )
+
+            try:
+                while word.BackgroundPrintingStatus > 0:
+                    time.sleep(0.05)
+            except Exception:
+                pass
 
         if not _is_valid_pdf(target):
             raise RuntimeError("Word returned without producing a valid PDF.")
@@ -341,78 +347,80 @@ def convert_doc_to_docx_word(
     try:
         pythoncom.CoInitialize()
 
-        word = win32com.client.DispatchEx("Word.Application")
-        word.Visible = False
-        word.DisplayAlerts = 0
+        with temporary_virtual_default_printer(log=log):
+            word = win32com.client.DispatchEx("Word.Application")
+            word.Visible = False
+            word.DisplayAlerts = 0
+            configure_word_safe_printer(word, log=log)
 
-        try:
-            word.AutomationSecurity = 1  # msoAutomationSecurityLow
-            word.Options.ConfirmConversions = False
-            word.Options.DoNotPromptForConvert = True
-            word.Options.WarnBeforeSavingPrintingSendingMarkup = False
-            word.Options.SaveInterval = 0
-            word.Options.PrintBackground = False
-        except Exception:
-            pass
-
-        try:
-            doc = word.Documents.Open(
-                FileName=source_str,
-                ConfirmConversions=False,
-                ReadOnly=False,
-                AddToRecentFiles=False,
-            )
-        except Exception:
             try:
-                if hasattr(word, "ProtectedViewWindows") and word.ProtectedViewWindows.Count > 0:
-                    pv = word.ProtectedViewWindows.Item(1)
-                    doc = pv.Edit()
-                else:
-                    doc = word.Documents.Open(
-                        FileName=source_str,
-                        ConfirmConversions=False,
-                        ReadOnly=True,
-                        AddToRecentFiles=False,
-                    )
+                word.AutomationSecurity = 1  # msoAutomationSecurityLow
+                word.Options.ConfirmConversions = False
+                word.Options.DoNotPromptForConvert = True
+                word.Options.WarnBeforeSavingPrintingSendingMarkup = False
+                word.Options.SaveInterval = 0
+                word.Options.PrintBackground = False
             except Exception:
-                raise RuntimeError("MS Word failed to open source document.")
+                pass
 
-        if doc is None:
-            raise RuntimeError(f"Word failed to acquire a valid document handle for {source.name}")
-
-        try:
-            doc.Convert()
-        except Exception:
-            pass
-
-        try:
-            set_sensitivity_label(doc)
-        except Exception:
-            pass
-
-        try:
-            doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_XML_DOCX)
-            if temp_target.exists() and temp_target.stat().st_size > 0:
-                saved = True
-        except Exception:
-            pass
-
-        if not saved:
             try:
-                doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_DOC_DEFAULT)
+                doc = word.Documents.Open(
+                    FileName=source_str,
+                    ConfirmConversions=False,
+                    ReadOnly=False,
+                    AddToRecentFiles=False,
+                )
+            except Exception:
+                try:
+                    if hasattr(word, "ProtectedViewWindows") and word.ProtectedViewWindows.Count > 0:
+                        pv = word.ProtectedViewWindows.Item(1)
+                        doc = pv.Edit()
+                    else:
+                        doc = word.Documents.Open(
+                            FileName=source_str,
+                            ConfirmConversions=False,
+                            ReadOnly=True,
+                            AddToRecentFiles=False,
+                        )
+                except Exception:
+                    raise RuntimeError("MS Word failed to open source document.")
+
+            if doc is None:
+                raise RuntimeError(f"Word failed to acquire a valid document handle for {source.name}")
+
+            try:
+                doc.Convert()
+            except Exception:
+                pass
+
+            try:
+                set_sensitivity_label(doc)
+            except Exception:
+                pass
+
+            try:
+                doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_XML_DOCX)
                 if temp_target.exists() and temp_target.stat().st_size > 0:
                     saved = True
             except Exception:
                 pass
 
-        if not saved or not temp_target.exists() or temp_target.stat().st_size == 0:
-            new_doc = word.Documents.Add()
-            new_doc.Content.FormattedText = doc.Content.FormattedText
-            new_doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_XML_DOCX)
-            new_doc.Close(SaveChanges=False)
-            new_doc = None
-            if temp_target.exists() and temp_target.stat().st_size > 0:
-                saved = True
+            if not saved:
+                try:
+                    doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_DOC_DEFAULT)
+                    if temp_target.exists() and temp_target.stat().st_size > 0:
+                        saved = True
+                except Exception:
+                    pass
+
+            if not saved or not temp_target.exists() or temp_target.stat().st_size == 0:
+                new_doc = word.Documents.Add()
+                new_doc.Content.FormattedText = doc.Content.FormattedText
+                new_doc.SaveAs2(FileName=temp_target_str, FileFormat=WD_FORMAT_XML_DOCX)
+                new_doc.Close(SaveChanges=False)
+                new_doc = None
+                if temp_target.exists() and temp_target.stat().st_size > 0:
+                    saved = True
 
         if not temp_target.exists() or temp_target.stat().st_size == 0:
             raise RuntimeError(f"MS Word failed to write target .docx for {source.name}")
@@ -720,77 +728,79 @@ class WordConverterThread(QThread):
                 raise ValueError(f"Unsupported conversion format: {self.target_format}")
 
             self._log(f"⏳ Spawning Word Converter Engine for {out_name}...", logging.INFO)
-            word = win32com.client.DispatchEx("Word.Application")
-            word.Visible = False
-            word.DisplayAlerts = 0
+            with temporary_virtual_default_printer(log=logger):
+                word = win32com.client.DispatchEx("Word.Application")
+                word.Visible = False
+                word.DisplayAlerts = 0
+                configure_word_safe_printer(word, log=logger)
 
-            try:
-                word.AutomationSecurity = 1  # msoAutomationSecurityLow
-                word.Options.ConfirmConversions = False
-                word.Options.DoNotPromptForConvert = True
-                word.Options.WarnBeforeSavingPrintingSendingMarkup = False
-                word.Options.SaveInterval = 0
-                word.Options.PrintBackground = False
-            except Exception:
-                pass
-
-            open_target = raw_source if raw_source else str(source)
-            try:
-                doc = word.Documents.Open(
-                    FileName=open_target,
-                    ConfirmConversions=False,
-                    ReadOnly=True,
-                    AddToRecentFiles=False,
-                )
-            except Exception as open_err:
                 try:
-                    if hasattr(word, "ProtectedViewWindows") and word.ProtectedViewWindows.Count > 0:
-                        pv = word.ProtectedViewWindows.Item(1)
-                        doc = pv.Edit()
+                    word.AutomationSecurity = 1  # msoAutomationSecurityLow
+                    word.Options.ConfirmConversions = False
+                    word.Options.DoNotPromptForConvert = True
+                    word.Options.WarnBeforeSavingPrintingSendingMarkup = False
+                    word.Options.SaveInterval = 0
+                    word.Options.PrintBackground = False
                 except Exception:
                     pass
-                if doc is None:
-                    raise open_err
 
-            try:
-                set_sensitivity_label(doc)
-            except Exception:
-                pass
-
-            self._log(f"⏳ Converting and saving {out_name} to {self.target_format}...", logging.INFO)
-
-            if self.target_format in ("pdf", "xps"):
-                export_format = WD_FORMAT_PDF if self.target_format == "pdf" else WD_FORMAT_XPS
-                word.Options.UpdateFieldsAtPrint = False
-                word.Options.UpdateLinksAtPrint = False
-                word.Options.PrintBackground = False
+                open_target = raw_source if raw_source else str(source)
+                try:
+                    doc = word.Documents.Open(
+                        FileName=open_target,
+                        ConfirmConversions=False,
+                        ReadOnly=True,
+                        AddToRecentFiles=False,
+                    )
+                except Exception as open_err:
+                    try:
+                        if hasattr(word, "ProtectedViewWindows") and word.ProtectedViewWindows.Count > 0:
+                            pv = word.ProtectedViewWindows.Item(1)
+                            doc = pv.Edit()
+                    except Exception:
+                        pass
+                    if doc is None:
+                        raise open_err
 
                 try:
-                    with _suppress_faulthandler_for_word_com():
-                        doc.ExportAsFixedFormat(
-                            OutputFileName=out_path,
-                            ExportFormat=export_format,
-                            OpenAfterExport=False,
-                            OptimizeFor=0,
-                            IncludeDocProps=True,
-                            CreateBookmarks=1,
-                        )
-                except Exception as export_err:
-                    com_server_dead = _is_rpc_disconnect_error(export_err)
-                    if com_server_dead:
-                        raise RuntimeError(
-                            f"Microsoft Word export lost its COM/RPC connection ({export_err})."
-                        ) from export_err
-                    raise
-
-                # Ensure Word background printer thread has completely flushed
-                try:
-                    while word.BackgroundPrintingStatus > 0:
-                        time.sleep(0.05)
+                    set_sensitivity_label(doc)
                 except Exception:
                     pass
-            else:
-                doc.SaveAs2(out_path, FileFormat=self.FORMAT_MAP[self.target_format])
+
+                self._log(f"⏳ Converting and saving {out_name} to {self.target_format}...", logging.INFO)
+
+                if self.target_format in ("pdf", "xps"):
+                    export_format = WD_FORMAT_PDF if self.target_format == "pdf" else WD_FORMAT_XPS
+                    word.Options.UpdateFieldsAtPrint = False
+                    word.Options.UpdateLinksAtPrint = False
+                    word.Options.PrintBackground = False
+
+                    try:
+                        with _suppress_faulthandler_for_word_com():
+                            doc.ExportAsFixedFormat(
+                                OutputFileName=out_path,
+                                ExportFormat=export_format,
+                                OpenAfterExport=False,
+                                OptimizeFor=0,
+                                IncludeDocProps=True,
+                                CreateBookmarks=1,
+                            )
+                    except Exception as export_err:
+                        com_server_dead = _is_rpc_disconnect_error(export_err)
+                        if com_server_dead:
+                            raise RuntimeError(
+                                f"Microsoft Word export lost its COM/RPC connection ({export_err})."
+                            ) from export_err
+                        raise
+
+                    # Ensure Word background printer thread has completely flushed
+                    try:
+                        while word.BackgroundPrintingStatus > 0:
+                            time.sleep(0.05)
+                    except Exception:
+                        pass
+                else:
+                    doc.SaveAs2(out_path, FileFormat=self.FORMAT_MAP[self.target_format])
 
             if self.target_format == "pdf" and not _is_valid_pdf(Path(out_path)):
                 raise RuntimeError(

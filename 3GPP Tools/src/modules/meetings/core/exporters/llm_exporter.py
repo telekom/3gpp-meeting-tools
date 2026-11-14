@@ -233,12 +233,18 @@ class TDocMarkdownExporterThread(QThread):
                                 f"[Markdown Exporter] Direct OpenXML conversion failed for {tdoc_id} ({conv_err}). "
                                 f"Attempting Word COM fallback..."
                             )
-                            if not word_app:
-                                word_app = win32com.client.DispatchEx("Word.Application")
-                                word_app.Visible = False
-                                word_app.DisplayAlerts = 0
+                            from core.utils.office_printer_guard import (
+                                configure_word_safe_printer,
+                                temporary_virtual_default_printer,
+                            )
+                            with temporary_virtual_default_printer():
+                                if not word_app:
+                                    word_app = win32com.client.DispatchEx("Word.Application")
+                                    word_app.Visible = False
+                                    word_app.DisplayAlerts = 0
+                                    configure_word_safe_printer(word_app)
 
-                            md_text = self._extract_from_word(word_app, doc_path, doc_type)
+                                md_text = self._extract_from_word(word_app, doc_path, doc_type)
                             if md_text and not md_text.startswith("Error"):
                                 if not md_text.strip().startswith(f"# {tdoc_id}"):
                                     source_val = tdoc_data.get('Source', '')
