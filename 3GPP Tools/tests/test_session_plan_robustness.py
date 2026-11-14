@@ -637,6 +637,155 @@ class TestSessionPlanRobustness(unittest.TestCase):
             finally:
                 win.close()
 
+    def test_wildcard_x_expansion_against_agenda_map(self):
+        """
+        Verifies that .x wildcards (e.g. 30.x) expand into concrete agenda_map child AIs
+        (30.1, 30.2, 30.3) for tooltips, tracking, partial unassigned detection,
+        Not-Followed semantics, and HTML export (including appointment override safety).
+        """
+        from types import SimpleNamespace
+        from modules.meetings.core.session_plan.session_plan_models import (
+            DelegationMember,
+            DelegationPlan,
+            SessionAppointment,
+            SessionPlanSnapshot,
+            SessionSlot,
+            TopicOwnership,
+            build_slot_ai_bullets_html,
+            expand_ai_number,
+            get_slot_unassigned_ais,
+            is_slot_not_followed,
+            resolve_slot_effective_delegates,
+        )
+        from modules.meetings.core.session_plan.session_plan_parser import SessionPlanParser
+        from modules.meetings.core.session_plan.session_plan_exporter import SessionPlanExporter
+        from modules.meetings.ui.session_plan.session_plan_window import SessionPlanWindow
+
+        agenda_map = {
+            "30": SimpleNamespace(ai_number="30", description="Work plan, future meetings, etc."),
+            "30.1": SimpleNamespace(ai_number="30.1", description="Work plan and schedule"),
+            "30.2": SimpleNamespace(ai_number="30.2", description="Rel-21 5G-A revisions"),
+            "30.3": SimpleNamespace(ai_number="30.3", description="Future meetings"),
+        }
+
+        # 1. Wildcard expansion prefers strict children over section header "30"
+        self.assertEqual(expand_ai_number("30.x", agenda_map), ["30.1", "30.2", "30.3"])
+        self.assertEqual(expand_ai_number("30.x", {"30": agenda_map["30"]}), ["30"])
+        self.assertEqual(expand_ai_number("30.x", {}), ["30.x"])
+
+        _, items_30x = SessionPlanParser._extract_agenda_items("Work planning (30.x), etc (Rel-21 5G-A revisions)")
+        slot_30x = SessionSlot(
+            day_index=2, day_name="Wednesday", quarter="Q4", sub_slot=1, stream_number=1,
+            room_override="Main Room",
+            raw_text="Work planning (30.x), etc (Rel-21 5G-A revisions)",
+            items=items_30x,
+        )
+
+        # 2. Partial assignment: 30.1 -> Josep, 30.2 -> NOT_FOLLOWED, 30.3 -> Unassigned
+        plan_partial = DelegationPlan(
+            meeting_number="178",
+            members={
+                "Josep": DelegationMember(name="Josep", color="#2563EB"),
+                "Dieter": DelegationMember(name="Dieter", color="#059669"),
+            },
+            topic_owners={
+                "30.1": TopicOwnership(meeting_number="178", ai_number="30.1", owner_name="Josep"),
+                "30.2": TopicOwnership(meeting_number="178", ai_number="30.2", owner_name="NOT_FOLLOWED"),
+            },
+        )
+        dels, _, is_all = resolve_slot_effective_delegates(slot_30x, plan_partial, agenda_map=agenda_map)
+        self.assertEqual(dels, ["Josep"])
+        self.assertFalse(is_all)
+        self.assertEqual(get_slot_unassigned_ais(slot_30x, plan_partial, agenda_map=agenda_map), ["30.3"])
+        self.assertFalse(is_slot_not_followed(slot_30x, plan_partial, agenda_map=agenda_map))
+
+        # Only Not Followed when EVERY expanded sub-AI is Not Followed
+        plan_partial_nf = DelegationPlan(
+            meeting_number="178",
+            members={"Josep": DelegationMember(name="Josep", color="#2563EB")},
+            topic_owners={
+                "30.1": TopicOwnership(meeting_number="178", ai_number="30.1", owner_name="NOT_FOLLOWED"),
+            },
+        )
+        self.assertFalse(is_slot_not_followed(slot_30x, plan_partial_nf, agenda_map=agenda_map))
+
+        plan_all_nf = DelegationPlan(
+            meeting_number="178",
+            members={"Josep": DelegationMember(name="Josep", color="#2563EB")},
+            topic_owners={
+                "30.1": TopicOwnership(meeting_number="178", ai_number="30.1", owner_name="NOT_FOLLOWED"),
+                "30.2": TopicOwnership(meeting_number="178", ai_number="30.2", owner_name="NOT_FOLLOWED"),
+                "30.3": TopicOwnership(meeting_number="178", ai_number="30.3", owner_name="NOT_FOLLOWED"),
+            },
+        )
+        self.assertTrue(is_slot_not_followed(slot_30x, plan_all_nf, agenda_map=agenda_map))
+
+        # 3. Tooltip bullets show expanded sub-AIs and their per-AI statuses
+        bullets_html = "<br>".join(build_slot_ai_bullets_html(slot_30x, agenda_map=agenda_map, plan=plan_partial))
+        self.assertIn("AI 30.x:", bullets_html)
+        self.assertIn("covers 3 agenda item(s)", bullets_html)
+        self.assertIn("30.1:", bullets_html)
+        self.assertIn("Work plan and schedule", bullets_html)
+        self.assertIn("Josep", bullets_html)
+        self.assertIn("30.2:", bullets_html)
+        self.assertIn("Not Followed", bullets_html)
+        self.assertIn("30.3:", bullets_html)
+        self.assertIn("Unassigned", bullets_html)
+
+        # 4. Desktop UI tracking + HTML export + appointment override safety
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            win = SessionPlanWindow(
+                meeting_dir=td_path,
+                mtg_info={"meeting_number": "178", "location": "Calgary"},
+                agenda_map=agenda_map,
+                tracked_tokens={"30.3"},
+            )
+            try:
+                win.db.save_delegation_member("178", DelegationMember(name="Josep", color="#2563EB"))
+                win.db.save_delegation_member("178", DelegationMember(name="Dieter", color="#059669"))
+                win.db.set_topic_owner("178", "30.1", "Josep")
+                win.db.set_topic_owner("178", "30.2", "NOT_FOLLOWED")
+                win.delegation_plan = win.db.get_delegation_plan("178")
+                win.active_snapshot = SessionPlanSnapshot(
+                    meeting_number="178", tdoc_id="S2-2611637", slots=[slot_30x]
+                )
+                win._render_current_views()
+
+                # Tracking concrete 30.3 must match the (30.x) slot
+                self.assertTrue(win._is_slot_tracked(slot_30x))
+                tooltip_html = win._build_rich_slot_tooltip(slot_30x, 2, "Q4", 1, 1)
+                self.assertIn("30.1:", tooltip_html)
+                self.assertIn("Work plan and schedule", tooltip_html)
+                self.assertIn("30.3:", tooltip_html)
+
+                out_html = td_path / "expanded_30x.html"
+                SessionPlanExporter.export_mobile_html(
+                    snapshot=win.active_snapshot,
+                    output_path=out_html,
+                    meeting_tz_offset_min=-420,
+                    delegation_plan=win.delegation_plan,
+                    agenda_map=agenda_map,
+                )
+                html_txt = out_html.read_text(encoding="utf-8")
+                self.assertIn("Work plan and schedule", html_txt)
+                self.assertIn("❓ AI 30.3", html_txt)
+                self.assertNotIn("❓ AI 30.1", html_txt)
+
+                # Appointment override on the slot must work cleanly in get_slot_unassigned_ais & HTML export
+                win.db.set_session_appointment("178", slot_30x.slot_key, "Dieter", "Josep", "Cover 30.x")
+                win.delegation_plan = win.db.get_delegation_plan("178")
+                self.assertEqual(get_slot_unassigned_ais(slot_30x, win.delegation_plan, agenda_map=agenda_map), [])
+                SessionPlanExporter.export_mobile_html(
+                    snapshot=win.active_snapshot,
+                    output_path=out_html,
+                    meeting_tz_offset_min=-420,
+                    delegation_plan=win.delegation_plan,
+                    agenda_map=agenda_map,
+                )
+            finally:
+                win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

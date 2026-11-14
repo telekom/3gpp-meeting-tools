@@ -51,8 +51,11 @@ from modules.meetings.core.session_plan.session_plan_models import (
     SessionSlot,
     UserSessionAnnotation,
     ai_numbers_match,
+    build_slot_ai_bullets_html,
     compute_unique_initials,
+    expand_ai_number,
     format_slot_display_text,
+    get_slot_unassigned_ais,
     is_slot_not_followed,
     resolve_slot_effective_delegates,
 )
@@ -1068,6 +1071,10 @@ class SessionPlanWindow(QWidget):
         for it in s.items:
             if it.ai_number.lower() in self.tracked_tokens or any(tk in it.topic_label.lower() for tk in self.tracked_tokens if tk):
                 return True
+            if it.ai_number:
+                for sub_ai in expand_ai_number(it.ai_number, self.agenda_map):
+                    if sub_ai.lower() in self.tracked_tokens:
+                        return True
         return False
 
     def _get_period_effective_times(self, period: str) -> Tuple[str, str, str, str, str, str]:
@@ -1184,13 +1191,9 @@ class SessionPlanWindow(QWidget):
             meta_parts.append(f"📡 <b>TOHRU:</b> {html.escape(tohru)}")
         room_line = " &nbsp;|&nbsp; ".join(meta_parts)
 
-        ai_bullets = []
-        for it in slot.items:
-            if it.ai_number:
-                ai_info = self.agenda_map.get(it.ai_number)
-                desc = ai_info.description if ai_info else it.topic_label
-                tdoc_str = f" [{it.tdoc_count_str}]" if it.tdoc_count_str else ""
-                ai_bullets.append(f"• <b>AI {it.ai_number}:</b> {html.escape(desc)}{tdoc_str}")
+        ai_bullets = build_slot_ai_bullets_html(
+            slot, agenda_map=self.agenda_map, plan=self.delegation_plan
+        )
 
         tt = f"""<div style='font-family:Segoe UI, sans-serif; font-size:12px; min-width:280px; padding:4px;'>
             <div style='font-weight:700; font-size:13px; color:{C.TEXT_PRIMARY}; margin-bottom:4px;'>
@@ -1239,7 +1242,7 @@ class SessionPlanWindow(QWidget):
                 bdr_t = m.border_tint if m else DelegationMember.compute_tint(col, 0.35)
                 badges_html.append(f"<span style='background:{bg_t}; border:1px solid {bdr_t}; color:{col}; padding:1px 6px; border-radius:3px; font-weight:700;'>● {html.escape(dn)}</span>")
             tt += f"<div style='margin-top:6px; padding:4px 8px; background:{C.BG_SURFACE}; border:1px solid {C.BORDER_SUBTLE}; border-radius:4px; font-size:11.5px;'>👤 <b>Delegation:</b> {' '.join(badges_html)}{role_lbl}</div>"
-        elif not del_names and is_slot_not_followed(slot, self.delegation_plan):
+        elif not del_names and is_slot_not_followed(slot, self.delegation_plan, agenda_map=self.agenda_map):
             tt += f"<div style='margin-top:6px; padding:4px 8px; background:{C.BG_CANVAS}; border:1px solid {C.BORDER_STRONG}; color:{C.TEXT_MUTED}; border-radius:4px; font-size:11.5px;'>⛔ <b>Delegation:</b> <i>Not Followed (Out of Scope)</i></div>"
 
         ann = self.annotations.get(slot.slot_key)
@@ -1326,15 +1329,11 @@ class SessionPlanWindow(QWidget):
                 ]
         is_collision = len(colliding_members) > 0
         is_tracked = self._is_slot_tracked(slot)
-        is_not_followed_slot = is_slot_not_followed(slot, self.delegation_plan)
+        is_not_followed_slot = is_slot_not_followed(slot, self.delegation_plan, agenda_map=self.agenda_map)
         room_ov = getattr(slot, "room_override", "") or ""
         clean_text, is_empty_drafting = format_slot_display_text(slot.raw_text, room_ov)
-        has_unassigned_ai = (
-            not is_all
-            and not assigned_members
-            and not is_not_followed_slot
-            and any(it.ai_number for it in slot.items)
-        )
+        unassigned_ais = get_slot_unassigned_ais(slot, self.delegation_plan, agenda_map=self.agenda_map)
+        has_unassigned_ai = bool(not is_all and not is_not_followed_slot and unassigned_ais)
 
         # Dimming check if a (multi-select) delegate focus is active on the Overview Grid
         is_dimmed = False
@@ -1470,9 +1469,10 @@ class SessionPlanWindow(QWidget):
                 f"border: 1px solid {C.BORDER_STRONG}; border-radius: 7px; padding: 0px 4px;"
             )
             pill_widgets.append(nf_pill)
-        elif has_unassigned_ai:
+        if has_unassigned_ai:
             un_pill = QLabel("❓")
-            un_pill.setToolTip("Unassigned Agenda Item — right-click to assign")
+            un_lbl = ", ".join(unassigned_ais)
+            un_pill.setToolTip(f"Unassigned Agenda Item(s): {un_lbl} — right-click to assign")
             un_pill.setStyleSheet(
                 "background: #FEF3C7; color: #B45309; font-weight: 700; font-size: 9px; "
                 "border: 1px dashed #F59E0B; border-radius: 7px; padding: 0px 4px;"
@@ -1959,7 +1959,7 @@ class SessionPlanWindow(QWidget):
         Delegates to the shared ``resolve_slot_effective_delegates`` so the grid,
         clash board, and exporters always agree.
         """
-        return resolve_slot_effective_delegates(slot, self.delegation_plan)
+        return resolve_slot_effective_delegates(slot, self.delegation_plan, agenda_map=self.agenda_map)
 
     def _get_slot_effective_delegate(self, slot: SessionSlot) -> Tuple[Optional[str], bool]:
         """Backward-compatible single-string delegate helper."""
@@ -3098,48 +3098,59 @@ class SessionPlanWindow(QWidget):
             menu.addSeparator()
             for s in slots_here:
                 for it in s.items:
-                    label = it.topic_label or f"AI {it.ai_number}"
-                    token = it.ai_number or it.topic_label
-                    if not token:
-                        continue
-                    is_tr = token.lower() in self.tracked_tokens
-                    act_tr = menu.addAction(f"{'⭐ Untrack' if is_tr else '⭐ Track'}: {label[:40]}")
-                    act_tr.triggered.connect(lambda _, tok=token, lbl=label: self._toggle_track_ai(tok, lbl))
+                    if it.ai_number:
+                        expanded_ais = expand_ai_number(it.ai_number, self.agenda_map)
+                        for target_ai in expanded_ais[:12]:
+                            ai_obj = self.agenda_map.get(target_ai) if self.agenda_map else None
+                            raw_lbl = getattr(ai_obj, "description", "") if ai_obj else (it.topic_label or f"AI {target_ai}")
+                            label = f"AI {target_ai}: {raw_lbl}" if (len(expanded_ais) > 1 or target_ai != it.ai_number) else (it.topic_label or f"AI {target_ai}")
+                            is_tr = target_ai.lower() in self.tracked_tokens
+                            act_tr = menu.addAction(f"{'⭐ Untrack' if is_tr else '⭐ Track'}: {label[:44]}")
+                            act_tr.triggered.connect(lambda _, tok=target_ai, lbl=raw_lbl: self._toggle_track_ai(tok, lbl))
+                    else:
+                        token = it.topic_label
+                        if not token:
+                            continue
+                        is_tr = token.lower() in self.tracked_tokens
+                        act_tr = menu.addAction(f"{'⭐ Untrack' if is_tr else '⭐ Track'}: {token[:40]}")
+                        act_tr.triggered.connect(lambda _, tok=token, lbl=token: self._toggle_track_ai(tok, lbl))
 
             if self.delegation_plan and self.delegation_plan.members:
                 menu.addSeparator()
 
-                # Direct Topic Owner Assignment Submenu for each AI covered
+                # Direct Topic Owner Assignment Submenu for each AI covered (expanding .x wildcards)
                 for s in slots_here:
                     for it in s.items:
                         if not it.ai_number:
                             continue
-                        current_to = self.delegation_plan.topic_owners.get(it.ai_number)
-                        curr_owner_str = current_to.owner_name if current_to else ""
-                        curr_disp = " (Not Followed)" if (current_to and current_to.is_not_followed()) else (f" ({curr_owner_str})" if curr_owner_str else " (Unassigned)")
-                        ai_menu = menu.addMenu(f"👤 Assign Topic Owner (AI {it.ai_number}){curr_disp}...")
+                        expanded_ais = expand_ai_number(it.ai_number, self.agenda_map)
+                        for target_ai in expanded_ais[:12]:
+                            current_to = self.delegation_plan.topic_owners.get(target_ai)
+                            curr_owner_str = current_to.owner_name if current_to else ""
+                            curr_disp = " (Not Followed)" if (current_to and current_to.is_not_followed()) else (f" ({curr_owner_str})" if curr_owner_str else " (Unassigned)")
+                            ai_menu = menu.addMenu(f"👤 Assign Topic Owner (AI {target_ai}){curr_disp}...")
 
-                        act_all = ai_menu.addAction("👥 All Team")
-                        act_all.triggered.connect(lambda _, ai=it.ai_number: self._set_topic_owner_direct(ai, "ALL"))
+                            act_all = ai_menu.addAction("👥 All Team")
+                            act_all.triggered.connect(lambda _, ai=target_ai: self._set_topic_owner_direct(ai, "ALL"))
 
-                        ai_menu.addSeparator()
-                        for m_name in self.delegation_plan.members.keys():
-                            is_curr = (curr_owner_str == m_name)
-                            prefix = "✓ " if is_curr else "● "
-                            act_m = ai_menu.addAction(f"{prefix}{m_name}")
-                            act_m.triggered.connect(lambda _, ai=it.ai_number, n=m_name: self._set_topic_owner_direct(ai, n))
+                            ai_menu.addSeparator()
+                            for m_name in self.delegation_plan.members.keys():
+                                is_curr = (curr_owner_str == m_name)
+                                prefix = "✓ " if is_curr else "● "
+                                act_m = ai_menu.addAction(f"{prefix}{m_name}")
+                                act_m.triggered.connect(lambda _, ai=target_ai, n=m_name: self._set_topic_owner_direct(ai, n))
 
-                        ai_menu.addSeparator()
-                        act_multi = ai_menu.addAction("⚡ Custom Multi-Delegate...")
-                        act_multi.triggered.connect(lambda _, ai=it.ai_number, cur=curr_owner_str: self._open_multi_delegate_dialog(ai, cur))
+                            ai_menu.addSeparator()
+                            act_multi = ai_menu.addAction("⚡ Custom Multi-Delegate...")
+                            act_multi.triggered.connect(lambda _, ai=target_ai, cur=curr_owner_str: self._open_multi_delegate_dialog(ai, cur))
 
-                        ai_menu.addSeparator()
-                        act_not_followed = ai_menu.addAction("⛔ Mark as Not Followed")
-                        act_not_followed.triggered.connect(lambda _, ai=it.ai_number: self._set_topic_owner_direct(ai, "NOT_FOLLOWED"))
+                            ai_menu.addSeparator()
+                            act_not_followed = ai_menu.addAction("⛔ Mark as Not Followed")
+                            act_not_followed.triggered.connect(lambda _, ai=target_ai: self._set_topic_owner_direct(ai, "NOT_FOLLOWED"))
 
-                        if curr_owner_str:
-                            act_clear = ai_menu.addAction("✕ Clear (Unassign)")
-                            act_clear.triggered.connect(lambda _, ai=it.ai_number: self._set_topic_owner_direct(ai, ""))
+                            if curr_owner_str:
+                                act_clear = ai_menu.addAction("✕ Clear (Unassign)")
+                                act_clear.triggered.connect(lambda _, ai=target_ai: self._set_topic_owner_direct(ai, ""))
 
                 menu.addSeparator()
                 for s in slots_here:
@@ -3367,6 +3378,7 @@ class SessionPlanWindow(QWidget):
             tracked_tokens=self.tracked_tokens,
             annotations=self.annotations,
             delegation_plan=self.delegation_plan,
+            agenda_map=self.agenda_map,
         )
         QMessageBox.information(
             self,
@@ -3421,6 +3433,7 @@ class SessionPlanWindow(QWidget):
             annotations=self.annotations,
             delegation_plan=self.delegation_plan,
             target_delegate=target,
+            agenda_map=self.agenda_map,
         )
         QMessageBox.information(
             self,

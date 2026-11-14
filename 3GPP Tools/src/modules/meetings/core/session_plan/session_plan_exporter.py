@@ -22,8 +22,13 @@ from modules.meetings.core.session_plan.session_plan_models import (
     UserSessionAnnotation,
     _matching_topic_ownerships,
     ai_numbers_match,
+    ai_sort_key,
+    build_slot_ai_bullets_html,
     compute_unique_initials,
+    expand_ai_number,
+    expand_slot_ai_numbers,
     format_slot_display_text,
+    get_slot_unassigned_ais,
     is_slot_not_followed,
     resolve_slot_effective_delegates,
 )
@@ -42,7 +47,7 @@ class SessionPlanExporter:
     """Generates mobile HTML, .ics calendar, and email summaries."""
 
     @staticmethod
-    def _is_slot_tracked(slot: SessionSlot, tracked_tokens: Set[str]) -> bool:
+    def _is_slot_tracked(slot: SessionSlot, tracked_tokens: Set[str], agenda_map: Optional[dict] = None) -> bool:
         """Determines whether a slot matches any user-tracked topic or agenda item."""
         if not tracked_tokens:
             return False
@@ -52,23 +57,31 @@ class SessionPlanExporter:
         for it in slot.items:
             if it.ai_number.lower() in tracked_tokens or any(tk in it.topic_label.lower() for tk in tracked_tokens if tk):
                 return True
+            if it.ai_number:
+                for sub_ai in expand_ai_number(it.ai_number, agenda_map):
+                    if sub_ai.lower() in tracked_tokens:
+                        return True
         return False
 
     @staticmethod
-    def get_slot_effective_delegates(slot: SessionSlot, plan: Optional[DelegationPlan]) -> Tuple[List[str], bool, bool]:
+    def get_slot_effective_delegates(
+        slot: SessionSlot, plan: Optional[DelegationPlan], agenda_map: Optional[dict] = None
+    ) -> Tuple[List[str], bool, bool]:
         """
         Resolves effective delegates list, is_coverage flag, and is_all flag: (delegates, is_cov, is_all).
         Delegates to the shared, boundary-aware resolver in session_plan_models so that the
         UI grid, clash detection, .ics and email exports always agree.
         """
-        return resolve_slot_effective_delegates(slot, plan)
+        return resolve_slot_effective_delegates(slot, plan, agenda_map=agenda_map)
 
     @classmethod
-    def get_slot_effective_delegate(cls, slot: SessionSlot, plan: Optional[DelegationPlan]) -> Tuple[Optional[str], bool]:
+    def get_slot_effective_delegate(
+        cls, slot: SessionSlot, plan: Optional[DelegationPlan], agenda_map: Optional[dict] = None
+    ) -> Tuple[Optional[str], bool]:
         """
         Backward-compatible single-string delegate helper.
         """
-        dels, is_cov, is_all = cls.get_slot_effective_delegates(slot, plan)
+        dels, is_cov, is_all = cls.get_slot_effective_delegates(slot, plan, agenda_map=agenda_map)
         if not dels:
             return None, False
         if is_all:
@@ -175,15 +188,11 @@ class SessionPlanExporter:
             if tohru:
                 meta_parts.append(f"📡 <b>TOHRU:</b> {html.escape(tohru)}")
 
-            ai_bullets = []
-            for it in slot.items:
-                if it.ai_number:
-                    ai_obj = agenda_map.get(it.ai_number)
-                    desc = getattr(ai_obj, "description", None) if ai_obj else it.topic_label
-                    tdoc_str = f" [{it.tdoc_count_str}]" if it.tdoc_count_str else ""
-                    ai_bullets.append(f"• <b>AI {it.ai_number}:</b> {html.escape(desc or it.topic_label)}{tdoc_str}")
+            ai_bullets = build_slot_ai_bullets_html(
+                slot, agenda_map=agenda_map, plan=delegation_plan
+            )
 
-            del_names, is_cov, is_all = cls.get_slot_effective_delegates(slot, delegation_plan)
+            del_names, is_cov, is_all = cls.get_slot_effective_delegates(slot, delegation_plan, agenda_map=agenda_map)
             del_html = ""
             if is_all:
                 cov_lbl = " (Ad-hoc coverage)" if is_cov else " (General / All Team Topic)"
@@ -251,26 +260,14 @@ class SessionPlanExporter:
         topic_owners_map = delegation_plan.topic_owners if delegation_plan else {}
 
         def _get_slot_unassigned_ais(slot_obj: SessionSlot, eff_dels_list: List[str], is_all_flag: bool) -> List[str]:
-            """Returns list of AI numbers in this slot that lack a default owner when the slot has no appointment override."""
-            if delegation_plan and slot_obj.slot_key in delegation_plan.appointments:
-                app = delegation_plan.appointments[slot_obj.slot_key]
-                if app.assigned_delegate.strip():
-                    return []
-            unassigned = []
-            for it in slot_obj.items:
-                if it.ai_number:
-                    matches = _matching_topic_ownerships(it.ai_number, topic_owners_map)
-                    if any(to.is_not_followed() or to.owner_name.strip() for to in matches):
-                        continue
-                    if it.ai_number not in unassigned:
-                        unassigned.append(it.ai_number)
-            return unassigned
+            """Returns list of concrete AI numbers in this slot lacking a default owner (expanding .x wildcards)."""
+            return get_slot_unassigned_ais(slot_obj, delegation_plan, agenda_map=agenda_map)
 
         def _is_slot_unassigned(slot_obj: SessionSlot, eff_dels_list: List[str], is_all_flag: bool) -> bool:
             """True if the slot has no assigned delegates at all, or contains an explicitly unassigned AI without slot override."""
             if not slot_obj.raw_text.strip() or slot_obj.raw_text.strip() == "-":
                 return False
-            if is_slot_not_followed(slot_obj, delegation_plan):
+            if is_slot_not_followed(slot_obj, delegation_plan, agenda_map=agenda_map):
                 return False
             if not eff_dels_list and not is_all_flag:
                 return True
@@ -284,7 +281,7 @@ class SessionPlanExporter:
         for s in snapshot.slots:
             if not s.raw_text.strip() or s.raw_text.strip() == "-":
                 continue
-            eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(s, delegation_plan)
+            eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(s, delegation_plan, agenda_map=agenda_map)
             unassigned_ais = _get_slot_unassigned_ais(s, eff_dels, is_all)
             is_unassigned_slot = _is_slot_unassigned(s, eff_dels, is_all)
 
@@ -293,7 +290,7 @@ class SessionPlanExporter:
             convener = s_info.convener if s_info else ""
             ann = annotations.get(s.slot_key)
             note_str = ann.comment if ann else ""
-            ai_nums = [it.ai_number for it in s.items if it.ai_number]
+            ai_nums = list(dict.fromkeys([it.ai_number for it in s.items if it.ai_number] + expand_slot_ai_numbers(s, agenda_map)))
 
             ev_dict = {
                 "day_idx": s.day_index,
@@ -312,7 +309,7 @@ class SessionPlanExporter:
                 "delegates": eff_dels,
                 "unassigned": is_unassigned_slot,
                 "unassigned_ais": unassigned_ais,
-                "not_followed": is_slot_not_followed(s, delegation_plan),
+                "not_followed": is_slot_not_followed(s, delegation_plan, agenda_map=agenda_map),
                 "ai_numbers": ai_nums,
                 "note": note_str,
                 "slot_key": s.slot_key,
@@ -359,12 +356,9 @@ class SessionPlanExporter:
                     elif it.tdoc_count_str and not existing.get("tdoc_count"):
                         existing["tdoc_count"] = it.tdoc_count_str
 
-        def _ai_sort_key(ai_str: str):
-            return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", ai_str)]
-
         unassigned_ais_catalog = []
-        for ai_num in sorted(all_known_ais.keys(), key=_ai_sort_key):
-            matches = _matching_topic_ownerships(ai_num, topic_owners_map)
+        for ai_num in sorted(all_known_ais.keys(), key=ai_sort_key):
+            matches = _matching_topic_ownerships(ai_num, topic_owners_map, agenda_map=agenda_map)
             if any(to.is_not_followed() or to.owner_name.strip() for to in matches):
                 continue
             if ai_num.lower().endswith(".x") and any(
@@ -408,9 +402,9 @@ class SessionPlanExporter:
         # Helper: Render Overview Grid Slot Cell
         # ------------------------------------------------------------------
         def render_overview_cell(slot: SessionSlot, colspan: int, d_idx: int, p: str, s_num: int, tu: int) -> str:
-            eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(slot, delegation_plan)
+            eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(slot, delegation_plan, agenda_map=agenda_map)
             is_unassigned = _is_slot_unassigned(slot, eff_dels, is_all)
-            is_not_followed = is_slot_not_followed(slot, delegation_plan)
+            is_not_followed = is_slot_not_followed(slot, delegation_plan, agenda_map=agenda_map)
             unassigned_ais = _get_slot_unassigned_ais(slot, eff_dels, is_all)
             dels_joined = ",".join(eff_dels)
 
@@ -419,6 +413,9 @@ class SessionPlanExporter:
                 if it.ai_number:
                     search_tokens.append(it.ai_number.lower())
                     search_tokens.append(f"ai {it.ai_number.lower()}")
+                    for sub_ai in expand_ai_number(it.ai_number, agenda_map):
+                        search_tokens.append(sub_ai.lower())
+                        search_tokens.append(f"ai {sub_ai.lower()}")
                 if it.topic_label:
                     search_tokens.append(it.topic_label.lower())
             ann = annotations.get(slot.slot_key)
@@ -615,9 +612,9 @@ class SessionPlanExporter:
 """)
 
                 for s in slots_in_q:
-                    eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(s, delegation_plan)
+                    eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(s, delegation_plan, agenda_map=agenda_map)
                     is_unassigned = _is_slot_unassigned(s, eff_dels, is_all)
-                    is_not_followed = is_slot_not_followed(s, delegation_plan)
+                    is_not_followed = is_slot_not_followed(s, delegation_plan, agenda_map=agenda_map)
                     unassigned_ais = _get_slot_unassigned_ais(s, eff_dels, is_all)
                     dels_joined = ",".join(eff_dels)
 
@@ -625,6 +622,8 @@ class SessionPlanExporter:
                     for it in s.items:
                         if it.ai_number:
                             search_tokens.append(it.ai_number.lower())
+                            for sub_ai in expand_ai_number(it.ai_number, agenda_map):
+                                search_tokens.append(sub_ai.lower())
                         if it.topic_label:
                             search_tokens.append(it.topic_label.lower())
                     ann = annotations.get(s.slot_key)
@@ -647,23 +646,28 @@ class SessionPlanExporter:
                     chips = []
                     for it in s.items:
                         cnt = f'<span class="count-chip">[{it.tdoc_count_str}]</span>' if it.tdoc_count_str else ""
-                        ai_lbl = f"AI {it.ai_number}" if it.ai_number else it.topic_label
-                        is_ai_unassigned = it.ai_number in unassigned_ais
-                        is_ai_not_followed = bool(
-                            it.ai_number
-                            and it.ai_number in topic_owners_map
-                            and topic_owners_map[it.ai_number].is_not_followed()
-                        )
-                        if is_ai_unassigned:
-                            chip_cls = "ai-chip unassigned-chip"
-                            prefix = "❓ "
-                        elif is_ai_not_followed:
-                            chip_cls = "ai-chip not-followed-chip"
-                            prefix = "⛔ "
-                        else:
-                            chip_cls = "ai-chip"
-                            prefix = ""
-                        chips.append(f'<span class="{chip_cls}">{prefix}{html.escape(ai_lbl)}{cnt}</span>')
+                        if not it.ai_number:
+                            chips.append(f'<span class="ai-chip">{html.escape(it.topic_label)}{cnt}</span>')
+                            continue
+                        expanded_ais = expand_ai_number(it.ai_number, agenda_map)
+                        for idx_ai, target_ai in enumerate(expanded_ais):
+                            ai_lbl = f"AI {target_ai}"
+                            is_ai_unassigned = target_ai in unassigned_ais
+                            sub_matches = _matching_topic_ownerships(target_ai, topic_owners_map, agenda_map=agenda_map)
+                            is_ai_not_followed = bool(
+                                sub_matches and all(m.is_not_followed() for m in sub_matches)
+                            )
+                            if is_ai_unassigned:
+                                chip_cls = "ai-chip unassigned-chip"
+                                prefix = "❓ "
+                            elif is_ai_not_followed:
+                                chip_cls = "ai-chip not-followed-chip"
+                                prefix = "⛔ "
+                            else:
+                                chip_cls = "ai-chip"
+                                prefix = ""
+                            chip_cnt = cnt if idx_ai == 0 else ""
+                            chips.append(f'<span class="{chip_cls}">{prefix}{html.escape(ai_lbl)}{chip_cnt}</span>')
 
                     del_badge = ""
                     if is_all:
@@ -2384,6 +2388,7 @@ class SessionPlanExporter:
         annotations: Optional[Dict[str, UserSessionAnnotation]] = None,
         delegation_plan: Optional[DelegationPlan] = None,
         target_delegate: Optional[str] = None,
+        agenda_map: Optional[dict] = None,
     ) -> Path:
         """
         Exports an RFC 5545 .ics Calendar file strictly anchored in UTC.
@@ -2422,13 +2427,13 @@ class SessionPlanExporter:
                 continue
 
             # Check if tracked
-            is_tracked = cls._is_slot_tracked(s, tracked_tokens)
+            is_tracked = cls._is_slot_tracked(s, tracked_tokens, agenda_map=agenda_map)
 
             if only_tracked and not is_tracked and not s.is_drafting:
                 continue
 
             # Check delegate assignment / target delegate filtering
-            eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(s, delegation_plan)
+            eff_dels, is_cov, is_all = cls.get_slot_effective_delegates(s, delegation_plan, agenda_map=agenda_map)
             if target_delegate:
                 td_lower = target_delegate.strip().lower()
                 if not (is_all or any(ed.strip().lower() == td_lower for ed in eff_dels)):
@@ -2695,7 +2700,7 @@ class SessionPlanExporter:
         # Compute effective assignments for each slot in snapshot: slot_key -> List of delegate names
         slot_delegate_map: Dict[str, List[str]] = {}
         for s in snapshot.slots:
-            dels, _, is_all = cls.get_slot_effective_delegates(s, plan)
+            dels, _, is_all = cls.get_slot_effective_delegates(s, plan, agenda_map=agenda_map)
             slot_delegate_map[s.slot_key] = dels
 
         # Calculate quarters workload per member

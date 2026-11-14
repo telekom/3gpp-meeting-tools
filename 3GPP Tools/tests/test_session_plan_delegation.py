@@ -1479,6 +1479,98 @@ highlightNow(false);
         finally:
             win.close()
 
+    def test_topic_allocation_change_recalculates_clashes_and_menu_actions(self):
+        """
+        Regression test: changing AI ownership via checkboxes or QMenu actions
+        (Clear / Mark as Not Followed) in Team Allocations must emit ownerChanged,
+        persist to DB, and immediately recalculate parallel stream clashes.
+        """
+        from PyQt5.QtCore import Qt, QTimer
+        from PyQt5.QtTest import QTest
+
+        # 1. Verify QMenu action signal order regression on DelegateOwnerPicker
+        picker = DelegateOwnerPicker(
+            [DelegationMember(name="Dieter", color="#2563EB"), DelegationMember(name="Josep", color="#7C3AED")],
+            "Dieter",
+        )
+        emitted = []
+        picker.ownerChanged.connect(emitted.append)
+
+        act_nf = [a for a in picker._menu.actions() if "Not Followed" in a.text()][0]
+        act_clr = [a for a in picker._menu.actions() if "Clear" in a.text()][0]
+
+        picker._menu.popup(picker.pos())
+        QTimer.singleShot(20, lambda: QTest.mouseClick(picker._menu, Qt.LeftButton, pos=picker._menu.actionGeometry(act_nf).center()))
+        QTimer.singleShot(60, lambda: picker._menu.popup(picker.pos()))
+        QTimer.singleShot(80, lambda: QTest.mouseClick(picker._menu, Qt.LeftButton, pos=picker._menu.actionGeometry(act_clr).center()))
+        QTimer.singleShot(130, _app.quit)
+        _app.exec_()
+
+        self.assertEqual(emitted, ["NOT_FOLLOWED", ""])
+        self.assertEqual(picker.owner_string(), "")
+
+        # 2. Verify SessionPlanWindow recalculates clashes on Team Allocation changes
+        win = SessionPlanWindow(
+            meeting_dir=self.temp_dir,
+            mtg_info=self.mtg_info,
+            agenda_map={},
+            tracked_tokens=set(),
+        )
+        try:
+            win.db.save_delegation_member("177", DelegationMember(name="Dieter", color="#2563EB"))
+            win.db.save_delegation_member("177", DelegationMember(name="Josep", color="#7C3AED", is_self=True))
+            win.db.set_topic_owner("177", "20.10.1", "Dieter")
+            win.db.set_topic_owner("177", "20.5.2", "Dieter")
+            win.delegation_plan = win.db.get_delegation_plan("177")
+
+            s1 = SessionSlot(
+                day_index=1, day_name="Tuesday", quarter="Q1", sub_slot=0, stream_number=1,
+                raw_text="FS_enIMS_ARC (20.10.1)",
+                items=[AgendaSlotItem(ai_number="20.10.1", display_expr="20.10.1", topic_label="FS_enIMS_ARC")],
+            )
+            s2 = SessionSlot(
+                day_index=1, day_name="Tuesday", quarter="Q1", sub_slot=0, stream_number=3,
+                raw_text="AmbientIoT (20.5.2)",
+                items=[AgendaSlotItem(ai_number="20.5.2", display_expr="20.5.2", topic_label="AmbientIoT")],
+            )
+            win.active_snapshot = SessionPlanSnapshot(
+                meeting_number="177", tdoc_id="S2-2610195", slots=[s1, s2]
+            )
+            win._render_current_views()
+
+            self.assertEqual(win.team_clashes_table.rowCount(), 1)
+            self.assertIn("Conflicts (1)", win.btn_conflicts_quick.text())
+
+            # Find picker for 20.5.2 and clear it via action -> clash must drop to 0
+            picker_2052 = None
+            row_2052 = None
+            for r in range(win.team_topics_table.rowCount()):
+                if win.team_topics_table.item(r, 0).text().strip() == "20.5.2":
+                    row_2052 = r
+                    picker_2052 = win.team_topics_table.cellWidget(r, 3)
+                    break
+            self.assertIsNotNone(picker_2052)
+
+            picker_2052._on_clear()
+            self.assertEqual(win.team_clashes_table.rowCount(), 0)
+            self.assertIn("Conflicts (0)", win.btn_conflicts_quick.text())
+            self.assertIn("Unassigned", win.team_topics_table.item(row_2052, 4).text())
+
+            # Re-assign 20.5.2 to Dieter via checkbox + commit -> clash returns to 1
+            picker_2052._checkboxes["Dieter"].setChecked(True)
+            picker_2052._commit()
+            self.assertEqual(win.team_clashes_table.rowCount(), 1)
+            self.assertIn("Conflicts (1)", win.btn_conflicts_quick.text())
+            self.assertIn("Collision", win.team_topics_table.item(row_2052, 4).text())
+
+            # Mark 20.5.2 as Not Followed -> clash must drop back to 0
+            picker_2052._on_not_followed()
+            self.assertEqual(win.team_clashes_table.rowCount(), 0)
+            self.assertIn("Conflicts (0)", win.btn_conflicts_quick.text())
+            self.assertIn("Not Followed", win.team_topics_table.item(row_2052, 4).text())
+        finally:
+            win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -170,25 +170,23 @@ class DelegateOwnerPicker(QToolButton):
         self._block_sync = False
         self._refresh_button(preview=True)
 
-    def _on_not_followed(self) -> None:
+    def _reset_selection(self, *, not_followed: bool) -> None:
         self._block_sync = True
         self.chk_all.setChecked(False)
         for chk in self._checkboxes.values():
             chk.setChecked(False)
         self._extra_owners = []
-        self._is_not_followed = True
+        self._is_not_followed = not_followed
         self._block_sync = False
-        self._refresh_button(preview=True)
+        # QMenu emits aboutToHide before QAction.triggered; commit explicitly here
+        # so menu actions update owner_string and emit ownerChanged immediately.
+        self._commit()
+
+    def _on_not_followed(self) -> None:
+        self._reset_selection(not_followed=True)
 
     def _on_clear(self) -> None:
-        self._block_sync = True
-        self.chk_all.setChecked(False)
-        for chk in self._checkboxes.values():
-            chk.setChecked(False)
-        self._extra_owners = []
-        self._is_not_followed = False
-        self._block_sync = False
-        self._refresh_button(preview=True)
+        self._reset_selection(not_followed=False)
 
     def _compute_owner_string(self) -> str:
         if self._is_not_followed:
