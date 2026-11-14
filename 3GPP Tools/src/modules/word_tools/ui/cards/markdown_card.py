@@ -128,20 +128,20 @@ class WordMarkdownCard(QWidget):
         self.pane_markdown = DocumentSelectorPane(
             "📄 DOCUMENT / PRESENTATION TO CONVERT (.docx / .doc / .pptx / .ppt)",
             accepted_extensions=[".docx", ".doc", ".docm", ".pptx", ".ppt", ".pdf", ".md", ".markdown"],
-            drop_prompt="📥 Drag & Drop Word document or PowerPoint deck (.docx, .doc, .pptx, .ppt) here\n(or click to browse)",
+            drop_prompt="Drag & drop Word document, PowerPoint deck, or PDF here",
         )
         self.pane_markdown.file_selected.connect(self._on_w2m_file_selected)
-        md_layout.addWidget(self.pane_markdown)
+        md_layout.addWidget(self.pane_markdown, 1)
 
         md_options_frame = QFrame()
         md_options_frame.setObjectName("cardFrame")
         md_options_frame.setStyleSheet(CARD_FRAME_STYLE)
         opts_layout = QVBoxLayout(md_options_frame)
-        opts_layout.setContentsMargins(12, 10, 12, 10)
+        opts_layout.setContentsMargins(14, 12, 14, 12)
         opts_layout.setSpacing(8)
 
         hdr_lbl = QLabel("<b>Conversion Options:</b>")
-        hdr_lbl.setStyleSheet("color: #334155; font-size: 11px;")
+        hdr_lbl.setStyleSheet("color: #334155; font-size: 12px;")
         opts_layout.addWidget(hdr_lbl)
 
         grid = QGridLayout()
@@ -151,7 +151,7 @@ class WordMarkdownCard(QWidget):
         tc_box = QHBoxLayout()
         tc_box.setSpacing(6)
         tc_lbl = QLabel("Track Changes:")
-        tc_lbl.setStyleSheet("font-size: 11px; color: #334155;")
+        tc_lbl.setStyleSheet("font-size: 12px; color: #334155;")
         self.md_revisions_combo = QComboBox()
         self.md_revisions_combo.addItem("Inline Markup [INSERTED / DELETED]", "markup")
         self.md_revisions_combo.addItem("Accept All Changes (Clean Final View)", "accept")
@@ -275,7 +275,7 @@ class WordMarkdownCard(QWidget):
         self.pane_m2w = DocumentSelectorPane(
             "📝 MARKDOWN DOCUMENT TO CONVERT (.md)",
             accepted_extensions=[".md", ".markdown", ".txt", ".docx", ".doc"],
-            drop_prompt="📥 Drag & Drop Markdown file (.md) here\n(or click to browse)",
+            drop_prompt="Drag & drop Markdown file (.md) here",
         )
         # Hide Word-COM-only controls on the Markdown input pane
         self.pane_m2w.quick_active_btn.setVisible(False)
@@ -285,17 +285,17 @@ class WordMarkdownCard(QWidget):
             self.pane_m2w.tabs.setTabEnabled(1, False)
         self.pane_m2w.url_input.setPlaceholderText("https://... (Markdown .md file URL)")
         self.pane_m2w.file_selected.connect(self._on_m2w_file_selected)
-        m2w_layout.addWidget(self.pane_m2w)
+        m2w_layout.addWidget(self.pane_m2w, 1)
 
         m2w_opts_frame = QFrame()
         m2w_opts_frame.setObjectName("cardFrame")
         m2w_opts_frame.setStyleSheet(CARD_FRAME_STYLE)
         opts_layout = QVBoxLayout(m2w_opts_frame)
-        opts_layout.setContentsMargins(12, 10, 12, 10)
+        opts_layout.setContentsMargins(14, 12, 14, 12)
         opts_layout.setSpacing(8)
 
         hdr_lbl = QLabel("<b>Conversion Options:</b>")
-        hdr_lbl.setStyleSheet("color: #334155; font-size: 11px;")
+        hdr_lbl.setStyleSheet("color: #334155; font-size: 12px;")
         opts_layout.addWidget(hdr_lbl)
 
         grid = QGridLayout()

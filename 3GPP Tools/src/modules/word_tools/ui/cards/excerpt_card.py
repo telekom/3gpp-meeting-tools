@@ -132,7 +132,7 @@ class WordExcerptCard(QWidget):
         filter_row.addWidget(self.excerpt_filter, 1)
 
         self.lbl_excerpt_match_count = QLabel()
-        self.lbl_excerpt_match_count.setStyleSheet("font-size: 11px; color: #475569; padding-right: 4px;")
+        self.lbl_excerpt_match_count.setStyleSheet("font-size: 12px; color: #475569; padding-right: 4px;")
         filter_row.addWidget(self.lbl_excerpt_match_count)
 
         self.excerpt_expand_btn = QPushButton("Expand All")
@@ -168,11 +168,11 @@ class WordExcerptCard(QWidget):
         naming_layout.setSpacing(8)
 
         lbl_naming = QLabel("<b>🏷️ Naming:</b>")
-        lbl_naming.setStyleSheet("color: #334155; font-size: 11px;")
+        lbl_naming.setStyleSheet("color: #334155; font-size: 12px;")
         naming_layout.addWidget(lbl_naming)
 
         self.excerpt_naming_combo = QComboBox()
-        self.excerpt_naming_combo.setStyleSheet("font-size: 11px;")
+        self.excerpt_naming_combo.setStyleSheet("font-size: 12px;")
         for scheme_id, scheme_label in NAMING_SCHEMES:
             self.excerpt_naming_combo.addItem(scheme_label, scheme_id)
         current_scheme = WordConfig.get_excerpt_naming_scheme()
@@ -183,17 +183,17 @@ class WordExcerptCard(QWidget):
         naming_layout.addWidget(self.excerpt_naming_combo)
 
         lbl_file = QLabel("<b>Export File:</b>")
-        lbl_file.setStyleSheet("color: #475569; font-size: 11px; margin-left: 4px;")
+        lbl_file.setStyleSheet("color: #475569; font-size: 12px; margin-left: 4px;")
         naming_layout.addWidget(lbl_file)
 
         self.excerpt_filename_edit = QLineEdit()
-        self.excerpt_filename_edit.setStyleSheet(SEARCH_INPUT_STYLE + "; font-size: 11px; padding: 4px 6px;")
+        self.excerpt_filename_edit.setStyleSheet(SEARCH_INPUT_STYLE + "; font-size: 12px; padding: 4px 8px;")
         self.excerpt_filename_edit.setPlaceholderText("Auto-generated differentiated filename (editable)...")
         self.excerpt_filename_edit.textEdited.connect(self._on_filename_text_edited)
         naming_layout.addWidget(self.excerpt_filename_edit, 1)
 
         self.excerpt_reset_name_btn = QPushButton("🔄 Reset")
-        self.excerpt_reset_name_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY + "; font-size: 11px; padding: 3px 8px;")
+        self.excerpt_reset_name_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY + "; font-size: 12px; padding: 4px 10px;")
         self.excerpt_reset_name_btn.setToolTip("Reset filename to auto-generated differentiated name based on selected clauses")
         self.excerpt_reset_name_btn.clicked.connect(self._reset_filename_to_auto)
         naming_layout.addWidget(self.excerpt_reset_name_btn)

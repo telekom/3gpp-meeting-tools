@@ -126,7 +126,7 @@ class WorkItemsTableModel(QAbstractTableModel):
                 font.setBold(True)
                 return font
             elif col_name == "Code":
-                font = QFont("Consolas", 9)
+                font = QFont("Consolas", 10)
                 font.setBold(True)
                 return font
 

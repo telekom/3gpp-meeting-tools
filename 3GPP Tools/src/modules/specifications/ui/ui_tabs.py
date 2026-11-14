@@ -454,6 +454,7 @@ class SpecificationsTab(QWidget):
 
         self.wg_scope_btn = QPushButton("Active WGs")
         self.wg_scope_btn.setCheckable(True)
+        self.wg_scope_btn.setMinimumHeight(26)
         self.wg_scope_btn.setCursor(Qt.PointingHandCursor)
         self.wg_scope_btn.setStyleSheet(SEGMENT_BTN_STYLE)
         self.wg_scope_btn.clicked.connect(self._toggle_wg_scope)
@@ -577,7 +578,7 @@ class SpecificationsTab(QWidget):
         header.setSectionResizeMode(2, QHeaderView.Interactive)
         self.table.setColumnWidth(2, 420)
 
-        self.table.verticalHeader().setDefaultSectionSize(34)
+        self.table.verticalHeader().setDefaultSectionSize(38)
         self.table.verticalHeader().setStyleSheet(f"QHeaderView::section {{ color: {C.TEXT_FAINT}; font-size: {T.SIZE_CAPTION}px; }}")
         self.table.setStyleSheet(f"""
             QTableWidget {{
@@ -599,7 +600,7 @@ class SpecificationsTab(QWidget):
                 background-color: {C.BG_SURFACE};
                 color: {C.TEXT_SECONDARY};
                 font-weight: bold;
-                font-size: {T.SIZE_CAPTION}px;
+                font-size: {T.SIZE_TABLE}px;
                 border: none;
                 border-bottom: 1px solid {C.BORDER_SUBTLE};
                 padding: 6px 8px;
@@ -1474,11 +1475,11 @@ class SpecificationsTab(QWidget):
                 # --- COLUMN 0: Action Button + Badged Spec Number ---
                 spec_widget = QWidget()
                 spec_layout = QHBoxLayout(spec_widget)
-                spec_layout.setContentsMargins(6, 0, 6, 0)
-                spec_layout.setSpacing(6)
+                spec_layout.setContentsMargins(3, 0, 3, 0)
+                spec_layout.setSpacing(4)
 
                 action_btn = HoverMenuButton("⋮")
-                action_btn.setFixedSize(22, 22)
+                action_btn.setFixedSize(20, 22)
                 action_btn.setToolTip("Specification Actions")
                 action_btn.setCursor(Qt.PointingHandCursor)
                 action_btn.setStyleSheet(f"""
@@ -1585,7 +1586,7 @@ class SpecificationsTab(QWidget):
                 else:
                     wg_badge.setStyleSheet(f"""
                         background-color: {C.BG_SURFACE}; color: {C.TEXT_FAINT}; border: 1px solid {C.BORDER_SUBTLE};
-                        border-radius: 3px; padding: 1px 0px; font-size: 10px; font-weight: bold;
+                        border-radius: 3px; padding: 2px 4px; font-size: 11px; font-weight: bold;
                     """)
                     wg_badge.setToolTip("Working Group: Unassigned / Plenary")
 
@@ -1613,8 +1614,8 @@ class SpecificationsTab(QWidget):
                 if tags or comments:
                     title_widget = QWidget()
                     title_layout = QVBoxLayout(title_widget)
-                    title_layout.setContentsMargins(4, 3, 4, 3)
-                    title_layout.setSpacing(2)
+                    title_layout.setContentsMargins(6, 5, 6, 5)
+                    title_layout.setSpacing(4)
 
                     title_lbl = QLabel(title_text)
                     title_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_STRONG};")
@@ -1623,13 +1624,13 @@ class SpecificationsTab(QWidget):
 
                     meta_row = QHBoxLayout()
                     meta_row.setContentsMargins(0, 0, 0, 0)
-                    meta_row.setSpacing(4)
+                    meta_row.setSpacing(5)
 
                     for tag_str in tags:
                         tag_pill = QLabel(f"🏷️ {tag_str}")
                         tag_pill.setStyleSheet(f"""
                             background-color: {C.ACCENT_SOFT}; color: {C.ACCENT_PRIMARY}; border: 1px solid {C.ACCENT_RING};
-                            border-radius: 9px; padding: 1px 6px; font-size: 10px; font-weight: bold;
+                            border-radius: 9px; padding: 2px 7px; font-size: 11px; font-weight: bold;
                         """)
                         tag_pill.setToolTip(f"User Tag: {tag_str}")
                         meta_row.addWidget(tag_pill)
@@ -1638,7 +1639,7 @@ class SpecificationsTab(QWidget):
                         note_pill = QLabel("📝 Note")
                         note_pill.setStyleSheet(f"""
                             background-color: {C.WARNING_SOFT_ALT}; color: {C.WARNING_DARK}; border: 1px solid {C.WARNING_BORDER_STRONG};
-                            border-radius: 9px; padding: 1px 6px; font-size: 10px; font-weight: bold;
+                            border-radius: 9px; padding: 2px 7px; font-size: 11px; font-weight: bold;
                         """)
                         preview = comments if len(comments) <= 250 else f"{comments[:247]}..."
                         note_pill.setToolTip(f"Personal Note:\n{preview}")
@@ -1647,15 +1648,19 @@ class SpecificationsTab(QWidget):
                     meta_row.addStretch()
                     title_layout.addLayout(meta_row)
                     self.table.setCellWidget(row_idx, 1, title_widget)
-                    self.table.setRowHeight(row_idx, 48)
+                    # Give generous row height so wrapped titles and 11px tag pills never clip at the bottom edge.
+                    needed_h = max(60, title_widget.sizeHint().height() + 8)
+                    if len(title_text) > 55:
+                        needed_h = max(needed_h, 74)
+                    self.table.setRowHeight(row_idx, needed_h)
                 else:
                     self.table.setItem(row_idx, 1, QTableWidgetItem(title_text))
-                    self.table.setRowHeight(row_idx, 34)
+                    self.table.setRowHeight(row_idx, 38)
 
                 # --- COLUMN 2: Documents Action Bar ---
                 version_combo = QComboBox()
                 version_combo.setFixedWidth(230)
-                version_combo.setFixedHeight(28)
+                version_combo.setFixedHeight(30)
                 version_combo.view().setMinimumWidth(255)
 
                 # Snapshot local files in memory once per specification
@@ -1731,7 +1736,7 @@ class SpecificationsTab(QWidget):
 
                 doc_action_btn = QPushButton()
                 doc_action_btn.setFixedWidth(150)
-                doc_action_btn.setFixedHeight(28)
+                doc_action_btn.setFixedHeight(30)
                 doc_action_btn.setCursor(Qt.PointingHandCursor)
 
                 doc_menu = QMenu(self)
@@ -1781,7 +1786,7 @@ class SpecificationsTab(QWidget):
 
                     base_style = """
                         QPushButton {
-                            font-size: 11px;
+                            font-size: 12px;
                             font-weight: bold;
                             padding: 2px 8px;
                             border-radius: 4px;

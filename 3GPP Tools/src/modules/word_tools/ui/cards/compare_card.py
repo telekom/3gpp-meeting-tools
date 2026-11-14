@@ -16,6 +16,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.flow_layout import FlowLayout
+from core.ui.theme import C, T
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     CARD_FRAME_STYLE,
@@ -44,11 +46,11 @@ class WordCompareCard(QWidget):
         cmp_hdr.setStyleSheet(CARD_FRAME_STYLE)
         ch_layout = QVBoxLayout(cmp_hdr)
         ch_layout.setContentsMargins(14, 12, 14, 12)
-        ch_layout.setSpacing(4)
+        ch_layout.setSpacing(6)
 
         cmp_header = QHBoxLayout()
         cmp_title = QLabel("<b>⚖️ Document Revision Comparison (Microsoft Word COM Diff)</b>")
-        cmp_title.setStyleSheet("font-size: 13px; color: #1E293B;")
+        cmp_title.setStyleSheet(f"font-size: {T.SIZE_SECTION_TITLE}px; color: {C.TEXT_STRONG};")
         cmp_header.addWidget(cmp_title)
         cmp_header.addStretch()
 
@@ -65,7 +67,7 @@ class WordCompareCard(QWidget):
             "Works seamlessly with local files, remote URLs, and currently active Microsoft Word windows."
         )
         cmp_desc.setWordWrap(True)
-        cmp_desc.setStyleSheet("color: #475569; font-size: 11px;")
+        cmp_desc.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: {T.SIZE_TABLE}px;")
         ch_layout.addWidget(cmp_desc)
         compare_layout.addWidget(cmp_hdr)
 
@@ -73,34 +75,42 @@ class WordCompareCard(QWidget):
         panes_layout.setSpacing(12)
         self.pane_a = DocumentSelectorPane("📄 DOCUMENT A (ORIGINAL BASELINE)")
         self.pane_b = DocumentSelectorPane("📄 DOCUMENT B (REVISED VERSION)")
-        panes_layout.addWidget(self.pane_a)
-        panes_layout.addWidget(self.pane_b)
-        compare_layout.addLayout(panes_layout)
+        panes_layout.addWidget(self.pane_a, 1)
+        panes_layout.addWidget(self.pane_b, 1)
+        compare_layout.addLayout(panes_layout, 1)
 
         cmp_opts_frame = QFrame()
         cmp_opts_frame.setObjectName("cardFrame")
         cmp_opts_frame.setStyleSheet(CARD_FRAME_STYLE)
         opts_layout = QHBoxLayout(cmp_opts_frame)
-        opts_layout.setContentsMargins(12, 8, 12, 8)
-        opts_layout.setSpacing(16)
+        opts_layout.setContentsMargins(14, 10, 14, 10)
+        opts_layout.setSpacing(12)
 
-        opts_layout.addWidget(QLabel("<b>Comparison Options:</b>"))
+        opts_left = QWidget(cmp_opts_frame)
+        opts_left.setStyleSheet("background: transparent; border: none;")
+        opts_flow = FlowLayout(opts_left, margin=0, h_spacing=14, v_spacing=6)
+
+        opts_lbl = QLabel("<b>Comparison Options:</b>")
+        opts_lbl.setStyleSheet(f"color: {C.TEXT_STRONG}; font-size: {T.SIZE_TABLE}px;")
+        opts_flow.addWidget(opts_lbl)
+
         self.keep_open_cb = QCheckBox("Keep source documents open in Word after comparison")
         self.keep_open_cb.setChecked(True)
-        opts_layout.addWidget(self.keep_open_cb)
+        opts_flow.addWidget(self.keep_open_cb)
 
         self.chk_cmp_formatting = QCheckBox("Detect formatting changes (fonts, styles, indentation)")
         self.chk_cmp_formatting.setChecked(True)
-        opts_layout.addWidget(self.chk_cmp_formatting)
-        opts_layout.addStretch()
-        compare_layout.addWidget(cmp_opts_frame)
+        opts_flow.addWidget(self.chk_cmp_formatting)
+        opts_layout.addWidget(opts_left, 1)
 
         self.run_compare_btn = QPushButton("🚀 Run Word Comparison")
         self.run_compare_btn.setObjectName("primaryBtn")
+        self.run_compare_btn.setMinimumHeight(34)
         self.run_compare_btn.setCursor(Qt.PointingHandCursor)
         self.run_compare_btn.clicked.connect(self._trigger_comparison)
-        compare_layout.addWidget(self.run_compare_btn)
-        compare_layout.addStretch()
+        opts_layout.addWidget(self.run_compare_btn, 0, Qt.AlignVCenter)
+
+        compare_layout.addWidget(cmp_opts_frame)
 
     def _swap_compare_slots(self):
         inputs_a = self.pane_a.get_inputs()

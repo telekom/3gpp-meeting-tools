@@ -674,8 +674,8 @@ def get_wg_badge_style_and_desc(wg: str) -> Tuple[str, str]:
         color: {c['text']};
         border: 1px solid {c['border']};
         border-radius: 3px;
-        padding: 1px 0px;
-        font-size: 10px;
+        padding: 2px 4px;
+        font-size: 11px;
         font-weight: bold;
     """
     return style, c["desc"]

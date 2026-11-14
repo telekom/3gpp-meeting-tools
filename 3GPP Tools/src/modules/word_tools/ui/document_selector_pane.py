@@ -91,7 +91,7 @@ class DocumentSelectorPane(QWidget):
         self.drop_zone.file_dropped.connect(self._on_drop)
         self.drop_zone.file_selected.connect(self._on_drop)
         self.drop_zone.file_cleared.connect(self.clear_selection)
-        drop_layout.addWidget(self.drop_zone)
+        drop_layout.addWidget(self.drop_zone, 1)
 
         # File actions bar (Browse, Clear, Info)
         local_bar = QHBoxLayout()
@@ -109,7 +109,7 @@ class DocumentSelectorPane(QWidget):
         local_bar.addWidget(self.btn_clear)
 
         self.lbl_meta = QLabel()
-        self.lbl_meta.setStyleSheet("font-size: 11px; color: #475569;")
+        self.lbl_meta.setStyleSheet("font-size: 12px; color: #475569;")
         local_bar.addWidget(self.lbl_meta, 1)
 
         drop_layout.addLayout(local_bar)
@@ -160,7 +160,7 @@ class DocumentSelectorPane(QWidget):
         url_layout.addStretch()
         self.tabs.addTab(self.url_tab, "🌐 URL")
 
-        layout.addWidget(self.tabs)
+        layout.addWidget(self.tabs, 1)
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
     def _browse_local_file(self):

@@ -24,11 +24,14 @@ from PyQt5.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from core.ui.flow_layout import FlowLayout
+from core.ui.theme import C, R, T
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     CARD_FRAME_STYLE,
@@ -134,21 +137,21 @@ class WordExtractorTab(QWidget):
         row1.addWidget(sep1)
 
         self.dotx_badge = QLabel("3GPP Macro Template (3gpp_70.dotx): Checking...")
-        self.dotx_badge.setStyleSheet("font-size: 11px; color: #475569;")
+        self.dotx_badge.setStyleSheet(f"font-size: {T.SIZE_TABLE}px; color: {C.TEXT_SECONDARY};")
         row1.addWidget(self.dotx_badge)
 
         self.dotx_btn = QPushButton("Install Template")
-        self.dotx_btn.setStyleSheet("font-size: 10px; padding: 2px 6px;")
+        self.dotx_btn.setStyleSheet("font-size: 11px; padding: 3px 8px;")
         self.dotx_btn.clicked.connect(self._on_toggle_dotx_clicked)
         row1.addWidget(self.dotx_btn)
 
         sep2 = QFrame()
         sep2.setFrameShape(QFrame.VLine)
-        sep2.setStyleSheet("color: #CBD5E1;")
+        sep2.setStyleSheet(f"color: {C.BORDER_STRONG};")
         row1.addWidget(sep2)
 
         self.lo_badge = QLabel("LibreOffice: Checking...")
-        self.lo_badge.setStyleSheet("font-size: 11px; color: #475569;")
+        self.lo_badge.setStyleSheet(f"font-size: {T.SIZE_TABLE}px; color: {C.TEXT_SECONDARY};")
         row1.addWidget(self.lo_badge)
 
         row1.addStretch()
@@ -162,15 +165,17 @@ class WordExtractorTab(QWidget):
 
         hsep = QFrame()
         hsep.setFrameShape(QFrame.HLine)
-        hsep.setStyleSheet("color: #E2E8F0;")
+        hsep.setStyleSheet(f"color: {C.BORDER_SUBTLE};")
         ribbon_layout.addWidget(hsep)
 
-        # Row 2: Segmented Workbench Navigation
-        row2 = QHBoxLayout()
-        row2.setSpacing(6)
+        # Row 2: Segmented Workbench Navigation (FlowLayout prevents horizontal clipping at 1280-1366px)
+        nav_row_widget = QWidget(self.ribbon_frame)
+        nav_row_widget.setObjectName("wordNavFlow")
+        nav_row_widget.setStyleSheet("QWidget#wordNavFlow { background: transparent; border: none; }")
+        row2 = FlowLayout(nav_row_widget, margin=0, h_spacing=6, v_spacing=6)
 
         lbl_nav = QLabel("<b>Workbench:</b>")
-        lbl_nav.setStyleSheet("color: #475569; font-size: 11px;")
+        lbl_nav.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: {T.SIZE_TABLE}px; padding-top: 4px;")
         row2.addWidget(lbl_nav)
 
         self.nav_btn_compare = QPushButton("⚖️ Compare Documents")
@@ -195,12 +200,11 @@ class WordExtractorTab(QWidget):
 
         for btn, idx in self._nav_buttons:
             btn.setCheckable(True)
+            btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
             btn.setStyleSheet(TOGGLE_PILL_STYLE)
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda checked, i=idx: self.set_active_operation(i))
             row2.addWidget(btn)
-
-        row2.addStretch()
 
         self.lbl_jump = QLabel("<b>Jump:</b>")
         self.op_combo = QComboBox()
@@ -224,7 +228,7 @@ class WordExtractorTab(QWidget):
         row2.addWidget(self.lbl_jump)
         row2.addWidget(self.op_combo)
 
-        ribbon_layout.addLayout(row2)
+        ribbon_layout.addWidget(nav_row_widget)
         layout.addWidget(self.ribbon_frame)
 
         # ---------------------------------------------------------------------
@@ -357,7 +361,7 @@ class WordExtractorTab(QWidget):
         self.chk_sec_cleanup = self.card_sanitizer.chk_sec_cleanup
         self.chk_remove_comments = self.card_sanitizer.chk_remove_comments
 
-        layout.addWidget(self.stack)
+        layout.addWidget(self.stack, 1)
 
         # Default to Compare Documents (Index 4)
         self.set_active_operation(4)
@@ -382,7 +386,9 @@ class WordExtractorTab(QWidget):
             btn.setChecked(is_active)
             if is_active:
                 btn.setStyleSheet(
-                    "background-color: #EBF3FC; border: 2px solid #395396; color: #395396; font-weight: 700; border-radius: 4px; padding: 4px 10px; font-size: 11px;"
+                    f"background-color: {C.ACCENT_SOFT}; border: 2px solid {C.ACCENT_INDIGO_BLUE}; "
+                    f"color: {C.ACCENT_INDIGO_BLUE}; font-weight: 700; border-radius: {R.PILL}px; "
+                    f"padding: 4px 12px; font-size: {T.SIZE_TABLE}px;"
                 )
             else:
                 btn.setStyleSheet(TOGGLE_PILL_STYLE)

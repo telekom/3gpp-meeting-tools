@@ -430,7 +430,7 @@ class WorkItemsTab(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableView.SelectRows)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(30)
+        self.table.verticalHeader().setDefaultSectionSize(34)
         self.table.setShowGrid(True)
         self.table.setStyleSheet(f"""
             QTableView {{
@@ -445,18 +445,18 @@ class WorkItemsTab(QWidget):
                 font-size: {T.SIZE_TABLE}px;
             }}
             QTableView::item {{
-                padding: 2px 4px;
+                padding: 4px 6px;
                 border-bottom: 1px solid {C.BORDER_ROW};
             }}
             QHeaderView::section {{
                 background-color: {C.BG_SURFACE};
                 color: {C.TEXT_SECONDARY};
                 font-weight: bold;
-                font-size: {T.SIZE_CAPTION}px;
+                font-size: {T.SIZE_TABLE}px;
                 border: none;
                 border-bottom: 1px solid {C.BORDER_SUBTLE};
                 border-right: 1px solid {C.BORDER_SUBTLE};
-                padding: 5px 6px;
+                padding: 6px 6px;
             }}
         """)
 
@@ -471,55 +471,55 @@ class WorkItemsTab(QWidget):
 
         # Column 0: Track (Fixed)
         header.setSectionResizeMode(0, QHeaderView.Fixed)
-        self.table.setColumnWidth(0, 64)
+        self.table.setColumnWidth(0, 50)
         self.tracking_delegate = TrackingDelegate(self.table)
         self.tracking_delegate.star_toggled.connect(self._toggle_star)
         self.tracking_delegate.follow_toggled.connect(self._toggle_follow)
         self.table.setItemDelegateForColumn(0, self.tracking_delegate)
 
-        # Column 1: Code
-        self.table.setColumnWidth(1, 75)
+        # Column 1: Code (fits 7-digit Rel-19/20 Consolas 10pt bold ID e.g. '1100033' cleanly)
+        self.table.setColumnWidth(1, 106)
 
         # Column 2: Acronym
-        self.table.setColumnWidth(2, 185)
+        self.table.setColumnWidth(2, 126)
 
-        # Column 3: Name (Stretch)
+        # Column 3: Name (Stretch — primary WI title gets remaining width)
         header.setSectionResizeMode(3, QHeaderView.Stretch)
 
         # Column 4: WG
-        self.table.setColumnWidth(4, 95)
+        self.table.setColumnWidth(4, 54)
         self.wg_delegate = WgBadgeDelegate(self.table)
         self.table.setItemDelegateForColumn(4, self.wg_delegate)
 
-        # Column 5: Latest WID
-        self.table.setColumnWidth(5, 105)
+        # Column 5: Latest WID (fits full 'SP-260423' pill cleanly)
+        self.table.setColumnWidth(5, 122)
         self.wid_delegate = WidDelegate(self.table)
         self.wid_delegate.link_clicked.connect(self._log_and_forward_action)
         self.table.setItemDelegateForColumn(5, self.wid_delegate)
 
         # Column 6: Release
-        self.table.setColumnWidth(6, 75)
+        self.table.setColumnWidth(6, 62)
         self.release_delegate = ReleaseBadgeDelegate(self.table)
         self.table.setItemDelegateForColumn(6, self.release_delegate)
 
-        # Column 7: Status
-        self.table.setColumnWidth(7, 95)
+        # Column 7: Status (fits '🏁 Finished' pill cleanly)
+        self.table.setColumnWidth(7, 106)
         self.status_delegate = StatusBadgeDelegate(self.table)
         self.table.setItemDelegateForColumn(7, self.status_delegate)
 
         # Column 8: Specs
-        self.table.setColumnWidth(8, 65)
+        self.table.setColumnWidth(8, 50)
         self.specs_delegate = SpecsDelegate(self.table)
         self.specs_delegate.specs_clicked.connect(self._on_specs_clicked)
         self.table.setItemDelegateForColumn(8, self.specs_delegate)
 
-        # Column 9: Timeline
-        self.table.setColumnWidth(9, 135)
+        # Column 9: Timeline (fits 'YYYY-MM → YYYY-MM' without edge clipping)
+        self.table.setColumnWidth(9, 170)
         self.timeline_delegate = TimelineDelegate(self.table)
         self.table.setItemDelegateForColumn(9, self.timeline_delegate)
 
-        # Column 10: Remarks (Stretch)
-        header.setSectionResizeMode(10, QHeaderView.Stretch)
+        # Column 10: Remarks (Interactive compact width so Name stays readable on 14" screens)
+        self.table.setColumnWidth(10, 114)
         self.remarks_delegate = RemarksDelegate(self.table)
         self.table.setItemDelegateForColumn(10, self.remarks_delegate)
 

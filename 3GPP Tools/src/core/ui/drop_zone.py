@@ -137,7 +137,10 @@ class ModernDropZone(QFrame):
 
         self.setAcceptDrops(True)
         self.setCursor(Qt.PointingHandCursor if browse_on_click else Qt.ArrowCursor)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        if compact:
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        else:
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self._init_ui()
         self._apply_state_style()
@@ -166,7 +169,10 @@ class ModernDropZone(QFrame):
         if self.compact:
             self.setFixedHeight(60)
         else:
-            self.setFixedHeight(105)
+            # Give the canvas drop zone enough height so icon, multi-line title,
+            # subtitle, and extension pills never collide on high-DPI laptop screens.
+            self.setMinimumHeight(140)
+            self.setMaximumHeight(260)
 
     def _create_empty_page(self) -> QWidget:
         page = QWidget()
@@ -226,44 +232,47 @@ class ModernDropZone(QFrame):
         else:
             # Canvas Stacked Layout (Spacious)
             layout = QVBoxLayout(page)
-            layout.setContentsMargins(16, 12, 16, 12)
-            layout.setSpacing(4)
-            layout.setAlignment(Qt.AlignCenter)
+            layout.setContentsMargins(18, 16, 18, 16)
+            layout.setSpacing(6)
+            layout.setAlignment(Qt.AlignVCenter)
 
             self.empty_icon_lbl = QLabel("📥")
             self.empty_icon_lbl.setStyleSheet(
-                "font-size: 22px; background-color: #EEF2F6; border-radius: 18px; padding: 2px;"
+                "font-size: 20px; background-color: #EEF2F6; border-radius: 18px; padding: 2px;"
             )
             self.empty_icon_lbl.setFixedSize(36, 36)
             self.empty_icon_lbl.setAlignment(Qt.AlignCenter)
-            layout.addWidget(self.empty_icon_lbl, 0, Qt.AlignCenter)
+            layout.addWidget(self.empty_icon_lbl, 0, Qt.AlignHCenter)
 
             self.lbl_empty_title = QLabel(self.primary_title)
             self.lbl_empty_title.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {COLOR_TEXT_PRIMARY};")
+            self.lbl_empty_title.setWordWrap(True)
             self.lbl_empty_title.setAlignment(Qt.AlignCenter)
             layout.addWidget(self.lbl_empty_title)
 
             self.lbl_empty_sub = QLabel(self.subtitle or "")
-            self.lbl_empty_sub.setStyleSheet(f"font-size: 11px; color: {COLOR_TEXT_MUTED};")
+            self.lbl_empty_sub.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_SECONDARY};")
+            self.lbl_empty_sub.setWordWrap(True)
             self.lbl_empty_sub.setAlignment(Qt.AlignCenter)
             layout.addWidget(self.lbl_empty_sub)
 
             # Optional format badges pill row
             if self.accepted_extensions:
                 badges_row = QHBoxLayout()
-                badges_row.setSpacing(4)
+                badges_row.setSpacing(5)
+                badges_row.setContentsMargins(0, 2, 0, 0)
                 badges_row.setAlignment(Qt.AlignCenter)
                 for ext in self.accepted_extensions[:5]:
                     badge = QLabel(ext)
                     badge.setStyleSheet("""
                         QLabel {
                             background-color: #F1F5F9;
-                            color: #475569;
-                            font-size: 10px;
+                            color: #334155;
+                            font-size: 11px;
                             font-weight: 600;
-                            border: 1px solid #E2E8F0;
+                            border: 1px solid #CBD5E1;
                             border-radius: 4px;
-                            padding: 1px 5px;
+                            padding: 2px 7px;
                         }
                     """)
                     badges_row.addWidget(badge)

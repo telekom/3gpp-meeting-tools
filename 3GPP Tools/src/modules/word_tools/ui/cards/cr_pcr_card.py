@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.flow_layout import FlowLayout
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     CARD_FRAME_STYLE,
@@ -49,8 +50,8 @@ class WordCrPcrCard(QWidget):
         bf_layout.setSpacing(10)
 
         title_row = QHBoxLayout()
-        bf_title = QLabel("<b>📝 3GPP Contribution Builder (CR & Pseudo-CR Generator)</b>")
-        bf_title.setStyleSheet("font-size: 13px; color: #1E293B;")
+        bf_title = QLabel("<b>📝 3GPP Contribution Builder (CR &amp; Pseudo-CR Generator)</b>")
+        bf_title.setStyleSheet("font-size: 14px; color: #1E293B;")
         title_row.addWidget(bf_title)
         title_row.addStretch()
 
@@ -68,23 +69,24 @@ class WordCrPcrCard(QWidget):
             "authoritative 3GPP Word style enforcement, and corporate sensitivity labeling."
         )
         desc_lbl.setWordWrap(True)
-        desc_lbl.setStyleSheet("color: #475569; font-size: 11px;")
+        desc_lbl.setStyleSheet("color: #475569; font-size: 12px;")
         bf_layout.addWidget(desc_lbl)
 
         # Document Selector Pane specifically for CR drafting
         self.pane_cr = DocumentSelectorPane("📄 BASELINE SPECIFICATION DOCUMENT")
-        bf_layout.addWidget(self.pane_cr)
+        bf_layout.addWidget(self.pane_cr, 1)
 
         act_row = QHBoxLayout()
         self.btn_launch_cr = QPushButton("🚀 Open Contribution Builder (CR / pCR)...")
         self.btn_launch_cr.setObjectName("primaryBtn")
+        self.btn_launch_cr.setMinimumHeight(34)
         self.btn_launch_cr.setCursor(Qt.PointingHandCursor)
         self.btn_launch_cr.clicked.connect(self._launch_cr_pcr_from_pane)
         act_row.addWidget(self.btn_launch_cr)
         act_row.addStretch()
         bf_layout.addLayout(act_row)
 
-        card_layout.addWidget(builder_frame)
+        card_layout.addWidget(builder_frame, 1)
 
         # 2. 3GPP Templates & Styles Reference Frame
         tmpl_frame = QFrame()
@@ -94,8 +96,8 @@ class WordCrPcrCard(QWidget):
         tf_layout.setContentsMargins(14, 12, 14, 12)
         tf_layout.setSpacing(8)
 
-        tf_title = QLabel("<b>🏛️ Official 3GPP Contribution Templates & Specification Forms</b>")
-        tf_title.setStyleSheet("font-size: 13px; color: #1E293B;")
+        tf_title = QLabel("<b>🏛️ Official 3GPP Contribution Templates &amp; Specification Forms</b>")
+        tf_title.setStyleSheet("font-size: 14px; color: #1E293B;")
         tf_layout.addWidget(tf_title)
 
         tf_desc = QLabel(
@@ -103,17 +105,17 @@ class WordCrPcrCard(QWidget):
             "Click any template below to download the authoritative release form."
         )
         tf_desc.setWordWrap(True)
-        tf_desc.setStyleSheet("color: #475569; font-size: 11px;")
+        tf_desc.setStyleSheet("color: #475569; font-size: 12px;")
         tf_layout.addWidget(tf_desc)
 
         # Macro Ribbon & Templates Row
         macro_row = QHBoxLayout()
         macro_lbl = QLabel("<b>3GPP Macro Ribbon (3gpp_70.dotx):</b>")
-        macro_lbl.setStyleSheet("font-size: 11px; color: #1E293B;")
+        macro_lbl.setStyleSheet("font-size: 12px; color: #1E293B;")
         macro_row.addWidget(macro_lbl)
 
         self.cr_card_dotx_lbl = QLabel("⚪ Not installed in Word templates")
-        self.cr_card_dotx_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
+        self.cr_card_dotx_lbl.setStyleSheet("color: #64748B; font-size: 12px;")
         macro_row.addWidget(self.cr_card_dotx_lbl)
 
         self.btn_cr_install_dotx = QPushButton("📥 Install")
@@ -128,8 +130,9 @@ class WordCrPcrCard(QWidget):
         macro_row.addStretch()
         tf_layout.addLayout(macro_row)
 
-        forms_row = QHBoxLayout()
-        forms_row.setSpacing(8)
+        forms_widget = QWidget(tmpl_frame)
+        forms_widget.setStyleSheet("background: transparent; border: none;")
+        forms_row = FlowLayout(forms_widget, margin=0, h_spacing=8, v_spacing=6)
 
         btn_cr_form = QPushButton("📄 Download CR Template (Template_3GPP_CR.docx)")
         btn_cr_form.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -146,11 +149,9 @@ class WordCrPcrCard(QWidget):
         forms_row.addWidget(btn_cr_form)
         forms_row.addWidget(btn_pcr_form)
         forms_row.addWidget(btn_open_tmpls)
-        forms_row.addStretch()
-        tf_layout.addLayout(forms_row)
+        tf_layout.addWidget(forms_widget)
 
         card_layout.addWidget(tmpl_frame)
-        card_layout.addStretch()
 
     def _launch_cr_pcr_from_pane(self):
         inputs = self.pane_cr.get_inputs()

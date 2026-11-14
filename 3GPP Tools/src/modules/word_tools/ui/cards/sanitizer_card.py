@@ -27,6 +27,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.flow_layout import FlowLayout
+from core.ui.theme import C
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     CARD_FRAME_STYLE,
@@ -80,7 +82,7 @@ class WordSanitizerCard(QWidget):
         hf_layout.setSpacing(6)
 
         hf_title = QLabel("<b>🛠️ Document Sanitizer &amp; Revision Hygiene Hub</b>")
-        hf_title.setStyleSheet("font-size: 13px; color: #1E293B;")
+        hf_title.setStyleSheet(f"font-size: 14px; color: {C.TEXT_STRONG};")
         hf_layout.addWidget(hf_title)
 
         hf_desc = QLabel(
@@ -89,7 +91,7 @@ class WordSanitizerCard(QWidget):
             "consolidate reviewer identities under a single corporate signature, and clean private metadata."
         )
         hf_desc.setWordWrap(True)
-        hf_desc.setStyleSheet("color: #475569; font-size: 11px;")
+        hf_desc.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 12px;")
         hf_layout.addWidget(hf_desc)
         card_layout.addWidget(hdr_frame)
 
@@ -107,12 +109,13 @@ class WordSanitizerCard(QWidget):
         audit_layout.setSpacing(8)
 
         self.lbl_audit_summary = QLabel("No document selected. Drop or select a .docx file above to audit.")
-        self.lbl_audit_summary.setStyleSheet("color: #64748B; font-size: 11px; font-style: italic;")
+        self.lbl_audit_summary.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 12px; font-style: italic;")
         audit_layout.addWidget(self.lbl_audit_summary)
 
-        # KPI Badges Row
-        kpi_row = QHBoxLayout()
-        kpi_row.setSpacing(6)
+        # KPI Badges Row (wrapping FlowLayout prevents horizontal overflow on 14" laptops)
+        kpi_widget = QWidget(self.audit_frame)
+        kpi_widget.setStyleSheet("background: transparent; border: none;")
+        kpi_row = FlowLayout(kpi_widget, margin=0, h_spacing=6, v_spacing=6)
 
         self.lbl_kpi_lang = QLabel("🌐 Languages: —")
         self.lbl_kpi_lang_rev = QLabel("🏷️ Lang Changes: 0")
@@ -121,18 +124,22 @@ class WordSanitizerCard(QWidget):
         self.lbl_kpi_fmt = QLabel("🎨 Formatting: 0")
         self.lbl_kpi_comments = QLabel("💬 Comments: 0")
 
-        pill_style = "background-color: #F1F5F9; color: #334155; border: 1px solid #CBD5E1; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 500;"
+        pill_style = (
+            f"background-color: {C.BG_CANVAS}; color: {C.TEXT_BODY}; "
+            f"border: 1px solid {C.BORDER_STRONG}; border-radius: 4px; "
+            f"padding: 3px 8px; font-size: 11px; font-weight: 500;"
+        )
         for lbl in (self.lbl_kpi_lang, self.lbl_kpi_lang_rev, self.lbl_kpi_authors, self.lbl_kpi_text_rev, self.lbl_kpi_fmt, self.lbl_kpi_comments):
             lbl.setStyleSheet(pill_style)
             kpi_row.addWidget(lbl)
-        kpi_row.addStretch()
-        audit_layout.addLayout(kpi_row)
+        audit_layout.addWidget(kpi_widget)
 
         # 1-Click Configuration Presets
-        presets_row = QHBoxLayout()
-        presets_row.setSpacing(6)
+        presets_widget = QWidget(self.audit_frame)
+        presets_widget.setStyleSheet("background: transparent; border: none;")
+        presets_row = FlowLayout(presets_widget, margin=0, h_spacing=6, v_spacing=6)
         lbl_presets = QLabel("<b>1-Click Presets:</b>")
-        lbl_presets.setStyleSheet("font-size: 11px; color: #475569;")
+        lbl_presets.setStyleSheet(f"font-size: 12px; color: {C.TEXT_SECONDARY}; padding-top: 4px;")
         presets_row.addWidget(lbl_presets)
 
         btn_preset_3gpp = QPushButton("⚡ 3GPP Contribution Prep (en-GB + DT + Purge Lang)")
@@ -153,14 +160,15 @@ class WordSanitizerCard(QWidget):
         presets_row.addWidget(btn_preset_3gpp)
         presets_row.addWidget(btn_preset_lang_only)
         presets_row.addWidget(btn_preset_anon)
-        presets_row.addStretch()
-        audit_layout.addLayout(presets_row)
+        audit_layout.addWidget(presets_widget)
 
         card_layout.addWidget(self.audit_frame)
 
         # 4. Operations Configuration Grid
         ops_grid = QGridLayout()
         ops_grid.setSpacing(10)
+        ops_grid.setColumnStretch(0, 1)
+        ops_grid.setColumnStretch(1, 1)
 
         # Section A: Language Unification & Purge
         sec_lang_frame = QFrame()
@@ -170,36 +178,40 @@ class WordSanitizerCard(QWidget):
         sl_layout.setContentsMargins(12, 10, 12, 10)
         sl_layout.setSpacing(6)
 
-        self.chk_sec_lang = QCheckBox("<b>🌐 Proofing Language Unification &amp; Purge</b>")
+        self.chk_sec_lang = QCheckBox("🌐 Proofing Language Unification && Purge")
+        self.chk_sec_lang.setStyleSheet(f"QCheckBox {{ font-weight: bold; font-size: 13px; color: {C.TEXT_STRONG}; }}")
         self.chk_sec_lang.setChecked(True)
         sl_layout.addWidget(self.chk_sec_lang)
 
         lang_target_row = QHBoxLayout()
         lang_target_row.addWidget(QLabel("Target Language:"))
         self.combo_target_lang = QComboBox()
+        self.combo_target_lang.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.combo_target_lang.setMinimumContentsLength(18)
         for code, label in LANGUAGE_PRESETS:
             self.combo_target_lang.addItem(label, code)
         self.combo_target_lang.addItem("Other / Custom BCP-47 Code...", "custom")
         self.combo_target_lang.currentIndexChanged.connect(self._on_target_lang_combo_changed)
-        lang_target_row.addWidget(self.combo_target_lang)
+        lang_target_row.addWidget(self.combo_target_lang, 1)
 
         self.edit_custom_lang = QLineEdit()
         self.edit_custom_lang.setPlaceholderText("e.g. en-US, de-DE")
         self.edit_custom_lang.setMaximumWidth(100)
         self.edit_custom_lang.setVisible(False)
         lang_target_row.addWidget(self.edit_custom_lang)
-        lang_target_row.addStretch()
         sl_layout.addLayout(lang_target_row)
 
-        self.chk_lang_all_stories = QCheckBox("Apply to all stories (body, headers, footers, footnotes, comments)")
+        self.chk_lang_all_stories = QCheckBox("Apply to all stories (body, headers, footers, footnotes)")
+        self.chk_lang_all_stories.setToolTip("Apply proofing language normalization across body, headers, footers, footnotes, and comments.")
         self.chk_lang_all_stories.setChecked(True)
         sl_layout.addWidget(self.chk_lang_all_stories)
 
-        self.chk_lang_styles = QCheckBox("Normalize styles.xml && docDefaults (prevents newly typed text from reverting)")
+        self.chk_lang_styles = QCheckBox("Normalize styles.xml && docDefaults (prevent reverting)")
         self.chk_lang_styles.setChecked(True)
         sl_layout.addWidget(self.chk_lang_styles)
 
-        self.chk_lang_purge_revisions = QCheckBox("<b>Surgically purge language formatting revisions</b> (<w:rPrChange> with <w:lang>)")
+        self.chk_lang_purge_revisions = QCheckBox("Purge language Track Changes (<w:rPrChange> / <w:lang>)")
+        self.chk_lang_purge_revisions.setStyleSheet(f"QCheckBox {{ font-weight: 600; color: {C.TEXT_STRONG}; }}")
         self.chk_lang_purge_revisions.setChecked(True)
         self.chk_lang_purge_revisions.setToolTip(
             "Eliminates trivial 'Formatted: Language...' Track Changes balloons while cleanly preserving "
@@ -221,7 +233,8 @@ class WordSanitizerCard(QWidget):
         sa_layout.setContentsMargins(12, 10, 12, 10)
         sa_layout.setSpacing(6)
 
-        self.chk_sec_authors = QCheckBox("<b>👥 Revision Author Consolidation</b>")
+        self.chk_sec_authors = QCheckBox("👥 Revision Author Consolidation")
+        self.chk_sec_authors.setStyleSheet(f"QCheckBox {{ font-weight: bold; font-size: 13px; color: {C.TEXT_STRONG}; }}")
         self.chk_sec_authors.setChecked(True)
         sa_layout.addWidget(self.chk_sec_authors)
 
@@ -231,7 +244,7 @@ class WordSanitizerCard(QWidget):
         default_company = WordConfig.load().get("default_source_company", "Deutsche Telekom")
         self.edit_target_author.setText(default_company)
         self.edit_target_author.textChanged.connect(self._on_target_author_changed)
-        author_target_row.addWidget(self.edit_target_author)
+        author_target_row.addWidget(self.edit_target_author, 1)
 
         author_target_row.addWidget(QLabel("Initials:"))
         self.edit_target_initials = QLineEdit()
@@ -240,23 +253,24 @@ class WordSanitizerCard(QWidget):
         author_target_row.addWidget(self.edit_target_initials)
         sa_layout.addLayout(author_target_row)
 
-        # Author Presets Quick Bar
-        ap_bar = QHBoxLayout()
-        ap_bar.setSpacing(4)
-        ap_bar.addWidget(QLabel("<span style='color:#64748B; font-size:10px;'>Quick Signatures:</span>"))
+        # Author Presets Quick Bar (FlowLayout prevents horizontal clipping)
+        ap_widget = QWidget(sec_author_frame)
+        ap_widget.setStyleSheet("background: transparent; border: none;")
+        ap_bar = FlowLayout(ap_widget, margin=0, h_spacing=4, v_spacing=4)
+        ap_lbl = QLabel(f"<span style='color:{C.TEXT_MUTED}; font-size:11px;'>Quick Signatures:</span>")
+        ap_bar.addWidget(ap_lbl)
         for sig in ["Deutsche Telekom", "Editor", "Rapporteur", "Contributor", "Anonymous"]:
             btn_sig = QPushButton(sig)
-            btn_sig.setStyleSheet("font-size: 10px; padding: 1px 6px; background-color: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 3px;")
+            btn_sig.setStyleSheet(f"font-size: 11px; padding: 2px 7px; background-color: {C.BG_CANVAS}; border: 1px solid {C.BORDER_STRONG}; border-radius: 3px;")
             btn_sig.clicked.connect(lambda checked, s=sig: self._apply_author_preset(s))
             ap_bar.addWidget(btn_sig)
-        ap_bar.addStretch()
-        sa_layout.addLayout(ap_bar)
+        sa_layout.addWidget(ap_widget)
 
         self.chk_author_initials = QCheckBox("Update reviewer initials in comments and callouts")
         self.chk_author_initials.setChecked(True)
         sa_layout.addWidget(self.chk_author_initials)
 
-        self.chk_author_metadata = QCheckBox("Update Dublin Core metadata (dc:creator, cp:lastModifiedBy)")
+        self.chk_author_metadata = QCheckBox("Update Dublin Core metadata (creator / lastModifiedBy)")
         self.chk_author_metadata.setChecked(True)
         sa_layout.addWidget(self.chk_author_metadata)
 
@@ -292,22 +306,20 @@ class WordSanitizerCard(QWidget):
         sec_cleanup_frame = QFrame()
         sec_cleanup_frame.setObjectName("cardFrame")
         sec_cleanup_frame.setStyleSheet(CARD_FRAME_STYLE)
-        sc_layout = QHBoxLayout(sec_cleanup_frame)
-        sc_layout.setContentsMargins(12, 8, 12, 8)
-        sc_layout.setSpacing(12)
+        sc_layout = FlowLayout(sec_cleanup_frame, margin=12, h_spacing=14, v_spacing=6)
 
-        self.chk_sec_cleanup = QCheckBox("<b>🧹 Advanced Cleanup:</b>")
+        self.chk_sec_cleanup = QCheckBox("🧹 Advanced Cleanup:")
+        self.chk_sec_cleanup.setStyleSheet(f"QCheckBox {{ font-weight: bold; font-size: 13px; color: {C.TEXT_STRONG}; }}")
         self.chk_sec_cleanup.setChecked(False)
         sc_layout.addWidget(self.chk_sec_cleanup)
 
-        self.chk_purge_all_fmt = QCheckBox("Purge ALL Track Changes formatting revisions (keep substantive text changes)")
+        self.chk_purge_all_fmt = QCheckBox("Purge ALL formatting revisions (keep substantive text)")
         self.chk_remove_comments = QCheckBox("Remove all reviewer comments")
         self.chk_sanitizer_backup = QCheckBox("Create safety backup (.bak) before updating in-place")
         self.chk_sanitizer_backup.setChecked(True)
 
         sc_layout.addWidget(self.chk_purge_all_fmt)
         sc_layout.addWidget(self.chk_remove_comments)
-        sc_layout.addStretch()
         sc_layout.addWidget(self.chk_sanitizer_backup)
         card_layout.addWidget(sec_cleanup_frame)
 

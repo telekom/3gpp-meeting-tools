@@ -46,24 +46,25 @@ class WordVisioCard(QWidget):
         vh_layout = QVBoxLayout(visio_hdr)
         vh_layout.setContentsMargins(14, 12, 14, 12)
         vh_layout.setSpacing(4)
-        vh_title = QLabel("<b>🖼️ Embedded Visio & Media Extractor</b>")
-        vh_title.setStyleSheet("font-size: 13px; color: #1E293B;")
+        vh_title = QLabel("<b>🖼️ Embedded Visio &amp; Media Extractor</b>")
+        vh_title.setStyleSheet("font-size: 14px; color: #1E293B;")
         vh_desc = QLabel(
             "Extracts embedded Microsoft Visio drawings (.vsdx), OLE diagram objects, and vector media "
             "directly from Word documents into native editable Visio files."
         )
         vh_desc.setWordWrap(True)
-        vh_desc.setStyleSheet("color: #475569; font-size: 11px;")
+        vh_desc.setStyleSheet("color: #475569; font-size: 12px;")
         vh_layout.addWidget(vh_title)
         vh_layout.addWidget(vh_desc)
         visio_layout.addWidget(visio_hdr)
 
         self.pane_visio = DocumentSelectorPane("📄 WORD DOCUMENT CONTAINING VISIO OBJECTS")
-        visio_layout.addWidget(self.pane_visio)
+        visio_layout.addWidget(self.pane_visio, 1)
 
         visio_act_row = QHBoxLayout()
         self.run_visio_btn = QPushButton("🚀 Extract Visio Diagrams")
         self.run_visio_btn.setObjectName("primaryBtn")
+        self.run_visio_btn.setMinimumHeight(34)
         self.run_visio_btn.setCursor(Qt.PointingHandCursor)
         self.run_visio_btn.clicked.connect(self._trigger_visio_extraction)
         visio_act_row.addWidget(self.run_visio_btn)
@@ -142,25 +143,25 @@ class WordConverterCard(QWidget):
         ch_layout.setContentsMargins(14, 12, 14, 12)
         ch_layout.setSpacing(4)
         ch_title = QLabel("<b>🔄 Multi-Format Document Converter</b>")
-        ch_title.setStyleSheet("font-size: 13px; color: #1E293B;")
+        ch_title.setStyleSheet("font-size: 14px; color: #1E293B;")
         ch_desc = QLabel(
             "Converts Microsoft Word documents (.docx, legacy .doc) into modern formats: "
             "PDF, HTML, Plain Text, or Markdown."
         )
         ch_desc.setWordWrap(True)
-        ch_desc.setStyleSheet("color: #475569; font-size: 11px;")
+        ch_desc.setStyleSheet("color: #475569; font-size: 12px;")
         ch_layout.addWidget(ch_title)
         ch_layout.addWidget(ch_desc)
         convert_layout.addWidget(conv_hdr)
 
         self.pane_convert = DocumentSelectorPane("📄 WORD DOCUMENT TO CONVERT")
-        convert_layout.addWidget(self.pane_convert)
+        convert_layout.addWidget(self.pane_convert, 1)
 
         conv_opts_frame = QFrame()
         conv_opts_frame.setObjectName("cardFrame")
         conv_opts_frame.setStyleSheet(CARD_FRAME_STYLE)
         co_layout = QHBoxLayout(conv_opts_frame)
-        co_layout.setContentsMargins(12, 8, 12, 8)
+        co_layout.setContentsMargins(14, 10, 14, 10)
         co_layout.setSpacing(12)
 
         co_layout.addWidget(QLabel("<b>Target Format:</b>"))
@@ -172,19 +173,17 @@ class WordConverterCard(QWidget):
         co_layout.addWidget(self.format_combo)
 
         self.conv_engine_lbl = QLabel("Engine: 🟢 Microsoft Word COM")
-        self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #065F46; font-weight: 500;")
+        self.conv_engine_lbl.setStyleSheet("font-size: 12px; color: #065F46; font-weight: 500;")
         co_layout.addWidget(self.conv_engine_lbl)
         co_layout.addStretch()
-        convert_layout.addWidget(conv_opts_frame)
 
-        conv_act_row = QHBoxLayout()
         self.run_convert_btn = QPushButton("🚀 Convert Document")
         self.run_convert_btn.setObjectName("primaryBtn")
+        self.run_convert_btn.setMinimumHeight(34)
         self.run_convert_btn.setCursor(Qt.PointingHandCursor)
         self.run_convert_btn.clicked.connect(self._trigger_conversion)
-        conv_act_row.addWidget(self.run_convert_btn)
-        conv_act_row.addStretch()
-        convert_layout.addLayout(conv_act_row)
+        co_layout.addWidget(self.run_convert_btn)
+        convert_layout.addWidget(conv_opts_frame)
 
         self.conv_result_frame = QFrame()
         self.conv_result_frame.setObjectName("cardFrame")
