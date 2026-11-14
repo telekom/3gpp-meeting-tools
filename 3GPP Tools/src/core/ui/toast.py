@@ -304,6 +304,16 @@ class ToastManager(QObject):
         y_cursor = host_rect.height() - bottom_offset
         right_edge = host_rect.width() - self._margin
 
+        # Avoid covering an open RightSidePanel dock (e.g., Assistant Send button)
+        right_panel = getattr(self._host, "right_panel", None)
+        if right_panel is not None and getattr(right_panel, "is_open", False) and right_panel.width() > 0:
+            shifted_edge = right_edge - right_panel.width() - S.SM
+            if self._host.isAncestorOf(right_panel):
+                panel_left = right_panel.mapTo(self._host, QPoint(0, 0)).x()
+                shifted_edge = min(shifted_edge, panel_left - S.SM)
+            if shifted_edge >= self._margin + 280:
+                right_edge = shifted_edge
+
         for toast in reversed(self._toasts):
             if toast._closed:
                 continue

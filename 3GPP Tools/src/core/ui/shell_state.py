@@ -123,6 +123,15 @@ def save_shell_state(window: object, settings: Optional[QSettings] = None) -> No
     if tabs is not None:
         cfg.setValue("shell/active_tab_index", int(tabs.currentIndex()))
 
+    right_panel = getattr(window, "right_panel", None)
+    if right_panel is not None:
+        ws_splitter = getattr(window, "workspace_splitter", None)
+        if ws_splitter is not None and hasattr(right_panel, "capture_width_from_splitter"):
+            right_panel.capture_width_from_splitter(ws_splitter)
+        cfg.setValue("right_panel/open", bool(right_panel.is_open))
+        cfg.setValue("right_panel/mode", str(right_panel.mode))
+        cfg.setValue("right_panel/preferred_width", int(right_panel.preferred_width))
+
     cfg.sync()
 
 
@@ -178,3 +187,22 @@ def restore_shell_state(window: object, settings: Optional[QSettings] = None) ->
             tabs.setCurrentIndex(saved_idx)
             if nav_rail is not None:
                 nav_rail.set_active_index(saved_idx)
+
+    right_panel = getattr(window, "right_panel", None)
+    ws_splitter = getattr(window, "workspace_splitter", None)
+    if right_panel is not None:
+        rp_mode = str(cfg.value("right_panel/mode", "assistant") or "assistant").strip()
+        rp_width = _to_int(cfg.value("right_panel/preferred_width"), right_panel.preferred_width)
+        right_panel.preferred_width = rp_width
+        right_panel.set_mode(rp_mode, emit=False)
+
+        rp_open = _to_bool(cfg.value("right_panel/open"), default=False)
+        right_panel.set_open(rp_open, emit=False)
+        if ws_splitter is not None:
+            right_panel.apply_splitter_sizes(ws_splitter)
+        if nav_rail is not None and hasattr(window, "width"):
+            nav_rail.apply_responsive_width(window.width(), dock_open=rp_open)
+
+        status_bar = getattr(window, "status_bar", None)
+        if status_bar is not None and hasattr(status_bar, "update_right_panel_badges"):
+            status_bar.update_right_panel_badges(right_panel.is_open, right_panel.mode)

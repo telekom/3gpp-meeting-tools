@@ -364,16 +364,20 @@ class NavRail(QFrame):
         if not self._responsive_compact and manual_collapsed is not None:
             self._apply_collapsed_state(manual_collapsed, emit=False)
 
-    def apply_responsive_width(self, window_width: int) -> None:
+    def apply_responsive_width(self, window_width: int, dock_open: bool = False) -> None:
         """
         Apply responsive breakpoint hysteresis (`<940 px` collapse, `>=970 px` expand).
-        Preserves manual collapse preference on wider viewports.
+        When the right-hand side dock is open, tightens breakpoints to `<1280 px` / `>=1310 px`
+        so the central workspace retains comfortable width on compact laptops.
         """
-        if window_width < B.COMPACT_COLLAPSE_PX:
+        collapse_px = 1280 if dock_open else B.COMPACT_COLLAPSE_PX
+        expand_px = 1310 if dock_open else B.COMPACT_EXPAND_PX
+
+        if window_width < collapse_px:
             if not self._responsive_compact:
                 self._responsive_compact = True
                 self._apply_collapsed_state(True, emit=True)
-        elif window_width >= B.COMPACT_EXPAND_PX:
+        elif window_width >= expand_px:
             if self._responsive_compact:
                 self._responsive_compact = False
                 target = bool(self._manual_collapsed) if self._manual_collapsed is not None else False

@@ -81,6 +81,22 @@ _LUCIDE_PATHS: Dict[str, str] = {
         '<path d="M9 3v18"/>'
         '<path d="m14 9 3 3-3 3"/>'
     ),
+    "panel-right-close": (
+        '<rect x="3" y="3" width="18" height="18" rx="2"/>'
+        '<path d="M15 3v18"/>'
+        '<path d="m8 9 3 3-3 3"/>'
+    ),
+    "panel-right-open": (
+        '<rect x="3" y="3" width="18" height="18" rx="2"/>'
+        '<path d="M15 3v18"/>'
+        '<path d="m10 15-3-3 3-3"/>'
+    ),
+    "maximize-2": (
+        '<polyline points="15 3 21 3 21 9"/>'
+        '<polyline points="9 21 3 21 3 15"/>'
+        '<line x1="21" y1="3" x2="14" y2="10"/>'
+        '<line x1="3" y1="21" x2="10" y2="14"/>'
+    ),
     "help-circle": (
         '<circle cx="12" cy="12" r="10"/>'
         '<path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>'

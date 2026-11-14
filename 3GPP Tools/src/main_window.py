@@ -22,6 +22,7 @@ from core.queue_manager import QueueManager
 from core.ui.bottom_drawer import BottomDrawer
 from core.ui.icons import lucide_icon
 from core.ui.nav_rail import NavRail
+from core.ui.right_side_panel import MODE_ASSISTANT, MODE_SPEC_SEARCH, RightSidePanel
 from core.ui.shell_state import restore_shell_state, save_shell_state
 from core.ui.theme import C
 from core.ui.toast import ToastAction, ToastManager
@@ -364,7 +365,27 @@ class DragDropUI(QMainWindow):
 
         self.splitter.addWidget(self.bottom_drawer)
         self.splitter.setSizes([700, 0])
-        main_layout.addWidget(self.splitter)
+
+        # Horizontal workspace splitter: main vertical workspace on left, contextual RightSidePanel on right
+        self.workspace_splitter = QSplitter(Qt.Horizontal)
+        self.workspace_splitter.setObjectName("workspaceSplitter")
+        self.workspace_splitter.setChildrenCollapsible(False)
+        self.workspace_splitter.setHandleWidth(4)
+        self.right_panel = RightSidePanel(self)
+        self.workspace_splitter.addWidget(self.splitter)
+        self.workspace_splitter.addWidget(self.right_panel)
+        self.workspace_splitter.setStretchFactor(0, 1)
+        self.workspace_splitter.setStretchFactor(1, 0)
+        self.workspace_splitter.setSizes([900, 0])
+        self.workspace_splitter.splitterMoved.connect(self._on_workspace_splitter_moved)
+
+        self.right_panel.toggled.connect(self._on_right_panel_state_changed)
+        self.right_panel.mode_changed.connect(
+            lambda _mode: self._on_right_panel_state_changed(self.right_panel.is_open)
+        )
+        self.right_panel.promote_requested.connect(self._on_right_panel_promote)
+
+        main_layout.addWidget(self.workspace_splitter)
         root_layout.addWidget(main_container, 1)
 
         central_widget.setLayout(root_layout)
@@ -375,6 +396,12 @@ class DragDropUI(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.reinit_requested.connect(self._on_status_reinit_requested)
         self.status_bar.drawer_toggle_requested.connect(self.toggle_bottom_drawer)
+        self.status_bar.assistant_dock_requested.connect(
+            lambda: self.toggle_right_panel(MODE_ASSISTANT)
+        )
+        self.status_bar.search_dock_requested.connect(
+            lambda: self.toggle_right_panel(MODE_SPEC_SEARCH)
+        )
         self.status_bar.task_manager_requested.connect(self.open_task_manager)
         self.status_bar.db_maintenance_requested.connect(self.open_db_maintenance)
         self.status_bar.network_config_requested.connect(lambda: NetworkConfigDialog(self).exec_())
@@ -384,6 +411,10 @@ class DragDropUI(QMainWindow):
             self.bottom_drawer.is_open,
             self.bottom_drawer.queue_count,
             self.bottom_drawer.unread_errors,
+        )
+        self.status_bar.update_right_panel_badges(
+            self.right_panel.is_open,
+            self.right_panel.mode,
         )
 
         # Floating non-blocking Toast notification overlay manager
@@ -411,6 +442,26 @@ class DragDropUI(QMainWindow):
         self.rail_shortcut.setContext(Qt.WindowShortcut)
         self.rail_shortcut.activated.connect(self.nav_rail.toggle_collapsed)
 
+        if hasattr(self, "toggle_right_panel"):
+            self.assistant_dock_shortcut = QShortcut(QKeySequence("Ctrl+Shift+A"), self)
+            self.assistant_dock_shortcut.setContext(Qt.WindowShortcut)
+            self.assistant_dock_shortcut.activated.connect(
+                lambda: self.toggle_right_panel(MODE_ASSISTANT)
+            )
+
+            self.search_dock_shortcut = QShortcut(QKeySequence("Ctrl+Shift+F"), self)
+            self.search_dock_shortcut.setContext(Qt.WindowShortcut)
+            self.search_dock_shortcut.activated.connect(
+                lambda: self.toggle_right_panel(MODE_SPEC_SEARCH)
+            )
+
+        extra_status_focus = []
+        if hasattr(self, "right_panel") and hasattr(self.status_bar, "assistant_dock_btn"):
+            extra_status_focus = [
+                self.status_bar.assistant_dock_btn,
+                self.status_bar.search_dock_btn,
+            ]
+
         focus_chain = [
             *self.nav_rail.ordered_focus_widgets(),
             self.tabs,
@@ -419,6 +470,7 @@ class DragDropUI(QMainWindow):
             self.status_bar.mcp_indicator,
             self.status_bar.proxy_indicator,
             self.status_bar.system_btn,
+            *extra_status_focus,
             self.status_bar.drawer_toggle_btn,
         ]
         for prev_w, next_w in zip(focus_chain, focus_chain[1:]):
@@ -467,10 +519,53 @@ class DragDropUI(QMainWindow):
         if hasattr(active_widget, 'ensure_loaded'):
             active_widget.ensure_loaded()
 
+    def toggle_right_panel(self, mode: str):
+        """Toggle or switch the contextual RightSidePanel (Assistant / Quick Spec Search)."""
+        if hasattr(self, "right_panel"):
+            self.right_panel.toggle_mode(mode)
+
+    def open_right_panel(self, mode: str):
+        """Open the contextual RightSidePanel on the requested mode."""
+        if hasattr(self, "right_panel"):
+            self.right_panel.open_mode(mode)
+
+    def close_right_panel(self):
+        """Close the contextual RightSidePanel."""
+        if hasattr(self, "right_panel"):
+            self.right_panel.close_panel()
+
+    def _on_workspace_splitter_moved(self, _pos: int, _index: int):
+        if hasattr(self, "right_panel") and hasattr(self, "workspace_splitter"):
+            self.right_panel.capture_width_from_splitter(self.workspace_splitter)
+        if hasattr(self, "toast_manager"):
+            self.toast_manager.reposition()
+
+    def _on_right_panel_state_changed(self, opened: bool):
+        if hasattr(self, "right_panel") and hasattr(self, "workspace_splitter"):
+            self.right_panel.apply_splitter_sizes(self.workspace_splitter)
+        if hasattr(self, "status_bar") and hasattr(self, "right_panel"):
+            self.status_bar.update_right_panel_badges(opened, self.right_panel.mode)
+        if hasattr(self, "nav_rail"):
+            self.nav_rail.apply_responsive_width(self.width(), dock_open=opened)
+        if hasattr(self, "toast_manager"):
+            self.toast_manager.reposition()
+
+    def _on_right_panel_promote(self, mode: str):
+        """Promote docked panel mode into its full workspace tab and close the dock."""
+        if mode == MODE_ASSISTANT and hasattr(self, "assistant_tab"):
+            self.tabs.setCurrentWidget(self.assistant_tab)
+        elif mode == MODE_SPEC_SEARCH and hasattr(self, "spec_search_tab"):
+            self.tabs.setCurrentWidget(self.spec_search_tab)
+        if hasattr(self, "right_panel"):
+            self.right_panel.close_panel()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        dock_open = hasattr(self, "right_panel") and self.right_panel.is_open
         if hasattr(self, "nav_rail"):
-            self.nav_rail.apply_responsive_width(self.width())
+            self.nav_rail.apply_responsive_width(self.width(), dock_open=dock_open)
+        if hasattr(self, "toast_manager"):
+            self.toast_manager.reposition()
 
     def _navigate_from_search_to_specs(self, spec_number: str, version: str):
         """Switches to Specifications tab and selects the requested spec and version."""

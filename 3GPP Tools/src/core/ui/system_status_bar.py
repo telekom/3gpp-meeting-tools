@@ -54,6 +54,8 @@ class SystemStatusBar(QStatusBar):
     proxy_changed = pyqtSignal()
     reinit_requested = pyqtSignal()
     drawer_toggle_requested = pyqtSignal()
+    assistant_dock_requested = pyqtSignal()
+    search_dock_requested = pyqtSignal()
     task_manager_requested = pyqtSignal()
     db_maintenance_requested = pyqtSignal()
     network_config_requested = pyqtSignal()
@@ -121,7 +123,33 @@ class SystemStatusBar(QStatusBar):
         self.system_btn.setMenu(self.system_menu)
         self.addPermanentWidget(self.system_btn)
 
-        # 6. Collapsible Bottom Drawer Toggle (Console & Queue + Badges)
+        # 6. Right Side Panel Dock Toggles (Assistant & Quick Spec Search)
+        self.assistant_dock_btn = QPushButton("Assistant")
+        self.assistant_dock_btn.setObjectName("statusAssistantDockBtn")
+        self.assistant_dock_btn.setCheckable(True)
+        self.assistant_dock_btn.setCursor(Qt.PointingHandCursor)
+        self.assistant_dock_btn.setIcon(
+            lucide_icon("sparkles", color=C.TEXT_SECONDARY, active_color=C.ACCENT_PRIMARY, size=14)
+        )
+        self.assistant_dock_btn.setIconSize(QSize(14, 14))
+        self.assistant_dock_btn.setToolTip("Show or hide Docked Assistant side panel (Ctrl+Shift+A)")
+        self.assistant_dock_btn.clicked.connect(self.assistant_dock_requested.emit)
+        self.addPermanentWidget(self.assistant_dock_btn)
+
+        self.search_dock_btn = QPushButton("Quick Search")
+        self.search_dock_btn.setObjectName("statusSearchDockBtn")
+        self.search_dock_btn.setCheckable(True)
+        self.search_dock_btn.setCursor(Qt.PointingHandCursor)
+        self.search_dock_btn.setIcon(
+            lucide_icon("search", color=C.TEXT_SECONDARY, active_color=C.ACCENT_PRIMARY, size=14)
+        )
+        self.search_dock_btn.setIconSize(QSize(14, 14))
+        self.search_dock_btn.setToolTip("Show or hide Quick Spec Search side panel (Ctrl+Shift+F)")
+        self.search_dock_btn.clicked.connect(self.search_dock_requested.emit)
+        self.addPermanentWidget(self.search_dock_btn)
+        self.update_right_panel_badges(False, "assistant")
+
+        # 7. Collapsible Bottom Drawer Toggle (Console & Queue + Badges)
         self.drawer_toggle_btn = QPushButton("Console && Queue")
         self.drawer_toggle_btn.setObjectName("statusDrawerToggleBtn")
         self.drawer_toggle_btn.setCheckable(True)
@@ -201,6 +229,37 @@ class SystemStatusBar(QStatusBar):
                 border-color: {C.BORDER_HOVER};
             }}
         """)
+
+    def update_right_panel_badges(self, opened: bool, mode: str) -> None:
+        """Synchronize the status-bar Assistant & Quick Search dock pill styles."""
+        for btn, obj_name, target_mode in (
+            (self.assistant_dock_btn, "statusAssistantDockBtn", "assistant"),
+            (self.search_dock_btn, "statusSearchDockBtn", "spec_search"),
+        ):
+            active = bool(opened and mode == target_mode)
+            btn.blockSignals(True)
+            btn.setChecked(active)
+            btn.blockSignals(False)
+            if active:
+                bg, fg, bd, hover_bg = C.ACCENT_SOFT, C.ACCENT_PRIMARY, C.ACCENT_RING, C.ACCENT_SOFT_HOVER
+            else:
+                bg, fg, bd, hover_bg = "transparent", C.TEXT_SECONDARY, C.BORDER_STRONG, C.BG_CANVAS
+            btn.setStyleSheet(f"""
+                QPushButton#{obj_name} {{
+                    background-color: {bg};
+                    color: {fg};
+                    border: 1px solid {bd};
+                    border-radius: {R.SM}px;
+                    padding: 1px 8px;
+                    font-family: {T.FONT_FAMILY_UI};
+                    font-size: {T.SIZE_CAPTION}px;
+                    font-weight: 600;
+                }}
+                QPushButton#{obj_name}:hover {{
+                    background-color: {hover_bg};
+                    border-color: {C.BORDER_HOVER};
+                }}
+            """)
 
     # ==========================================
     # --- PROXY ORCHESTRATION ---
