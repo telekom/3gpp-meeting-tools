@@ -38,6 +38,13 @@ To prevent cryptic `ModuleNotFoundError` crashes at launch, all entry points (`m
 - **Clipboard & 1-Click Repair:** On Windows desktop launches, copies the repair command to the clipboard and presents an interactive `MessageBoxW` dialog offering 1-click automatic installation via pip.
 - **Safe Headless/CLI Operation:** Headless environments (MCP stdio, CLI, CI) bypass modal dialogs and log clean diagnostic error messages to `sys.stderr` without corrupting stdout streams.
 
+#### Manual Continuous GitHub `master` Updater (`src/core/updater/`, `src/core/ui/update_dialog.py`)
+End-user colleagues typically install from GitHub ZIP downloads rather than `git clone`, and changes are pushed continuously to `master` without formal version tags.
+- **Manual Trigger Only:** Never polls GitHub automatically at startup. Invoked explicitly via **Settings → 🔄 Check for Updates...**, **Help & Docs → 🔄 Check for Updates...**, or `Ctrl+K` (`Check for App Updates`).
+- **Rate-Limit-Free Feed & Commit-Pinned Archives:** Fetches `https://github.com/telekom/3gpp-meeting-tools/commits/master/3GPP%20Tools.atom` through `NetworkSession` (respecting corporate proxies/DPAPI credentials without hitting GitHub REST API NAT limits) and stages `https://github.com/telekom/3gpp-meeting-tools/archive/<sha>.zip` with ZipSlip path-traversal validation.
+- **Install Modes & Baseline Tracking:** Supports `zip_tracked` (`.app_version.json` recording `installed_sha` and `managed_files`), `zip_manual` (estimates baseline from newest source file mtime until the first in-app update locks the commit SHA), and `git` (recognizes unpushed local commits via `git merge-base --is-ancestor`, blocks overwrite on dirty trees, and uses `git pull --ff-only` when clean).
+- **Detached Applier & User Data Preservation (`apply_worker.py`):** Copies a pure-stdlib worker outside the install directory, waits for the GUI PID to exit, retries file copies for OneDrive/AV locks, removes obsolete previously-managed files, preserves existing `src/db/*.db*`, `src/config/*_config.json`, `*_user.json`, `useful_links.json`, `export_config.json`, `plantuml.jar`, templates, and `output/`, runs `pip install -r requirements.txt` if changed, and relaunches `Launch.cmd`.
+
 Launch the application:
 ```powershell
 # Using the Windows batch launcher (auto-detects Python 3.14, 3.x, or system python):
@@ -75,7 +82,8 @@ python -m main_tools
 │   │   ├── ai/                    # OllamaClient, health monitoring, OllamaConfigDialog
 │   │   ├── config/                # Global application constants and paths
 │   │   ├── network/               # NetworkSession singleton, RFC 1918 proxy bypassing
-│   │   ├── ui/                    # Centralized theme tokens (`theme.py`), Lucide SVG icons (`icons.py`), grouped NavRail (`nav_rail.py`), RightSidePanel (`right_side_panel.py`), CommandPaletteDialog (`command_palette.py`), 2-tier `PageRibbonCard` (`page_ribbon.py`), BottomDrawer (`bottom_drawer.py`), Smart Toast (`toast.py`, `notify_success`), QSettings shell state (`shell_state.py`), hex migrator, base components, ModernDropZone, global QSS, panels
+│   │   ├── ui/                    # Centralized theme tokens (`theme.py`), Lucide SVG icons (`icons.py`), grouped NavRail (`nav_rail.py`), RightSidePanel (`right_side_panel.py`), CommandPaletteDialog (`command_palette.py`), AppUpdateDialog (`update_dialog.py`), 2-tier `PageRibbonCard` (`page_ribbon.py`), BottomDrawer (`bottom_drawer.py`), Smart Toast (`toast.py`, `notify_success`), QSettings shell state (`shell_state.py`), hex migrator, base components, ModernDropZone, global QSS, panels
+│   │   ├── updater/               # Manual continuous GitHub master updater (`app_updater.py`, pure-stdlib `apply_worker.py`)
 │   │   ├── utils/                 # Path resolution, Java runtime detection, 3GPP Portal URL generators, helpers
 │   │   └── queue_manager.py       # Multi-threaded background conversion & sync task queue
 │   ├── db/                        # Persistent SQLite databases (3gpp_data.db, etc.)

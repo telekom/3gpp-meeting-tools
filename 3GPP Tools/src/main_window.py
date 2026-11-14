@@ -68,6 +68,7 @@ class DragDropUI(QMainWindow):
         self.jar_path = get_puml2visio_asset_path(PLANTUML_JAR_NAME)
         self.last_out_path = ""
         self.init_thread = None
+        self._last_update_check_result = None
         # Background monitors are managed by self.status_bar
         self._services_started = False  # Guard to prevent duplicate background starts
         self._visio_ready = True
@@ -439,6 +440,7 @@ class DragDropUI(QMainWindow):
         self.status_bar.db_maintenance_requested.connect(self.open_db_maintenance)
         self.status_bar.network_config_requested.connect(lambda: NetworkConfigDialog(self).exec_())
         self.status_bar.java_info_requested.connect(self.open_java_maintenance)
+        self.status_bar.update_check_requested.connect(self.open_app_updater)
         self.status_bar.update_proxy_indicator(self.console_panel)
         self.status_bar.update_drawer_badge(
             self.bottom_drawer.is_open,
@@ -895,6 +897,7 @@ class DragDropUI(QMainWindow):
         self.settings_menu.addAction("🖥️ COM Task Manager...", self.open_task_manager)
         self.settings_menu.addAction("🤖 MCP Server && AI Cockpit...", self.open_mcp_monitor)
         self.settings_menu.addSeparator()
+        self.settings_menu.addAction("🔄 Check for Updates...", self.open_app_updater)
         self.settings_menu.addAction("📝 Edit Useful Links Config...", self.edit_useful_links_config)
 
     def _rebuild_help_menu(self):
@@ -907,6 +910,9 @@ class DragDropUI(QMainWindow):
         mcp_action = self.help_menu.addAction("🤖 MCP Server && AI Agent Cockpit...")
         mcp_action.setToolTip("Inspect real-time MCP server tool calls, external AI agent activity, and client configurations.")
         mcp_action.triggered.connect(self.open_mcp_monitor)
+        upd_action = self.help_menu.addAction("🔄 Check for Updates...")
+        upd_action.setToolTip("Check GitHub master for recent changes and update the application.")
+        upd_action.triggered.connect(self.open_app_updater)
 
     def open_external_url(self, url: str, title: str = "Web Resource"):
         try:
@@ -1366,6 +1372,30 @@ class DragDropUI(QMainWindow):
         logging.info("🏁 [STARTUP:SERVICES] 3/3 Wi-Fi monitor launched.")
 
         logging.info("🏁 [STARTUP:SERVICES] All background service threads active.")
+
+    def open_app_updater(self):
+        """Opens the Application Updates dialog and checks GitHub master manually."""
+        from core.ui.update_dialog import AppUpdateDialog
+        from core.updater.app_updater import load_update_state
+
+        dlg = AppUpdateDialog(initial_result=self._last_update_check_result, parent=self)
+        dlg.update_status_cleared.connect(self.status_bar.clear_update_available)
+        dlg.exec_()
+        if dlg._result is not None:
+            self._last_update_check_result = dlg._result
+            state = load_update_state()
+            if (
+                dlg._result.status == "update_available"
+                and dlg._result.latest_commit is not None
+                and state.get("skipped_sha") != dlg._result.latest_commit.sha
+            ):
+                self.status_bar.set_update_available(
+                    len(dlg._result.pending_commits),
+                    dlg._result.latest_commit.short_sha,
+                    dlg._result.latest_commit.title,
+                )
+            else:
+                self.status_bar.clear_update_available()
 
     def _start_system_init_check(self):
         """Starts Visio / PlantUML engine verification independently."""

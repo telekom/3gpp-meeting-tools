@@ -583,6 +583,7 @@ def build_static_command_items(window: object) -> List[CommandItem]:
         ("sys:task_mgr", "COM Task Manager", "Inspect Word/Visio/PPT background processes", "activity", getattr(window, "open_task_manager", None)),
         ("sys:java", "Java & PlantUML Engine", "Verify Java runtime & PlantUML JAR status", "cpu", getattr(window, "open_java_maintenance", None)),
         ("sys:mcp", "MCP Server & AI Cockpit", "Inspect stdio MCP tools and agent activity", "terminal", getattr(window, "open_mcp_monitor", None)),
+        ("sys:check_updates", "Check for App Updates", "Check GitHub master for new changes and update", "download", getattr(window, "open_app_updater", None)),
     ]
     for cid, title, sub, icon, fn in sys_actions:
         if fn is None:

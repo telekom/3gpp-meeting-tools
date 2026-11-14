@@ -60,6 +60,7 @@ class SystemStatusBar(QStatusBar):
     db_maintenance_requested = pyqtSignal()
     network_config_requested = pyqtSignal()
     java_info_requested = pyqtSignal()
+    update_check_requested = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -76,6 +77,27 @@ class SystemStatusBar(QStatusBar):
         saved_cfg = load_ollama_config()
         saved_model = saved_cfg.get("selected_model", "").strip()
         initial_ollama_text = f"🦙 {saved_model}" if saved_model else "🦙 Ollama"
+
+        # 0. App Update Pill (shown only when a new commit is available on master)
+        self.update_indicator = QPushButton("🆕 Update Available")
+        self.update_indicator.setObjectName("statusUpdateAvailableBtn")
+        self.update_indicator.setCursor(Qt.PointingHandCursor)
+        self.update_indicator.setIcon(
+            lucide_icon("download", color=C.ACCENT_PRIMARY, size=14)
+        )
+        self.update_indicator.setIconSize(QSize(14, 14))
+        self.update_indicator.setStyleSheet(
+            _status_pill_qss(
+                bg=C.ACCENT_SOFT,
+                fg=C.ACCENT_PRIMARY,
+                bd=C.ACCENT_RING,
+                hover_bg=C.ACCENT_SOFT_HOVER,
+                hover_bd=C.ACCENT_PRIMARY,
+            )
+        )
+        self.update_indicator.clicked.connect(self.update_check_requested.emit)
+        self.update_indicator.setVisible(False)
+        self.addPermanentWidget(self.update_indicator)
 
         # 1. Ollama Indicator Pill
         self.ollama_indicator = QPushButton(initial_ollama_text)
@@ -184,6 +206,23 @@ class SystemStatusBar(QStatusBar):
         self.system_menu.addAction("⚙️ Network...", self.network_config_requested.emit)
         self.system_menu.addAction("☕ Java...", self.java_info_requested.emit)
         self.system_menu.addAction("🤖 MCP...", self.open_mcp_monitor)
+
+    def set_update_available(
+        self, count: int, latest_short_sha: str = "", summary: str = ""
+    ) -> None:
+        """Display the clickable update badge in the status bar."""
+        label = f"Update ({count})" if count > 0 else "Update Available"
+        self.update_indicator.setText(label)
+        tip = f"New update available on GitHub master ({latest_short_sha})"
+        if summary:
+            tip += f"\nLatest: {summary}"
+        tip += "\n\nClick to view changes and update"
+        self.update_indicator.setToolTip(tip)
+        self.update_indicator.setVisible(True)
+
+    def clear_update_available(self) -> None:
+        """Hide the status-bar update badge."""
+        self.update_indicator.setVisible(False)
 
     def update_drawer_badge(self, opened: bool, queue_count: int, unread_errors: int) -> None:
         """Update the status-bar Console & Queue pill text, active state, and error/queue badges."""

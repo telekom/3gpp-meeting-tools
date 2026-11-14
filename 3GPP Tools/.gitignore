@@ -8,6 +8,7 @@ src/assets/plantuml.jar
 src/assets/plantuml.version
 
 # Runtime caches and editor temp
+.app_version.json
 .editor_cache.puml
 *.tmp
 output/

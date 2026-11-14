@@ -952,6 +952,18 @@ py -3.14 -m main_tools
 
 ---
 
+### 🔄 Checking for & Applying Application Updates (Manual)
+The application includes a built-in manual updater so delegates running from a downloaded GitHub ZIP (no `git` required) or a Git clone can inspect recent changes on `master` and update in one click.
+
+1. **Check on Demand (No Background Polling):** Open **Settings ▾ $\rightarrow$ 🔄 Check for Updates...**, **Help & Docs ▾ $\rightarrow$ 🔄 Check for Updates...**, or press `Ctrl+K` and run **Check for App Updates**. Nothing is checked automatically at startup.
+2. **Review What's New:** The **Application Updates** dialog compares your local installation against the latest commits on GitHub `master` (using your configured corporate proxy settings in `NetworkSession`) and lists each new commit's summary, full message, author, timestamp, and GitHub commit link.
+3. **Update & Restart:**
+   * **ZIP Installations:** Downloads the exact latest `master` archive, verifies its structure, closes the app cleanly, copies updated code via a standalone helper script, runs `pip install -r requirements.txt` if dependencies changed, and relaunches `Launch.cmd`.
+   * **Git Checkouts:** Performs a safe `git pull --ff-only` when the working tree is clean (or warns you to commit/stash first if you have local edits).
+4. **Your Data Is Always Preserved:** Local SQLite databases (`src/db/*.db*`), proxy/Ollama/module configs (`src/config/*_config.json`), custom user presets (`*_user.json`, `useful_links.json`, `export_config.json`), downloaded `plantuml.jar` / 3GPP templates, and `output/` files are never overwritten.
+
+---
+
 ### 📊 3GPP Meetings & Specifications
 1. Navigate to the **Meetings** tab.
 2. Click **Sync All Meetings** to trigger the 3-Phase scraper. You can also use **Open Last Meeting** to instantly resume your previous working group session.
