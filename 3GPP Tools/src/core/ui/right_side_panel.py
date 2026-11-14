@@ -266,14 +266,16 @@ class RightSidePanel(QFrame):
         if mode not in VALID_MODES:
             raise ValueError(f"Unsupported right panel mode: {mode!r}")
         old = self._slots.get(mode)
-        if old is widget:
+        if old is widget and self.stack.indexOf(widget) >= 0:
+            if self._mode == mode:
+                self.stack.setCurrentWidget(widget)
             return
         idx = self.stack.indexOf(old) if old is not None else -1
-        if idx >= 0:
+        if idx >= 0 and old is not widget:
             self.stack.removeWidget(old)
             old.setParent(None)
             self.stack.insertWidget(idx, widget)
-        else:
+        elif self.stack.indexOf(widget) < 0:
             self.stack.addWidget(widget)
         self._slots[mode] = widget
         if self._mode == mode:
