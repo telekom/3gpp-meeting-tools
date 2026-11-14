@@ -66,10 +66,22 @@ class DragDropUI(QMainWindow):
         self._services_started = False  # Guard to prevent duplicate background starts
         self._visio_ready = True
         self._core_ready = True
+        self._assistant_docked = False
 
         logging.info("🏁 [STARTUP:UI] Starting _setup_ui()...")
         self._setup_ui()
         restore_shell_state(self)
+        if (
+            hasattr(self, "right_panel")
+            and self.right_panel.is_open
+            and self.right_panel.mode == MODE_ASSISTANT
+            and hasattr(self, "tabs")
+            and hasattr(self, "assistant_tab")
+            and self.tabs.currentWidget() is self.assistant_tab
+        ):
+            self.right_panel.close_panel()
+        else:
+            self._sync_assistant_dock_slot()
         logging.info("🏁 [STARTUP:UI] _setup_ui() finished successfully.")
 
         # ==========================================
@@ -293,6 +305,7 @@ class DragDropUI(QMainWindow):
         self.assistant_tab.open_spec_search_requested.connect(self._navigate_from_assistant_to_spec_search)
         self.assistant_tab.open_specs_requested.connect(self._navigate_from_assistant_to_specs)
         self.assistant_tab.open_protocol_requested.connect(self._navigate_from_assistant_to_protocols)
+        self.assistant_tab.undock_requested.connect(lambda: self._on_right_panel_promote(MODE_ASSISTANT))
 
         self.tabs.addTab(self.code_tab, "📝 PlantUML")
         self.tabs.addTab(self.batch_tab, "🔄 Visio && Office")
@@ -516,8 +529,41 @@ class DragDropUI(QMainWindow):
         if hasattr(self, "nav_rail"):
             self.nav_rail.set_active_index(index)
         active_widget = self.tabs.widget(index)
+        if active_widget is getattr(self, "assistant_tab", None) and getattr(self, "_assistant_docked", False):
+            self._set_assistant_docked(False)
+            if (
+                hasattr(self, "right_panel")
+                and self.right_panel.is_open
+                and self.right_panel.mode == MODE_ASSISTANT
+            ):
+                self.right_panel.close_panel()
         if hasattr(active_widget, 'ensure_loaded'):
             active_widget.ensure_loaded()
+
+    def _set_assistant_docked(self, docked: bool):
+        """Move single-instance AssistantTab body between full tab and RightSidePanel."""
+        if (
+            not hasattr(self, "assistant_tab")
+            or not hasattr(self.assistant_tab, "set_docked_mode")
+            or not hasattr(self, "right_panel")
+        ):
+            return
+        want = bool(docked)
+        if want == getattr(self, "_assistant_docked", False):
+            return
+        if want:
+            self.assistant_tab.set_docked_mode(True)
+            self.right_panel.set_slot_widget(MODE_ASSISTANT, self.assistant_tab.body_container)
+            self._assistant_docked = True
+        else:
+            self._assistant_docked = False
+            self.assistant_tab.restore_body_into_tab()
+
+    def _sync_assistant_dock_slot(self):
+        if not hasattr(self, "right_panel") or not hasattr(self, "_set_assistant_docked"):
+            return
+        want = bool(self.right_panel.is_open and self.right_panel.mode == MODE_ASSISTANT)
+        self._set_assistant_docked(want)
 
     def toggle_right_panel(self, mode: str):
         """Toggle or switch the contextual RightSidePanel (Assistant / Quick Spec Search)."""
@@ -541,6 +587,7 @@ class DragDropUI(QMainWindow):
             self.toast_manager.reposition()
 
     def _on_right_panel_state_changed(self, opened: bool):
+        self._sync_assistant_dock_slot()
         if hasattr(self, "right_panel") and hasattr(self, "workspace_splitter"):
             self.right_panel.apply_splitter_sizes(self.workspace_splitter)
         if hasattr(self, "status_bar") and hasattr(self, "right_panel"):
@@ -552,8 +599,11 @@ class DragDropUI(QMainWindow):
 
     def _on_right_panel_promote(self, mode: str):
         """Promote docked panel mode into its full workspace tab and close the dock."""
-        if mode == MODE_ASSISTANT and hasattr(self, "assistant_tab"):
-            self.tabs.setCurrentWidget(self.assistant_tab)
+        if mode == MODE_ASSISTANT:
+            if hasattr(self, "_set_assistant_docked"):
+                self._set_assistant_docked(False)
+            if hasattr(self, "assistant_tab"):
+                self.tabs.setCurrentWidget(self.assistant_tab)
         elif mode == MODE_SPEC_SEARCH and hasattr(self, "spec_search_tab"):
             self.tabs.setCurrentWidget(self.spec_search_tab)
         if hasattr(self, "right_panel"):
@@ -1308,7 +1358,7 @@ class DragDropUI(QMainWindow):
                         pass
 
         # 8. Shut down remaining feature tabs if they define shutdown or close.
-        for tab_name in ("spec_search_tab", "work_items_tab", "meetings_tab"):
+        for tab_name in ("spec_search_tab", "work_items_tab", "meetings_tab", "assistant_tab"):
             tab = getattr(self, tab_name, None)
             if tab is not None:
                 try:

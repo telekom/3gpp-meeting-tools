@@ -43,7 +43,7 @@ from modules.assistant.ui.assistant_components import (
     render_user_message_card,
 )
 from modules.assistant.ui.assistant_worker import AgentResearchWorker
-from core.ui.theme import C
+from core.ui.theme import C, R, S, T
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,8 @@ class AssistantTab(QWidget):
     open_spec_search_requested = pyqtSignal(str, str, str)  # (spec, version, clause)
     open_specs_requested = pyqtSignal(str, str)             # (spec, version)
     open_protocol_requested = pyqtSignal(str, str)          # (protocol, message)
+    undock_requested = pyqtSignal()
+    docked_changed = pyqtSignal(bool)
 
     def __init__(
         self,
@@ -80,21 +82,29 @@ class AssistantTab(QWidget):
         self._evidence: Dict[str, Evidence] = {}
         self._last_result: Optional[AgentResult] = None
         self._exchange_events: List[dict] = []
+        self._is_docked: bool = False
         self._setup_ui()
         # Explicit idle state; independent of Ollama monitor state.
         self._set_running(False)
-        self.status_label.setText("Ready")
+        self._set_status_text("Ready")
         self._refresh_ollama_status()
 
     def _setup_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(6)
+        self._host_layout = QVBoxLayout(self)
+        self._host_layout.setContentsMargins(10, 8, 10, 8)
+        self._host_layout.setSpacing(6)
+
+        # Single-instance reparentable workspace body (tab <-> RightSidePanel)
+        self.body_container = QWidget(self)
+        self.body_container.setObjectName("assistantBodyContainer")
+        self._body_layout = QVBoxLayout(self.body_container)
+        self._body_layout.setContentsMargins(0, 0, 0, 0)
+        self._body_layout.setSpacing(6)
 
         # ---------------------------------------------------------------------
         # Top Header Ribbon (Model Status, Session Actions, Layout Switcher)
         # ---------------------------------------------------------------------
-        self.ribbon_card = PageRibbonCard("3GPP Assistant", parent=self)
+        self.ribbon_card = PageRibbonCard("3GPP Assistant", parent=self.body_container)
 
         # Model status pill
         self.model_status_btn = QPushButton("⚪ Ollama: Checking...")
@@ -140,7 +150,61 @@ class AssistantTab(QWidget):
         self.layout_toggle_btn.clicked.connect(self._toggle_layout)
         self.ribbon_card.add_utility_widget(self.layout_toggle_btn)
 
-        layout.addWidget(self.ribbon_card)
+        self._body_layout.addWidget(self.ribbon_card)
+
+        # Slim docked status strip (shown instead of ribbon_card when docked)
+        self.dock_compact_strip = QFrame(self.body_container)
+        self.dock_compact_strip.setObjectName("assistantDockCompactStrip")
+        self.dock_compact_strip.setFixedHeight(32)
+        self.dock_compact_strip.setStyleSheet(
+            f"QFrame#assistantDockCompactStrip {{"
+            f" background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE};"
+            f" border-radius: {R.MD}px; }}"
+        )
+        strip_layout = QHBoxLayout(self.dock_compact_strip)
+        strip_layout.setContentsMargins(S.XS, 2, S.XS, 2)
+        strip_layout.setSpacing(S.XS)
+
+        self.dock_model_status_btn = QPushButton("⚪ Ollama", self.dock_compact_strip)
+        self.dock_model_status_btn.setStyleSheet(STATUS_PILL_NEUTRAL)
+        self.dock_model_status_btn.setCursor(Qt.PointingHandCursor)
+        self.dock_model_status_btn.setToolTip("Click to configure Ollama settings.")
+        self.dock_model_status_btn.clicked.connect(self._on_open_ollama_settings)
+        strip_layout.addWidget(self.dock_model_status_btn)
+
+        self.dock_status_label = QLabel("Ready", self.dock_compact_strip)
+        self.dock_status_label.setStyleSheet(
+            f"color: {C.TEXT_MUTED}; font-weight: 500; font-size: {T.SIZE_CAPTION}px;"
+        )
+        strip_layout.addWidget(self.dock_status_label)
+        strip_layout.addStretch(1)
+
+        self.dock_sources_toggle_btn = QPushButton("📚 Sources (0)", self.dock_compact_strip)
+        self.dock_sources_toggle_btn.setObjectName("dockSourcesToggleBtn")
+        self.dock_sources_toggle_btn.setCheckable(True)
+        self.dock_sources_toggle_btn.setCursor(Qt.PointingHandCursor)
+        self.dock_sources_toggle_btn.setToolTip("Show or hide retrieved sources and activity drawer.")
+        self.dock_sources_toggle_btn.setStyleSheet(
+            f"QPushButton#dockSourcesToggleBtn {{"
+            f" background-color: {C.BG_CARD}; color: {C.TEXT_PRIMARY};"
+            f" border: 1px solid {C.BORDER_SUBTLE}; border-radius: {R.SM}px;"
+            f" padding: 2px 8px; font-size: {T.SIZE_CAPTION}px; font-weight: 600; }}"
+            f"QPushButton#dockSourcesToggleBtn:checked {{"
+            f" background-color: {C.ACCENT_SOFT}; color: {C.ACCENT_PRIMARY};"
+            f" border-color: {C.ACCENT_PRIMARY}; }}"
+        )
+        self.dock_sources_toggle_btn.toggled.connect(self.set_cockpit_visible_in_dock)
+        strip_layout.addWidget(self.dock_sources_toggle_btn)
+
+        self.dock_new_chat_btn = QPushButton("New", self.dock_compact_strip)
+        self.dock_new_chat_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        apply_lucide_icon(self.dock_new_chat_btn, "plus")
+        self.dock_new_chat_btn.setToolTip("Clear conversation and start a new research session.")
+        self.dock_new_chat_btn.clicked.connect(self._on_new_chat)
+        strip_layout.addWidget(self.dock_new_chat_btn)
+
+        self.dock_compact_strip.setVisible(False)
+        self._body_layout.addWidget(self.dock_compact_strip)
 
         # ---------------------------------------------------------------------
         # Main Splitter (Left: Chat & Input, Right: Research Cockpit Drawer)
@@ -305,7 +369,107 @@ class AssistantTab(QWidget):
 
         # Default side-by-side sizes (65% Chat, 35% Drawer)
         self.main_splitter.setSizes([680, 420])
-        layout.addWidget(self.main_splitter, stretch=1)
+        self._body_layout.addWidget(self.main_splitter, stretch=1)
+
+        self._host_layout.addWidget(self.body_container, stretch=1)
+
+        # Placeholder shown in tab 8 only while Assistant body is docked on the right
+        self.docked_placeholder_card = QFrame(self)
+        self.docked_placeholder_card.setObjectName("assistantDockedPlaceholder")
+        self.docked_placeholder_card.setStyleSheet(CARD_FRAME_STYLE)
+        ph_layout = QVBoxLayout(self.docked_placeholder_card)
+        ph_layout.setContentsMargins(S.LG, S.LG, S.LG, S.LG)
+        ph_layout.setSpacing(S.SM)
+        ph_layout.addStretch(1)
+
+        ph_title = QLabel("Assistant is currently docked in the right side panel")
+        ph_title.setAlignment(Qt.AlignCenter)
+        ph_title.setStyleSheet(
+            f"color: {C.TEXT_STRONG}; font-family: {T.FONT_FAMILY_UI};"
+            f" font-size: {T.SIZE_SECTION_TITLE}px; font-weight: 600;"
+        )
+        ph_layout.addWidget(ph_title)
+
+        ph_sub = QLabel(
+            "Your active conversation, streaming progress, and evidence citations remain live in the side panel."
+        )
+        ph_sub.setWordWrap(True)
+        ph_sub.setAlignment(Qt.AlignCenter)
+        ph_sub.setStyleSheet(
+            f"color: {C.TEXT_MUTED}; font-family: {T.FONT_FAMILY_UI}; font-size: {T.SIZE_BODY}px;"
+        )
+        ph_layout.addWidget(ph_sub)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        self.return_to_tab_btn = QPushButton("Return Assistant to Full Tab")
+        self.return_to_tab_btn.setObjectName("primaryBtn")
+        apply_lucide_icon(self.return_to_tab_btn, "maximize-2", color=C.TEXT_ON_ACCENT)
+        self.return_to_tab_btn.clicked.connect(self.undock_requested.emit)
+        btn_row.addWidget(self.return_to_tab_btn)
+        btn_row.addStretch(1)
+        ph_layout.addLayout(btn_row)
+        ph_layout.addStretch(1)
+
+        self.docked_placeholder_card.setVisible(False)
+        self._host_layout.addWidget(self.docked_placeholder_card, stretch=1)
+
+    @property
+    def is_docked(self) -> bool:
+        return self._is_docked
+
+    def set_cockpit_visible_in_dock(self, visible: bool) -> None:
+        """Show or collapse the lower Sources/Activity drawer while in compact dock mode."""
+        visible = bool(visible)
+        if hasattr(self, "dock_sources_toggle_btn"):
+            self.dock_sources_toggle_btn.blockSignals(True)
+            self.dock_sources_toggle_btn.setChecked(visible)
+            self.dock_sources_toggle_btn.blockSignals(False)
+        self.cockpit_tabs.setVisible(visible)
+        if self._is_docked:
+            self.main_splitter.setOrientation(Qt.Vertical)
+            self.main_splitter.setSizes([380, 240] if visible else [600, 0])
+
+    def set_docked_mode(self, docked: bool) -> None:
+        """Toggle compact layout when Assistant body is hosted inside RightSidePanel."""
+        docked = bool(docked)
+        changed = docked != self._is_docked
+        self._is_docked = docked
+
+        self.ribbon_card.setVisible(not docked)
+        self.dock_compact_strip.setVisible(docked)
+        self.docked_placeholder_card.setVisible(docked)
+
+        if docked:
+            self._body_layout.setContentsMargins(S.XS, S.XS, S.XS, S.XS)
+            self.main_splitter.setOrientation(Qt.Vertical)
+            self.set_cockpit_visible_in_dock(False)
+        else:
+            self._body_layout.setContentsMargins(0, 0, 0, 0)
+            self.cockpit_tabs.setVisible(True)
+            self._toggle_layout(self.layout_toggle_btn.isChecked())
+
+        if changed:
+            self.docked_changed.emit(docked)
+
+    def restore_body_into_tab(self) -> None:
+        """Re-attach ``body_container`` into this tab and exit compact dock mode."""
+        if self._host_layout.indexOf(self.body_container) < 0:
+            self._host_layout.insertWidget(0, self.body_container, 1)
+        self.body_container.setVisible(True)
+        self.set_docked_mode(False)
+
+    def _set_status_text(self, text: str) -> None:
+        self.status_label.setText(text)
+        if hasattr(self, "dock_status_label"):
+            self.dock_status_label.setText(text)
+
+    def _update_source_counts(self) -> None:
+        count = len(self._evidence)
+        label = f"📚 Sources ({count})"
+        self.cockpit_tabs.setTabText(0, label)
+        if hasattr(self, "dock_sources_toggle_btn"):
+            self.dock_sources_toggle_btn.setText(label)
 
     def _toggle_layout(self, checked: bool) -> None:
         """Toggle between Side-by-Side (Horizontal) and Bottom Split (Vertical)."""
@@ -353,6 +517,8 @@ class AssistantTab(QWidget):
 
     def _select_evidence_by_id(self, eid: str) -> None:
         """Highlights the evidence row in sources tree, displays it in inspector, and switches to Sources tab."""
+        if self._is_docked and not self.cockpit_tabs.isVisible():
+            self.set_cockpit_visible_in_dock(True)
         self.cockpit_tabs.setCurrentIndex(0)  # Tab 0 is Sources
         for i in range(self.sources_tree.topLevelItemCount()):
             item = self.sources_tree.topLevelItem(i)
@@ -391,6 +557,10 @@ class AssistantTab(QWidget):
             logger.debug("Failed to query Ollama status: %s", exc)
             self.model_status_btn.setText("⚪ Ollama: Unknown")
             self.model_status_btn.setStyleSheet(STATUS_PILL_NEUTRAL)
+        if hasattr(self, "dock_model_status_btn"):
+            self.dock_model_status_btn.setText(self.model_status_btn.text())
+            self.dock_model_status_btn.setStyleSheet(self.model_status_btn.styleSheet())
+            self.dock_model_status_btn.setToolTip(self.model_status_btn.toolTip())
 
     def _on_open_ollama_settings(self) -> None:
         if self.receivers(self.open_ollama_settings_requested) > 0:
@@ -429,9 +599,9 @@ class AssistantTab(QWidget):
         self.evidence_inspector.set_evidence(None)
         self.diagnostics_widget.clear()
         self._update_activity_count()
-        self.cockpit_tabs.setTabText(0, "📚 Sources (0)")
+        self._update_source_counts()
         self.cockpit_tabs.setTabText(1, "⚡ Activity (0)")
-        self.status_label.setText("Ready")
+        self._set_status_text("Ready")
         self.starter_chips.setVisible(True)
         self.question_input.clear()
         self.question_input.setFocus()
@@ -522,7 +692,7 @@ class AssistantTab(QWidget):
         self.diagnostics_widget.clear()
         self._exchange_events.clear()
         self._update_activity_count()
-        self.cockpit_tabs.setTabText(0, "📚 Sources (0)")
+        self._update_source_counts()
         self.cockpit_tabs.setTabText(1, "⚡ Activity (0)")
 
         try:
@@ -558,12 +728,12 @@ class AssistantTab(QWidget):
         worker = self._worker
         if worker is None or not worker.isRunning():
             return
-        self.status_label.setText("Cancelling…")
+        self._set_status_text("Cancelling…")
         self.stop_btn.setEnabled(False)
         worker.request_cancel()
 
     def _on_research_started(self) -> None:
-        self.status_label.setText("Researching…")
+        self._set_status_text("Researching…")
 
     def _on_activity(self, activity: ResearchActivity) -> None:
         self._activities.append(activity)
@@ -573,7 +743,7 @@ class AssistantTab(QWidget):
     def _on_evidence(self, evidence: Evidence) -> None:
         self._evidence[evidence.id] = evidence
         self._add_source_row(evidence)
-        self.cockpit_tabs.setTabText(0, f"📚 Sources ({len(self._evidence)})")
+        self._update_source_counts()
         # Automatically display the first retrieved evidence in the inspector
         if len(self._evidence) == 1:
             self.evidence_inspector.set_evidence(evidence)
@@ -594,7 +764,7 @@ class AssistantTab(QWidget):
                 self._evidence[evidence.id] = evidence
                 self._add_source_row(evidence)
 
-        self.cockpit_tabs.setTabText(0, f"📚 Sources ({len(self._evidence)})")
+        self._update_source_counts()
         self.activity_widget.set_running(False)
 
         # Switch to Sources tab so user can explore evidence citations immediately
@@ -658,18 +828,18 @@ class AssistantTab(QWidget):
             for w in result.warnings:
                 self.conversation_browser.append(render_system_message_card(w, error=False))
 
-        self.status_label.setText("Ready")
+        self._set_status_text("Ready")
 
     def _on_cancelled(self, result) -> None:
         self.activity_widget.set_running(False)
         self._append_system_message("Research stopped.")
-        self.status_label.setText("Stopped")
+        self._set_status_text("Stopped")
 
     def _on_failed(self, message: str, result) -> None:
         self.activity_widget.set_running(False)
         logger.error("Assistant research failed: %s", message)
         self._append_system_message(message, error=True)
-        self.status_label.setText("Failed")
+        self._set_status_text("Failed")
 
     def _on_worker_finished(self) -> None:
         sender = self.sender()
@@ -683,7 +853,7 @@ class AssistantTab(QWidget):
         worker.deleteLater()
         self._worker = None
         if self.status_label.text() == "Cancelling…":
-            self.status_label.setText("Stopped")
+            self._set_status_text("Stopped")
 
     def shutdown(self, wait_ms: int = 500) -> None:
         """Request cooperative cancellation during application shutdown."""
