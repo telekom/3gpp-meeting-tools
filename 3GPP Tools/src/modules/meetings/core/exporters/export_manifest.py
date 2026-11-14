@@ -24,7 +24,7 @@ from modules.meetings.core.tdocs.tdoc_markdown_converter import sanitize_filenam
 logger = logging.getLogger(__name__)
 
 MANIFEST_FILENAME = ".export_manifest.json"
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 
 
 def _clean_for_json(obj: Any) -> Any:
@@ -183,6 +183,8 @@ class ExportManifest:
         last_updated_at: Optional[str] = None,
         sessions: Optional[List[Dict[str, Any]]] = None,
         tdocs: Optional[Dict[str, Dict[str, Any]]] = None,
+        exported_meetings: Optional[Dict[str, Dict[str, Any]]] = None,
+        exported_decisions: Optional[Dict[str, str]] = None,
         manifest_version: int = MANIFEST_VERSION,
     ):
         self.manifest_version = manifest_version
@@ -193,6 +195,8 @@ class ExportManifest:
         self.last_updated_at = last_updated_at or self.created_at
         self.sessions = sessions or []
         self.tdocs = tdocs or {}
+        self.exported_meetings = exported_meetings or {}
+        self.exported_decisions = exported_decisions or {}
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -203,6 +207,8 @@ class ExportManifest:
             "last_updated_at": self.last_updated_at,
             "sessions": _clean_for_json(self.sessions),
             "tdocs": _clean_for_json(self.tdocs),
+            "exported_meetings": _clean_for_json(self.exported_meetings),
+            "exported_decisions": _clean_for_json(self.exported_decisions),
         }
 
     @classmethod
@@ -214,7 +220,9 @@ class ExportManifest:
             last_updated_at=data.get("last_updated_at"),
             sessions=data.get("sessions", []),
             tdocs=data.get("tdocs", {}),
-            manifest_version=data.get("manifest_version", MANIFEST_VERSION),
+            exported_meetings=data.get("exported_meetings", {}),
+            exported_decisions=data.get("exported_decisions", {}),
+            manifest_version=data.get("manifest_version", 1),
         )
 
     def is_tdoc_exported(self, tdoc_id: str) -> bool:
@@ -223,30 +231,20 @@ class ExportManifest:
     def get_total_tdocs(self) -> int:
         return len(self.tdocs)
 
-    def record_session(
+    def is_decision_exported(self, decision_key: str) -> bool:
+        return str(decision_key) in self.exported_decisions
+
+    def record_decision(self, decision_key: str, rel_path: str) -> None:
+        self.exported_decisions[str(decision_key)] = str(rel_path or "").replace("\\", "/")
+
+    def register_tdoc_entries(
         self,
+        entries: List[Dict[str, Any]],
         session_id: int,
         timestamp: str,
-        scope_mode: str,
-        added_tdocs: List[str],
-        updated_tdocs: List[str],
-        added_entries: List[Dict[str, Any]],
     ) -> None:
-        """Records a new export session and updates registered TDoc metadata."""
-        label = "Initial Export" if session_id == 1 else f"Incremental Update #{session_id - 1}"
-        session_record = {
-            "session_id": session_id,
-            "timestamp": timestamp,
-            "label": label,
-            "scope_mode": scope_mode,
-            "added_tdocs": sorted(list(added_tdocs)),
-            "updated_tdocs": sorted(list(updated_tdocs)),
-            "total_tdocs": len(self.tdocs) + len(added_tdocs),
-        }
-        self.sessions.append(session_record)
-        self.last_updated_at = timestamp
-
-        for entry in added_entries:
+        """Upserts TDoc metadata entries into self.tdocs immediately (used by checkpoints and record_session)."""
+        for entry in entries:
             tid = str(entry.get("tdoc_id", "")).strip().upper()
             if not tid:
                 continue
@@ -273,6 +271,47 @@ class ExportManifest:
                 "sibling_replies": list(entry.get("sibling_replies", [])),
                 "row_data": entry.get("row_data", {}),
             }
+
+    def record_meeting_checkpoint(
+        self,
+        meeting_key: str,
+        checkpoint_data: Dict[str, Any],
+        entries: Optional[List[Dict[str, Any]]] = None,
+        session_id: int = 1,
+        timestamp: Optional[str] = None,
+    ) -> None:
+        """Records per-meeting completion status and registers processed TDocs immediately for resumability."""
+        ts = timestamp or datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.last_updated_at = ts
+        if entries:
+            self.register_tdoc_entries(entries, session_id=session_id, timestamp=ts)
+        payload = dict(checkpoint_data)
+        payload.setdefault("completed_at", ts)
+        self.exported_meetings[meeting_key] = payload
+
+    def record_session(
+        self,
+        session_id: int,
+        timestamp: str,
+        scope_mode: str,
+        added_tdocs: List[str],
+        updated_tdocs: List[str],
+        added_entries: List[Dict[str, Any]],
+    ) -> None:
+        """Records a new export session and updates registered TDoc metadata."""
+        label = "Initial Export" if session_id == 1 else f"Incremental Update #{session_id - 1}"
+        session_record = {
+            "session_id": session_id,
+            "timestamp": timestamp,
+            "label": label,
+            "scope_mode": scope_mode,
+            "added_tdocs": sorted(list(added_tdocs)),
+            "updated_tdocs": sorted(list(updated_tdocs)),
+            "total_tdocs": len(self.tdocs) + len(added_tdocs),
+        }
+        self.sessions.append(session_record)
+        self.last_updated_at = timestamp
+        self.register_tdoc_entries(added_entries, session_id=session_id, timestamp=timestamp)
 
 
 def get_manifest_path(export_dir: Path) -> Path:

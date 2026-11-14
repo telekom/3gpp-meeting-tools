@@ -33,6 +33,7 @@ class TopicDecision:
     dossier_rel_path: str = ""     # Relative link to .md file in dossier tree
     source_url: str = ""           # 3GPP Server download HTTPS URL
     notes: str = ""                # In-room discussion remarks or rapporteur action items
+    meeting_folder_id: str = ""    # Disambiguated meeting folder ID e.g. 'RAN3_133-bis', 'SA2_173'
 
     @property
     def is_text_agreement(self) -> bool:

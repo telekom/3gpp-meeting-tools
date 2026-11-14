@@ -229,7 +229,12 @@ class InputsCollectorThread(QThread):
                                 ai=ai_val,
                                 wi=wi_val,
                                 status=status,
-                                source_url=resolve_tdoc_download_url(tid, folder_name),
+                                source_url=resolve_tdoc_download_url(
+                                    tid,
+                                    docs_url=mtg.get("docs_folder_url"),
+                                    main_url=mtg.get("url_key"),
+                                    meta=mtg,
+                                ),
                             ))
 
                         is_ls = "ls" in t_type.lower() or "liaison" in t_type.lower()

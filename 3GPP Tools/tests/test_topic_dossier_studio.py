@@ -792,8 +792,8 @@ class TestTopicPillWidgets(unittest.TestCase):
             candidate_docs = [
                 {
                     "tdoc_id": "R2-2600942",
-                    "rel_path": "2026-Q1/RAN2_133/Discussion/R2-2600942.md",
-                    "abs_path": target_dir / "2026-Q1/RAN2_133/Discussion/R2-2600942.md",
+                    "rel_path": "RAN2/RAN2_133/Discussion/R2-2600942.md",
+                    "abs_path": target_dir / "RAN2/RAN2_133/Discussion/R2-2600942.md",
                 }
             ]
 
@@ -806,12 +806,13 @@ class TestTopicPillWidgets(unittest.TestCase):
                 title_or_summary="Agreements\n1 For data transfer, study both long-cycle and bursty traffic.",
                 tdoc_id="R2-2600942",
                 ai="10.3.2.1",
+                meeting_folder_id="RAN2_133",
             )
 
             rel_path = exporter._write_agreement_markdown(target_dir, dec, candidate_docs, seq=1)
-            expected_file = target_dir / "2026-Q1" / "RAN2_133" / "Agreements" / "Agreement_R2-2600942.md"
+            expected_file = target_dir / "RAN2" / "RAN2_133" / "Agreements" / "Agreement_R2-2600942.md"
             self.assertTrue(expected_file.is_file())
-            self.assertEqual(rel_path, "2026-Q1/RAN2_133/Agreements/Agreement_R2-2600942.md")
+            self.assertEqual(rel_path, "RAN2/RAN2_133/Agreements/Agreement_R2-2600942.md")
 
             content = expected_file.read_text(encoding="utf-8")
             self.assertIn("# 📜 3GPP Text Agreement: RAN2 #133 (AI 10.3.2.1)", content)
@@ -1041,6 +1042,272 @@ class TestTopicPillWidgets(unittest.TestCase):
             mock_exp_cls.assert_called_once()
             _, kwargs = mock_exp_cls.call_args
             self.assertTrue(kwargs.get("allow_network_download", False))
+
+
+class TestTopicDossierRefactorAndDigests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.cache_dir = self.temp_dir / "cache"
+        self.export_dir = self.temp_dir / "export"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.export_dir.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_resolve_meeting_folder_id_disambiguates_bis_and_ahe(self):
+        from modules.meetings.core.exporters.topic_digest_builder import resolve_meeting_folder_id
+        self.assertEqual(
+            resolve_meeting_folder_id({"wg_name": "RAN3", "meeting_number": "133", "folder_name": "TSGR3_133"}),
+            "RAN3_133",
+        )
+        self.assertEqual(
+            resolve_meeting_folder_id({"wg_name": "RAN3", "meeting_number": "133", "folder_name": "TSGR3_133-bis"}),
+            "RAN3_133-bis",
+        )
+        self.assertEqual(
+            resolve_meeting_folder_id({"wg_name": "RAN2", "meeting_number": "133BIS", "folder_name": "TSGR2_133bis"}),
+            "RAN2_133BIS",
+        )
+        self.assertEqual(
+            resolve_meeting_folder_id({"wg_name": "SA2", "meeting_number": "175", "folder_name": "TSGS2_175_AHE"}),
+            "SA2_175-AHE",
+        )
+
+    def test_canonical_cache_reuse_skips_download_and_rewrites_media_links(self):
+        from unittest.mock import MagicMock, patch
+        from modules.meetings.core.exporters.topic_dossier_exporter import TopicDossierExporterThread
+        from modules.meetings.core.exporters.export_manifest import is_export_complete
+        from modules.meetings.core.tdocs.tdoc_markdown_converter import CONVERTER_VERSION
+
+        # Seed canonical cache for TSGR2_133/R2-2600942/R2-2600942.md + media/fig1.png
+        mtg_cache = self.cache_dir / "TSGR2_133"
+        tdoc_cache = mtg_cache / "R2-2600942"
+        (tdoc_cache / "media").mkdir(parents=True, exist_ok=True)
+        (tdoc_cache / "media" / "fig1.png").write_bytes(b"\x89PNG\r\n\x1a\nFAKEPNG")
+        (tdoc_cache / "R2-2600942.md").write_text(
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=markup --->\n"
+            "# R2-2600942: Framework Discussion\n"
+            "- **Source:** Nokia\n\n---\n\n"
+            "## 1. Introduction\nWe propose E2E framework.\n\n"
+            "![Arch](media/fig1.png)\n",
+            encoding="utf-8",
+        )
+
+        topic = MetaTopicDefinition(
+            id="t_cache",
+            name="Data Framework",
+            target_wgs=["RAN2"],
+            rules=MetaTopicRules(wi_tokens=["fs_6g_df"]),
+        )
+        cohort = MeetingCohort(
+            key="2026-Q1", year=2026, quarter=1, label="Feb 2026 Meeting Round",
+            meetings=[{"wg_name": "RAN2", "meeting_number": "133", "start_date": "2026-02-09", "folder_name": "TSGR2_133"}],
+            wgs_present={"RAN2"},
+        )
+        exporter = TopicDossierExporterThread(
+            meetings_db=MagicMock(),
+            topic=topic,
+            selected_cohorts=[cohort],
+            output_base_dir=self.export_dir,
+            target_folder_name="TopicCacheTest",
+            allow_network_download=True,
+        )
+
+        with patch.object(exporter, "_get_meeting_dir", return_value=mtg_cache), \
+             patch.object(exporter, "_load_meeting_tdocs", return_value=[
+                 {"TDoc": "R2-2600942", "Title": "Framework Discussion", "AI": "10.3.2", "Related WIs": "FS_6G_DF", "Type": "Discussion", "Status": "Noted", "Source": "Nokia"}
+             ]), \
+             patch.object(exporter, "_load_meeting_agreements", return_value=[]), \
+             patch.object(exporter, "_find_or_download_tdoc_file") as mock_dl:
+
+            exporter._run_export()
+            mock_dl.assert_not_called()
+
+        dest_md = self.export_dir / "TopicCacheTest" / "RAN2" / "RAN2_133" / "Discussion" / "R2-2600942.md"
+        dest_img = self.export_dir / "TopicCacheTest" / "RAN2" / "RAN2_133" / "Discussion" / "R2-2600942_media" / "fig1.png"
+        self.assertTrue(dest_md.is_file())
+        self.assertTrue(dest_img.is_file())
+        content = dest_md.read_text(encoding="utf-8")
+        self.assertIn("![Arch](R2-2600942_media/fig1.png)", content)
+        self.assertNotIn("](media/fig1.png)", content)
+        self.assertTrue(is_export_complete(dest_md))
+
+    def test_conversion_writes_back_to_canonical_cache(self):
+        from unittest.mock import MagicMock, patch
+        from types import SimpleNamespace
+        from modules.meetings.core.exporters.topic_dossier_exporter import TopicDossierExporterThread
+        from modules.meetings.core.tdocs.tdoc_markdown_converter import CONVERTER_VERSION
+
+        mtg_cache = self.cache_dir / "TSGR2_133"
+        src_folder = mtg_cache / "R2-2600999"
+        src_folder.mkdir(parents=True, exist_ok=True)
+        fake_docx = src_folder / "R2-2600999r01.docx"
+        fake_docx.write_bytes(b"PK\x03\x04FAKEDOCX")
+
+        topic = MetaTopicDefinition(
+            id="t_wb", name="Writeback Test", target_wgs=["RAN2"], rules=MetaTopicRules(wi_tokens=["fs_6g_df"])
+        )
+        cohort = MeetingCohort(
+            key="2026-Q1", year=2026, quarter=1, label="Feb 2026 Meeting Round",
+            meetings=[{
+                "wg_name": "RAN2", "meeting_number": "133", "start_date": "2026-02-09",
+                "folder_name": "TSGR2_133", "docs_folder_url": "https://www.3gpp.org/ftp/tsg_ran/WG2_RL2/TSGR2_133/Docs",
+            }],
+            wgs_present={"RAN2"},
+        )
+        exporter = TopicDossierExporterThread(
+            meetings_db=MagicMock(),
+            topic=topic,
+            selected_cohorts=[cohort],
+            output_base_dir=self.export_dir,
+            target_folder_name="WritebackTest",
+        )
+
+        def fake_convert(**kwargs):
+            out_dir = Path(kwargs["out_dir"])
+            m_dir = Path(kwargs["media_dir"])
+            m_dir.mkdir(parents=True, exist_ok=True)
+            (m_dir / "chart.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+            md_p = out_dir / f"{kwargs['tdoc_id']}.md"
+            md_p.write_text(
+                f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=markup --->\n"
+                f"# {kwargs['tdoc_id']}: Proposal\n- **3GPP Server URL:** [{kwargs['tdoc_url']}]({kwargs['tdoc_url']})\n\n---\n\n"
+                f"## Proposal 1\nUse option B.\n![C]({kwargs['media_rel']}/chart.png)\n",
+                encoding="utf-8",
+            )
+            return SimpleNamespace(md_path=md_p)
+
+        with patch.object(exporter, "_get_meeting_dir", return_value=mtg_cache), \
+             patch.object(exporter, "_load_meeting_tdocs", return_value=[
+                 {"TDoc": "R2-2600999r01", "Title": "Proposal", "AI": "10.3.2", "Related WIs": "FS_6G_DF", "Type": "Discussion", "Status": "Noted", "Source": "Ericsson"}
+             ]), \
+             patch.object(exporter, "_load_meeting_agreements", return_value=[]), \
+             patch("modules.meetings.core.exporters.topic_dossier_exporter.convert_document_to_markdown", side_effect=fake_convert):
+
+            exporter._run_export()
+
+        canon_md = mtg_cache / "R2-2600999" / "R2-2600999r01.md"
+        topic_md = self.export_dir / "WritebackTest" / "RAN2" / "RAN2_133" / "Discussion" / "R2-2600999r01.md"
+        self.assertTrue(canon_md.is_file(), "Must write back converted .md to canonical base_tdoc cache folder")
+        self.assertIn("media/chart.png", canon_md.read_text(encoding="utf-8"))
+        self.assertIn("/INBOX/Revisions/R2-2600999r01.zip", canon_md.read_text(encoding="utf-8"))
+        self.assertTrue(topic_md.is_file())
+        self.assertIn("R2-2600999r01_media/chart.png", topic_md.read_text(encoding="utf-8"))
+
+    def test_sa2_chair_notes_excluded_and_revision_dedup_and_digests_and_checkpoints(self):
+        from unittest.mock import MagicMock, patch
+        from modules.meetings.core.exporters.topic_dossier_exporter import TopicDossierExporterThread
+        from modules.meetings.core.exporters.export_manifest import load_manifest
+
+        # Create a real SA2 chair_notes_cache.json containing chair triage instructions (must be ignored!)
+        sa2_cache = self.cache_dir / "TSGS2_173"
+        (sa2_cache / "Agenda").mkdir(parents=True, exist_ok=True)
+        (sa2_cache / "Agenda" / "chair_notes_cache.json").write_text(
+            json.dumps({
+                "version": 2,
+                "agreements": [
+                    {"text": "Merge into S2-2609911", "ai": "20.6.21", "decision_type": "Agreement", "wi": "FS_6G_DF"}
+                ],
+            }),
+            encoding="utf-8",
+        )
+
+        topic = MetaTopicDefinition(
+            id="t_full", name="Data Framework", target_wgs=["SA2", "RAN3"], rules=MetaTopicRules(wi_tokens=["fs_6g_df"])
+        )
+        cohort = MeetingCohort(
+            key="2026-Q3", year=2026, quarter=3, label="Aug 2026 Meeting Round",
+            meetings=[
+                {"wg_name": "SA2", "meeting_number": "173", "start_date": "2026-08-17", "folder_name": "TSGS2_173"},
+                {"wg_name": "RAN3", "meeting_number": "133", "start_date": "2026-08-20", "folder_name": "TSGR3_133"},
+                {"wg_name": "RAN3", "meeting_number": "133", "start_date": "2026-10-12", "folder_name": "TSGR3_133-bis"},
+            ],
+            wgs_present={"SA2", "RAN3"},
+        )
+
+        # Exporter with dedup=True and include_discussions=False
+        exporter = TopicDossierExporterThread(
+            meetings_db=MagicMock(),
+            topic=topic,
+            selected_cohorts=[cohort],
+            output_base_dir=self.export_dir,
+            target_folder_name="FullPipelineTest",
+            include_discussions=False,
+            deduplicate_revisions=True,
+            allow_network_download=False,
+        )
+
+        # Verify _load_meeting_agreements skips SA2 chair notes
+        with patch.object(exporter, "_get_meeting_dir", return_value=sa2_cache):
+            self.assertEqual(exporter._load_meeting_agreements({"wg_name": "SA2", "folder_name": "TSGS2_173"}), [])
+
+        def fake_tdocs(mtg):
+            fn = mtg.get("folder_name")
+            if fn == "TSGS2_173":
+                return [
+                    {"TDoc": "S2-2601000", "Title": "pCR v0", "AI": "20.6.21", "Related WIs": "FS_6G_DF", "Type": "pCR", "Status": "Revised", "Revised to": "S2-2601000r01", "Source": "Nokia, Ericsson"},
+                    {"TDoc": "S2-2601000r01", "Title": "pCR v1", "AI": "20.6.21", "Related WIs": "FS_6G_DF", "Type": "pCR", "Status": "Agreed", "Is revision of": "S2-2601000", "Source": "Nokia, [Ericsson?]"},
+                    {"TDoc": "S2-2601002", "Title": "Random discussion", "AI": "20.6.21", "Related WIs": "FS_6G_DF", "Type": "Discussion", "Status": "Noted", "Source": "Huawei"},
+                ]
+            if fn == "TSGR3_133":
+                return [
+                    {"TDoc": "R3-2602001", "Title": "LS to SA2", "AI": "10.2.3", "Related WIs": "FS_6G_DF", "Type": "LS out", "Status": "Approved", "Source": "RAN3"},
+                ]
+            return [
+                {"TDoc": "R3-2603001", "Title": "Bis Agreed WF", "AI": "10.2.3", "Related WIs": "FS_6G_DF", "Type": "WF", "Status": "Agreed", "Source": "Qualcomm"},
+            ]
+
+        with patch.object(exporter, "_get_meeting_dir", return_value=None), \
+             patch.object(exporter, "_load_meeting_tdocs", side_effect=fake_tdocs), \
+             patch.object(exporter, "_load_meeting_agreements", side_effect=lambda m: [{"text": "RAN3 Agreement 1", "ai": "10.2.3", "wi": "FS_6G_DF"}] if m["wg_name"] == "RAN3" and m["folder_name"] == "TSGR3_133" else []):
+
+            exporter._run_export()
+
+        root = self.export_dir / "FullPipelineTest"
+        # Disambiguated -bis directories exist without colliding
+        self.assertTrue((root / "RAN3" / "RAN3_133" / "_meeting_brief.md").is_file())
+        self.assertTrue((root / "RAN3" / "RAN3_133-bis" / "_meeting_brief.md").is_file())
+        self.assertTrue((root / "SA2" / "SA2_173" / "_company_positions_input.md").is_file())
+        self.assertTrue((root / "company_positions_e2e_prompt.md").is_file())
+
+        # Revision dedup removed S2-2601000, discussion filter removed S2-2601002, kept S2-2601000r01
+        self.assertFalse((root / "SA2" / "SA2_173" / "pCR" / "S2-2601000.md").exists())
+        self.assertFalse((root / "SA2" / "SA2_173" / "Discussion" / "S2-2601002.md").exists())
+        self.assertTrue((root / "SA2" / "SA2_173" / "pCR" / "S2-2601000r01.md").is_file())
+
+        # Check CompanySanitizer carry-over attribution warning in digest
+        sa2_digest = (root / "SA2" / "SA2_173" / "_company_positions_input.md").read_text(encoding="utf-8")
+        self.assertIn("S2-2601000r01", sa2_digest)
+        self.assertIn("Supersedes S2-2601000", sa2_digest)
+        self.assertIn("carry-over co-sponsors", sa2_digest)
+
+        # Check manifest v2 checkpoints
+        m = load_manifest(root)
+        self.assertIsNotNone(m)
+        self.assertIn("SA2/SA2_173", m.exported_meetings)
+        self.assertIn("RAN3/RAN3_133", m.exported_meetings)
+        self.assertIn("RAN3/RAN3_133-bis", m.exported_meetings)
+        self.assertGreaterEqual(len(m.exported_decisions), 3)
+
+        # Session 2 with identical data should report 0 new decisions in delta_session_2.md
+        exporter2 = TopicDossierExporterThread(
+            meetings_db=MagicMock(),
+            topic=topic,
+            selected_cohorts=[cohort],
+            output_base_dir=self.export_dir,
+            target_folder_name="FullPipelineTest",
+            include_discussions=False,
+            deduplicate_revisions=True,
+            allow_network_download=False,
+        )
+        with patch.object(exporter2, "_get_meeting_dir", return_value=None), \
+             patch.object(exporter2, "_load_meeting_tdocs", side_effect=fake_tdocs), \
+             patch.object(exporter2, "_load_meeting_agreements", side_effect=lambda m: [{"text": "RAN3 Agreement 1", "ai": "10.2.3", "wi": "FS_6G_DF"}] if m["wg_name"] == "RAN3" and m["folder_name"] == "TSGR3_133" else []):
+            exporter2._run_export()
+
+        delta2 = (root / "deltas" / "delta_session_2.md").read_text(encoding="utf-8")
+        self.assertIn("No new decisions recorded in this session", delta2)
 
 
 if __name__ == "__main__":
