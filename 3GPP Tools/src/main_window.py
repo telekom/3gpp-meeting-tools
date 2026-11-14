@@ -46,6 +46,7 @@ from modules.word_tools.ui.word_tabs import WordExtractorTab
 from modules.work_items.ui.ui_tabs import WorkItemsTab
 from modules.nas.ui.nas_tabs import NASTab
 from modules.assistant.ui.assistant_tab import AssistantTab
+from modules.spec_search.ui.quick_search_panel import QuickSpecSearchPanel
 from core.ai.ollama_client import OllamaClient, OllamaMonitorThread
 from core.ai.ollama_dialog import OllamaConfigDialog
 from modules.puml2visio.ui.java_dialog import JavaMaintenanceDialog
@@ -385,6 +386,18 @@ class DragDropUI(QMainWindow):
         self.workspace_splitter.setChildrenCollapsible(False)
         self.workspace_splitter.setHandleWidth(4)
         self.right_panel = RightSidePanel(self)
+        self.quick_search_panel = QuickSpecSearchPanel(
+            get_project_root() / "db" / "3gpp_spec_search.db",
+            self,
+        )
+        self.quick_search_panel.open_in_spec_search_requested.connect(
+            self._navigate_from_quick_search_to_spec_search
+        )
+        self.quick_search_panel.open_in_specs_requested.connect(
+            self._navigate_from_search_to_specs
+        )
+        self.right_panel.set_slot_widget(MODE_SPEC_SEARCH, self.quick_search_panel)
+
         self.workspace_splitter.addWidget(self.splitter)
         self.workspace_splitter.addWidget(self.right_panel)
         self.workspace_splitter.setStretchFactor(0, 1)
@@ -588,6 +601,14 @@ class DragDropUI(QMainWindow):
 
     def _on_right_panel_state_changed(self, opened: bool):
         self._sync_assistant_dock_slot()
+        if (
+            opened
+            and hasattr(self, "right_panel")
+            and self.right_panel.mode == MODE_SPEC_SEARCH
+            and hasattr(self, "quick_search_panel")
+        ):
+            self.quick_search_panel.refresh_versions()
+            QTimer.singleShot(0, self.quick_search_panel.focus_input)
         if hasattr(self, "right_panel") and hasattr(self, "workspace_splitter"):
             self.right_panel.apply_splitter_sizes(self.workspace_splitter)
         if hasattr(self, "status_bar") and hasattr(self, "right_panel"):
@@ -606,8 +627,26 @@ class DragDropUI(QMainWindow):
                 self.tabs.setCurrentWidget(self.assistant_tab)
         elif mode == MODE_SPEC_SEARCH and hasattr(self, "spec_search_tab"):
             self.tabs.setCurrentWidget(self.spec_search_tab)
+            if hasattr(self, "quick_search_panel"):
+                q = self.quick_search_panel.current_query()
+                if q and hasattr(self.spec_search_tab, "search_input"):
+                    self.spec_search_tab.search_input.setText(q)
         if hasattr(self, "right_panel"):
             self.right_panel.close_panel()
+
+    def _navigate_from_quick_search_to_spec_search(self, spec_number: str, version: str, clause: str):
+        """Switch to full Spec Search tab and focus spec, version, clause, and query."""
+        self.tabs.setCurrentWidget(self.spec_search_tab)
+        if spec_number:
+            self.spec_search_tab.focus_spec(spec_number, version)
+        if clause and hasattr(self.spec_search_tab, "clause_filter_input"):
+            self.spec_search_tab.clause_filter_input.setText(clause)
+        if hasattr(self, "quick_search_panel"):
+            q = self.quick_search_panel.current_query()
+            if q and hasattr(self.spec_search_tab, "search_input"):
+                self.spec_search_tab.search_input.setText(q)
+        if hasattr(self.spec_search_tab, "_execute_search"):
+            self.spec_search_tab._execute_search()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1357,8 +1396,8 @@ class DragDropUI(QMainWindow):
                     except Exception:
                         pass
 
-        # 8. Shut down remaining feature tabs if they define shutdown or close.
-        for tab_name in ("spec_search_tab", "work_items_tab", "meetings_tab", "assistant_tab"):
+        # 8. Shut down remaining feature tabs and docked panels if they define shutdown or close.
+        for tab_name in ("quick_search_panel", "spec_search_tab", "work_items_tab", "meetings_tab", "assistant_tab"):
             tab = getattr(self, tab_name, None)
             if tab is not None:
                 try:
