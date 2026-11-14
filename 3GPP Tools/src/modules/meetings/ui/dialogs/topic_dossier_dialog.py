@@ -99,33 +99,6 @@ STYLE_SECONDARY_BTN = f"""
     }}
 """
 
-STYLE_MODE_ACTIVE = f"""
-    QPushButton {{
-        background-color: {C.ACCENT_ALT};
-        color: {C.BG_CARD};
-        font-weight: bold;
-        border: 1px solid {C.INFO};
-        border-radius: 6px;
-        padding: 6px 12px;
-        font-size: 11px;
-    }}
-"""
-
-STYLE_MODE_INACTIVE = f"""
-    QPushButton {{
-        background-color: {C.BG_CARD};
-        color: {C.TEXT_SECONDARY};
-        border: 1px solid {C.BORDER_STRONG};
-        border-radius: 6px;
-        padding: 6px 12px;
-        font-size: 11px;
-    }}
-    QPushButton:hover {{
-        background-color: {C.BG_SURFACE};
-        color: {C.TEXT_PRIMARY};
-    }}
-"""
-
 
 class TopicEditorDialog(QDialog):
     """Sub-dialog to create or edit a MetaTopicDefinition."""
@@ -415,7 +388,6 @@ class TopicDossierDialog(QDialog):
         self.topic_manager = MetaTopicManager()
         self.active_topic: Optional[MetaTopicDefinition] = None
         self.selected_cohorts: List[MeetingCohort] = []
-        self.scope_mode = "pre_meeting"  # "pre_meeting", "post_meeting", "full_dossier"
         self._worker: Optional[TopicDossierExporterThread] = None
 
         self._init_ui()
@@ -514,21 +486,7 @@ class TopicDossierDialog(QDialog):
         self.lbl_topic_desc.setWordWrap(True)
         right_layout.addWidget(self.lbl_topic_desc)
 
-        # 2. Scope Mode Segmented Bar
-        mode_box = QGroupBox("Temporal Perspective / Scope Mode")
-        mode_layout = QHBoxLayout(mode_box)
-        self.btn_mode_pre = QPushButton("🧭 Pre-Meeting Briefing\n(Where are we? + What is coming?)")
-        self.btn_mode_pre.clicked.connect(lambda: self._set_scope_mode("pre_meeting"))
-        self.btn_mode_post = QPushButton("📑 Post-Meeting Report\n(What was agreed/decided?)")
-        self.btn_mode_post.clicked.connect(lambda: self._set_scope_mode("post_meeting"))
-        self.btn_mode_full = QPushButton("📚 Complete Feature Dossier\n(Full baseline + all documents)")
-        self.btn_mode_full.clicked.connect(lambda: self._set_scope_mode("full_dossier"))
-        mode_layout.addWidget(self.btn_mode_pre)
-        mode_layout.addWidget(self.btn_mode_post)
-        mode_layout.addWidget(self.btn_mode_full)
-        right_layout.addWidget(mode_box)
-
-        # 3. Meeting Scope & Timeframe Picker
+        # 2. Meeting Scope & Timeframe Picker
         cycle_box = QGroupBox("Meeting Scope && Timeframe")
         cycle_layout = QGridLayout(cycle_box)
 
@@ -597,11 +555,15 @@ class TopicDossierDialog(QDialog):
         dest_layout.addWidget(self.lbl_inc_status, 1, 0, 1, 3)
         right_layout.addWidget(dest_box)
 
-        # 5. Conversion Options
-        opt_box = QGroupBox("Options")
+        # 4. Conversion Options
+        opt_box = QGroupBox("Dossier Content && Options")
         opt_layout = QHBoxLayout(opt_box)
         self.chk_discussions = QCheckBox("Include Discussion Papers && WFs")
         self.chk_discussions.setChecked(True)
+        self.chk_discussions.setToolTip(
+            "Include non-agreed Discussion papers and Way Forwards alongside binding decisions and LSs "
+            "(recommended for E2E company position tracking; uncheck for a lightweight Decisions/CRs/LSs baseline)."
+        )
         opt_layout.addWidget(self.chk_discussions)
 
         self.chk_dedup = QCheckBox("Deduplicate Revisions")
@@ -650,8 +612,6 @@ class TopicDossierDialog(QDialog):
 
         right_layout.addLayout(action_layout)
         root_layout.addWidget(right_frame)
-
-        self._set_scope_mode("pre_meeting")
 
     def _load_topics_list(self, preferred_id: Optional[str] = None, preferred_index: Optional[int] = None):
         self.list_topics.blockSignals(True)
@@ -723,12 +683,6 @@ class TopicDossierDialog(QDialog):
             self.btn_export.setEnabled(False)
             if hasattr(self, "btn_view_inputs"):
                 self.btn_view_inputs.setEnabled(False)
-
-    def _set_scope_mode(self, mode: str):
-        self.scope_mode = mode
-        self.btn_mode_pre.setStyleSheet(STYLE_MODE_ACTIVE if mode == "pre_meeting" else STYLE_MODE_INACTIVE)
-        self.btn_mode_post.setStyleSheet(STYLE_MODE_ACTIVE if mode == "post_meeting" else STYLE_MODE_INACTIVE)
-        self.btn_mode_full.setStyleSheet(STYLE_MODE_ACTIVE if mode == "full_dossier" else STYLE_MODE_INACTIVE)
 
     def _on_timeframe_preset_changed(self, idx: int):
         is_custom = (idx == 6)  # "📅 Custom Date Range..."
@@ -894,7 +848,7 @@ class TopicDossierDialog(QDialog):
             meetings_db=self.meetings_db,
             topic=self.active_topic,
             selected_rounds=self.selected_cohorts,
-            scope_mode=self.scope_mode,
+            scope_mode="full_dossier",
             timeframe_label=tf_label,
             parent=None,
         )
@@ -925,7 +879,7 @@ class TopicDossierDialog(QDialog):
             meetings_db=self.meetings_db,
             topic=self.active_topic,
             selected_cohorts=self.selected_cohorts,
-            export_scope_mode=self.scope_mode,
+            export_scope_mode="full_dossier",
             output_base_dir=parent_dir,
             target_folder_name=target_name,
             include_discussions=self.chk_discussions.isChecked(),

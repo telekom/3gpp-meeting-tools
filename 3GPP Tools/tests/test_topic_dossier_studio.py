@@ -1288,7 +1288,12 @@ class TestTopicDossierRefactorAndDigests(unittest.TestCase):
         self.assertIn("SA2/SA2_173", m.exported_meetings)
         self.assertIn("RAN3/RAN3_133", m.exported_meetings)
         self.assertIn("RAN3/RAN3_133-bis", m.exported_meetings)
+        self.assertEqual(m.exported_meetings["SA2/SA2_173"].get("lifecycle"), "concluded")
         self.assertGreaterEqual(len(m.exported_decisions), 3)
+
+        index_md = (root / "index.md").read_text(encoding="utf-8")
+        self.assertIn("| State |", index_md)
+        self.assertIn("✅ Concluded", index_md)
 
         # Session 2 with identical data should report 0 new decisions in delta_session_2.md
         exporter2 = TopicDossierExporterThread(
@@ -1335,6 +1340,223 @@ class TestTopicDossierRefactorAndDigests(unittest.TestCase):
             self.assertEqual(mock_open.call_args[0][0].resolve(), existing_dir.resolve())
 
         dlg.close()
+
+    def test_dialog_unified_no_scope_mode_bar(self):
+        from unittest.mock import MagicMock
+        from PyQt5.QtWidgets import QApplication
+        from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
+
+        app = QApplication.instance() or QApplication([])
+        dlg = TopicDossierDialog(meetings_db=MagicMock(), parent=None)
+        self.assertFalse(hasattr(dlg, "btn_mode_pre"))
+        self.assertFalse(hasattr(dlg, "btn_mode_post"))
+        self.assertFalse(hasattr(dlg, "btn_mode_full"))
+        self.assertFalse(hasattr(dlg, "scope_mode"))
+        self.assertTrue(hasattr(dlg, "chk_discussions"))
+        dlg.close()
+
+    def test_classify_meeting_lifecycle_and_brought_decided_linking(self):
+        from modules.meetings.core.exporters.topic_digest_builder import (
+            classify_meeting_lifecycle,
+            write_company_positions_input,
+            write_meeting_brief,
+            write_e2e_synthesis_prompt,
+        )
+
+        # 1. Concluded RAN2 meeting: R2-2601018 is Status='Noted' yet cited in Chairman's Notes agreement!
+        mtg_concluded = {
+            "wg_name": "RAN2",
+            "meeting_number": "133",
+            "folder_name": "TSGR2_133",
+            "start_date": "2026-02-09",
+            "end_date": "2026-02-13",
+        }
+        decisions_concluded = [
+            TopicDecision(
+                cohort_key="2026-Q1",
+                wg="RAN2",
+                meeting_number="133",
+                date="2026-02-09",
+                decision_type="Text Agreement",
+                title_or_summary="Agreements\nData transfer supports relaxed latency use cases.",
+                tdoc_id="R2-2601018",
+                source="Chairman Notes",
+                ai="10.3.3.1",
+                status="Agreed",
+                dossier_rel_path="RAN2/RAN2_133/Agreement_10_3_3_1_01.md",
+                meeting_folder_id="RAN2_133",
+            )
+        ]
+        tdoc_a = self.temp_dir / "R2-2601018.md"
+        tdoc_a.write_text("# R2-2601018\n\n## Proposals\nProposal 1: Support relaxed latency.\n", encoding="utf-8")
+        candidates_concluded = [
+            {
+                "tdoc_id": "R2-2601018",
+                "title": "Latency categories for data framework",
+                "type": "Discussion",
+                "ai": "10.3.3.1",
+                "status": "Noted",
+                "source": "VendorA",
+                "category": "Discussion",
+                "rel_path": "RAN2/RAN2_133/Discussion/R2-2601018.md",
+                "abs_path": tdoc_a,
+                "supersedes": [],
+                "row_data": {},
+            },
+            {
+                "tdoc_id": "R2-2601099",
+                "title": "Alternative non-adopted proposal",
+                "type": "Discussion",
+                "ai": "10.3.3.1",
+                "status": "Noted",
+                "source": "VendorB",
+                "category": "Discussion",
+                "rel_path": "RAN2/RAN2_133/Discussion/R2-2601099.md",
+                "abs_path": None,
+                "supersedes": [],
+                "row_data": {},
+            },
+            {
+                "tdoc_id": "R2-2601100",
+                "title": "Revised draft",
+                "type": "Discussion",
+                "ai": "10.3.3.1",
+                "status": "Revised",
+                "source": "VendorC",
+                "category": "Discussion",
+                "rel_path": "RAN2/RAN2_133/Discussion/R2-2601100.md",
+                "abs_path": None,
+                "supersedes": [],
+                "row_data": {},
+            },
+        ]
+
+        self.assertEqual(
+            classify_meeting_lifecycle(mtg_concluded, decisions_concluded, candidates_concluded),
+            "concluded",
+        )
+
+        m_dir = self.temp_dir / "RAN2" / "RAN2_133"
+        brief_p = write_meeting_brief(
+            meeting_dir=m_dir,
+            topic_name="Data Framework",
+            cohort_label="Feb 2026 Round",
+            mtg=mtg_concluded,
+            meeting_folder_id="RAN2_133",
+            decisions=decisions_concluded,
+            candidates=candidates_concluded,
+            lifecycle="concluded",
+        )
+        brief_txt = brief_p.read_text(encoding="utf-8")
+        self.assertIn("✅ Concluded", brief_txt)
+        self.assertIn("3 Brought → 1 Cited in Agreement, 0 Approved / Agreed, 1 Noted (no linked agreement), 1 Revised/Withdrawn, 0 Pending", brief_txt)
+        self.assertIn("[Cited in Agreement](Agreement_10_3_3_1_01.md) *(Noted)*", brief_txt)
+        self.assertIn("⚪ Noted *(No agreement linked)*", brief_txt)
+
+        digest_paths = write_company_positions_input(
+            meeting_dir=m_dir,
+            topic_name="Data Framework",
+            mtg=mtg_concluded,
+            meeting_folder_id="RAN2_133",
+            decisions=decisions_concluded,
+            candidates=candidates_concluded,
+            lifecycle="concluded",
+        )
+        digest_txt = digest_paths[0].read_text(encoding="utf-8")
+        self.assertIn("Concluded Meeting — Brought vs. Decided", digest_txt)
+        self.assertIn("RAN TDoc Status Rule", digest_txt)
+        self.assertIn("Cited in Binding Chairman's Notes Agreement", digest_txt)
+        self.assertIn("Data transfer supports relaxed latency use cases.", digest_txt)
+        self.assertIn("No binding Chairman's Notes agreement or approved CR linked to this TDoc.", digest_txt)
+
+        # 2. Upcoming meeting: 0 decisions & only 'Available' TDocs
+        mtg_upcoming = {
+            "wg_name": "RAN2",
+            "meeting_number": "136",
+            "folder_name": "TSGR2_136",
+            "start_date": "2026-11-16",
+            "end_date": "2026-11-20",
+        }
+        candidates_upcoming = [
+            {
+                "tdoc_id": "R2-2609001",
+                "title": "New UP bearer proposal",
+                "type": "Discussion",
+                "ai": "9.3.3.1",
+                "status": "Available",
+                "source": "VendorA",
+                "category": "Discussion",
+                "rel_path": "RAN2/RAN2_136/Discussion/R2-2609001.md",
+                "abs_path": None,
+                "supersedes": [],
+                "row_data": {},
+            }
+        ]
+        self.assertEqual(
+            classify_meeting_lifecycle(mtg_upcoming, [], candidates_upcoming),
+            "upcoming",
+        )
+        m_dir_up = self.temp_dir / "RAN2" / "RAN2_136"
+        up_brief = write_meeting_brief(
+            meeting_dir=m_dir_up,
+            topic_name="Data Framework",
+            cohort_label="Nov 2026 Round",
+            mtg=mtg_upcoming,
+            meeting_folder_id="RAN2_136",
+            decisions=[],
+            candidates=candidates_upcoming,
+            lifecycle="upcoming",
+        )
+        self.assertIn("🧭 Upcoming / Pre-Meeting", up_brief.read_text(encoding="utf-8"))
+
+        up_digest = write_company_positions_input(
+            meeting_dir=m_dir_up,
+            topic_name="Data Framework",
+            mtg=mtg_upcoming,
+            meeting_folder_id="RAN2_136",
+            decisions=[],
+            candidates=candidates_upcoming,
+            lifecycle="upcoming",
+        )[0].read_text(encoding="utf-8")
+        self.assertIn("Upcoming / Pre-Meeting — Positions Brought", up_digest)
+        self.assertIn("Pending review at upcoming meeting", up_digest)
+
+        # E2E checklist includes State column
+        topic_def = MetaTopicDefinition(
+            id="t1",
+            name="Data Framework",
+            description="Test",
+            target_wgs=["RAN2"],
+            rules=MetaTopicRules(),
+        )
+        e2e_path = write_e2e_synthesis_prompt(
+            target_dir=self.temp_dir,
+            topic=topic_def,
+            meeting_records=[
+                {
+                    "wg": "RAN2",
+                    "meeting_folder_id": "RAN2_133",
+                    "start_date": "2026-02-09",
+                    "lifecycle": "concluded",
+                    "tdoc_count": 3,
+                    "decision_count": 1,
+                    "digest_rel_paths": ["RAN2/RAN2_133/_company_positions_input.md"],
+                },
+                {
+                    "wg": "RAN2",
+                    "meeting_folder_id": "RAN2_136",
+                    "start_date": "2026-11-16",
+                    "lifecycle": "upcoming",
+                    "tdoc_count": 1,
+                    "decision_count": 0,
+                    "digest_rel_paths": ["RAN2/RAN2_136/_company_positions_input.md"],
+                },
+            ],
+        )
+        e2e_txt = e2e_path.read_text(encoding="utf-8")
+        self.assertIn("| State |", e2e_txt)
+        self.assertIn("✅ Concluded", e2e_txt)
+        self.assertIn("🧭 Upcoming / Pre-Meeting", e2e_txt)
 
 
 if __name__ == "__main__":

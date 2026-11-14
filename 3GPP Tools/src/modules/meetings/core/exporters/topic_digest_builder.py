@@ -256,6 +256,116 @@ def extract_tdoc_position_digest(
     return result
 
 
+_TREATED_STATUS_TOKENS = (
+    "agreed",
+    "approved",
+    "endorsed",
+    "noted",
+    "revised",
+    "merged",
+    "handled",
+    "postponed",
+    "withdrawn",
+)
+
+
+def classify_meeting_lifecycle(
+    mtg: Dict[str, Any],
+    decisions: List[TopicDecision],
+    candidates: List[Dict[str, Any]],
+) -> str:
+    """
+    Classifies a meeting deterministically as 'concluded' or 'upcoming' based on
+    extracted decisions and treated TDoc statuses.
+    """
+    if decisions:
+        return "concluded"
+    for doc in candidates:
+        status_l = str(doc.get("status", "") or "").lower()
+        if any(tok in status_l for tok in _TREATED_STATUS_TOKENS):
+            return "concluded"
+    return "upcoming"
+
+
+def format_lifecycle_badge(lifecycle: str) -> str:
+    """Returns a concise human-readable lifecycle badge for Markdown tables and briefs."""
+    return "✅ Concluded" if lifecycle == "concluded" else "🧭 Upcoming / Pre-Meeting"
+
+
+def build_tdoc_outcome_index(
+    decisions: List[TopicDecision],
+    candidates: List[Dict[str, Any]],
+    lifecycle: str,
+    wg: str,
+    meeting_folder_id: str,
+) -> Dict[str, Any]:
+    """
+    Reconciles incoming TDocs ('brought') against Chairman's Notes agreements and approved
+    pCRs/CRs ('decided'), returning disposition summary counts and per-TDoc outcome records.
+    """
+    decisions_by_tdoc: Dict[str, List[TopicDecision]] = {}
+    for dec in decisions:
+        tid_key = str(dec.tdoc_id or "").strip().upper()
+        if tid_key:
+            decisions_by_tdoc.setdefault(tid_key, []).append(dec)
+
+    counts = {
+        "brought": len(candidates),
+        "cited_in_agreement": 0,
+        "approved_doc": 0,
+        "noted_without_agreement": 0,
+        "revised_withdrawn": 0,
+        "pending": 0,
+    }
+    per_tdoc: Dict[str, Dict[str, Any]] = {}
+
+    for doc in candidates:
+        tid = str(doc.get("tdoc_id", "") or "").strip()
+        tid_key = tid.upper()
+        status_raw = str(doc.get("status", "") or "").strip()
+        status_l = status_raw.lower()
+        matched_decs = decisions_by_tdoc.get(tid_key, [])
+
+        if matched_decs:
+            text_agrs = [m for m in matched_decs if m.is_text_agreement]
+            primary = text_agrs[0] if text_agrs else matched_decs[0]
+            rel_link = _rel_to_meeting_dir(primary.dossier_rel_path, wg, meeting_folder_id)
+            if text_agrs:
+                counts["cited_in_agreement"] += 1
+                link_md = f"[Cited in Agreement]({rel_link})" if rel_link else "Cited in Agreement"
+                table_cell = f"✅ {link_md}"
+                if "noted" in status_l:
+                    table_cell += " *(Noted)*"
+            else:
+                counts["approved_doc"] += 1
+                lbl = primary.decision_type or "Approved"
+                link_md = f"[{lbl}]({rel_link})" if rel_link else lbl
+                table_cell = f"🟢 {link_md}"
+        elif any(w in status_l for w in ("agreed", "approved", "endorsed")):
+            counts["approved_doc"] += 1
+            table_cell = f"🟢 {status_raw}"
+        elif any(w in status_l for w in ("revised", "merged", "withdrawn", "postponed")):
+            counts["revised_withdrawn"] += 1
+            table_cell = f"↩️ {status_raw}"
+        elif "noted" in status_l or "handled" in status_l:
+            counts["noted_without_agreement"] += 1
+            table_cell = f"⚪ {status_raw} *(No agreement linked)*"
+        else:
+            counts["pending"] += 1
+            if lifecycle == "upcoming":
+                table_cell = f"🧭 Pending ({status_raw or 'Available'})"
+            else:
+                table_cell = f"⚪ {status_raw or 'Pending / Unknown'}"
+
+        per_tdoc[tid_key] = {
+            "table_cell": table_cell,
+            "matched_decisions": matched_decs,
+            "status_raw": status_raw,
+        }
+
+    return {"counts": counts, "per_tdoc": per_tdoc}
+
+
 def write_meeting_brief(
     meeting_dir: Path,
     topic_name: str,
@@ -266,6 +376,7 @@ def write_meeting_brief(
     candidates: List[Dict[str, Any]],
     deduped_count: int = 0,
     digest_rel_paths: Optional[List[str]] = None,
+    lifecycle: Optional[str] = None,
 ) -> Path:
     """Writes a deterministic executive brief (`_meeting_brief.md`) inside `{WG}/{MeetingFolder}/`."""
     meeting_dir_ext = Path(to_extended_path(meeting_dir))
@@ -279,14 +390,27 @@ def write_meeting_brief(
     location = str(mtg.get("location", "") or "").strip()
     folder_name = str(mtg.get("folder_name", "") or "").strip()
 
+    eff_lifecycle = lifecycle or classify_meeting_lifecycle(mtg, decisions, candidates)
+    outcome_idx = build_tdoc_outcome_index(decisions, candidates, eff_lifecycle, wg, meeting_folder_id)
+    disp = outcome_idx["counts"]
+
     lines = [
         f"# 📋 Meeting Brief: {wg} #{mtg_num} (`{meeting_folder_id}`)",
-        f"**Meta-Topic:** {topic_name} | **Synchronized Round:** {cohort_label}",
+        f"**Meta-Topic:** {topic_name} | **Synchronized Round:** {cohort_label} | **State:** {format_lifecycle_badge(eff_lifecycle)}",
         f"**Dates:** {start_date or 'N/A'} → {end_date or 'N/A'}" + (f" | **Location:** {location}" if location else "") + (f" | **3GPP Folder:** `{folder_name}`" if folder_name else ""),
         "",
         "## 📊 Meeting Topic Footprint",
+        f"- **Lifecycle State:** {format_lifecycle_badge(eff_lifecycle)}",
         f"- **Binding Decisions:** {len(decisions)}",
         f"- **Active Scoped Contributions:** {len(candidates)}" + (f" *(+{deduped_count} superseded/withdrawn revisions deduplicated)*" if deduped_count else ""),
+        (
+            f"- **Brought vs. Decided Disposition:** {disp['brought']} Brought → "
+            f"{disp['cited_in_agreement']} Cited in Agreement, "
+            f"{disp['approved_doc']} Approved / Agreed, "
+            f"{disp['noted_without_agreement']} Noted (no linked agreement), "
+            f"{disp['revised_withdrawn']} Revised/Withdrawn, "
+            f"{disp['pending']} Pending"
+        ),
     ]
 
     if digest_rel_paths:
@@ -354,8 +478,8 @@ def write_meeting_brief(
     lines.extend(["", "## 📄 Active Contribution Register", ""])
     if candidates:
         lines.extend([
-            "| TDoc | Type | AI | Status | Source | Lineage | Dossier |",
-            "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+            "| TDoc | Type | AI | Status | Decision / Outcome | Source | Lineage | Dossier |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
         ])
         for d in sorted(candidates, key=lambda x: (str(x.get("ai", "")), str(x.get("tdoc_id", "")))):
             src_cell = CompanySanitizer.format_source_markdown_table_cell(d.get("source", ""))
@@ -363,8 +487,10 @@ def write_meeting_brief(
             lineage_str = f"rev of {', '.join(preds[-2:])}" if preds else "—"
             rel_local = _rel_to_meeting_dir(d.get("rel_path", ""), wg, meeting_folder_id)
             link_c = f"[{d['tdoc_id']}]({rel_local})" if rel_local else d["tdoc_id"]
+            tid_key = str(d.get("tdoc_id", "") or "").strip().upper()
+            out_cell = outcome_idx["per_tdoc"].get(tid_key, {}).get("table_cell", "—")
             lines.append(
-                f"| **{d['tdoc_id']}** | {d.get('type', '')} | `{d.get('ai', '')}` | {d.get('status', '')} | {src_cell} | {lineage_str} | {link_c} |"
+                f"| **{d['tdoc_id']}** | {d.get('type', '')} | `{d.get('ai', '')}` | {d.get('status', '')} | {out_cell} | {src_cell} | {lineage_str} | {link_c} |"
             )
     else:
         lines.append("*No scoped contributions matched this topic.*")
@@ -387,6 +513,53 @@ def _rel_to_meeting_dir(rel_from_root: str, wg: str, meeting_folder_id: str) -> 
     return norm
 
 
+def _format_tdoc_outcome_lines(
+    outcome_entry: Dict[str, Any],
+    lifecycle: str,
+    wg: str,
+    meeting_folder_id: str,
+) -> List[str]:
+    """Formats concise 'Meeting Outcome (What Was Decided)' lines + verbatim agreement excerpt for a TDoc."""
+    matched_decs: List[TopicDecision] = outcome_entry.get("matched_decisions", [])
+    status_raw = str(outcome_entry.get("status_raw", "") or "").strip()
+    lines: List[str] = []
+
+    if matched_decs:
+        text_agrs = [m for m in matched_decs if m.is_text_agreement]
+        primary = text_agrs[0] if text_agrs else matched_decs[0]
+        rel_link = _rel_to_meeting_dir(primary.dossier_rel_path, wg, meeting_folder_id)
+        link_str = f" — [{Path(rel_link).name}]({rel_link})" if rel_link else ""
+        if text_agrs:
+            lines.append(
+                f"- **Meeting Outcome (What Was Decided):** ✅ **Cited in Binding Chairman's Notes Agreement** "
+                f"(TDoc status: `{status_raw or 'Noted'}`){link_str}"
+            )
+        else:
+            lines.append(
+                f"- **Meeting Outcome (What Was Decided):** 🟢 **{primary.decision_type}** "
+                f"(Status: `{status_raw or primary.status}`){link_str}"
+            )
+        for dec in matched_decs[:2]:
+            raw_excerpt = str(dec.title_or_summary or "").strip()
+            if raw_excerpt:
+                excerpt = raw_excerpt if len(raw_excerpt) <= 600 else (raw_excerpt[:597].rstrip() + "...")
+                for qline in excerpt.splitlines():
+                    lines.append(f"  > {qline.rstrip()}")
+        return lines
+
+    if lifecycle == "upcoming":
+        lines.append(
+            f"- **Meeting Outcome (What Was Decided):** 🧭 Pending review at upcoming meeting "
+            f"(Current TDoc status: `{status_raw or 'Available'}`)."
+        )
+    else:
+        lines.append(
+            f"- **Meeting Outcome (What Was Decided):** `{status_raw or 'Noted / Unlinked'}` "
+            f"*(No binding Chairman's Notes agreement or approved CR linked to this TDoc.)*"
+        )
+    return lines
+
+
 def write_company_positions_input(
     meeting_dir: Path,
     topic_name: str,
@@ -395,6 +568,7 @@ def write_company_positions_input(
     decisions: List[TopicDecision],
     candidates: List[Dict[str, Any]],
     max_chars_per_part: int = DEFAULT_MAX_DIGEST_CHARS,
+    lifecycle: Optional[str] = None,
 ) -> List[Path]:
     """
     Generates token-compacted, company-grouped `_company_positions_input.md` (auto-split into `_partN.md`
@@ -408,18 +582,38 @@ def write_company_positions_input(
     mtg_num = str(mtg.get("meeting_number", "")).strip()
     start_date = str(mtg.get("start_date", "") or "").strip()
 
+    eff_lifecycle = lifecycle or classify_meeting_lifecycle(mtg, decisions, candidates)
+    outcome_idx = build_tdoc_outcome_index(decisions, candidates, eff_lifecycle, wg, meeting_folder_id)
+
+    if eff_lifecycle == "concluded":
+        stage1_instructions = [
+            "> [!IMPORTANT] Stage-1 Per-Meeting Extraction Instructions (Concluded Meeting — Brought vs. Decided)",
+            f"> Save your output as `_company_positions_analysis.md` inside `{meeting_folder_id}/`.",
+            "> 1. **Goal:** Compare what each company **brought** (`Summary`/`Proposals`) against what was **decided** (`Meeting Outcome` & `Meeting Decisions Reference`).",
+            "> 2. **RAN TDoc Status Rule:** In 3GPP RAN, contributions that shaped a binding Chairman's Notes agreement often still carry `Status: Noted`. Only treat a contribution as adopted/influential if its `Meeting Outcome` cites a binding Agreement or Approved pCR/CR.",
+            "> 3. **Attribution Rule:** Do NOT credit companies listed inside `[Note: ... carry-over co-sponsors]` — only credit Confirmed Lead and Confirmed Co-Signers.",
+            "> 4. **Output Schema:**",
+            ">    - Section A: **Decision & Consensus Summary (Brought vs. Decided)** — key architectural choices locked and whose proposals shaped them.",
+            ">    - Section B: **Company Stance Matrix** (`| Company | Core Position | Key Proposals / TDocs | Allies (Confirmed) | Outcome (Adopted / Compromised / Noted) |`).",
+            ">    - Section C: **Open Points / Disagreements / FFS** carried into the next meeting.",
+        ]
+    else:
+        stage1_instructions = [
+            "> [!IMPORTANT] Stage-1 Per-Meeting Extraction Instructions (Upcoming / Pre-Meeting — Positions Brought)",
+            f"> Save your output as `_company_positions_analysis.md` inside `{meeting_folder_id}/`.",
+            "> 1. **Goal:** Map **what companies are bringing** into this upcoming meeting (0 binding decisions yet). Do NOT invent decisions.",
+            "> 2. **Attribution Rule:** Do NOT credit companies listed inside `[Note: ... carry-over co-sponsors]` — only credit Confirmed Lead and Confirmed Co-Signers.",
+            "> 3. **Output Schema:**",
+            ">    - Section A: **Agenda & Contested Issues Preview** — main architectural options competing in this meeting.",
+            ">    - Section B: **Company Stance Matrix** (`| Company | Proposed Position | Key Proposals / TDocs | Allies (Confirmed) | Status |`).",
+            ">    - Section C: **Key Fault Lines & Compromises to Watch** during the meeting.",
+        ]
+
     header_lines = [
         f"# 🧠 LLM Company Position Input Packet: {wg} #{mtg_num} (`{meeting_folder_id}`)",
-        f"**Meta-Topic:** {topic_name} | **Date:** {start_date or 'N/A'} | **Active Docs:** {len(candidates)} | **Decisions:** {len(decisions)}",
+        f"**Meta-Topic:** {topic_name} | **State:** {format_lifecycle_badge(eff_lifecycle)} | **Date:** {start_date or 'N/A'} | **Active Docs:** {len(candidates)} | **Decisions:** {len(decisions)}",
         "",
-        "> [!IMPORTANT] Stage-1 Per-Meeting Extraction Instructions (For Standard / Flash / Local LLMs)",
-        f"> Save your output as `_company_positions_analysis.md` inside `{meeting_folder_id}/`.",
-        "> 1. **Goal:** Extract each company's technical position, concrete proposals, alliances (confirmed co-signers only), and outcome (`Agreed`/`Approved`/`Noted`/`Revised`) for this meeting.",
-        "> 2. **Attribution Rule:** Do NOT credit companies listed inside `[Note: ... carry-over co-sponsors]` — only credit Confirmed Lead and Confirmed Co-Signers.",
-        "> 3. **Output Schema:**",
-        ">    - Section A: **Decision & Consensus Summary** (key architectural choices locked in this meeting).",
-        ">    - Section B: **Company Stance Matrix** (`| Company | Core Position | Key Proposals / TDocs | Allies (Confirmed) | Outcome |`).",
-        ">    - Section C: **Open Points / Disagreements / FFS** carried into the next meeting.",
+        *stage1_instructions,
         "",
         "## ⚖️ Meeting Decisions Reference",
         "",
@@ -458,12 +652,14 @@ def write_company_positions_input(
             lineage = f"Supersedes {', '.join(preds)}" if preds else "Initial / Standalone"
             src_ctx = CompanySanitizer.format_source_triage_context(d.get("source", ""))
             rel_local = _rel_to_meeting_dir(d.get("rel_path", ""), wg, meeting_folder_id)
+            out_entry = outcome_idx["per_tdoc"].get(tid.strip().upper(), {"matched_decisions": [], "status_raw": d.get("status", "")})
 
             c_lines.append(f"### {tid}: {title}")
             c_lines.append(
                 f"- **Meta:** Type: `{d.get('type', '')}` | AI: `{d.get('ai', '')}` | Status: `{d.get('status', '')}` | Lineage: {lineage}"
             )
             c_lines.append(f"- **Attribution:** {src_ctx}")
+            c_lines.extend(_format_tdoc_outcome_lines(out_entry, eff_lifecycle, wg, meeting_folder_id))
             if rel_local:
                 c_lines.append(f"- **Full Document:** [{rel_local}]({rel_local})")
 
@@ -562,21 +758,23 @@ def write_e2e_synthesis_prompt(
         "",
         "### Meeting Analysis Checklist (Chronological)",
         "",
-        "| Date | WG | Meeting | Active Docs | Decisions | Brief | Input Packet(s) | Stage-1 Output |",
-        "| :--- | :--- | :--- | :---: | :---: | :--- | :--- | :--- |",
+        "| Date | WG | Meeting | State | Active Docs | Decisions | Brief | Input Packet(s) | Stage-1 Output |",
+        "| :--- | :--- | :--- | :--- | :---: | :---: | :--- | :--- | :--- |",
     ]
 
     for rec in meeting_records:
         wg = rec["wg"]
         m_fid = rec["meeting_folder_id"]
         d_str = rec.get("start_date", "") or "N/A"
+        lc = rec.get("lifecycle") or ("concluded" if rec.get("decision_count", 0) else "upcoming")
+        lc_badge = format_lifecycle_badge(lc)
         brief_rel = f"{wg}/{m_fid}/_meeting_brief.md"
         digests = rec.get("digest_rel_paths", [])
         digest_links = " · ".join(f"[{Path(p).name}]({p})" for p in digests) if digests else "—"
         analysis_rel = f"{wg}/{m_fid}/_company_positions_analysis.md"
         done_mark = "✅" if (target_dir / analysis_rel).is_file() else "⬜"
         lines.append(
-            f"| {d_str} | **{wg}** | {m_fid} | {rec['tdoc_count']} | {rec['decision_count']} | [Brief]({brief_rel}) | {digest_links} | {done_mark} `{analysis_rel}` |"
+            f"| {d_str} | **{wg}** | {m_fid} | {lc_badge} | {rec['tdoc_count']} | {rec['decision_count']} | [Brief]({brief_rel}) | {digest_links} | {done_mark} `{analysis_rel}` |"
         )
 
     lines.extend([

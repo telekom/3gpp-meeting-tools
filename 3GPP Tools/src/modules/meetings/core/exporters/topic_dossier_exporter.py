@@ -36,6 +36,8 @@ from modules.meetings.core.exporters.export_manifest import (
     save_manifest,
 )
 from modules.meetings.core.exporters.topic_digest_builder import (
+    classify_meeting_lifecycle,
+    format_lifecycle_badge,
     resolve_meeting_folder_id,
     rewrite_media_links,
     write_company_positions_input,
@@ -554,7 +556,8 @@ class TopicDossierExporterThread(QThread):
             all_candidates.extend(meeting_candidates)
             newly_converted_docs.extend(meeting_newly_converted)
 
-            # F. Generate deterministic per-meeting LLM Digest & Meeting Brief
+            # F. Auto-classify meeting lifecycle & generate Brought->Decided LLM Digest & Meeting Brief
+            lifecycle = classify_meeting_lifecycle(mtg, meeting_decisions, meeting_candidates)
             digest_paths = write_company_positions_input(
                 meeting_dir=meeting_dir,
                 topic_name=self.topic.name,
@@ -562,6 +565,7 @@ class TopicDossierExporterThread(QThread):
                 meeting_folder_id=meeting_folder_id,
                 decisions=meeting_decisions,
                 candidates=meeting_candidates,
+                lifecycle=lifecycle,
             )
             digest_rel_paths = [safe_relpath(p, target_dir) for p in digest_paths]
 
@@ -575,6 +579,7 @@ class TopicDossierExporterThread(QThread):
                 candidates=meeting_candidates,
                 deduped_count=deduped_skipped,
                 digest_rel_paths=digest_rel_paths,
+                lifecycle=lifecycle,
             )
             brief_rel = safe_relpath(brief_path, target_dir)
 
@@ -589,6 +594,7 @@ class TopicDossierExporterThread(QThread):
                     "folder_name": folder_name,
                     "cohort_key": cohort.key,
                     "start_date": mtg_date,
+                    "lifecycle": lifecycle,
                     "scope_mode": self.export_scope_mode,
                     "tdoc_count": len(meeting_candidates),
                     "decision_count": len(meeting_decisions),
@@ -609,6 +615,7 @@ class TopicDossierExporterThread(QThread):
                 "meeting_folder_id": meeting_folder_id,
                 "meeting_rel_root": meeting_rel_root,
                 "start_date": mtg_date,
+                "lifecycle": lifecycle,
                 "tdoc_count": len(meeting_candidates),
                 "decision_count": len(meeting_decisions),
                 "ls_in_count": sum(1 for d in meeting_candidates if d.get("category") == "LS_IN"),
@@ -1599,8 +1606,8 @@ class TopicDossierExporterThread(QThread):
             "",
             "## 🗓️ Cross-WG Chronological Meeting Timeline",
             "",
-            "| Date | Synchronized Round | WG | Meeting | Decisions | Active Inputs | LS (In/Out) | Meeting Brief & LLM Packet |",
-            "| :--- | :--- | :--- | :--- | :---: | :---: | :---: | :--- |",
+            "| Date | Synchronized Round | WG | Meeting | State | Decisions | Active Inputs | LS (In/Out) | Meeting Brief & LLM Packet |",
+            "| :--- | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :--- |",
         ]
 
         for rec in meeting_records:
@@ -1608,12 +1615,14 @@ class TopicDossierExporterThread(QThread):
             r_lbl = rec.get("round_label") or rec.get("cohort_key", "")
             wg = rec["wg"]
             m_fid = rec["meeting_folder_id"]
+            lc = rec.get("lifecycle") or ("concluded" if rec.get("decision_count", 0) else "upcoming")
+            lc_badge = format_lifecycle_badge(lc)
             brief_rel = rec["brief_rel_path"]
             digests = rec.get("digest_rel_paths", [])
             digest_str = " · ".join(f"[{Path(p).name}]({p})" for p in digests) if digests else "—"
             ls_cell = f"{rec.get('ls_in_count', 0)} / {rec.get('ls_out_count', 0)}"
             lines.append(
-                f"| `{d_str}` | {r_lbl} | **{wg}** | [{m_fid}]({brief_rel}) | {rec['decision_count']} | {rec['tdoc_count']} | {ls_cell} | [Brief]({brief_rel}) · {digest_str} |"
+                f"| `{d_str}` | {r_lbl} | **{wg}** | [{m_fid}]({brief_rel}) | {lc_badge} | {rec['decision_count']} | {rec['tdoc_count']} | {ls_cell} | [Brief]({brief_rel}) · {digest_str} |"
             )
 
         # Per-WG Progression Summary
