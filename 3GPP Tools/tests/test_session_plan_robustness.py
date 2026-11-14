@@ -498,6 +498,145 @@ class TestSessionPlanRobustness(unittest.TestCase):
             finally:
                 win.close()
 
+    def test_wildcard_dot_x_ai_parsing_and_delegation_matching(self):
+        """
+        Verifies '.x' / '.X' AI parsing (parenthesized, standalone, multi-item) and
+        wildcard resolution against concrete agenda items & delegation ownership.
+        """
+        from types import SimpleNamespace
+        from modules.meetings.core.session_plan.session_plan_models import (
+            DelegationMember,
+            DelegationPlan,
+            SessionPlanSnapshot,
+            SessionSlot,
+            TopicOwnership,
+            ai_number_in_text,
+            ai_numbers_match,
+            format_slot_display_text,
+            is_slot_not_followed,
+            resolve_slot_effective_delegates,
+        )
+        from modules.meetings.core.session_plan.session_plan_exporter import SessionPlanExporter
+
+        # 1. Parser variants
+        _, items_wp = SessionPlanParser._extract_agenda_items(
+            "Work planning (30.x), etc\n(Rel-21 5G-A revisions)"
+        )
+        self.assertEqual([it.ai_number for it in items_wp], ["30.x"])
+        self.assertIn("Work planning", items_wp[0].topic_label)
+
+        _, items_standalone = SessionPlanParser._extract_agenda_items("Work planning 30.x")
+        self.assertEqual([it.ai_number for it in items_standalone], ["30.x"])
+
+        _, items_upper = SessionPlanParser._extract_agenda_items("Rel-19 revisions (20.6.X)")
+        self.assertEqual([it.ai_number for it in items_upper], ["20.6.x"])
+
+        _, items_multi = SessionPlanParser._extract_agenda_items("Opening (1), Work planning (30.x)")
+        self.assertEqual([it.ai_number for it in items_multi], ["1", "30.x"])
+
+        # 2. Wildcard match helpers
+        self.assertTrue(ai_numbers_match("30.x", "30.1"))
+        self.assertTrue(ai_numbers_match("30.x", "30"))
+        self.assertTrue(ai_numbers_match("20.6.x", "20.6.18"))
+        self.assertFalse(ai_numbers_match("30.x", "300.1"))
+        self.assertFalse(ai_numbers_match("3.x", "30.1"))
+        self.assertTrue(ai_number_in_text("30.1", "Work planning (30.x)"))
+        self.assertFalse(ai_number_in_text("20.6.2", "KI#24 (20.6.24)"))
+
+        # 3. Delegation & Not-Followed resolution on a (30.x) slot
+        slot_30x = SessionSlot(
+            day_index=4,
+            day_name="Friday",
+            quarter="Q3",
+            sub_slot=0,
+            stream_number=1,
+            room_override="Main Room",
+            raw_text="In main room\nWork planning (30.x), etc\n[12]",
+            items=items_wp,
+        )
+        plan_assigned = DelegationPlan(
+            meeting_number="178",
+            members={"Josep": DelegationMember(name="Josep", color="#2563EB")},
+            topic_owners={"30.1": TopicOwnership(meeting_number="178", ai_number="30.1", owner_name="Josep")},
+        )
+        dels, _, is_all = resolve_slot_effective_delegates(slot_30x, plan_assigned)
+        self.assertEqual(dels, ["Josep"])
+        self.assertFalse(is_all)
+        self.assertFalse(is_slot_not_followed(slot_30x, plan_assigned))
+
+        plan_nf = DelegationPlan(
+            meeting_number="178",
+            members={"Josep": DelegationMember(name="Josep", color="#2563EB")},
+            topic_owners={"30.1": TopicOwnership(meeting_number="178", ai_number="30.1", owner_name="NOT_FOLLOWED")},
+        )
+        self.assertTrue(is_slot_not_followed(slot_30x, plan_nf))
+
+        # 4. Shared card display text formatting
+        clean_txt, empty_draft = format_slot_display_text(
+            "In breakout 1\nFS_enIMS_ARC (20.10.1)\n[23]",
+            room_override="Breakout 1",
+        )
+        self.assertEqual(clean_txt, "FS_enIMS_ARC (20.10.1) [23]")
+        self.assertFalse(empty_draft)
+
+        _, is_empty = format_slot_display_text("Drafting:")
+        self.assertTrue(is_empty)
+
+        # 5. Desktop unified card & HTML export float-right / decluttered output
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            agenda_map = {
+                "30.1": SimpleNamespace(ai_number="30.1", description="Work planning Rel-21", acronym="WP")
+            }
+            win = SessionPlanWindow(
+                meeting_dir=td_path,
+                mtg_info={"meeting_number": "178", "location": "Calgary"},
+                agenda_map=agenda_map,
+            )
+            try:
+                win.db.save_delegation_member("178", DelegationMember(name="Josep", color="#2563EB"))
+                win.db.set_topic_owner("178", "30.1", "Josep")
+                win.delegation_plan = win.db.get_delegation_plan("178")
+                slot_draft_empty = SessionSlot(
+                    day_index=1, day_name="Tuesday", quarter="Q0", sub_slot=0, stream_number=2,
+                    raw_text="Drafting:", is_drafting=True,
+                )
+                win.active_snapshot = SessionPlanSnapshot(
+                    meeting_number="178",
+                    tdoc_id="S2-2611637",
+                    slots=[slot_30x, slot_draft_empty],
+                )
+                win._render_current_views()
+
+                # Agenda Mode should mark 30.1 as Scheduled via (30.x)
+                self.assertIn("1 Sched", win.btn_agenda.text())
+
+                # Grid cell uses unified #slotCard frame with 📍 badge
+                q3_s1_row = next(
+                    idx for idx, r in enumerate(win.grid_rows)
+                    if r.period == "Q3" and r.stream_number == 1
+                )
+                cell_w = win.grid_table.cellWidget(q3_s1_row, 8)
+                self.assertIsNotNone(cell_w)
+                self.assertIsNotNone(cell_w.findChild(type(win.room_strip), "slotCard"))
+
+                out_html = td_path / "compact_export.html"
+                SessionPlanExporter.export_mobile_html(
+                    snapshot=win.active_snapshot,
+                    output_path=out_html,
+                    meeting_tz_offset_min=-420,
+                    delegation_plan=win.delegation_plan,
+                    agenda_map=agenda_map,
+                )
+                html_txt = out_html.read_text(encoding="utf-8")
+                self.assertIn('class="cell-del-float"', html_txt)
+                self.assertIn('class="cell-room-override">📍 Main Room</span>', html_txt)
+                self.assertIn('is-empty-drafting', html_txt)
+                self.assertNotIn('"ai_number": "30.1"', html_txt)
+                self.assertNotIn('"ai_number": "30.x"', html_txt)
+            finally:
+                win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

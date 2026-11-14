@@ -722,7 +722,7 @@ class SessionPlanParser:
                 continue
             if merged and tok_s.startswith("(") and re.search(r"\d", tok_s) and not re.search(r"\(\d", merged[-1]):
                 merged[-1] = f"{merged[-1]} {tok_s}"
-            elif merged and (tok_s.startswith("(") or not re.search(r"\(|\b(?:KI#|FS_|AIML_|\d{1,2}\.\d+)", tok_s)):
+            elif merged and (tok_s.startswith("(") or not re.search(r"\(|\b(?:KI#|FS_|AIML_|\d{1,2}\.(?:\d+|[xX]))", tok_s)):
                 merged[-1] = f"{merged[-1]} {tok_s}"
             else:
                 merged.append(tok_s)
@@ -810,12 +810,12 @@ class SessionPlanParser:
             if ADMIN_NOTE_RE.search(tok_clean):
                 continue
 
-            # Single AIs like "Opening (1), Agenda (2), Reports (3), Outgoing LSs (5.1)"
-            single_ai_matches = list(re.finditer(r"([A-Za-z\s]+)\((\d{1,2}(?:\.\d+)?)\)", tok_clean))
+            # Single AIs like "Opening (1), Agenda (2), Reports (3), Outgoing LSs (5.1), Work planning (30.x)"
+            single_ai_matches = list(re.finditer(r"([A-Za-z][A-Za-z\s]*?)\s*\((\d{1,2}(?:\.\d+|\.[xX])*)\)", tok_clean))
             if len(single_ai_matches) >= 2:
                 for sm in single_ai_matches:
                     t_lbl = sm.group(1).strip(" ,")
-                    a_num = sm.group(2).strip()
+                    a_num = re.sub(r"\.[xX]\b", ".x", sm.group(2).strip())
                     items.append(
                         AgendaSlotItem(
                             ai_number=a_num,
@@ -833,15 +833,23 @@ class SessionPlanParser:
             if m_count:
                 tdoc_count = m_count.group(1).strip()
 
-            # 2. Extract AI Number: (20.6.18), (20.6.12 - 16), (19.8.2, (5.x, 6.x, 7.x )
-            m_ai = re.search(r"\(\s*(\d{1,2}(?:\.\d+|\.x|\s*-\s*\d+)+(?:,\s*(?:\d{1,2}(?:\.\d+|\.x)+))*\s*)\)", tok_clean)
-            ai_str = m_ai.group(1).strip() if m_ai else ""
+            # 2. Extract AI Number: (20.6.18), (20.6.12 - 16), (30.x), (5.x, 6.x, 7.x ), (20.6.x)
+            paren_ai_matches = list(
+                re.finditer(
+                    r"\(\s*(\d{1,2}(?:\.\d+|\.[xX]|\s*-\s*\d+)+(?:,\s*(?:\d{1,2}(?:\.\d+|\.[xX])+))*)\s*\)",
+                    tok_clean,
+                )
+            )
+            ai_str = ", ".join(m.group(1).strip() for m in paren_ai_matches) if paren_ai_matches else ""
 
             if not ai_str:
-                # Look for standalone AI lists: e.g. "20.48, 20.49, 20.50" or "4.1"
-                m_standalone = re.search(r"\b(\d{1,2}\.\d+(?:[a-z])?(?:,\s*\d{1,2}\.\d+(?:[a-z])?)*)\b", tok_clean)
-                if m_standalone:
-                    ai_str = m_standalone.group(1).strip()
+                # Look for standalone AI lists (numeric or .x wildcard): e.g. "20.48, 20.49", "30.x", "20.6.x", "5.x, 6.x"
+                standalone_matches = re.findall(
+                    r"\b(\d{1,2}(?:\.(?:\d+(?:[a-z](?![a-z]))?|[xX]))+(?:,\s*\d{1,2}(?:\.(?:\d+(?:[a-z](?![a-z]))?|[xX]))+)*)\b",
+                    tok_clean,
+                )
+                if standalone_matches:
+                    ai_str = ", ".join(m.strip() for m in standalone_matches if m.strip())
 
             # 3. Check KI# mapping if ai_str is still empty: e.g. "KI#21 (Data Framework)" or "KI#12 – KI#16"
             m_ki_range = re.search(r"\bKI\s*#?\s*(\d+)\s*(?:-|–|—)\s*(?:KI\s*#?)?(\d+)\b", tok_clean, re.I)
@@ -861,53 +869,48 @@ class SessionPlanParser:
                 elif ki_num and ai_str:
                     ki_map[ki_num] = ai_str
 
+            # Normalize .X wildcards to canonical lowercase .x
+            if ai_str:
+                ai_str = re.sub(r"\.[xX]\b", ".x", ai_str)
+
             # 4. Clean topic label
             clean_label = re.sub(r"\bK#(\d+)", r"KI#\1", tok_clean)
             clean_label = re.sub(r"\[.*?\]", "", clean_label)
-            if ai_str:
-                clean_label = re.sub(r"\(\s*" + re.escape(ai_str) + r"\s*\)", "", clean_label)
+            for pm in paren_ai_matches:
+                clean_label = re.sub(r"\(\s*" + re.escape(pm.group(1).strip()) + r"\s*\)", "", clean_label, flags=re.I)
+            if ai_str and not paren_ai_matches:
+                clean_label = re.sub(r"\(\s*" + re.escape(ai_str) + r"\s*\)", "", clean_label, flags=re.I)
+            clean_label = re.sub(r"\s+,", ",", clean_label)
             clean_label = re.sub(r"\s+", " ", clean_label)
             clean_label = cls._balance_parentheses(clean_label)
 
-            # Expand ranges if present
-            if ai_str and ("-" in ai_str or "–" in ai_str):
-                expanded_ais = cls._expand_numeric_range(ai_str)
-                counts = [c.strip() for c in tdoc_count.split(",")] if "," in tdoc_count else []
+            # Expand ranges and comma-separated AIs uniformly
+            is_tok_drafting = default_drafting or ("drafting" in tok_clean.lower())
+            is_tok_tentative = default_tentative or ("(?)" in tok_clean)
+            if ai_str:
+                raw_parts = [p.strip() for p in ai_str.split(",") if p.strip()]
+                expanded_ais: List[str] = []
+                has_range = False
+                for part in raw_parts:
+                    if "-" in part or "–" in part or "—" in part:
+                        has_range = True
+                        expanded_ais.extend(cls._expand_numeric_range(part))
+                    else:
+                        expanded_ais.append(part)
+
+                counts = [c.strip() for c in tdoc_count.split(",")] if (has_range and "," in tdoc_count) else []
                 for idx, single_ai in enumerate(expanded_ais):
                     c_val = counts[idx] if idx < len(counts) else tdoc_count
                     items.append(
                         AgendaSlotItem(
                             ai_number=single_ai,
                             display_expr=tok_clean,
-                            topic_label=clean_label or tok_clean,
+                            topic_label=clean_label or (single_ai if len(expanded_ais) > 1 else tok_clean),
                             tdoc_count_str=c_val,
-                            is_drafting=default_drafting or ("drafting" in tok_clean.lower()),
-                            is_tentative=default_tentative or ("(?)" in tok_clean),
+                            is_drafting=is_tok_drafting,
+                            is_tentative=is_tok_tentative,
                         )
                     )
-            elif ai_str and "," in ai_str:
-                for single_ai in [a.strip() for a in ai_str.split(",") if a.strip()]:
-                    items.append(
-                        AgendaSlotItem(
-                            ai_number=single_ai,
-                            display_expr=tok_clean,
-                            topic_label=clean_label or single_ai,
-                            tdoc_count_str=tdoc_count,
-                            is_drafting=default_drafting or ("drafting" in tok_clean.lower()),
-                            is_tentative=default_tentative or ("(?)" in tok_clean),
-                        )
-                    )
-            elif ai_str:
-                items.append(
-                    AgendaSlotItem(
-                        ai_number=ai_str,
-                        display_expr=tok_clean,
-                        topic_label=clean_label or tok_clean,
-                        tdoc_count_str=tdoc_count,
-                        is_drafting=default_drafting or ("drafting" in tok_clean.lower()),
-                        is_tentative=default_tentative or ("(?)" in tok_clean),
-                    )
-                )
             else:
                 if clean_label:
                     items.append(
@@ -916,8 +919,8 @@ class SessionPlanParser:
                             display_expr=tok_clean,
                             topic_label=clean_label,
                             tdoc_count_str=tdoc_count,
-                            is_drafting=default_drafting or ("drafting" in tok_clean.lower()),
-                            is_tentative=default_tentative or ("(?)" in tok_clean),
+                            is_drafting=is_tok_drafting,
+                            is_tentative=is_tok_tentative,
                         )
                     )
 

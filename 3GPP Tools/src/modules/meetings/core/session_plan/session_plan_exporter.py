@@ -15,13 +15,17 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from modules.meetings.core.session_plan.session_plan_diff import SessionPlanDiffResult
 from modules.meetings.core.session_plan.session_plan_models import (
+    DelegationMember,
     DelegationPlan,
     SessionPlanSnapshot,
     SessionSlot,
     UserSessionAnnotation,
-    resolve_slot_effective_delegates,
+    _matching_topic_ownerships,
+    ai_numbers_match,
     compute_unique_initials,
+    format_slot_display_text,
     is_slot_not_followed,
+    resolve_slot_effective_delegates,
 )
 from modules.meetings.core.session_plan.session_plan_parser import (
     DAY_NAMES,
@@ -255,8 +259,8 @@ class SessionPlanExporter:
             unassigned = []
             for it in slot_obj.items:
                 if it.ai_number:
-                    to = topic_owners_map.get(it.ai_number)
-                    if to and (to.is_not_followed() or to.owner_name.strip()):
+                    matches = _matching_topic_ownerships(it.ai_number, topic_owners_map)
+                    if any(to.is_not_followed() or to.owner_name.strip() for to in matches):
                         continue
                     if it.ai_number not in unassigned:
                         unassigned.append(it.ai_number)
@@ -360,11 +364,20 @@ class SessionPlanExporter:
 
         unassigned_ais_catalog = []
         for ai_num in sorted(all_known_ais.keys(), key=_ai_sort_key):
-            to = topic_owners_map.get(ai_num)
-            if to and (to.is_not_followed() or to.owner_name.strip()):
+            matches = _matching_topic_ownerships(ai_num, topic_owners_map)
+            if any(to.is_not_followed() or to.owner_name.strip() for to in matches):
+                continue
+            if ai_num.lower().endswith(".x") and any(
+                k != ai_num and ai_numbers_match(ai_num, k) for k in agenda_map
+            ):
                 continue
             info = all_known_ais[ai_num]
-            sched_list = scheduled_ai_slots.get(ai_num, [])
+            sched_list = scheduled_ai_slots.get(ai_num)
+            if sched_list is None:
+                sched_list = []
+                for sched_ai, sls in scheduled_ai_slots.items():
+                    if ai_numbers_match(ai_num, sched_ai):
+                        sched_list.extend(sls)
             unassigned_ais_catalog.append({
                 "ai_number": ai_num,
                 "title": info["title"],
@@ -412,54 +425,44 @@ class SessionPlanExporter:
             if ann and ann.comment:
                 search_tokens.append(ann.comment.lower())
 
-            raw_esc = html.escape(slot.raw_text)
+            room_ov = getattr(slot, "room_override", "") or ""
+            clean_display_text, is_empty_drafting = format_slot_display_text(slot.raw_text, room_ov)
+            raw_esc = html.escape(clean_display_text).replace("\n", "<br>")
             tt_html = build_tooltip_html(slot, d_idx, p, tu)
 
             cell_classes = ["grid-cell", "slot-cell", f"stream-{s_num}"]
-            if slot.is_drafting:
+            if is_empty_drafting:
+                cell_classes.append("is-empty-drafting")
+            elif slot.is_drafting:
                 cell_classes.append("is-drafting")
             if is_unassigned:
                 cell_classes.append("is-unassigned")
             elif is_not_followed:
                 cell_classes.append("is-not-followed")
 
-            hdr_badges = []
-            if slot.is_drafting:
-                hdr_badges.append('<span class="cell-badge badge-drafting">🛠️ Draft</span>')
-            else:
-                hdr_badges.append(f'<span class="cell-badge badge-str str-{s_num}">Str {s_num}</span>')
+            # Inline tinting matching Desktop UI so assigned delegates pop cleanly vs neutral unassigned
+            cell_inline_style = ""
+            if is_all:
+                cell_inline_style = ' style="background:#F5F7FF; border-left:3px solid #4338CA;"'
+            elif eff_dels:
+                pm = members.get(eff_dels[0])
+                p_col = pm.color if pm else "#2563EB"
+                p_tint = DelegationMember.compute_tint(p_col, 0.07)
+                cell_inline_style = f' style="background:{p_tint}; border-left:3px solid {p_col};"'
 
-            if tu == 1:
-                hdr_badges.append('<span class="cell-badge badge-tu">TU 1</span>')
-            elif tu == 2:
-                hdr_badges.append('<span class="cell-badge badge-tu">TU 2</span>')
+            # Compact room override pill ONLY when room_override differs from default stream room
+            room_row_html = ""
+            if room_ov:
+                room_row_html = f'<div class="cell-room-row"><span class="cell-room-override">📍 {html.escape(room_ov)}</span></div>'
 
-            s_info = snapshot.streams.get(s_num)
-            r_short = (s_info.room_name.split("(")[0].strip() if s_info else f"Str {s_num}")
-            hdr_badges.append(f'<span class="cell-room">📍 {html.escape(r_short)}</span>')
-
-            chips = []
-            for it in slot.items:
-                ai_lbl = f"AI {it.ai_number}" if it.ai_number else it.topic_label
-                cnt = f'<span class="chip-count">[{it.tdoc_count_str}]</span>' if it.tdoc_count_str else ""
-                is_ai_unassigned = it.ai_number in unassigned_ais
-                is_ai_not_followed = bool(
-                    it.ai_number
-                    and it.ai_number in topic_owners_map
-                    and topic_owners_map[it.ai_number].is_not_followed()
-                )
-                if is_ai_unassigned:
-                    chip_cls = "ai-chip unassigned-chip"
-                    prefix = "❓ "
-                elif is_ai_not_followed:
-                    chip_cls = "ai-chip not-followed-chip"
-                    prefix = "⛔ "
-                else:
-                    chip_cls = "ai-chip"
-                    prefix = ""
-                chips.append(f'<span class="{chip_cls}">{prefix}{html.escape(ai_lbl)}{cnt}</span>')
+            # Only surface AI gap chips inside grid cells when a slot mixes assigned & unassigned AIs
+            gap_chips = []
+            if unassigned_ais and (is_all or eff_dels):
+                for u_ai in unassigned_ais:
+                    gap_chips.append(f'<span class="ai-chip unassigned-chip">❓ AI {html.escape(u_ai)}</span>')
 
             del_badges = []
+            has_ai_items = any(it.ai_number for it in slot.items)
             if is_all:
                 del_badges.append('<span class="del-pill-badge is-all" title="All Team">👥 All</span>')
             elif eff_dels:
@@ -473,19 +476,19 @@ class SessionPlanExporter:
                     cov_note = " (Ad-hoc cover)" if is_cov else " (Owner)"
                     del_badges.append(f'<span class="del-pill-badge" style="background:{bg}; color:{col}; border:1px {bdr_style} {bdr};" title="{html.escape(dn)}{cov_note}">● {ini}</span>')
             elif is_not_followed:
-                del_badges.append('<span class="del-pill-badge is-not-followed-pill" title="Explicitly not followed (Out of scope)">⛔ Not Followed</span>')
-            else:
-                del_badges.append('<span class="del-pill-badge is-unassigned-pill" title="No delegate assigned">❓ Unassigned</span>')
+                del_badges.append('<span class="del-pill-badge is-not-followed-pill" title="Explicitly not followed (Out of scope)">⛔</span>')
+            elif has_ai_items or unassigned_ais:
+                del_badges.append('<span class="del-pill-badge is-unassigned-pill" title="Unassigned Agenda Item">❓</span>')
 
             note_badge = ""
             if ann and ann.comment:
                 note_badge = f'<div class="cell-note-pill" title="{html.escape(ann.comment)}">📝 {html.escape(ann.comment[:35])}{"…" if len(ann.comment) > 35 else ""}</div>'
 
-            return f"""<td class="{' '.join(cell_classes)}" colspan="{colspan}" data-stream="{s_num}" data-period="{p}" data-tu="{tu}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-unassigned="{1 if is_unassigned else 0}" data-not-followed="{1 if is_not_followed else 0}" data-drafting="{1 if slot.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
-  <div class="cell-top-row">{' '.join(hdr_badges)}</div>
-  <div class="cell-title">{raw_esc}</div>
-  {f'<div class="cell-chips-row">{"".join(chips)}</div>' if chips else ''}
-  {f'<div class="cell-del-row">{"".join(del_badges)}</div>' if del_badges else ''}
+            return f"""<td class="{' '.join(cell_classes)}"{cell_inline_style} colspan="{colspan}" data-stream="{s_num}" data-period="{p}" data-tu="{tu}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-unassigned="{1 if is_unassigned else 0}" data-not-followed="{1 if is_not_followed else 0}" data-drafting="{1 if slot.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
+  {f'<div class="cell-del-float">{"".join(del_badges)}</div>' if del_badges else ''}
+  {room_row_html}
+  {f'<div class="cell-title">{raw_esc}</div>' if raw_esc else ''}
+  {f'<div class="cell-chips-row">{"".join(gap_chips)}</div>' if gap_chips else ''}
   {note_badge}
   <div class="slot-tooltip-data" style="display:none;">{tt_html}</div>
 </td>"""
@@ -964,27 +967,37 @@ class SessionPlanExporter:
   /* Grid Cells */
   .grid-cell {
     background: #FFFFFF; transition: opacity 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
-    cursor: default; position: relative;
+    cursor: default; position: relative; border-left: 3px solid #CBD5E1;
   }
   .grid-cell.slot-cell:hover {
-    background: #F8FAFC;
+    filter: brightness(0.975);
   }
   .grid-cell.empty-slot-cell {
-    text-align: center; color: #CBD5E1; font-weight: 500; background: #FAFAFA;
+    text-align: center; color: #CBD5E1; font-weight: 500; background: #FAFAFA; border-left: none;
   }
   .grid-cell.empty-break-cell {
-    text-align: center; color: #CBD5E1; font-weight: 500; background: #F8FAFC;
+    text-align: center; color: #CBD5E1; font-weight: 500; background: #F8FAFC; border-left: none;
+  }
+  .grid-cell.is-empty-drafting {
+    background: #F8FAFC !important; color: #94A3B8; border-left: 3px solid #CBD5E1 !important;
+  }
+  .grid-cell.is-empty-drafting .cell-title {
+    color: #94A3B8; font-weight: 500;
   }
   .grid-cell.is-drafting {
     background: var(--drafting-bg); border-left: 3px solid var(--drafting) !important;
   }
   .grid-cell.is-unassigned {
+    background: #FFFFFF;
+  }
+  body.filter-unassigned .grid-cell.is-unassigned {
     background: #FFFBEB;
   }
   .grid-cell.is-not-followed {
     background: #F8FAFC !important;
     border-color: #E2E8F0 !important;
-    opacity: 0.75;
+    border-left: 3px dashed #CBD5E1 !important;
+    opacity: 0.78;
   }
 
   /* Delegate Dimming / Highlighting */
@@ -996,6 +1009,15 @@ class SessionPlanExporter:
   }
 
   /* Cell Contents */
+  .cell-del-float {
+    float: right; display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+    margin: 0 0 3px 6px;
+  }
+  .cell-room-row { margin-bottom: 2px; }
+  .cell-room-override {
+    display: inline-block; font-size: 9.5px; font-weight: 700; color: #475569;
+    background: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 3px; padding: 0px 4px;
+  }
   .cell-top-row { display: flex; gap: 4px; align-items: center; margin-bottom: 3px; flex-wrap: wrap; }
   .cell-badge {
     font-size: 9px; font-weight: 700; padding: 1px 4px; border-radius: 3px; text-transform: uppercase;
@@ -1006,8 +1028,8 @@ class SessionPlanExporter:
   .badge-drafting { background: #FEE2E2; color: var(--drafting); }
   .badge-tu { background: #E2E8F0; color: #334155; }
   .cell-room { font-size: 10px; color: #64748B; font-weight: 500; }
-  .cell-title { font-size: 11.5px; font-weight: 600; color: #0F172A; line-height: 1.35; margin-bottom: 3px; }
-  .cell-chips-row { display: flex; gap: 3px; flex-wrap: wrap; margin-bottom: 3px; }
+  .cell-title { font-size: 11px; font-weight: 500; color: #0F172A; line-height: 1.32; margin-bottom: 2px; }
+  .cell-chips-row { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 2px; }
   .ai-chip {
     font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: #E0E7FF; color: #3730A3;
   }
@@ -1020,7 +1042,7 @@ class SessionPlanExporter:
   .chip-count { font-size: 9px; font-weight: 700; color: #475569; margin-left: 2px; }
   .cell-del-row { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 2px; }
   .del-pill-badge {
-    font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center;
+    font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 6px; display: inline-flex; align-items: center;
   }
   .del-pill-badge.is-all {
     background: #EEF2FF; color: #4338CA; border: 1px solid #C7D2FE;

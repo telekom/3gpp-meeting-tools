@@ -242,9 +242,48 @@ class DelegationPlan:
 # Shared delegate resolution helpers (single source of truth for UI + exporters)
 # ---------------------------------------------------------------------------
 
+def ai_numbers_match(ai_a: str, ai_b: str) -> bool:
+    """
+    Checks whether two Agenda Item numbers match, supporting ``.x`` wildcards
+    (e.g. ``30.x`` matches ``30.x``, ``30``, ``30.1``, ``30.2``, and ``20.6.x`` matches
+    ``20.6`` and ``20.6.18``, without matching ``300.1`` or ``3.1``).
+    """
+    a = (ai_a or "").strip().lower()
+    b = (ai_b or "").strip().lower()
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+
+    def _wild_matches(wild: str, concrete: str) -> bool:
+        if not wild.endswith(".x"):
+            return False
+        prefix = wild[:-2]
+        if not prefix:
+            return False
+        return concrete == prefix or concrete.startswith(prefix + ".")
+
+    return _wild_matches(a, b) or _wild_matches(b, a)
+
+
+def _matching_topic_ownerships(
+    ai_num: str, topic_owners: Dict[str, TopicOwnership]
+) -> List[TopicOwnership]:
+    """Finds exact or ``.x``-wildcard matching TopicOwnership entries for ``ai_num``."""
+    if not ai_num or not topic_owners:
+        return []
+    if ai_num in topic_owners:
+        return [topic_owners[ai_num]]
+    ai_low = ai_num.strip().lower()
+    for k, to in topic_owners.items():
+        if k.strip().lower() == ai_low:
+            return [to]
+    return [to for k, to in topic_owners.items() if ai_numbers_match(ai_num, k)]
+
+
 def ai_number_in_text(ai_number: str, text: str) -> bool:
     """
-    Boundary-aware Agenda Item lookup inside free text.
+    Boundary-aware Agenda Item lookup inside free text, supporting ``.x`` wildcards.
 
     A naive substring test (``"20.6.2" in "KI#24 (IoT) (20.6.24)"``) yields false
     positives for every AI sharing a numeric prefix (20.6.2 -> 20.6.20 … 20.6.29,
@@ -253,8 +292,24 @@ def ai_number_in_text(ai_number: str, text: str) -> bool:
     """
     if not ai_number or not text:
         return False
-    pattern = r"(?<![\d.])" + re.escape(ai_number.strip()) + r"(?!\d|\.\d)"
-    return re.search(pattern, text) is not None
+    ai_clean = ai_number.strip()
+    if ai_clean.lower().endswith(".x"):
+        prefix = ai_clean[:-2]
+        if prefix:
+            w_pat = r"(?<![\d.])" + re.escape(prefix) + r"(?:\.(?:\d+|[xX]))?(?![\d.])"
+            return re.search(w_pat, text) is not None
+
+    pattern = r"(?<![\d.])" + re.escape(ai_clean) + r"(?!\d|\.\d)"
+    if re.search(pattern, text, re.I if ai_clean.lower().endswith(".x") else 0) is not None:
+        return True
+
+    # Concrete AI (e.g. '30.1' or '30' or '20.6.18') matches explicit '<prefix>.x' in text
+    parent = ai_clean.rsplit(".", 1)[0] if "." in ai_clean else ai_clean
+    if parent:
+        wild_in_text = r"(?<![\d.])" + re.escape(parent) + r"\.[xX](?![\d\w])"
+        if re.search(wild_in_text, text) is not None:
+            return True
+    return False
 
 
 def resolve_slot_effective_delegates(
@@ -295,10 +350,11 @@ def resolve_slot_effective_delegates(
             if owner not in found:
                 found.append(owner)
 
-    # 2. Topic-level ownership from parsed slot items
+    # 2. Topic-level ownership from parsed slot items (including .x wildcards)
     for it in slot.items:
-        if it.ai_number and it.ai_number in plan.topic_owners:
-            _absorb(plan.topic_owners[it.ai_number])
+        if it.ai_number:
+            for to in _matching_topic_ownerships(it.ai_number, plan.topic_owners):
+                _absorb(to)
     if found:
         return found, False, is_all_flag
 
@@ -322,10 +378,11 @@ def is_slot_not_followed(slot: SessionSlot, plan: Optional[DelegationPlan]) -> b
         return False
     ai_nums = [it.ai_number for it in slot.items if it.ai_number]
     if ai_nums:
-        return all(
-            plan.topic_owners.get(a) is not None and plan.topic_owners[a].is_not_followed()
-            for a in ai_nums
-        )
+        for a in ai_nums:
+            matches = _matching_topic_ownerships(a, plan.topic_owners)
+            if not matches or not all(m.is_not_followed() for m in matches):
+                return False
+        return True
     # Fallback to checking raw cell text for boundary-matched not-followed AIs
     for ai_num, to in plan.topic_owners.items():
         if to.is_not_followed() and ai_number_in_text(ai_num, slot.raw_text):
@@ -369,4 +426,41 @@ def compute_unique_initials(names: Iterable[str]) -> Dict[str, str]:
         else:
             seen[ini] = 1
     return result
+
+
+_ROOM_PREFIX_RE = re.compile(
+    r"^\s*(?:\(?\s*in\s+(?:the\s+)?)?(main room|breakout\s*1|breakout\s*2|bmo room \d+|palomino [a-z\-]+|percheron [a-z\-]+)\s*\)?[\s:.\-–—]*",
+    re.I,
+)
+_TRAILING_COUNT_RE = re.compile(r"^\[\s*[\d\+\,\s]+\s*\]$")
+_EMPTY_DRAFTING_RE = re.compile(r"^\s*drafting\s*:?\s*$", re.I)
+
+
+def format_slot_display_text(raw_text: str, room_override: str = "") -> Tuple[str, bool]:
+    """
+    Normalizes session slot text for compact card display in Desktop & HTML grids:
+    - Detects empty placeholder cells like ``Drafting:`` (``is_empty_drafting=True``).
+    - Strips redundant leading room-override lines when ``room_override`` is shown as a badge.
+    - Merges standalone trailing ``[TDocCount]`` lines onto the preceding topic line.
+    """
+    raw = (raw_text or "").strip()
+    is_empty_drafting = bool(_EMPTY_DRAFTING_RE.match(raw))
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+
+    cleaned_lines: List[str] = []
+    for ln in lines:
+        if room_override:
+            m_room = _ROOM_PREFIX_RE.match(ln)
+            if m_room:
+                rest = ln[m_room.end():].strip()
+                if rest:
+                    cleaned_lines.append(rest)
+                continue
+        if cleaned_lines and _TRAILING_COUNT_RE.match(ln):
+            cleaned_lines[-1] = f"{cleaned_lines[-1]} {ln}"
+            continue
+        cleaned_lines.append(ln)
+
+    return "\n".join(cleaned_lines), is_empty_drafting
+
 

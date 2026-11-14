@@ -30,6 +30,7 @@ from PyQt5.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -49,7 +50,9 @@ from modules.meetings.core.session_plan.session_plan_models import (
     SessionPlanSnapshot,
     SessionSlot,
     UserSessionAnnotation,
+    ai_numbers_match,
     compute_unique_initials,
+    format_slot_display_text,
     is_slot_not_followed,
     resolve_slot_effective_delegates,
 )
@@ -185,6 +188,8 @@ class SessionPlanWindow(QWidget):
         super().resizeEvent(event)
         if hasattr(self, "drop_overlay") and self.drop_overlay:
             self.drop_overlay.setGeometry(self.rect())
+        if hasattr(self, "grid_table") and hasattr(self, "view_stack") and self.view_stack.currentIndex() == 0:
+            QTimer.singleShot(0, self.grid_table.resizeRowsToContents)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -562,28 +567,28 @@ class SessionPlanWindow(QWidget):
 
         # Room & Convener Guide & Stream Toggle Strip
         self.room_strip = QFrame()
-        self.room_strip.setStyleSheet(f"background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px; padding: 4px 10px;")
+        self.room_strip.setStyleSheet(f"background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; padding: 2px 8px;")
         self.room_strip_layout = QHBoxLayout(self.room_strip)
-        self.room_strip_layout.setContentsMargins(4, 2, 4, 2)
-        self.room_strip_layout.setSpacing(12)
+        self.room_strip_layout.setContentsMargins(2, 1, 2, 1)
+        self.room_strip_layout.setSpacing(10)
 
-        self.btn_toggle_s1 = QCheckBox("🏢 Stream 1: Main Room (B2) [300]")
+        self.btn_toggle_s1 = QCheckBox("🏢 Str 1: Main Room")
         self.btn_toggle_s1.setChecked(True)
-        self.btn_toggle_s1.setStyleSheet(f"QCheckBox {{ color: {C.INDIGO_DARK}; font-weight: 600; font-size: 11px; padding: 2px 4px; }}")
+        self.btn_toggle_s1.setStyleSheet(f"QCheckBox {{ color: {C.INDIGO_DARK}; font-weight: 600; font-size: 11px; padding: 1px 4px; }}")
         self.btn_toggle_s1.setToolTip("Toggle visibility of Stream 1 (Main Room / Plenary / Single Stream).")
         self.btn_toggle_s1.toggled.connect(self._update_row_visibility)
         self.room_strip_layout.addWidget(self.btn_toggle_s1)
 
-        self.btn_toggle_s2 = QCheckBox("🏢 Stream 2: Breakout 1 (B3) [100]")
+        self.btn_toggle_s2 = QCheckBox("🏢 Str 2: Breakout 1")
         self.btn_toggle_s2.setChecked(True)
-        self.btn_toggle_s2.setStyleSheet(f"QCheckBox {{ color: {C.EMERALD_DARK}; font-weight: 600; font-size: 11px; padding: 2px 4px; }}")
+        self.btn_toggle_s2.setStyleSheet(f"QCheckBox {{ color: {C.EMERALD_DARK}; font-weight: 600; font-size: 11px; padding: 1px 4px; }}")
         self.btn_toggle_s2.setToolTip("Toggle visibility of Stream 2 (Breakout 1 / Mike).")
         self.btn_toggle_s2.toggled.connect(self._update_row_visibility)
         self.room_strip_layout.addWidget(self.btn_toggle_s2)
 
-        self.btn_toggle_s3 = QCheckBox("🏢 Stream 3: Breakout 2 (D11/D12) [120]")
+        self.btn_toggle_s3 = QCheckBox("🏢 Str 3: Breakout 2")
         self.btn_toggle_s3.setChecked(True)
-        self.btn_toggle_s3.setStyleSheet(f"QCheckBox {{ color: {C.WARNING}; font-weight: 600; font-size: 11px; padding: 2px 4px; }}")
+        self.btn_toggle_s3.setStyleSheet(f"QCheckBox {{ color: {C.WARNING}; font-weight: 600; font-size: 11px; padding: 1px 4px; }}")
         self.btn_toggle_s3.setToolTip("Toggle visibility of Stream 3 (Breakout 2 / Wanqiang).")
         self.btn_toggle_s3.toggled.connect(self._update_row_visibility)
         self.room_strip_layout.addWidget(self.btn_toggle_s3)
@@ -612,9 +617,9 @@ class SessionPlanWindow(QWidget):
 
         # Delegate Focus / Heatmap Highlight Strip
         self.delegate_strip = QFrame()
-        self.delegate_strip.setStyleSheet(f"background: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px; padding: 4px 10px;")
+        self.delegate_strip.setStyleSheet(f"background: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; padding: 2px 8px;")
         self.delegate_strip_layout = QHBoxLayout(self.delegate_strip)
-        self.delegate_strip_layout.setContentsMargins(4, 2, 4, 2)
+        self.delegate_strip_layout.setContentsMargins(2, 1, 2, 1)
         self.delegate_strip_layout.setSpacing(6)
 
         lbl_f = QLabel("<b>Delegate Focus:</b>")
@@ -638,11 +643,19 @@ class SessionPlanWindow(QWidget):
         self.dynamic_delegate_chips: List[QCheckBox] = []
         self.delegate_strip_layout.addStretch()
 
-        self.lbl_badge_legend = QLabel(
-            f"<span style='color:{C.TEXT_MUTED};'>Badges: <b>●</b> owner · <b>◌</b> dashed = ad-hoc cover · "
-            f"<b style='color:{C.DANGER_ALT};'>◯</b> red ring = clash</span>"
+        self.lbl_badge_legend = QLabel(f"<span style='color:{C.TEXT_MUTED};'>ℹ️ Legend</span>")
+        self.lbl_badge_legend.setStyleSheet(
+            f"font-size: 10.5px; font-weight: 600; background: {C.BG_SURFACE}; "
+            f"border: 1px solid {C.BORDER_SUBTLE}; border-radius: 9px; padding: 1px 7px;"
         )
-        self.lbl_badge_legend.setStyleSheet("font-size: 10px;")
+        self.lbl_badge_legend.setToolTip(
+            "<b>Cell &amp; Badge Legend</b><br>"
+            "• <b>Solid pill</b> = Topic owner<br>"
+            "• <b>Dashed pill</b> = Ad-hoc session cover<br>"
+            "• <b style='color:#DC2626;'>Red ring / ⚠</b> = Parallel-stream clash<br>"
+            "• <b>❓</b> = Unassigned Agenda Item<br>"
+            "• <b>⛔</b> = Explicitly Not Followed (Out of scope)"
+        )
         self.delegate_strip_layout.addWidget(self.lbl_badge_legend)
         page_layout.addWidget(self.delegate_strip)
         self._style_focus_buttons()
@@ -651,8 +664,9 @@ class SessionPlanWindow(QWidget):
         self.grid_table = QTableWidget()
         self.grid_table.setColumnCount(10)
         self.grid_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.grid_table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
         self.grid_table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.grid_table.verticalHeader().setDefaultSectionSize(60)
+        self.grid_table.verticalHeader().setDefaultSectionSize(44)
         self.grid_table.setAlternatingRowColors(False)
         self.grid_table.setStyleSheet(f"QTableWidget {{ gridline-color: {C.BORDER_SUBTLE}; selection-background-color: {C.INDIGO_SOFT}; }}")
         self.grid_table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -1021,15 +1035,20 @@ class SessionPlanWindow(QWidget):
         if not self.active_snapshot:
             return
         streams = self.active_snapshot.streams
-        if 1 in streams:
-            s1 = streams[1]
-            self.btn_toggle_s1.setText(f"🏢 Stream 1: {s1.room_name} [{s1.capacity}] · {s1.convener or 'MCC / Chair'} · {s1.tohru_room}")
-        if 2 in streams:
-            s2 = streams[2]
-            self.btn_toggle_s2.setText(f"🏢 Stream 2: {s2.room_name} [{s2.capacity}] · {s2.convener or 'Convener 1'} · {s2.tohru_room}")
-        if 3 in streams:
-            s3 = streams[3]
-            self.btn_toggle_s3.setText(f"🏢 Stream 3: {s3.room_name} [{s3.capacity}] · {s3.convener or 'Convener 2'} · {s3.tohru_room}")
+        for s_num, chk, fallback_chair in (
+            (1, self.btn_toggle_s1, "MCC / Chair"),
+            (2, self.btn_toggle_s2, "Convener 1"),
+            (3, self.btn_toggle_s3, "Convener 2"),
+        ):
+            if s_num in streams:
+                s_info = streams[s_num]
+                short_room = s_info.room_name.split("(")[0].strip() or s_info.room_name
+                chk.setText(f"🏢 Str {s_num}: {short_room}")
+                chk.setToolTip(
+                    f"<b>Stream {s_num}:</b> {html.escape(s_info.room_name)} [{s_info.capacity} seats]<br>"
+                    f"<b>Chair:</b> {html.escape(s_info.convener or fallback_chair)}<br>"
+                    f"<b>TOHRU:</b> {html.escape(s_info.tohru_room)}"
+                )
 
     def _render_empty_views(self):
         self.grid_table.setRowCount(0)
@@ -1271,11 +1290,17 @@ class SessionPlanWindow(QWidget):
     def _create_slot_cell_widget(
         self, slot: SessionSlot, day_idx: int, period: str, stream_num: int, is_half: bool = False, tu: int = 0
     ) -> QWidget:
-        """Creates clean visual card for a session slot with delegate coloring and conflict tags."""
+        """Creates a compact unified card for a session slot with right-aligned pills and neutral unassigned styling."""
         w = QWidget()
-        lay = QVBoxLayout(w)
-        lay.setContentsMargins(4, 3, 4, 3)
-        lay.setSpacing(2)
+        outer_lay = QVBoxLayout(w)
+        outer_lay.setContentsMargins(2, 2, 2, 2)
+        outer_lay.setSpacing(0)
+
+        card = QFrame()
+        card.setObjectName("slotCard")
+        card_lay = QHBoxLayout(card)
+        card_lay.setContentsMargins(6, 4, 6, 4)
+        card_lay.setSpacing(4)
 
         del_names, is_cov, is_all = self._get_slot_effective_delegates(slot)
         assigned_members = [
@@ -1300,65 +1325,16 @@ class SessionPlanWindow(QWidget):
                     if cs.slot_key != slot.slot_key and self._slots_time_overlap(cs, slot)
                 ]
         is_collision = len(colliding_members) > 0
-
-        # Compact badge strip: colored initials dots instead of full names (full names in tooltips)
-        if is_all or assigned_members:
-            pill_row = QHBoxLayout()
-            pill_row.setContentsMargins(0, 0, 0, 0)
-            pill_row.setSpacing(3)
-
-            if is_all:
-                all_pill = QLabel("👥 ALL")
-                all_pill.setToolTip("Whole delegation" + (" (ad-hoc coverage)" if is_cov else " (All Team topic)"))
-                border_style = "dashed" if is_cov else "solid"
-                all_pill.setStyleSheet(
-                    f"background: {C.WG_SA_BG}; color: {C.INDIGO_DARK}; font-weight: 700; font-size: 9px; "
-                    f"border: 1px {border_style} #6366F1; border-radius: 8px; padding: 1px 5px;"
-                )
-                pill_row.addWidget(all_pill)
-            else:
-                initials = self._delegate_initials_map()
-                max_badges = 4
-                shown = assigned_members if len(assigned_members) <= max_badges else assigned_members[: max_badges - 1]
-                for m in shown:
-                    pill_row.addWidget(
-                        self._make_delegate_badge(
-                            m,
-                            initials.get(m.name, m.initials),
-                            is_cov=is_cov,
-                            is_clash=m.name in colliding_members,
-                            clash_slots=clash_partners.get(m.name, []),
-                        )
-                    )
-                if len(assigned_members) > len(shown):
-                    rest = assigned_members[len(shown):]
-                    more = QLabel(f"+{len(rest)}")
-                    more.setToolTip(", ".join(m.name for m in rest))
-                    more.setStyleSheet(
-                        f"background: {C.BG_CANVAS}; color: {C.TEXT_BODY}; font-weight: 700; font-size: 9px; "
-                        f"border: 1px solid {C.BORDER_STRONG}; border-radius: 9px; padding: 1px 4px;"
-                    )
-                    pill_row.addWidget(more)
-
-            if is_collision:
-                warn_pill = QLabel("⚠")
-                who = ", ".join(colliding_members)
-                warn_pill.setToolTip(f"Parallel-stream clash for: {who}")
-                warn_pill.setStyleSheet(
-                    f"background: {C.WARNING_SOFT_ALT}; color: {C.WARNING}; font-weight: bold; font-size: 10px; "
-                    f"border: 1px solid {C.WARNING_ACCENT}; border-radius: 8px; padding: 0px 4px;"
-                )
-                pill_row.addWidget(warn_pill)
-
-            pill_row.addStretch()
-            lay.addLayout(pill_row)
-
-        lbl = QLabel(slot.raw_text)
-        lbl.setWordWrap(True)
-        lbl.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-
         is_tracked = self._is_slot_tracked(slot)
         is_not_followed_slot = is_slot_not_followed(slot, self.delegation_plan)
+        room_ov = getattr(slot, "room_override", "") or ""
+        clean_text, is_empty_drafting = format_slot_display_text(slot.raw_text, room_ov)
+        has_unassigned_ai = (
+            not is_all
+            and not assigned_members
+            and not is_not_followed_slot
+            and any(it.ai_number for it in slot.items)
+        )
 
         # Dimming check if a (multi-select) delegate focus is active on the Overview Grid
         is_dimmed = False
@@ -1370,36 +1346,163 @@ class SessionPlanWindow(QWidget):
             else:
                 is_dimmed = True
 
+        # Resolve unified card palette
+        font_weight = 400
         if is_dimmed:
-            lbl.setStyleSheet(f"background: {C.BG_SURFACE}; color: {C.TEXT_FAINT}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px; padding: 3px;")
+            card_bg = C.BG_SURFACE
+            card_bdr = f"1px solid {C.BORDER_SUBTLE}"
+            text_color = C.TEXT_FAINT
         elif is_collision:
-            lbl.setStyleSheet(f"background: {C.WARNING_SOFT}; color: {C.WARNING_DARK}; border: 1px solid {C.WARNING_ACCENT}; border-left: 4px solid {C.WARNING_AMBER}; border-radius: 4px; padding: 4px; font-weight: 500;")
+            card_bg = C.WARNING_SOFT
+            card_bdr = f"1px solid {C.WARNING_ACCENT}; border-left: 4px solid {C.WARNING_AMBER}"
+            text_color = C.WARNING_DARK
+            font_weight = 500
         elif is_all:
+            text_color = C.TEXT_PRIMARY
             if is_focused:
-                lbl.setStyleSheet(f"background: {C.WG_SA_BG}; color: {C.TEXT_PRIMARY}; border: 1.5px solid {C.INDIGO_DARK}; border-left: 5px solid {C.INDIGO_DARK}; border-radius: 4px; padding: 4px; font-weight: 600;")
+                card_bg = C.WG_SA_BG
+                card_bdr = f"1.5px solid {C.INDIGO_DARK}; border-left: 5px solid {C.INDIGO_DARK}"
+                font_weight = 600
             else:
-                lbl.setStyleSheet(f"background: {C.BG_CARD}; color: {C.TEXT_PRIMARY}; border: 1px solid {C.BORDER_STRONG}; border-left: 4px solid {C.INDIGO_DARK}; border-radius: 4px; padding: 4px; font-weight: 500;")
+                card_bg = DelegationMember.compute_tint(C.INDIGO_DARK, 0.06)
+                card_bdr = f"1px solid {C.BORDER_STRONG}; border-left: 4px solid {C.INDIGO_DARK}"
+                font_weight = 500
         elif assigned_members:
             primary_m = assigned_members[0]
+            text_color = C.TEXT_PRIMARY
             if is_focused:
-                lbl.setStyleSheet(f"background: {primary_m.bg_tint}; color: {C.TEXT_PRIMARY}; border: 1.5px solid {primary_m.color}; border-left: 5px solid {primary_m.color}; border-radius: 4px; padding: 4px; font-weight: 600;")
+                card_bg = primary_m.bg_tint
+                card_bdr = f"1.5px solid {primary_m.color}; border-left: 5px solid {primary_m.color}"
+                font_weight = 600
             else:
-                lbl.setStyleSheet(f"background: {C.BG_CARD}; color: {C.TEXT_PRIMARY}; border: 1px solid {C.BORDER_STRONG}; border-left: 4px solid {primary_m.color}; border-radius: 4px; padding: 4px; font-weight: 500;")
+                card_bg = DelegationMember.compute_tint(primary_m.color, 0.07)
+                card_bdr = f"1px solid {primary_m.border_tint}; border-left: 4px solid {primary_m.color}"
+                font_weight = 500
+        elif is_empty_drafting:
+            card_bg = C.BG_SURFACE
+            card_bdr = f"1px solid {C.BORDER_SUBTLE}"
+            text_color = C.TEXT_MUTED
         elif slot.is_drafting:
-            lbl.setStyleSheet(f"background: {C.DANGER_SOFT}; color: {C.DANGER_DARK}; border: 1px solid {C.DANGER_BORDER}; border-radius: 4px; padding: 4px; font-weight: 500;")
+            card_bg = C.DANGER_SOFT
+            card_bdr = f"1px solid {C.DANGER_BORDER}; border-left: 4px solid {C.DANGER_ALT}"
+            text_color = C.DANGER_DARK
+            font_weight = 500
         elif is_not_followed_slot:
-            lbl.setStyleSheet(f"background: {C.BG_SURFACE}; color: {C.TEXT_MUTED}; border: 1px dashed {C.BORDER_STRONG}; border-radius: 4px; padding: 4px;")
+            card_bg = C.BG_SURFACE
+            card_bdr = f"1px dashed {C.BORDER_STRONG}"
+            text_color = C.TEXT_MUTED
         elif is_tracked:
-            lbl.setStyleSheet(f"background: {C.VIOLET_SURFACE}; color: {C.VIOLET_DARK}; border: 1px solid {C.VIOLET_BORDER}; border-radius: 4px; padding: 4px; font-weight: 500;")
+            card_bg = C.VIOLET_SURFACE
+            card_bdr = f"1px solid {C.VIOLET_BORDER}"
+            text_color = C.VIOLET_DARK
+            font_weight = 500
         else:
-            border_c = C.INDIGO_DARK if stream_num == 1 else (C.EMERALD_DARK if stream_num == 2 else C.WARNING)
-            lbl.setStyleSheet(f"background: {C.BG_CARD}; color: {C.TEXT_STRONG}; border: 1px solid {C.BORDER_SUBTLE}; border-left: 3px solid {border_c}; border-radius: 4px; padding: 4px;")
+            card_bg = C.BG_CARD
+            card_bdr = f"1px solid {C.BORDER_SUBTLE}; border-left: 3px solid {C.BORDER_STRONG}"
+            text_color = C.TEXT_STRONG
 
-        lay.addWidget(lbl)
+        card.setStyleSheet(f"QFrame#slotCard {{ background: {card_bg}; border: {card_bdr}; border-radius: 5px; }}")
+
+        # Left column: optional room override chip + wrapped topic text
+        body_lay = QVBoxLayout()
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        body_lay.setSpacing(2)
+
+        if room_ov:
+            room_chip = QLabel(f"📍 {room_ov}")
+            room_chip.setStyleSheet(
+                f"background: {C.BG_SURFACE}; color: {C.TEXT_SECONDARY}; font-size: 9.5px; "
+                f"font-weight: 700; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 3px; padding: 0px 4px;"
+            )
+            room_chip.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            body_lay.addWidget(room_chip, 0, Qt.AlignLeft)
+
+        if clean_text:
+            lbl = QLabel(clean_text)
+            lbl.setWordWrap(True)
+            lbl.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+            lbl.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+            lbl.setStyleSheet(f"background: transparent; border: none; color: {text_color}; font-weight: {font_weight};")
+            body_lay.addWidget(lbl)
+
+        body_lay.addStretch(1)
+        card_lay.addLayout(body_lay, 1)
+
+        # Right column: compact top-aligned delegate / status pills
+        pill_widgets: List[QWidget] = []
+        if is_all:
+            all_pill = QLabel("👥 ALL")
+            all_pill.setToolTip("Whole delegation" + (" (ad-hoc coverage)" if is_cov else " (All Team topic)"))
+            border_style = "dashed" if is_cov else "solid"
+            all_pill.setStyleSheet(
+                f"background: {C.WG_SA_BG}; color: {C.INDIGO_DARK}; font-weight: 700; font-size: 8.5px; "
+                f"border: 1px {border_style} #6366F1; border-radius: 7px; padding: 1px 4px;"
+            )
+            pill_widgets.append(all_pill)
+        elif assigned_members:
+            initials = self._delegate_initials_map()
+            max_badges = 3
+            shown = assigned_members if len(assigned_members) <= max_badges else assigned_members[: max_badges - 1]
+            for m in shown:
+                pill_widgets.append(
+                    self._make_delegate_badge(
+                        m,
+                        initials.get(m.name, m.initials),
+                        is_cov=is_cov,
+                        is_clash=m.name in colliding_members,
+                        clash_slots=clash_partners.get(m.name, []),
+                    )
+                )
+            if len(assigned_members) > len(shown):
+                rest = assigned_members[len(shown):]
+                more = QLabel(f"+{len(rest)}")
+                more.setToolTip(", ".join(m.name for m in rest))
+                more.setStyleSheet(
+                    f"background: {C.BG_CANVAS}; color: {C.TEXT_BODY}; font-weight: 700; font-size: 8.5px; "
+                    f"border: 1px solid {C.BORDER_STRONG}; border-radius: 7px; padding: 1px 4px;"
+                )
+                pill_widgets.append(more)
+        elif is_not_followed_slot:
+            nf_pill = QLabel("⛔")
+            nf_pill.setToolTip("Explicitly Not Followed (Out of scope)")
+            nf_pill.setStyleSheet(
+                f"background: {C.BG_CANVAS}; color: {C.TEXT_MUTED}; font-size: 9px; "
+                f"border: 1px solid {C.BORDER_STRONG}; border-radius: 7px; padding: 0px 4px;"
+            )
+            pill_widgets.append(nf_pill)
+        elif has_unassigned_ai:
+            un_pill = QLabel("❓")
+            un_pill.setToolTip("Unassigned Agenda Item — right-click to assign")
+            un_pill.setStyleSheet(
+                "background: #FEF3C7; color: #B45309; font-weight: 700; font-size: 9px; "
+                "border: 1px dashed #F59E0B; border-radius: 7px; padding: 0px 4px;"
+            )
+            pill_widgets.append(un_pill)
+
+        if is_collision:
+            warn_pill = QLabel("⚠")
+            who = ", ".join(colliding_members)
+            warn_pill.setToolTip(f"Parallel-stream clash for: {who}")
+            warn_pill.setStyleSheet(
+                f"background: {C.WARNING_SOFT_ALT}; color: {C.WARNING}; font-weight: bold; font-size: 9.5px; "
+                f"border: 1px solid {C.WARNING_ACCENT}; border-radius: 7px; padding: 0px 4px;"
+            )
+            pill_widgets.append(warn_pill)
+
+        if pill_widgets:
+            pill_col = QVBoxLayout()
+            pill_col.setContentsMargins(0, 0, 0, 0)
+            pill_col.setSpacing(2)
+            for pw in pill_widgets:
+                pill_col.addWidget(pw, 0, Qt.AlignRight)
+            pill_col.addStretch(1)
+            card_lay.addLayout(pill_col, 0)
+
+        outer_lay.addWidget(card)
 
         tooltip_html = self._build_rich_slot_tooltip(slot, day_idx, period, stream_num, tu)
         w.setToolTip(tooltip_html)
-        lbl.setToolTip(tooltip_html)
+        card.setToolTip(tooltip_html)
         return w
 
     def _create_break_cell_widget(self, slot: SessionSlot, day_idx: int, period: str) -> QWidget:
@@ -1470,14 +1573,14 @@ class SessionPlanWindow(QWidget):
         for idx, d_name in enumerate(DAY_NAMES):
             if base_date:
                 cur_date = base_date + timedelta(days=idx)
-                d_str = f"{d_name[:3]} ({cur_date.strftime('%d %b')})"
+                d_str = f"{d_name[:3]} {cur_date.strftime('%d %b')}"
                 if cur_date == venue_today:
-                    d_str += " 🟢 Today"
+                    d_str += " 🟢"
             else:
                 d_str = d_name
 
-            h_headers.append(f"{d_str} · 1st Half")
-            h_headers.append(f"{d_str} · 2nd Half")
+            h_headers.append(f"{d_str}\n1st Half")
+            h_headers.append(f"{d_str}\n2nd Half")
 
         self.grid_table.setHorizontalHeaderLabels(h_headers)
 
@@ -1558,6 +1661,32 @@ class SessionPlanWindow(QWidget):
                         self.grid_table.setItem(row_idx, tu1_col, item_b)
 
         self._update_row_visibility()
+        QTimer.singleShot(0, self.grid_table.resizeRowsToContents)
+
+    @staticmethod
+    def _slots_for_ai(ai_num: str, scheduled_ais: Dict[str, List[SessionSlot]]) -> List[SessionSlot]:
+        """Returns scheduled slots matching ``ai_num`` directly or via ``.x`` wildcard equivalence."""
+        if ai_num in scheduled_ais:
+            return scheduled_ais[ai_num]
+        matched: List[SessionSlot] = []
+        seen_keys: Set[str] = set()
+        for sched_ai, slots_list in scheduled_ais.items():
+            if ai_numbers_match(ai_num, sched_ai):
+                for s in slots_list:
+                    if s.slot_key not in seen_keys:
+                        seen_keys.add(s.slot_key)
+                        matched.append(s)
+        return matched
+
+    def _combined_ai_keys(self, scheduled_ais: Dict[str, List[SessionSlot]]) -> List[str]:
+        """Combines agenda_map keys with unrepresented scheduled AI numbers (e.g. ``30.x``)."""
+        if not self.agenda_map:
+            return sorted(scheduled_ais.keys(), key=self._ai_sort_key)
+        keys = set(self.agenda_map.keys())
+        for sched_ai in scheduled_ais.keys():
+            if sched_ai not in keys and not any(ai_numbers_match(sched_ai, ak) for ak in self.agenda_map):
+                keys.add(sched_ai)
+        return sorted(keys, key=self._ai_sort_key)
 
     def _resolve_ai_description(self, ai_num: str, scheduled_ais: Dict[str, List[SessionSlot]]) -> Tuple[str, Optional[str]]:
         """Resolves human-readable description and optional acronym for an agenda item number."""
@@ -1565,11 +1694,11 @@ class SessionPlanWindow(QWidget):
             ai_item = self.agenda_map[ai_num]
             return ai_item.description, getattr(ai_item, "acronym", None)
 
-        # Look for the specific AgendaSlotItem matching this ai_number
-        matched_slots = scheduled_ais.get(ai_num, [])
+        # Look for the specific AgendaSlotItem matching this ai_number (or .x wildcard)
+        matched_slots = self._slots_for_ai(ai_num, scheduled_ais)
         for s in matched_slots:
             for it in s.items:
-                if it.ai_number == ai_num:
+                if it.ai_number == ai_num or ai_numbers_match(ai_num, it.ai_number):
                     label = it.topic_label or it.display_expr
                     if label:
                         return label, None
@@ -1591,18 +1720,10 @@ class SessionPlanWindow(QWidget):
 
     def _render_agenda_mode(self):
         """Cross-references Agenda document items against allocated slots with 1-click ⭐ Track."""
-        scheduled_ais: Dict[str, List[SessionSlot]] = {}
-        for s in self.active_snapshot.slots:
-            for it in s.items:
-                if it.ai_number:
-                    scheduled_ais.setdefault(it.ai_number, []).append(s)
+        scheduled_ais = self._get_scheduled_ais_map()
+        all_ais = self._combined_ai_keys(scheduled_ais)
 
-        if self.agenda_map:
-            all_ais = sorted(self.agenda_map.keys(), key=self._ai_sort_key)
-        else:
-            all_ais = sorted(scheduled_ais.keys(), key=self._ai_sort_key)
-
-        num_sched = sum(1 for ai in all_ais if scheduled_ais.get(ai))
+        num_sched = sum(1 for ai in all_ais if self._slots_for_ai(ai, scheduled_ais))
         num_unsched = len(all_ais) - num_sched
         self.btn_agenda.setText(f"📋 Agenda Mode ({num_sched} Sched · {num_unsched} Unscheduled)")
 
@@ -1624,7 +1745,7 @@ class SessionPlanWindow(QWidget):
             item_num = QTableWidgetItem(ai_num)
             item_desc = QTableWidgetItem(desc)
 
-            matched_slots = scheduled_ais.get(ai_num, [])
+            matched_slots = self._slots_for_ai(ai_num, scheduled_ais)
             if matched_slots:
                 status_item = QTableWidgetItem(f"🟢 Scheduled ({len(matched_slots)})")
                 status_item.setForeground(QColor(C.SUCCESS_DARK))
@@ -2082,10 +2203,7 @@ class SessionPlanWindow(QWidget):
             return
 
         scheduled_ais = self._get_scheduled_ais_map()
-        if self.agenda_map:
-            all_ais = sorted(self.agenda_map.keys(), key=self._ai_sort_key)
-        else:
-            all_ais = sorted(scheduled_ais.keys(), key=self._ai_sort_key)
+        all_ais = self._combined_ai_keys(scheduled_ais)
 
         self.team_topics_table.setRowCount(len(all_ais))
         collisions = self._detect_delegation_collisions()
@@ -2095,7 +2213,7 @@ class SessionPlanWindow(QWidget):
         for row, ai_num in enumerate(all_ais):
             desc, _ = self._resolve_ai_description(ai_num, scheduled_ais)
 
-            slots_for_ai = scheduled_ais.get(ai_num, [])
+            slots_for_ai = self._slots_for_ai(ai_num, scheduled_ais)
             slots_summary = ", ".join(f"{s.day_name[:3]} {s.quarter} (Str {s.stream_number})" for s in slots_for_ai[:3])
             if len(slots_for_ai) > 3:
                 slots_summary += f" +{len(slots_for_ai)-3} more"
@@ -2220,7 +2338,7 @@ class SessionPlanWindow(QWidget):
             to = self.delegation_plan.topic_owners.get(ai_num)
             owner_name = to.owner_name if to else ""
             owners_list = to.get_owners([m.name for m in members_list]) if to else []
-            slots_for_ai = scheduled_ais.get(ai_num, [])
+            slots_for_ai = self._slots_for_ai(ai_num, scheduled_ais)
 
             has_clash = False
             if owners_list and slots_for_ai:
