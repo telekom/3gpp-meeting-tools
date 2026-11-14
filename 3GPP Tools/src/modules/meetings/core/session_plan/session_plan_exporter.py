@@ -116,8 +116,14 @@ class SessionPlanExporter:
 
         laptop_offset_min = SessionPlanTimezone.get_laptop_tz_offset_minutes()
         is_tz_different = (laptop_offset_min != meeting_tz_offset_min)
-        tz_diff_hours = (laptop_offset_min - meeting_tz_offset_min) // 60
-        tz_diff_str = ("+" if tz_diff_hours >= 0 else "") + str(tz_diff_hours) + "h"
+        tz_diff_min = laptop_offset_min - meeting_tz_offset_min
+        tz_sign = "+" if tz_diff_min >= 0 else "-"
+        tz_abs_h, tz_abs_m = divmod(abs(tz_diff_min), 60)
+        tz_diff_str = f"{tz_sign}{tz_abs_h}h" if tz_abs_m == 0 else f"{tz_sign}{tz_abs_h}h{tz_abs_m:02d}m"
+
+        v_sign = "+" if meeting_tz_offset_min >= 0 else "-"
+        v_abs_h, v_abs_m = divmod(abs(meeting_tz_offset_min), 60)
+        venue_utc_str = f"UTC{v_sign}{v_abs_h:02d}:{v_abs_m:02d}"
 
         base_date = None
         if meeting_dates_str:
@@ -437,33 +443,37 @@ class SessionPlanExporter:
             elif is_not_followed:
                 cell_classes.append("is-not-followed")
 
-            # Inline tinting matching Desktop UI so assigned delegates pop cleanly vs neutral unassigned
-            cell_inline_style = ""
+            # Unified rounded slot card styling matching the Desktop UI
+            card_inline_style = ""
             if is_all:
-                cell_inline_style = ' style="background:#F5F7FF; border-left:3px solid #4338CA;"'
+                card_inline_style = ' style="background:#EEF2FF; border:1px solid #C7D2FE; border-left:4px solid #4338CA;"'
             elif eff_dels:
                 pm = members.get(eff_dels[0])
                 p_col = pm.color if pm else "#2563EB"
                 p_tint = DelegationMember.compute_tint(p_col, 0.07)
-                cell_inline_style = f' style="background:{p_tint}; border-left:3px solid {p_col};"'
+                p_bdr = pm.border_tint if pm else "#BFDBFE"
+                card_inline_style = f' style="background:{p_tint}; border:1px solid {p_bdr}; border-left:4px solid {p_col};"'
 
             # Compact room override pill ONLY when room_override differs from default stream room
             room_row_html = ""
             if room_ov:
                 room_row_html = f'<div class="cell-room-row"><span class="cell-room-override">📍 {html.escape(room_ov)}</span></div>'
 
-            # Only surface AI gap chips inside grid cells when a slot mixes assigned & unassigned AIs
-            gap_chips = []
-            if unassigned_ais and (is_all or eff_dels):
-                for u_ai in unassigned_ais:
-                    gap_chips.append(f'<span class="ai-chip unassigned-chip">❓ AI {html.escape(u_ai)}</span>')
+            has_unassigned_ai = bool(not is_all and not is_not_followed and unassigned_ais)
 
             del_badges = []
             has_ai_items = any(it.ai_number for it in slot.items)
             if is_all:
-                del_badges.append('<span class="del-pill-badge is-all" title="All Team">👥 All</span>')
+                bdr_style = "dashed" if is_cov else "solid"
+                cov_note = " (Ad-hoc coverage)" if is_cov else " (All Team)"
+                del_badges.append(
+                    f'<span class="del-pill-badge is-all" style="border:1px {bdr_style} #6366F1;" '
+                    f'title="Whole delegation{cov_note}">👥 ALL</span>'
+                )
             elif eff_dels:
-                for dn in eff_dels:
+                max_badges = 3
+                shown_dels = eff_dels if len(eff_dels) <= max_badges else eff_dels[: max_badges - 1]
+                for dn in shown_dels:
                     m = members.get(dn)
                     ini = initials_map.get(dn, dn[:2].upper())
                     col = m.color if m else "#2563EB"
@@ -471,22 +481,44 @@ class SessionPlanExporter:
                     bdr = m.border_tint if m else "#BFDBFE"
                     bdr_style = "dashed" if is_cov else "solid"
                     cov_note = " (Ad-hoc cover)" if is_cov else " (Owner)"
-                    del_badges.append(f'<span class="del-pill-badge" style="background:{bg}; color:{col}; border:1px {bdr_style} {bdr};" title="{html.escape(dn)}{cov_note}">● {ini}</span>')
+                    del_badges.append(
+                        f'<span class="del-pill-badge" data-del-name="{html.escape(dn)}" '
+                        f'style="background:{bg}; color:{col}; border:1px {bdr_style} {bdr};" '
+                        f'title="{html.escape(dn)}{cov_note}">{ini}</span>'
+                    )
+                if len(eff_dels) > len(shown_dels):
+                    rest = eff_dels[len(shown_dels):]
+                    del_badges.append(
+                        f'<span class="del-pill-badge is-more-pill" title="{html.escape(", ".join(rest))}">+{len(rest)}</span>'
+                    )
             elif is_not_followed:
                 del_badges.append('<span class="del-pill-badge is-not-followed-pill" title="Explicitly not followed (Out of scope)">⛔</span>')
-            elif has_ai_items or unassigned_ais:
+
+            if has_unassigned_ai:
+                un_lbl = ", ".join(unassigned_ais)
+                del_badges.append(
+                    f'<span class="del-pill-badge is-unassigned-pill" '
+                    f'title="Unassigned Agenda Item(s): {html.escape(un_lbl)}">❓</span>'
+                )
+            elif not is_all and not eff_dels and not is_not_followed and (has_ai_items or unassigned_ais):
                 del_badges.append('<span class="del-pill-badge is-unassigned-pill" title="Unassigned Agenda Item">❓</span>')
+
+            if is_all or eff_dels:
+                del_badges.append('<span class="del-pill-badge is-clash-pill" title="Parallel-stream clash">⚠</span>')
 
             note_badge = ""
             if ann and ann.comment:
                 note_badge = f'<div class="cell-note-pill" title="{html.escape(ann.comment)}">📝 {html.escape(ann.comment[:35])}{"…" if len(ann.comment) > 35 else ""}</div>'
 
-            return f"""<td class="{' '.join(cell_classes)}"{cell_inline_style} colspan="{colspan}" data-stream="{s_num}" data-period="{p}" data-tu="{tu}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-unassigned="{1 if is_unassigned else 0}" data-not-followed="{1 if is_not_followed else 0}" data-drafting="{1 if slot.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
-  {f'<div class="cell-del-float">{"".join(del_badges)}</div>' if del_badges else ''}
-  {room_row_html}
-  {f'<div class="cell-title">{raw_esc}</div>' if raw_esc else ''}
-  {f'<div class="cell-chips-row">{"".join(gap_chips)}</div>' if gap_chips else ''}
-  {note_badge}
+            return f"""<td class="{' '.join(cell_classes)}" colspan="{colspan}" data-stream="{s_num}" data-period="{p}" data-tu="{tu}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-unassigned="{1 if is_unassigned else 0}" data-not-followed="{1 if is_not_followed else 0}" data-drafting="{1 if slot.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
+  <div class="slot-card"{card_inline_style}>
+    <div class="slot-card-body">
+      {room_row_html}
+      {f'<div class="cell-title">{raw_esc}</div>' if raw_esc else ''}
+      {note_badge}
+    </div>
+    {f'<div class="cell-del-float">{"".join(del_badges)}</div>' if del_badges else ''}
+  </div>
   <div class="slot-tooltip-data" style="display:none;">{tt_html}</div>
 </td>"""
 
@@ -498,22 +530,22 @@ class SessionPlanExporter:
 
         # Header Row 1: Day Names & Dates (colspan=2 per day)
         overview_html.append('<thead><tr class="hdr-days-row">\n')
-        overview_html.append('<th class="corner-hdr" rowspan="2">Period / Stream<br><span class="hdr-sub">Venue & Laptop Times</span></th>\n')
+        overview_html.append('<th class="corner-hdr" rowspan="2">Period / Stream<br><span class="hdr-sub">Venue &amp; Laptop Times</span></th>\n')
         for d_idx, d_name in enumerate(DAY_NAMES):
             date_str = ""
             today_badge = ""
             if base_date:
                 cur_d = base_date + timedelta(days=d_idx)
-                date_str = f" <span class='hdr-date'>({cur_d.strftime('%d %b')})</span>"
+                date_str = f" <span class='hdr-date'>{cur_d.strftime('%d %b')}</span>"
                 if cur_d == venue_today:
                     today_badge = " <span class='badge-today'>🟢 Today</span>"
-            overview_html.append(f'<th class="col-day-hdr" colspan="2">{d_name}{date_str}{today_badge}</th>\n')
+            overview_html.append(f'<th class="col-day-hdr" colspan="2">{d_name[:3]}{date_str}{today_badge}</th>\n')
         overview_html.append('</tr>\n')
 
         # Header Row 2: Half-Quarter TU1 / TU2
         overview_html.append('<tr class="hdr-tu-row">\n')
         for d_idx in range(5):
-            overview_html.append('<th class="col-tu-hdr">1st Half (TU 1)</th>\n<th class="col-tu-hdr">2nd Half (TU 2)</th>\n')
+            overview_html.append('<th class="col-tu-hdr" title="1st Half (TU 1)">1st Half</th>\n<th class="col-tu-hdr" title="2nd Half (TU 2)">2nd Half</th>\n')
         overview_html.append('</tr></thead>\n<tbody>\n')
 
         # Body Rows
@@ -739,52 +771,66 @@ class SessionPlanExporter:
 
         css_style = """
   :root {
-    --bg: #F8FAFC;
+    --bg: #F1F5F9;
+    --surface: #F8FAFC;
     --card: #FFFFFF;
     --text: #0F172A;
+    --text-strong: #1E293B;
     --subtext: #475569;
-    --primary: #2563EB;
-    --primary-light: #EFF6FF;
+    --muted: #64748B;
+    --primary: #1E5C99;
+    --primary-bright: #2563EB;
+    --primary-light: #EBF3FC;
     --stream1: #4F46E5;
     --stream2: #059669;
     --stream3: #D97706;
     --drafting: #DC2626;
     --drafting-bg: #FEF2F2;
+    --drafting-bdr: #FECACA;
     --unassigned: #D97706;
     --unassigned-bg: #FFFBEB;
     --border: #E2E8F0;
     --grid-border: #CBD5E1;
-    --day-hdr-h: 29px;
+    --day-hdr-h: 27px;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
     margin: 0; padding: 0; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    font-size: 13px; line-height: 1.4;
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    font-size: 12.5px; line-height: 1.38;
   }
   header {
     position: sticky; top: 0; z-index: 100; background: #FFFFFF;
-    border-bottom: 1px solid var(--border); padding: 8px 14px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    border-bottom: 1px solid var(--border); padding: 7px 14px 6px 14px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
   }
   .header-top {
-    display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 8px;
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; flex-wrap: wrap; gap: 6px;
   }
-  .title-block { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .title { font-size: 16px; font-weight: 700; color: #1E293B; margin: 0; }
-  .badge-tdoc { font-size: 11px; background: #E0E7FF; color: #3730A3; padding: 2px 8px; border-radius: 999px; font-weight: 700; }
-  .badge-snap { font-size: 11px; background: #FEF3C7; color: #92400E; padding: 2px 7px; border-radius: 999px; font-weight: 600; }
-  .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .title-block { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .title { font-size: 15px; font-weight: 700; color: var(--text-strong); margin: 0; letter-spacing: -0.01em; }
+  .badge-tdoc { font-size: 11px; background: #EEF2FF; color: #3730A3; border: 1px solid #C7D2FE; padding: 2px 8px; border-radius: 999px; font-weight: 700; }
+  .badge-snap { font-size: 11px; background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A; padding: 2px 7px; border-radius: 999px; font-weight: 600; }
+  .badge-utc {
+    font-size: 10.5px; font-weight: 700; background: #ECFDF5; color: #065F46;
+    border: 1px solid #A7F3D0; padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+  }
+  .tz-banner {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--subtext);
+    background: var(--surface); border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px;
+    font-weight: 500;
+  }
+  .header-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .btn-cal-download {
-    padding: 5px 12px; font-size: 12px; font-weight: 600; border-radius: 6px;
-    background: #059669; color: #FFFFFF; border: 1px solid #047857; cursor: pointer;
-    transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; font-size: 11.5px; font-weight: 600; border-radius: 6px;
+    background: #1E5C99; color: #FFFFFF; border: 1px solid #15426E; cursor: pointer;
+    transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
   }
-  .btn-cal-download:hover { background: #047857; }
+  .btn-cal-download:hover { background: #15426E; }
   .btn-highlight-now {
-    padding: 5px 12px; font-size: 12px; font-weight: 700; border-radius: 6px;
-    background: #ECFDF5; color: #047857; border: 1px solid #6EE7B7; cursor: pointer;
-    transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px; font-size: 11.5px; font-weight: 700; border-radius: 6px;
+    background: #ECFDF5; color: #047857; border: 1px solid #A7F3D0; cursor: pointer;
+    transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
   }
   .btn-highlight-now:hover { background: #D1FAE5; }
   .btn-highlight-now.active {
@@ -792,16 +838,16 @@ class SessionPlanExporter:
     box-shadow: 0 2px 6px rgba(5, 150, 105, 0.25);
   }
   .badge-clash {
-    font-size: 11px; font-weight: 700; background: #FEF2F2; color: #B91C1C;
-    border: 1px solid #FECACA; padding: 3px 9px; border-radius: 999px;
+    font-size: 11px; font-weight: 700; background: #FFFBEB; color: #B45309;
+    border: 1px solid #F59E0B; padding: 3px 9px; border-radius: 999px;
     display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.15s ease; white-space: nowrap;
   }
-  .badge-clash:hover { background: #FEE2E2; border-color: #FCA5A5; }
+  .badge-clash:hover { background: #FEF3C7; border-color: #D97706; }
   .live-banner {
     display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px; font-weight: 600;
-    padding: 5px 12px; border-radius: 6px; background: #ECFDF5; color: #065F46;
-    border: 1px solid #A7F3D0; margin-top: 4px; margin-bottom: 4px; cursor: pointer;
+    padding: 4px 10px; border-radius: 6px; background: #ECFDF5; color: #065F46;
+    border: 1px solid #A7F3D0; margin-bottom: 5px; cursor: pointer;
   }
   .live-banner:hover { background: #D1FAE5; }
   .pulse-dot {
@@ -813,37 +859,49 @@ class SessionPlanExporter:
     70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
     100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
   }
-  .grid-cell.has-clash {
-    outline: 2px dashed #EF4444 !important; outline-offset: -2px;
+  .grid-cell.has-clash .slot-card {
+    background: #FFFBEB !important;
+    border: 1px solid #F59E0B !important;
+    border-left: 4px solid #F59E0B !important;
+  }
+  .grid-cell.has-clash .cell-title {
+    color: #92400E; font-weight: 500;
+  }
+  .grid-cell.has-clash .is-clash-pill {
+    display: inline-flex !important;
+  }
+  .del-pill-badge.clash-pill-ring {
+    border: 1.5px solid #EF4444 !important;
+    box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.22);
   }
   .cards-slot-row.has-clash {
-    border-left: 4px solid #EF4444 !important; background: #FFF1F2 !important;
+    border-left: 4px solid #F59E0B !important; background: #FFFBEB !important;
   }
-  .grid-cell.is-live-now, .grid-cell.is-now-focused {
-    outline: 2.5px solid #10B981 !important; outline-offset: -2px; background: #ECFDF5 !important;
+  .grid-cell.is-live-now .slot-card, .grid-cell.is-now-focused .slot-card {
+    background: #ECFDF5 !important; border: 2px solid #10B981 !important;
     box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.20) !important;
   }
   .cards-slot-row.is-live-now, .cards-slot-row.is-now-focused {
     border-left: 4px solid #10B981 !important; background: #ECFDF5 !important;
   }
   .view-switcher {
-    display: inline-flex; background: #F1F5F9; padding: 2px; border-radius: 8px; border: 1px solid var(--border); flex-wrap: wrap;
+    display: inline-flex; background: var(--surface); padding: 2px; border-radius: 7px; border: 1px solid var(--border); flex-wrap: wrap; gap: 2px;
   }
   .view-btn {
-    padding: 5px 10px; font-size: 12px; font-weight: 600; border: none; background: transparent;
-    color: var(--subtext); border-radius: 6px; cursor: pointer; transition: all 0.15s ease; white-space: nowrap;
+    padding: 4px 10px; font-size: 11.5px; font-weight: 600; border: 1px solid transparent; background: transparent;
+    color: var(--subtext); border-radius: 5px; cursor: pointer; transition: all 0.15s ease; white-space: nowrap;
   }
+  .view-btn:hover:not(.active) { background: #E2E8F0; color: var(--text); }
   .view-btn.active {
-    background: #FFFFFF; color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    background: #1E5C99; color: #FFFFFF; border-color: #15426E; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
   }
   .view-btn.has-alert { color: #B91C1C; }
-  .view-btn.has-alert.active { background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA; }
-  .tz-banner { font-size: 11px; color: var(--subtext); margin-bottom: 6px; }
+  .view-btn.has-alert.active { background: #DC2626; color: #FFFFFF; border-color: #B91C1C; }
 
   /* Now Dispatch Panel ("Highlight Now" - Where are we now & where should each delegate go?) */
   .now-dispatch-panel {
     background: #F0FDF4; border: 1px solid #86EFAC; border-radius: 8px;
-    padding: 10px 12px; margin: 6px 0; box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    padding: 10px 12px; margin: 5px 0; box-shadow: 0 2px 6px rgba(0,0,0,0.05);
   }
   .now-panel-header {
     display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
@@ -869,7 +927,7 @@ class SessionPlanExporter:
   }
   .now-del-card:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,0.07); }
   .now-del-card.status-busy { border-left: 4px solid #2563EB; }
-  .now-del-card.status-clash { border-left: 4px solid #DC2626; background: #FFF1F2; }
+  .now-del-card.status-clash { border-left: 4px solid #F59E0B; background: #FFFBEB; }
   .now-del-card.status-free { border-left: 4px solid #10B981; background: #F8FAFC; }
   .now-del-top { display: flex; justify-content: space-between; align-items: center; gap: 4px; }
   .now-del-name { font-weight: 700; font-size: 12px; }
@@ -882,57 +940,72 @@ class SessionPlanExporter:
   }
 
   /* Delegate Selector Strip */
-  .del-strip {
-    display: flex; gap: 5px; align-items: center; overflow-x: auto; padding: 4px 0 6px 0;
-    -webkit-overflow-scrolling: touch;
+  .controls-bar {
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
+    padding-top: 2px;
   }
-  .strip-label { font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-right: 2px; }
+  .del-strip {
+    display: flex; gap: 5px; align-items: center; overflow-x: auto; padding: 2px 0;
+    -webkit-overflow-scrolling: touch; flex-wrap: wrap;
+  }
+  .strip-label { font-size: 10.5px; font-weight: 700; color: #64748B; letter-spacing: 0.02em; margin-right: 2px; }
   .del-filter-btn {
-    padding: 3px 10px; font-size: 11.5px; font-weight: 600; border-radius: 999px; cursor: pointer;
+    padding: 3px 9px; font-size: 11px; font-weight: 600; border-radius: 999px; cursor: pointer;
     background: #F1F5F9; color: #334155; border: 1px solid var(--border); white-space: nowrap;
     transition: all 0.15s ease;
   }
   .del-filter-btn[data-del="ALL"].active {
-    background: #2563EB; color: #FFFFFF; border-color: #2563EB;
+    background: #1E5C99; color: #FFFFFF; border-color: #15426E;
   }
   .del-filter-btn[data-del]:not([data-del="ALL"]) {
     background: var(--del-bg, #F1F5F9); color: var(--del-color, #334155); border-color: var(--del-bdr, var(--border));
   }
   .del-filter-btn[data-del]:not([data-del="ALL"]).active {
     background: var(--del-color, #2563EB); color: #FFFFFF; border-color: var(--del-color, #2563EB);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.14);
   }
-  .strip-sep { width: 1px; height: 18px; background: var(--border); margin: 0 3px; }
-  .btn-toggle { background: #FFFFFF; }
+  .strip-sep { width: 1px; height: 16px; background: var(--border); margin: 0 2px; }
+  .btn-toggle { background: var(--surface); }
   #btnUnassigned.active { background: #D97706; color: #FFFFFF; border-color: #B45309; }
   #btnDrafting.active { background: #DC2626; color: #FFFFFF; border-color: #DC2626; }
 
   /* Filter Controls Row */
   .filter-controls-row {
-    display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px;
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap; flex: 1 1 320px; justify-content: flex-end;
   }
   .search-box {
-    flex: 1; min-width: 200px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
-    font-size: 12.5px; outline: none; background: #F8FAFC;
+    flex: 1 1 200px; max-width: 300px; min-width: 170px; padding: 4px 10px; border: 1px solid var(--grid-border); border-radius: 6px;
+    font-size: 12px; outline: none; background: var(--surface); color: var(--text);
   }
-  .search-box:focus { background: #FFFFFF; border-color: var(--primary); }
-  .grid-row-controls { display: flex; gap: 8px; align-items: center; font-size: 11.5px; }
-  .toggle-label { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; color: var(--subtext); font-weight: 500; }
-  .toggle-label input { cursor: pointer; }
+  .search-box:focus { background: #FFFFFF; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(30, 92, 153, 0.12); }
+  .grid-row-controls { display: flex; gap: 5px; align-items: center; font-size: 11px; flex-wrap: wrap; }
+  .toggle-label {
+    display: inline-flex; align-items: center; gap: 4px; cursor: pointer; color: var(--subtext); font-weight: 600;
+    background: var(--surface); border: 1px solid var(--border); padding: 2px 7px; border-radius: 6px; white-space: nowrap;
+  }
+  .toggle-label:hover { background: #F1F5F9; }
+  .toggle-label input { cursor: pointer; margin: 0; }
+  .str-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .str-dot.s1 { background: var(--stream1); }
+  .str-dot.s2 { background: var(--stream2); }
+  .str-dot.s3 { background: var(--stream3); }
 
   /* Overview Grid View Styles (2D Scroll Container with Locked Day Header Row & Period Column) */
   .overview-grid-container {
-    margin: 10px 14px 24px 14px; overflow: auto; max-height: calc(100vh - 175px);
+    margin: 8px 12px 20px 12px; overflow: auto; max-height: calc(100vh - 175px);
     -webkit-overflow-scrolling: touch; border: 1px solid var(--grid-border); border-radius: 8px;
-    background: #FFFFFF; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    background: #FFFFFF; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
   }
   .overview-table {
-    border-collapse: separate; border-spacing: 0; width: 100%; min-width: 1100px;
-    background: #FFFFFF;
+    border-collapse: separate; border-spacing: 0; width: 100%; min-width: 1220px;
+    background: #FFFFFF; table-layout: fixed;
   }
   .overview-table th, .overview-table td {
     border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
-    padding: 6px 8px; vertical-align: top; font-size: 11.5px;
+    padding: 5px 7px; vertical-align: top; font-size: 11px;
+  }
+  .overview-table td.grid-cell {
+    padding: 3px; background: #FFFFFF;
   }
   .overview-table th:last-child, .overview-table td:last-child { border-right: none; }
   .overview-table tr:last-child td { border-bottom: none; }
@@ -940,11 +1013,11 @@ class SessionPlanExporter:
   .hdr-days-row th {
     background: #F1F5F9; color: #1E293B; font-weight: 700; text-align: center;
     position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--grid-border);
-    box-shadow: 0 1px 0 var(--grid-border);
+    box-shadow: 0 1px 0 var(--grid-border); padding: 5px 6px; white-space: nowrap;
   }
   .corner-hdr {
     background: #E2E8F0 !important; text-align: left !important; font-size: 11px;
-    position: sticky; top: 0; left: 0; z-index: 30 !important; width: 160px; min-width: 160px;
+    position: sticky; top: 0; left: 0; z-index: 30 !important; width: 155px; min-width: 155px;
   }
   .hdr-sub { font-size: 9.5px; font-weight: 500; color: #64748B; }
   .hdr-date { font-size: 10.5px; font-weight: 600; color: #475569; }
@@ -954,73 +1027,98 @@ class SessionPlanExporter:
   }
   .hdr-tu-row th {
     background: #F8FAFC; color: #64748B; font-size: 10px; font-weight: 600; text-align: center;
-    position: sticky; top: var(--day-hdr-h, 29px); z-index: 19;
+    position: sticky; top: var(--day-hdr-h, 27px); z-index: 19; padding: 3px 4px;
     border-bottom: 1px solid var(--grid-border); box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    white-space: nowrap; min-width: 105px;
   }
   .row-hdr {
     background: #F8FAFC; color: #1E293B; font-weight: 600; text-align: left;
-    position: sticky; left: 0; z-index: 10; width: 160px; min-width: 160px; font-size: 11px;
+    position: sticky; left: 0; z-index: 10; width: 155px; min-width: 155px; font-size: 10.5px;
+    padding: 5px 7px !important;
   }
-  .hdr-room { font-size: 10px; font-weight: 500; color: #64748B; }
+  .hdr-room { font-size: 9.5px; font-weight: 500; color: #64748B; }
   .hdr-times { font-size: 9.5px; font-weight: 500; color: #64748B; }
   .stream-hdr-s1 { border-left: 3px solid var(--stream1); }
   .stream-hdr-s2 { border-left: 3px solid var(--stream2); }
   .stream-hdr-s3 { border-left: 3px solid var(--stream3); }
   .break-hdr { background: #F8FAFC; font-weight: 500; color: #475569; border-left: 3px solid #94A3B8; }
 
-  /* Grid Cells */
+  /* Grid Cells & Unified Rounded Slot Cards */
   .grid-cell {
-    background: #FFFFFF; transition: opacity 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
-    cursor: default; position: relative; border-left: 3px solid #CBD5E1;
+    background: #FFFFFF; transition: opacity 0.2s ease, filter 0.2s ease;
+    cursor: default; position: relative;
   }
-  .grid-cell.slot-cell:hover {
-    filter: brightness(0.975);
+  .slot-card {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-left: 3px solid #CBD5E1;
+    border-radius: 5px;
+    padding: 4px 6px;
+    min-height: 44px;
+    height: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    gap: 5px;
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  }
+  .slot-card-body {
+    flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+  }
+  .grid-cell.slot-cell:hover .slot-card {
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+    border-color: #94A3B8;
   }
   .grid-cell.empty-slot-cell {
-    text-align: center; color: #CBD5E1; font-weight: 500; background: #FAFAFA; border-left: none;
+    text-align: center; color: #CBD5E1; font-weight: 500; background: #FFFFFF; vertical-align: middle !important;
   }
   .grid-cell.empty-break-cell {
-    text-align: center; color: #CBD5E1; font-weight: 500; background: #F8FAFC; border-left: none;
+    text-align: center; color: #CBD5E1; font-weight: 500; background: #FAFAFA; vertical-align: middle !important;
   }
-  .grid-cell.is-empty-drafting {
-    background: #F8FAFC !important; color: #94A3B8; border-left: 3px solid #CBD5E1 !important;
+  .grid-cell.is-empty-drafting .slot-card {
+    background: #F8FAFC !important; border: 1px dashed #E2E8F0 !important;
   }
   .grid-cell.is-empty-drafting .cell-title {
-    color: #94A3B8; font-weight: 500;
+    color: #94A3B8; font-weight: 400;
   }
-  .grid-cell.is-drafting {
-    background: var(--drafting-bg); border-left: 3px solid var(--drafting) !important;
+  .grid-cell.is-drafting .slot-card {
+    background: var(--drafting-bg) !important;
+    border: 1px solid var(--drafting-bdr) !important;
+    border-left: 4px solid var(--drafting) !important;
   }
-  .grid-cell.is-unassigned {
-    background: #FFFFFF;
+  .grid-cell.is-drafting .cell-title {
+    color: #991B1B; font-weight: 500;
   }
-  body.filter-unassigned .grid-cell.is-unassigned {
-    background: #FFFBEB;
+  body.filter-unassigned .grid-cell.is-unassigned .slot-card {
+    background: #FFFBEB !important; border: 1px solid #F59E0B !important;
   }
-  .grid-cell.is-not-followed {
+  .grid-cell.is-not-followed .slot-card {
     background: #F8FAFC !important;
-    border-color: #E2E8F0 !important;
-    border-left: 3px dashed #CBD5E1 !important;
-    opacity: 0.78;
+    border: 1px dashed #CBD5E1 !important;
+    opacity: 0.72;
+  }
+  .grid-cell.is-not-followed .cell-title {
+    color: #64748B;
   }
 
   /* Delegate Dimming / Highlighting */
   .grid-cell.dimmed {
-    opacity: 0.20; filter: grayscale(85%);
+    opacity: 0.22; filter: grayscale(85%);
   }
-  .grid-cell.highlighted {
-    box-shadow: inset 0 0 0 2px var(--primary);
+  .grid-cell.highlighted .slot-card {
+    box-shadow: 0 0 0 2px var(--primary);
   }
 
   /* Cell Contents */
   .cell-del-float {
-    float: right; display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
-    margin: 0 0 3px 6px;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+    flex-shrink: 0;
   }
-  .cell-room-row { margin-bottom: 2px; }
+  .cell-room-row { margin-bottom: 1px; }
   .cell-room-override {
-    display: inline-block; font-size: 9.5px; font-weight: 700; color: #475569;
-    background: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 3px; padding: 0px 4px;
+    display: inline-block; font-size: 9px; font-weight: 700; color: #475569;
+    background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 3px; padding: 0px 4px;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .cell-top-row { display: flex; gap: 4px; align-items: center; margin-bottom: 3px; flex-wrap: wrap; }
   .cell-badge {
@@ -1032,7 +1130,7 @@ class SessionPlanExporter:
   .badge-drafting { background: #FEE2E2; color: var(--drafting); }
   .badge-tu { background: #E2E8F0; color: #334155; }
   .cell-room { font-size: 10px; color: #64748B; font-weight: 500; }
-  .cell-title { font-size: 11px; font-weight: 500; color: #0F172A; line-height: 1.32; margin-bottom: 2px; }
+  .cell-title { font-size: 10.5px; font-weight: 500; color: #0F172A; line-height: 1.3; word-break: break-word; }
   .cell-chips-row { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 2px; }
   .ai-chip {
     font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: #E0E7FF; color: #3730A3;
@@ -1046,10 +1144,14 @@ class SessionPlanExporter:
   .chip-count { font-size: 9px; font-weight: 700; color: #475569; margin-left: 2px; }
   .cell-del-row { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 2px; }
   .del-pill-badge {
-    font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 6px; display: inline-flex; align-items: center;
+    font-size: 8.5px; font-weight: 700; padding: 1px 5px; border-radius: 7px;
+    display: inline-flex; align-items: center; line-height: 1.3; white-space: nowrap;
   }
   .del-pill-badge.is-all {
-    background: #EEF2FF; color: #4338CA; border: 1px solid #C7D2FE;
+    background: #EEF2FF; color: #3730A3; border: 1px solid #6366F1;
+  }
+  .del-pill-badge.is-more-pill {
+    background: #F1F5F9; color: #334155; border: 1px solid #CBD5E1;
   }
   .del-pill-badge.is-unassigned-pill {
     background: #FEF3C7; color: #B45309; border: 1px dashed #F59E0B;
@@ -1057,8 +1159,11 @@ class SessionPlanExporter:
   .del-pill-badge.is-not-followed-pill {
     background: #F1F5F9; color: #64748B; border: 1px solid #CBD5E1;
   }
+  .del-pill-badge.is-clash-pill {
+    display: none; background: #FEF3C7; color: #B45309; border: 1px solid #F59E0B; font-size: 9px; padding: 0px 4px;
+  }
   .cell-note-pill {
-    margin-top: 3px; font-size: 9.5px; font-weight: 500; color: #92400E; background: #FEF3C7;
+    margin-top: 2px; font-size: 9px; font-weight: 500; color: #92400E; background: #FEF3C7;
     padding: 1px 4px; border-radius: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
 
@@ -1074,8 +1179,8 @@ class SessionPlanExporter:
   .day-tab.active { background: var(--primary); color: #FFFFFF; }
   .cards-content { padding: 12px 14px 60px 14px; }
   .quarter-card {
-    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-    margin-bottom: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    margin-bottom: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   }
   .quarter-header {
     background: #F8FAFC; padding: 8px 12px; border-bottom: 1px solid var(--border);
@@ -1089,7 +1194,7 @@ class SessionPlanExporter:
   .cards-slot-row:last-child { border-bottom: none; }
   .cards-slot-row.drafting { background: var(--drafting-bg); border-left: 4px solid var(--drafting); }
   .cards-slot-row.unassigned { background: var(--unassigned-bg); border-left: 4px solid var(--unassigned); }
-  .cards-slot-row.not-followed { background: #F8FAFC; border-left: 4px solid #94A3B8; opacity: 0.75; }
+  .cards-slot-row.not-followed { background: #F8FAFC; border-left: 4px dashed #94A3B8; opacity: 0.75; }
   .slot-header-line { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
   .stream-badge {
     font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;
@@ -1116,14 +1221,14 @@ class SessionPlanExporter:
   .aux-header-card {
     background: #FFFFFF; border: 1px solid var(--border); border-radius: 10px;
     padding: 12px 16px; margin-bottom: 12px; display: flex; justify-content: space-between;
-    align-items: center; flex-wrap: wrap; gap: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    align-items: center; flex-wrap: wrap; gap: 10px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   }
   .aux-title { font-size: 15px; font-weight: 700; color: #0F172A; margin: 0; }
   .aux-subtitle { font-size: 12px; color: #64748B; margin-top: 2px; }
   .aux-table {
     width: 100%; border-collapse: separate; border-spacing: 0; background: #FFFFFF;
     border: 1px solid var(--grid-border); border-radius: 8px; overflow: hidden;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
   }
   .aux-table th {
     background: #F1F5F9; color: #1E293B; font-weight: 700; text-align: left;
@@ -1135,7 +1240,7 @@ class SessionPlanExporter:
   .aux-table tr:last-child td { border-bottom: none; }
   .aux-table tr:hover td { background: #F8FAFC; }
   .clash-stream-box {
-    background: #FFF1F2; border: 1px solid #FECDD3; border-radius: 6px; padding: 6px 8px; margin-bottom: 4px;
+    background: #FFFBEB; border: 1px solid #FDE68A; border-left: 3px solid #F59E0B; border-radius: 6px; padding: 6px 8px; margin-bottom: 4px;
   }
   .free-colleague-pill {
     display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px;
@@ -1143,10 +1248,10 @@ class SessionPlanExporter:
   }
   .btn-jump-grid {
     padding: 4px 9px; font-size: 11px; font-weight: 600; border-radius: 5px;
-    background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; cursor: pointer;
+    background: #EBF3FC; color: #1E5C99; border: 1px solid #BFD7F0; cursor: pointer;
     white-space: nowrap;
   }
-  .btn-jump-grid:hover { background: #DBEAFE; }
+  .btn-jump-grid:hover { background: #DFEDFA; }
   .empty-state-box {
     background: #FFFFFF; border: 1px dashed #CBD5E1; border-radius: 10px;
     padding: 32px 20px; text-align: center; color: #475569; font-size: 13px;
@@ -1156,7 +1261,7 @@ class SessionPlanExporter:
   .floating-tooltip {
     position: fixed; z-index: 9999; pointer-events: none; max-width: 420px;
     background: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 8px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.18); padding: 10px 14px;
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.16); padding: 10px 14px;
     font-family: inherit; font-size: 12px; color: #0F172A; display: none;
   }
   .tt-header { font-weight: 700; font-size: 13px; color: #0F172A; margin-bottom: 3px; }
@@ -1170,13 +1275,13 @@ class SessionPlanExporter:
 
   /* Print Stylesheet */
   @media print {
-    header, .del-strip, .filter-controls-row, .view-switcher, .day-tabs, .now-dispatch-panel { display: none !important; }
+    header, .del-strip, .filter-controls-row, .controls-bar, .view-switcher, .day-tabs, .now-dispatch-panel { display: none !important; }
     #cardsView, #conflictsView, #unassignedView { display: none !important; }
     #overviewView { display: block !important; padding: 0 !important; }
     .overview-grid-container { max-height: none !important; overflow: visible !important; border: none !important; margin: 0 !important; }
     .overview-table { width: 100% !important; min-width: 0 !important; font-size: 8.5px !important; box-shadow: none !important; }
     .overview-table th, .overview-table td { padding: 3px 4px !important; position: static !important; }
-    .slot-cell { opacity: 1 !important; filter: none !important; box-shadow: none !important; }
+    .slot-cell, .slot-card { opacity: 1 !important; filter: none !important; box-shadow: none !important; }
     @page { size: landscape; margin: 8mm; }
   }
 """
@@ -1269,6 +1374,9 @@ class SessionPlanExporter:
     onlyUnassigned = !onlyUnassigned;
     const btn = document.getElementById('btnUnassigned');
     if (btn) btn.classList.toggle('active', onlyUnassigned);
+    if (document.body && document.body.classList) {
+      document.body.classList.toggle('filter-unassigned', onlyUnassigned);
+    }
     applyFilters();
   }
 
@@ -1624,6 +1732,7 @@ class SessionPlanExporter:
     const clashTabBtn = document.getElementById('btnViewConflicts');
 
     document.querySelectorAll('.has-clash').forEach(el => el.classList.remove('has-clash'));
+    document.querySelectorAll('.clash-pill-ring').forEach(el => el.classList.remove('clash-pill-ring'));
 
     const allGroups = buildConflictGroups('ALL');
     if (clashTabBtn) {
@@ -1643,7 +1752,7 @@ class SessionPlanExporter:
         if (c.length > 0) {
           memberClashes[member] = c.length;
           totalClashes += c.length;
-          c.forEach(ev => markClashCells(ev));
+          c.forEach(ev => markClashCells(ev, member));
         }
       }
 
@@ -1662,7 +1771,7 @@ class SessionPlanExporter:
     if (clashes.length > 0) {
       clashBadge.innerHTML = '⚠️ ' + delGroups.length + ' Parallel Clash' + (delGroups.length > 1 ? 'es' : '') + ' for ' + delName;
       clashBadge.style.display = 'inline-flex';
-      clashes.forEach(ev => markClashCells(ev));
+      clashes.forEach(ev => markClashCells(ev, delName));
     } else {
       clashBadge.style.display = 'none';
     }
@@ -1695,29 +1804,42 @@ class SessionPlanExporter:
     return Array.from(clashingEvents);
   }
 
-  function markClashCells(ev) {
+  function markClashCells(ev, memberName) {
     const sDay = String(ev.day_idx);
     const sPeriod = String(ev.quarter);
     const sStr = String(ev.stream_num);
     const sTu = ev.sub_slot ? String(ev.sub_slot) : null;
     const gridSel = '.grid-cell[data-day="' + sDay + '"][data-period="' + sPeriod + '"][data-stream="' + sStr + '"]';
     const cardSel = '.cards-slot-row[data-day="' + sDay + '"][data-period="' + sPeriod + '"][data-stream="' + sStr + '"]';
+    const mLower = memberName ? String(memberName).toLowerCase() : '';
+
+    const applyClashUi = el => {
+      el.classList.add('has-clash');
+      if (mLower) {
+        el.querySelectorAll('.del-pill-badge[data-del-name]').forEach(pill => {
+          if ((pill.getAttribute('data-del-name') || '').toLowerCase() === mLower) {
+            pill.classList.add('clash-pill-ring');
+          }
+        });
+      }
+    };
+
     if (sTu && sTu !== '0') {
       const tuGrid = document.querySelectorAll(gridSel + '[data-tu="' + sTu + '"]');
       if (tuGrid.length > 0) {
-        tuGrid.forEach(el => el.classList.add('has-clash'));
+        tuGrid.forEach(applyClashUi);
       } else {
-        document.querySelectorAll(gridSel).forEach(el => el.classList.add('has-clash'));
+        document.querySelectorAll(gridSel).forEach(applyClashUi);
       }
       const tuCard = document.querySelectorAll(cardSel + '[data-tu="' + sTu + '"]');
       if (tuCard.length > 0) {
-        tuCard.forEach(el => el.classList.add('has-clash'));
+        tuCard.forEach(applyClashUi);
       } else {
-        document.querySelectorAll(cardSel).forEach(el => el.classList.add('has-clash'));
+        document.querySelectorAll(cardSel).forEach(applyClashUi);
       }
     } else {
-      document.querySelectorAll(gridSel).forEach(el => el.classList.add('has-clash'));
-      document.querySelectorAll(cardSel).forEach(el => el.classList.add('has-clash'));
+      document.querySelectorAll(gridSel).forEach(applyClashUi);
+      document.querySelectorAll(cardSel).forEach(applyClashUi);
     }
   }
 
@@ -2272,6 +2394,8 @@ class SessionPlanExporter:
       <h1 class="title">SA2 #{snapshot.meeting_number} Session Plan</h1>
       <span class="badge-tdoc">{snapshot.tdoc_id}</span>
       {snap_label_html}
+      <span class="badge-utc">🕒 {venue_utc_str}</span>
+      <span class="tz-banner">📍 {tz_name}{tz_extra}</span>
     </div>
     <div class="header-actions">
       <span id="clashWarningBadge" class="badge-clash" style="display:none;" onclick="switchView('conflicts')" title="Click to open the Parallel Stream Conflicts & Coverage Board"></span>
@@ -2286,31 +2410,29 @@ class SessionPlanExporter:
     </div>
   </div>
 
-  <div class="tz-banner">
-    📍 {tz_name}{tz_extra}
-  </div>
-
   <div id="liveVenueBanner" class="live-banner" style="display:none;" onclick="highlightNow()"></div>
 
   <div id="nowDispatchPanel" class="now-dispatch-panel" style="display:none;"></div>
 
-  <div class="del-strip">
-    <span class="strip-label">Delegates:</span>
-    <button class="del-filter-btn active" data-del="ALL" onclick="selectDelegate('ALL')">👥 All Team</button>
-    {del_filter_html}
-    <span class="strip-sep"></span>
-    <button id="btnUnassigned" class="del-filter-btn btn-toggle" onclick="toggleUnassigned()" title="Highlight scheduled sessions that have no assigned delegate or contain unassigned Agenda Items">❓ Unassigned ({unassigned_slot_count})</button>
-    <button id="btnDrafting" class="del-filter-btn btn-toggle" onclick="toggleDrafting()">🛠️ Drafting Only</button>
-  </div>
+  <div class="controls-bar">
+    <div class="del-strip">
+      <span class="strip-label">Delegate Focus:</span>
+      <button class="del-filter-btn active" data-del="ALL" onclick="selectDelegate('ALL')">👥 All Team</button>
+      {del_filter_html}
+      <span class="strip-sep"></span>
+      <button id="btnUnassigned" class="del-filter-btn btn-toggle" onclick="toggleUnassigned()" title="Highlight scheduled sessions that have no assigned delegate or contain unassigned Agenda Items">❓ Unassigned ({unassigned_slot_count})</button>
+      <button id="btnDrafting" class="del-filter-btn btn-toggle" onclick="toggleDrafting()">🛠️ Drafting Only</button>
+    </div>
 
-  <div class="filter-controls-row">
-    <input type="text" id="searchInput" class="search-box" placeholder="🔍 Search AI number, topic, convener, notes..." oninput="applyFilters()">
-    <div id="gridControls" class="grid-row-controls">
-      <label class="toggle-label"><input type="checkbox" id="chkStr1" checked onchange="toggleStream(1)"> Str 1</label>
-      <label class="toggle-label"><input type="checkbox" id="chkStr2" checked onchange="toggleStream(2)"> Str 2</label>
-      <label class="toggle-label"><input type="checkbox" id="chkStr3" checked onchange="toggleStream(3)"> Str 3</label>
-      <label class="toggle-label"><input type="checkbox" id="chkBreaks" checked onchange="toggleBreaks()"> Breaks</label>
-      <label class="toggle-label"><input type="checkbox" id="chkEmptyBreaks" checked onchange="toggleEmptyBreaks()"> Hide Empty</label>
+    <div class="filter-controls-row">
+      <div id="gridControls" class="grid-row-controls">
+        <label class="toggle-label"><input type="checkbox" id="chkStr1" checked onchange="toggleStream(1)"><span class="str-dot s1"></span> Str 1</label>
+        <label class="toggle-label"><input type="checkbox" id="chkStr2" checked onchange="toggleStream(2)"><span class="str-dot s2"></span> Str 2</label>
+        <label class="toggle-label"><input type="checkbox" id="chkStr3" checked onchange="toggleStream(3)"><span class="str-dot s3"></span> Str 3</label>
+        <label class="toggle-label"><input type="checkbox" id="chkBreaks" checked onchange="toggleBreaks()"> Breaks</label>
+        <label class="toggle-label"><input type="checkbox" id="chkEmptyBreaks" checked onchange="toggleEmptyBreaks()"> Hide Empty</label>
+      </div>
+      <input type="text" id="searchInput" class="search-box" placeholder="🔍 Filter AI, topic, convener, notes..." oninput="applyFilters()">
     </div>
   </div>
 </header>

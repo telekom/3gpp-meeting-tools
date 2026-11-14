@@ -629,9 +629,16 @@ class TestSessionPlanRobustness(unittest.TestCase):
                     agenda_map=agenda_map,
                 )
                 html_txt = out_html.read_text(encoding="utf-8")
+                self.assertIn('class="slot-card"', html_txt)
                 self.assertIn('class="cell-del-float"', html_txt)
                 self.assertIn('class="cell-room-override">📍 Main Room</span>', html_txt)
                 self.assertIn('is-empty-drafting', html_txt)
+                self.assertIn('is-clash-pill', html_txt)
+                self.assertIn('clash-pill-ring', html_txt)
+                self.assertIn('data-del-name="', html_txt)
+                self.assertIn('class="badge-utc"', html_txt)
+                self.assertIn('>1st Half</th>', html_txt)
+                self.assertNotIn('outline: 2px dashed #EF4444', html_txt)
                 self.assertNotIn('"ai_number": "30.1"', html_txt)
                 self.assertNotIn('"ai_number": "30.x"', html_txt)
             finally:
