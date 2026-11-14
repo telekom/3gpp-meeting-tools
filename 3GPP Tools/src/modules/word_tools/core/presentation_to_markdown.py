@@ -166,6 +166,15 @@ def _extract_via_powerpoint_com(
                 except Exception:
                     raise RuntimeError(f"Could not initialize PowerPoint COM: {com_launch_err}") from com_launch_err
 
+            try:
+                ppt_app.DisplayAlerts = 1  # ppAlertsNone
+            except Exception:
+                pass
+            try:
+                ppt_app.AutomationSecurity = 3  # msoAutomationSecurityForceDisable
+            except Exception:
+                pass
+
             resolved_path = strip_extended_path(str(ppt_path.resolve()))
             _safe_log(f"Opening presentation '{ppt_path.name}' in PowerPoint...", log_fn)
 
@@ -309,6 +318,17 @@ def _extract_via_powerpoint_com(
                 ppt_app.Quit()
             except Exception:
                 pass
+        pres = None
+        ppt_app = None
+        try:
+            import gc
+            gc.collect()
+        except Exception:
+            pass
+        try:
+            pythoncom.PumpWaitingMessages()
+        except Exception:
+            pass
         pythoncom.CoUninitialize()
 
     return slides_data, warnings

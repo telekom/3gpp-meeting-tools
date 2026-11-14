@@ -227,6 +227,25 @@ def _is_valid_pdf(path: Path) -> bool:
         return False
 
 
+def _configure_unattended_word(word, log: Optional[logging.Logger] = None) -> None:
+    """Applies unattended, modal-free COM configuration (including virtual printer binding)."""
+    word.Visible = False
+    word.DisplayAlerts = 0
+    configure_word_safe_printer(word, log=log or logger)
+    try:
+        word.AutomationSecurity = 3  # msoAutomationSecurityForceDisable
+        word.Options.ConfirmConversions = False
+        word.Options.DoNotPromptForConvert = True
+        word.Options.WarnBeforeSavingPrintingSendingMarkup = False
+        word.Options.SaveInterval = 0
+        word.Options.UpdateLinksAtOpen = False
+        word.Options.UpdateFieldsAtPrint = False
+        word.Options.UpdateLinksAtPrint = False
+        word.Options.PrintBackground = False
+    except Exception:
+        pass
+
+
 def _export_pdf_with_word_once(source: Path, target: Path) -> None:
     """
     Perform one isolated Word PDF export.
@@ -247,27 +266,16 @@ def _export_pdf_with_word_once(source: Path, target: Path) -> None:
 
         with temporary_virtual_default_printer(log=logger):
             word = win32com.client.DispatchEx("Word.Application")
-            word.Visible = False
-            word.DisplayAlerts = 0
-            configure_word_safe_printer(word, log=logger)
-
-            try:
-                word.AutomationSecurity = 1
-                word.Options.ConfirmConversions = False
-                word.Options.DoNotPromptForConvert = True
-                word.Options.WarnBeforeSavingPrintingSendingMarkup = False
-                word.Options.SaveInterval = 0
-                word.Options.UpdateFieldsAtPrint = False
-                word.Options.UpdateLinksAtPrint = False
-                word.Options.PrintBackground = False
-            except Exception:
-                pass
+            _configure_unattended_word(word, log=logger)
 
             doc = word.Documents.Open(
                 FileName=os.path.normpath(str(source)),
                 ConfirmConversions=False,
                 ReadOnly=True,
                 AddToRecentFiles=False,
+                PasswordDocument="__3gpp_no_pw__",
+                WritePasswordDocument="__3gpp_no_pw__",
+                NoEncodingDialog=True,
             )
 
             try:
@@ -343,32 +351,24 @@ def convert_doc_to_docx_word(
     doc = None
     new_doc = None
     saved = False
+    com_server_dead = False
 
     try:
         pythoncom.CoInitialize()
 
         with temporary_virtual_default_printer(log=log):
             word = win32com.client.DispatchEx("Word.Application")
-            word.Visible = False
-            word.DisplayAlerts = 0
-            configure_word_safe_printer(word, log=log)
-
-            try:
-                word.AutomationSecurity = 1  # msoAutomationSecurityLow
-                word.Options.ConfirmConversions = False
-                word.Options.DoNotPromptForConvert = True
-                word.Options.WarnBeforeSavingPrintingSendingMarkup = False
-                word.Options.SaveInterval = 0
-                word.Options.PrintBackground = False
-            except Exception:
-                pass
+            _configure_unattended_word(word, log=log)
 
             try:
                 doc = word.Documents.Open(
                     FileName=source_str,
                     ConfirmConversions=False,
-                    ReadOnly=False,
+                    ReadOnly=True,
                     AddToRecentFiles=False,
+                    PasswordDocument="__3gpp_no_pw__",
+                    WritePasswordDocument="__3gpp_no_pw__",
+                    NoEncodingDialog=True,
                 )
             except Exception:
                 try:
@@ -382,8 +382,10 @@ def convert_doc_to_docx_word(
                             ReadOnly=True,
                             AddToRecentFiles=False,
                         )
-                except Exception:
-                    raise RuntimeError("MS Word failed to open source document.")
+                except Exception as open_exc:
+                    if _is_rpc_disconnect_error(open_exc):
+                        com_server_dead = True
+                    raise RuntimeError("MS Word failed to open source document.") from open_exc
 
             if doc is None:
                 raise RuntimeError(f"Word failed to acquire a valid document handle for {source.name}")
@@ -435,8 +437,12 @@ def convert_doc_to_docx_word(
         log.info(f"Successfully converted via MS Word: {source.name} -> {target.name}")
         return target
 
+    except Exception as exc:
+        if _is_rpc_disconnect_error(exc):
+            com_server_dead = True
+        raise
     finally:
-        _safe_com_cleanup(word=word, doc=doc, new_doc=new_doc)
+        _safe_com_cleanup(word=word, doc=doc, new_doc=new_doc, com_server_dead=com_server_dead)
         word = None
         doc = None
         new_doc = None
@@ -730,19 +736,7 @@ class WordConverterThread(QThread):
             self._log(f"⏳ Spawning Word Converter Engine for {out_name}...", logging.INFO)
             with temporary_virtual_default_printer(log=logger):
                 word = win32com.client.DispatchEx("Word.Application")
-                word.Visible = False
-                word.DisplayAlerts = 0
-                configure_word_safe_printer(word, log=logger)
-
-                try:
-                    word.AutomationSecurity = 1  # msoAutomationSecurityLow
-                    word.Options.ConfirmConversions = False
-                    word.Options.DoNotPromptForConvert = True
-                    word.Options.WarnBeforeSavingPrintingSendingMarkup = False
-                    word.Options.SaveInterval = 0
-                    word.Options.PrintBackground = False
-                except Exception:
-                    pass
+                _configure_unattended_word(word, log=logger)
 
                 open_target = raw_source if raw_source else str(source)
                 try:
@@ -751,6 +745,9 @@ class WordConverterThread(QThread):
                         ConfirmConversions=False,
                         ReadOnly=True,
                         AddToRecentFiles=False,
+                        PasswordDocument="__3gpp_no_pw__",
+                        WritePasswordDocument="__3gpp_no_pw__",
+                        NoEncodingDialog=True,
                     )
                 except Exception as open_err:
                     try:

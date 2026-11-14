@@ -1558,6 +1558,81 @@ class TestTopicDossierRefactorAndDigests(unittest.TestCase):
         self.assertIn("✅ Concluded", e2e_txt)
         self.assertIn("🧭 Upcoming / Pre-Meeting", e2e_txt)
 
+    def test_direct_vs_eye_menu_export_equivalence_and_guards(self):
+        from unittest.mock import MagicMock, patch
+        from PyQt5.QtWidgets import QApplication
+        from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
+        from modules.meetings.ui.dialogs.topic_inputs_dialog import TopicInputsViewerDialog
+
+        app = QApplication.instance() or QApplication([])
+        topic_def = MetaTopicDefinition(
+            id="t_eq",
+            name="Data Framework",
+            description="Test",
+            target_wgs=["RAN2"],
+            rules=MetaTopicRules(),
+        )
+        cohort = MeetingCohort(
+            key="2026-Q1",
+            year=2026,
+            quarter=1,
+            label="Feb 2026 Round",
+            meetings=[{"wg_name": "RAN2", "meeting_number": "133", "folder_name": "TSGR2_133", "start_date": "2026-02-09", "end_date": "2026-02-13"}],
+        )
+
+        dlg = TopicDossierDialog(meetings_db=MagicMock(), parent=None)
+        dlg.active_topic = topic_def
+        dlg.selected_cohorts = [cohort]
+        dlg.edit_dest_folder.setText(str(self.temp_dir / "TargetTopic"))
+
+        captured_kwargs = []
+
+        def fake_thread(**kwargs):
+            captured_kwargs.append(kwargs)
+            t = MagicMock()
+            t.isRunning.return_value = False
+            t.progress_msg = MagicMock()
+            t.progress_step = MagicMock()
+            t.session_finished = MagicMock()
+            return t
+
+        with patch("modules.meetings.ui.dialogs.topic_dossier_dialog.TopicDossierExporterThread", side_effect=fake_thread):
+            # 1. Direct export launch
+            dlg._on_start_export()
+            self.assertEqual(len(captured_kwargs), 1)
+            direct_args = captured_kwargs[0]
+
+            # 2. Eye menu (TopicInputsViewerDialog) -> Proceed to Full Dossier Export
+            with patch.object(TopicInputsViewerDialog, "_start_collection"):
+                inputs_dlg = TopicInputsViewerDialog(
+                    meetings_db=MagicMock(),
+                    topic=topic_def,
+                    selected_rounds=[cohort],
+                    scope_mode="full_dossier",
+                    timeframe_label="Past 4",
+                    parent=None,
+                )
+            events = []
+            inputs_dlg.closeEvent = lambda ev: events.append("closed") or super(TopicInputsViewerDialog, inputs_dlg).closeEvent(ev)
+            inputs_dlg.export_requested.connect(lambda: events.append("export_emitted") or dlg._on_start_export())
+            inputs_dlg._on_proceed_to_export()
+
+            # Collector/dialog must close BEFORE export starts
+            self.assertEqual(events, ["closed", "export_emitted"])
+            self.assertEqual(len(captured_kwargs), 2)
+            self.assertEqual(captured_kwargs[1], direct_args)
+
+            # 3. Duplicate concurrent start guard + clean closeEvent cancellation
+            running_worker = MagicMock()
+            running_worker.isRunning.return_value = True
+            dlg._worker = running_worker
+            dlg._on_start_export()
+            self.assertEqual(len(captured_kwargs), 2)
+
+            dlg.close()
+            running_worker.cancel.assert_called_once()
+            running_worker.wait.assert_called_once_with(5000)
+
 
 if __name__ == "__main__":
     unittest.main()

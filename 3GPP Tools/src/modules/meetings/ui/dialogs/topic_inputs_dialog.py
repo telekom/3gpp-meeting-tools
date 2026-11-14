@@ -1446,8 +1446,10 @@ class TopicInputsViewerDialog(QDialog):
             QMessageBox.critical(self, "Export Failed", f"Could not write CSV:\n{e}")
 
     def _on_proceed_to_export(self):
-        self.export_requested.emit()
+        # Stop and wait for the preview collector before starting the exporter so both threads
+        # never download or touch the same meeting folders concurrently.
         self.close()
+        self.export_requested.emit()
 
     def closeEvent(self, event):
         if self._collector_worker and self._collector_worker.isRunning():

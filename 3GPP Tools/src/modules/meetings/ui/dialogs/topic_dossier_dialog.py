@@ -859,12 +859,23 @@ class TopicDossierDialog(QDialog):
         self._inputs_dlg = dlg
 
     def _on_start_export(self):
+        if self._worker and self._worker.isRunning():
+            self.raise_()
+            self.activateWindow()
+            return
         if not self.active_topic:
             QMessageBox.warning(self, "No Topic", "Please select a topic.")
             return
         if not self.selected_cohorts:
             QMessageBox.warning(self, "No Meetings", "No meetings found in the selected timeframe.")
             return
+
+        if getattr(self, "_inputs_dlg", None) is not None:
+            try:
+                if self._inputs_dlg.isVisible():
+                    self._inputs_dlg.close()
+            except Exception:
+                pass
 
         dest_path = Path(self.edit_dest_folder.text().strip())
         parent_dir = dest_path.parent
@@ -874,6 +885,8 @@ class TopicDossierDialog(QDialog):
         self.prog_bar.setVisible(True)
         self.prog_bar.setValue(0)
         self.lbl_status.setText("Starting export...")
+        self.raise_()
+        self.activateWindow()
 
         self._worker = TopicDossierExporterThread(
             meetings_db=self.meetings_db,
@@ -891,6 +904,17 @@ class TopicDossierDialog(QDialog):
         self._worker.progress_step.connect(self.prog_bar.setValue)
         self._worker.session_finished.connect(self._on_export_finished)
         self._worker.start()
+
+    def closeEvent(self, event):
+        if getattr(self, "_inputs_dlg", None) is not None:
+            try:
+                self._inputs_dlg.close()
+            except Exception:
+                pass
+        if self._worker and self._worker.isRunning():
+            self._worker.cancel()
+            self._worker.wait(5000)
+        super().closeEvent(event)
 
     def _on_export_finished(self, success: bool, target_dir: str, msg: str):
         self.btn_export.setEnabled(True)

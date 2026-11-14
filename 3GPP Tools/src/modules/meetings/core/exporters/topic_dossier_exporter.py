@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.utils.company_sanitizer import CompanySanitizer
+from core.utils.office_printer_guard import temporary_virtual_default_printer
 from core.utils.paths import to_extended_path, get_project_root
 from modules.meetings.core.cohort_resolver import (
     MeetingCohort,
@@ -1048,123 +1049,140 @@ class TopicDossierExporterThread(QThread):
 
         # Phase 1: Polite Concurrent Pre-Download (max_workers=5)
         self.progress_msg.emit(f"Resolving source documents ({total} files)...")
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            self._executor = executor
-            future_to_doc = {
-                executor.submit(
-                    self._find_or_download_tdoc_file,
-                    doc["tdoc_id"],
-                    doc["folder_name"],
-                    doc.get("meeting_dict", {}),
-                ): doc
-                for doc in docs_to_convert
-            }
-            done_count = 0
-            for fut in as_completed(future_to_doc):
-                if self.is_cancelled:
-                    return
-                done_count += 1
-                self.progress_step.emit(base_pct + int((done_count / total) * (pct_span * 0.45)), 100)
-                try:
-                    doc = future_to_doc[fut]
-                    doc["source_file"] = fut.result()
-                except Exception as e:
-                    logger.debug(f"[PreDownload] Failed item: {e}")
+        try:
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                self._executor = executor
+                future_to_doc = {
+                    executor.submit(
+                        self._find_or_download_tdoc_file,
+                        doc["tdoc_id"],
+                        doc["folder_name"],
+                        doc.get("meeting_dict", {}),
+                    ): doc
+                    for doc in docs_to_convert
+                }
+                done_count = 0
+                for fut in as_completed(future_to_doc):
+                    if self.is_cancelled:
+                        return
+                    done_count += 1
+                    self.progress_step.emit(base_pct + int((done_count / total) * (pct_span * 0.45)), 100)
+                    try:
+                        doc = future_to_doc[fut]
+                        doc["source_file"] = fut.result()
+                    except Exception as e:
+                        logger.debug(f"[PreDownload] Failed item: {e}")
+        finally:
+            self._executor = None
 
         # Phase 2: Sequential Conversion into Canonical Cache + Write-Out to Topic Destination
-        for idx, doc in enumerate(docs_to_convert):
-            if self.is_cancelled:
-                return
-            tid = doc["tdoc_id"]
-            abs_p = doc["abs_path"]
-            src_file = doc.get("source_file")
-            mtg_dict = doc.get("meeting_dict", {})
-            row = doc.get("row_data", {})
-            expected_mode = resolve_revision_mode_for_type(doc.get("type", ""), default_mode="markup")
+        # Wrap the entire batch once in temporary_virtual_default_printer so Windows default printer
+        # isn't toggled repeatedly across 1000+ conversions.
+        with temporary_virtual_default_printer(log=logger):
+            for idx, doc in enumerate(docs_to_convert):
+                if self.is_cancelled:
+                    return
+                self._convert_or_stub_single_doc(doc, idx, total, base_pct, pct_span)
 
-            self.progress_msg.emit(f"Converting ({idx + 1}/{total}): {tid}...")
-            self.progress_step.emit(base_pct + int((0.45 + 0.55 * (idx / total)) * pct_span), 100)
+    def _convert_or_stub_single_doc(
+        self,
+        doc: Dict[str, Any],
+        idx: int,
+        total: int,
+        base_pct: int,
+        pct_span: int,
+    ) -> None:
+        """Converts one downloaded/cached TDoc via shared canonical cache or writes a metadata stub."""
+        tid = doc["tdoc_id"]
+        abs_p = doc["abs_path"]
+        src_file = doc.get("source_file")
+        mtg_dict = doc.get("meeting_dict", {})
+        row = doc.get("row_data", {})
+        expected_mode = resolve_revision_mode_for_type(doc.get("type", ""), default_mode="markup")
 
-            local_bin = Path(src_file) if src_file else None
-            converted_ok = self._restore_from_canonical_cache(doc, local_bin=local_bin, expected_mode=expected_mode)
+        self.progress_msg.emit(f"Converting ({idx + 1}/{total}): {tid}...")
+        self.progress_step.emit(base_pct + int((0.45 + 0.55 * (idx / total)) * pct_span), 100)
 
-            if not converted_ok and src_file and os.path.exists(src_file):
-                tdoc_url = _resolve_doc_server_url(tid, mtg_dict, row)
-                merged_meta = dict(row or {})
-                merged_meta.setdefault("docs_folder_url", mtg_dict.get("docs_folder_url"))
-                merged_meta.setdefault("url_key", mtg_dict.get("url_key"))
-                if doc.get("supersedes"):
-                    merged_meta["Supersedes"] = ", ".join(doc["supersedes"])
+        local_bin = Path(src_file) if src_file else None
+        converted_ok = self._restore_from_canonical_cache(doc, local_bin=local_bin, expected_mode=expected_mode)
 
-                tdoc_folder = self._get_canonical_tdoc_folder(doc.get("folder_name", ""), tid)
-                try:
-                    if tdoc_folder:
-                        # Convert into shared canonical cache first, then copy with rewritten media links
-                        os.makedirs(to_extended_path(tdoc_folder), exist_ok=True)
-                        canon_media = tdoc_folder / "media"
-                        res_doc = convert_document_to_markdown(
-                            doc_path=Path(src_file),
-                            out_dir=tdoc_folder,
-                            tdoc_id=tid,
-                            meta=merged_meta,
-                            revisions=expected_mode,
-                            media_dir=canon_media,
-                            media_rel="media",
-                            tdoc_url=tdoc_url,
-                            cancellation_check=lambda: self.is_cancelled,
-                        )
-                        canon_md = Path(res_doc.md_path) if res_doc and getattr(res_doc, "md_path", None) else (tdoc_folder / f"{sanitize_filename(tid)}.md")
-                        converted_ok = _copy_markdown_with_media(
-                            src_md=canon_md,
-                            dst_md=abs_p,
-                            src_media_dir=canon_media,
-                            src_media_rel="media",
-                            dst_media_dir=abs_p.parent / f"{abs_p.stem}_media",
-                            dst_media_rel=f"{abs_p.stem}_media",
-                        )
-                    else:
-                        # Fallback when no meeting cache folder exists (e.g. unit test mocks)
-                        os.makedirs(to_extended_path(abs_p.parent), exist_ok=True)
-                        media_dir = abs_p.parent / f"{abs_p.stem}_media"
-                        convert_document_to_markdown(
-                            doc_path=Path(src_file),
-                            out_dir=abs_p.parent,
-                            tdoc_id=tid,
-                            meta=merged_meta,
-                            revisions=expected_mode,
-                            media_dir=media_dir,
-                            media_rel=f"{abs_p.stem}_media",
-                            tdoc_url=tdoc_url,
-                            cancellation_check=lambda: self.is_cancelled,
-                        )
-                        converted_ok = abs_p.is_file() and abs_p.stat().st_size > 0
-                except Exception as e:
-                    logger.warning(f"[Convert] Failed to convert {tid}: {e}")
+        if not converted_ok and src_file and os.path.exists(src_file):
+            tdoc_url = _resolve_doc_server_url(tid, mtg_dict, row)
+            merged_meta = dict(row or {})
+            merged_meta.setdefault("docs_folder_url", mtg_dict.get("docs_folder_url"))
+            merged_meta.setdefault("url_key", mtg_dict.get("url_key"))
+            if doc.get("supersedes"):
+                merged_meta["Supersedes"] = ", ".join(doc["supersedes"])
 
-            if not converted_ok and not abs_p.is_file():
-                try:
-                    os.makedirs(to_extended_path(abs_p.parent), exist_ok=True)
-                    src_url = _resolve_doc_server_url(tid, mtg_dict, row)
-                    source_lines = f"- **Source URL:** [{src_url}]({src_url})" if src_url else ""
-                    stub_content = (
-                        f"# {tid}: {doc.get('title', '')}\n\n"
-                        f"- **Working Group:** {doc.get('wg', '')}\n"
-                        f"- **Meeting:** {doc.get('meeting_number', '')}\n"
-                        f"- **Agenda Item:** {doc.get('ai', '')}\n"
-                        f"- **Work Item:** {doc.get('wi', '')}\n"
-                        f"- **Type:** {doc.get('type', '')}\n"
-                        f"- **Status:** {doc.get('status', '')}\n"
-                        f"- **Source / Company:** {doc.get('source', '')}\n"
-                        f"{source_lines}\n\n"
-                        f"> [!NOTE]\n"
-                        f"> *Document conversion was not available in local cache at export time.*\n\n"
-                        f"### Abstract / Remarks\n"
-                        f"{row.get('Abstract', '') or row.get('Secretary Remarks', 'No abstract provided.')}\n"
+            tdoc_folder = self._get_canonical_tdoc_folder(doc.get("folder_name", ""), tid)
+            try:
+                if tdoc_folder:
+                    # Convert into shared canonical cache first, then copy with rewritten media links
+                    os.makedirs(to_extended_path(tdoc_folder), exist_ok=True)
+                    canon_media = tdoc_folder / "media"
+                    res_doc = convert_document_to_markdown(
+                        doc_path=Path(src_file),
+                        out_dir=tdoc_folder,
+                        tdoc_id=tid,
+                        meta=merged_meta,
+                        revisions=expected_mode,
+                        media_dir=canon_media,
+                        media_rel="media",
+                        tdoc_url=tdoc_url,
+                        cancellation_check=lambda: self.is_cancelled,
                     )
-                    with open(to_extended_path(abs_p), "w", encoding="utf-8") as sf:
-                        sf.write(stub_content)
-                except Exception as stub_err:
-                    logger.warning(f"[Stub] Failed to create stub for {tid}: {stub_err}")
+                    canon_md = Path(res_doc.md_path) if res_doc and getattr(res_doc, "md_path", None) else (tdoc_folder / f"{sanitize_filename(tid)}.md")
+                    converted_ok = _copy_markdown_with_media(
+                        src_md=canon_md,
+                        dst_md=abs_p,
+                        src_media_dir=canon_media,
+                        src_media_rel="media",
+                        dst_media_dir=abs_p.parent / f"{abs_p.stem}_media",
+                        dst_media_rel=f"{abs_p.stem}_media",
+                    )
+                else:
+                    # Fallback when no meeting cache folder exists (e.g. unit test mocks)
+                    os.makedirs(to_extended_path(abs_p.parent), exist_ok=True)
+                    media_dir = abs_p.parent / f"{abs_p.stem}_media"
+                    convert_document_to_markdown(
+                        doc_path=Path(src_file),
+                        out_dir=abs_p.parent,
+                        tdoc_id=tid,
+                        meta=merged_meta,
+                        revisions=expected_mode,
+                        media_dir=media_dir,
+                        media_rel=f"{abs_p.stem}_media",
+                        tdoc_url=tdoc_url,
+                        cancellation_check=lambda: self.is_cancelled,
+                    )
+                    converted_ok = abs_p.is_file() and abs_p.stat().st_size > 0
+            except Exception as e:
+                logger.warning(f"[Convert] Failed to convert {tid}: {e}")
+
+        if not converted_ok and not abs_p.is_file():
+            try:
+                os.makedirs(to_extended_path(abs_p.parent), exist_ok=True)
+                src_url = _resolve_doc_server_url(tid, mtg_dict, row)
+                source_lines = f"- **Source URL:** [{src_url}]({src_url})" if src_url else ""
+                stub_content = (
+                    f"# {tid}: {doc.get('title', '')}\n\n"
+                    f"- **Working Group:** {doc.get('wg', '')}\n"
+                    f"- **Meeting:** {doc.get('meeting_number', '')}\n"
+                    f"- **Agenda Item:** {doc.get('ai', '')}\n"
+                    f"- **Work Item:** {doc.get('wi', '')}\n"
+                    f"- **Type:** {doc.get('type', '')}\n"
+                    f"- **Status:** {doc.get('status', '')}\n"
+                    f"- **Source / Company:** {doc.get('source', '')}\n"
+                    f"{source_lines}\n\n"
+                    f"> [!NOTE]\n"
+                    f"> *Document conversion was not available in local cache at export time.*\n\n"
+                    f"### Abstract / Remarks\n"
+                    f"{row.get('Abstract', '') or row.get('Secretary Remarks', 'No abstract provided.')}\n"
+                )
+                with open(to_extended_path(abs_p), "w", encoding="utf-8") as sf:
+                    sf.write(stub_content)
+            except Exception as stub_err:
+                logger.warning(f"[Stub] Failed to create stub for {tid}: {stub_err}")
 
     # ------------------------------------------------------------------
     # Topic Matching, Cache Loading & Agreement Export
