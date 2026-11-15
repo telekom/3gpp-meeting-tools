@@ -31,8 +31,11 @@ from modules.meetings.core.cohort_resolver import (
     MeetingCohortResolver,
     format_cohort_label,
 )
+from modules.meetings.core.exporters.export_manifest import load_manifest
+from modules.meetings.core.exporters.topic_digest_builder import STAGE2_SYNTHESIS_FILENAME
 from modules.meetings.core.exporters.topic_dossier_exporter import (
     TopicDossierExporterThread,
+    check_and_refresh_dossier,
     get_default_topic_export_base,
     sanitize_folder_name,
 )
@@ -551,6 +554,7 @@ class TopicDossierDialog(QDialog):
         dest_layout.addWidget(btn_browse, 0, 2)
 
         self.lbl_inc_status = QLabel("🟢 New Folder")
+        self.lbl_inc_status.setWordWrap(True)
         self.lbl_inc_status.setStyleSheet("font-size: 11px; font-weight: bold;")
         dest_layout.addWidget(self.lbl_inc_status, 1, 0, 1, 3)
         right_layout.addWidget(dest_box)
@@ -598,6 +602,16 @@ class TopicDossierDialog(QDialog):
         self.btn_view_inputs.setToolTip("Open interactive visual inspector of all candidate decisions, pCRs, CRs, agreements, and liaison statements")
         self.btn_view_inputs.clicked.connect(self._on_view_considered_inputs)
         action_layout.addWidget(self.btn_view_inputs)
+
+        self.btn_check_status = QPushButton("🔍 Check Status && Refresh Index")
+        self.btn_check_status.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_check_status.setEnabled(False)
+        self.btn_check_status.setToolTip(
+            "Fast offline scan of the destination folder to link _company_positions_analysis.md and "
+            "company_positions_e2e_synthesis.md, flag stale deltas, and refresh index.md without re-exporting documents."
+        )
+        self.btn_check_status.clicked.connect(lambda: self._on_check_status(silent=False))
+        action_layout.addWidget(self.btn_check_status)
 
         self.btn_open_folder = QPushButton("📂 Open Output Folder")
         self.btn_open_folder.setStyleSheet(STYLE_SECONDARY_BTN)
@@ -751,6 +765,7 @@ class TopicDossierDialog(QDialog):
             self.lbl_inc_status.setText("⚠️ Please specify a destination folder.")
             self.btn_open_folder.setEnabled(False)
             self.btn_open_folder.setToolTip("Destination folder is empty.")
+            self.btn_check_status.setEnabled(False)
             return
 
         folder_exists = os.path.isdir(to_extended_path(folder_str))
@@ -763,14 +778,136 @@ class TopicDossierDialog(QDialog):
 
         p = Path(folder_str)
         manifest_p = p / ".export_manifest.json"
-        if manifest_p.is_file():
+        has_manifest = manifest_p.is_file()
+        self.btn_check_status.setEnabled(has_manifest)
+        if not has_manifest:
+            self.lbl_inc_status.setText("🆕 <b>New Directory:</b> Initial complete export.")
+            self.lbl_inc_status.setStyleSheet(f"color: {C.ACCENT_ALT}; font-size: 11px;")
+            return
+
+        manifest = load_manifest(p)
+        if not manifest or not manifest.exported_meetings:
             self.lbl_inc_status.setText(
                 "🔄 <b>Existing Corpus Detected:</b> Incremental update mode active (skips already exported TDocs, writes delta feed)."
             )
             self.lbl_inc_status.setStyleSheet(f"color: {C.EMERALD_DARK}; font-size: 11px;")
+            return
+
+        analyzed_cnt = 0
+        stale_cnt = 0
+        pending_cnt = 0
+        no_act_cnt = 0
+        dec_cnt = 0
+        doc_cnt = 0
+        stub_cnt = 0
+
+        for m_key, m_state in manifest.exported_meetings.items():
+            if not isinstance(m_state, dict):
+                continue
+            d_c = int(m_state.get("decision_count", 0) or 0)
+            t_c = int(m_state.get("tdoc_count", 0) or 0)
+            s_c = int(m_state.get("stub_count", 0) or 0)
+            dec_cnt += d_c
+            doc_cnt += t_c
+            stub_cnt += s_c
+
+            lc = str(m_state.get("lifecycle", "") or "").strip().lower()
+            if lc == "no_activity" or (d_c == 0 and t_c == 0):
+                no_act_cnt += 1
+                continue
+
+            a_file = Path(to_extended_path(p / m_key / "_company_positions_analysis.md"))
+            if not a_file.is_file():
+                pending_cnt += 1
+                continue
+
+            st = m_state.get("analysis_status")
+            cur_snap = m_state.get("current_snapshot") or {}
+            ana_snap = m_state.get("analyzed_snapshot") or {}
+            a_mtime = float(os.path.getmtime(a_file))
+            pkt_mtime = float(cur_snap.get("packet_mtime", 0.0) or 0.0)
+
+            if st == "stale" and a_mtime > pkt_mtime > 0.0:
+                analyzed_cnt += 1
+            elif st in ("analyzed", "stale"):
+                if st == "analyzed" and ana_snap and cur_snap and ana_snap.get("fingerprint") != cur_snap.get("fingerprint") and a_mtime <= pkt_mtime:
+                    stale_cnt += 1
+                elif st == "stale":
+                    stale_cnt += 1
+                else:
+                    analyzed_cnt += 1
+            else:
+                # Legacy manifest without snapshot fields
+                if pkt_mtime > 0.0 and a_mtime < pkt_mtime - 5.0:
+                    stale_cnt += 1
+                else:
+                    analyzed_cnt += 1
+
+        syn_path = Path(to_extended_path(p / STAGE2_SYNTHESIS_FILENAME))
+        syn_state = (manifest.synthesis_state or {}).get("status", "pending")
+        if not syn_path.is_file():
+            syn_badge = "⬜ Stage-2 Pending"
+        elif syn_state == "stale" or stale_cnt > 0:
+            syn_badge = "🔄 Stage-2 Stale"
         else:
-            self.lbl_inc_status.setText("🆕 <b>New Directory:</b> Initial complete export.")
-            self.lbl_inc_status.setStyleSheet(f"color: {C.ACCENT_ALT}; font-size: 11px;")
+            syn_badge = "✅ Stage-2 Current"
+
+        total_mtgs = len(manifest.exported_meetings)
+        stage1_parts = [f"✅ {analyzed_cnt} Analyzed"]
+        if stale_cnt:
+            stage1_parts.append(f"🔄 {stale_cnt} Stale")
+        stage1_parts.append(f"⬜ {pending_cnt} Pending")
+        if no_act_cnt:
+            stage1_parts.append(f"⚪ {no_act_cnt} No Activity")
+
+        stub_note = f" ({stub_cnt} stubs)" if stub_cnt else ""
+        self.lbl_inc_status.setText(
+            f"🔄 <b>Existing Corpus Detected:</b> {total_mtgs} meetings · {dec_cnt} decisions · "
+            f"{doc_cnt} docs{stub_note}<br>"
+            f"<b>LLM Stage-1:</b> {' · '.join(stage1_parts)} &nbsp;|&nbsp; <b>{syn_badge}</b>"
+        )
+        self.lbl_inc_status.setStyleSheet(f"color: {C.EMERALD_DARK}; font-size: 11px;")
+
+    def _on_check_status(self, silent: bool = False) -> Dict[str, object]:
+        folder_str = self.edit_dest_folder.text().strip()
+        if not folder_str:
+            if not silent:
+                QMessageBox.warning(self, "No Destination", "Please specify a destination folder first.")
+            return {"ok": False, "error": "Empty destination"}
+
+        res = check_and_refresh_dossier(Path(folder_str), topic=self.active_topic)
+        self._check_incremental_status()
+
+        if not res.get("ok"):
+            if not silent:
+                QMessageBox.warning(
+                    self,
+                    "Checkup Failed",
+                    str(res.get("error") or "Could not inspect destination corpus."),
+                )
+            return res
+
+        syn = res.get("synthesis_status", "pending")
+        self.lbl_status.setText(
+            f"Index refreshed: ✅ {res['analyzed']} analyzed · 🔄 {res['stale']} stale · "
+            f"⬜ {res['pending']} pending · ⚪ {res['no_activity']} no-activity · Stage-2: {syn}"
+        )
+
+        if not silent:
+            promo = res.get("newly_promoted", 0)
+            promo_line = f"\n• Newly Linked / Promoted Analyses: +{promo}" if promo else ""
+            QMessageBox.information(
+                self,
+                "Corpus Status & Index Refreshed",
+                f"Checked '{res.get('topic_name', '')}' ({res['total_meetings']} meetings):\n"
+                f"• Decisions: {res['total_decisions']} | Active Docs: {res['total_active_docs']} (Stubs: {res['total_stubs']})\n"
+                f"• Stage-1 Analyses: ✅ {res['analyzed']} Analyzed | 🔄 {res['stale']} Stale (Delta Ready) | "
+                f"⬜ {res['pending']} Pending | ⚪ {res['no_activity']} No Activity"
+                f"{promo_line}\n"
+                f"• Stage-2 E2E Synthesis ({STAGE2_SYNTHESIS_FILENAME}): {syn.upper()}\n\n"
+                f"Updated index.md, company_positions_e2e_prompt.md, per-meeting briefs, and .export_manifest.json.",
+            )
+        return res
 
     def _on_browse_dest(self):
         cur = self.edit_dest_folder.text().strip() or str(get_default_topic_export_base())

@@ -10,12 +10,14 @@ atomic per-meeting checkpointing in `.export_manifest.json`.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import copy
 import datetime
 import hashlib
 import logging
 import os
 import re
 import shutil
+import time
 import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -32,17 +34,24 @@ from modules.meetings.core.cohort_resolver import (
 from modules.meetings.core.cross_wg_ls_tracker import CrossWgLiaisonTracker
 from modules.meetings.core.exporters.export_manifest import (
     ExportManifest,
+    compute_meeting_snapshot,
+    diff_meeting_snapshots,
     is_export_complete,
     load_manifest,
     save_manifest,
 )
 from modules.meetings.core.exporters.topic_digest_builder import (
+    STAGE2_SYNTHESIS_FILENAME,
+    build_delta_section_markdown,
     classify_meeting_lifecycle,
     format_lifecycle_badge,
     resolve_meeting_folder_id,
     rewrite_media_links,
+    sync_meeting_brief_analysis_state,
     write_company_positions_input,
+    write_consolidated_briefing_markdown,
     write_e2e_synthesis_prompt,
+    write_master_index_markdown,
     write_meeting_brief,
 )
 from modules.meetings.core.meetings_db import MeetingsDatabase
@@ -306,6 +315,7 @@ class TopicDossierExporterThread(QThread):
         all_candidates: List[Dict[str, Any]] = []
         newly_converted_docs: List[Dict[str, Any]] = []
         meeting_records: List[Dict[str, Any]] = []
+        excluded_tid_set = {str(t).strip().upper() for t in (self.topic.rules.excluded_tdocs or []) if str(t).strip()}
 
         already_complete_count = 0
         reused_from_cache_count = 0
@@ -332,8 +342,13 @@ class TopicDossierExporterThread(QThread):
             )
             self.progress_step.emit(base_pct, 100)
 
-            tdocs_rows = self._load_meeting_tdocs(mtg)
-            chair_agreements = self._load_meeting_agreements(mtg)
+            prev_mtg_state = manifest.exported_meetings.get(meeting_rel_root, {})
+            self._force_live_refresh = is_incremental and self._is_meeting_live_for_refresh(mtg, prev_mtg_state)
+            try:
+                tdocs_rows = self._load_meeting_tdocs(mtg)
+                chair_agreements = self._load_meeting_agreements(mtg)
+            finally:
+                self._force_live_refresh = False
 
             superseded_set, predecessors_map, _leaf_map = self._build_revision_lineage_map(tdocs_rows)
             decision_referenced_tids: Set[str] = set()
@@ -371,10 +386,13 @@ class TopicDossierExporterThread(QThread):
             # B. Filter & Match Meeting TDocs
             deduped_skipped = 0
             meeting_candidates: List[Dict[str, Any]] = []
+            withdrawn_tids: Set[str] = set()
 
             for row in tdocs_rows:
                 tid = _normalize_tdoc_id(row.get("TDoc", "") or row.get("tdoc_id", "") or row.get("TD#", ""))
                 if not tid:
+                    continue
+                if tid in excluded_tid_set:
                     continue
                 title = str(row.get("Title", "") or row.get("title", "")).strip()
                 ai_val = str(
@@ -397,17 +415,21 @@ class TopicDossierExporterThread(QThread):
                     or row.get("status", "")
                     or row.get("Result", "")
                 ).strip()
+                if "withdrawn" in status.lower():
+                    withdrawn_tids.add(tid)
+
                 source = str(row.get("Source", "") or row.get("source", "")).strip()
                 abstract = str(row.get("Abstract", "") or row.get("abstract", "") or row.get("Secretary Remarks", "")).strip()
                 ai_desc = str(row.get("Agenda item description", "") or row.get("AI Description", "")).strip()
 
-                if not self.topic.matches_tdoc(tid, wg_name, ai_val, title, wi_val, abstract, ai_description=ai_desc):
+                is_decision_ref = tid in decision_referenced_tids
+                if not is_decision_ref and not self.topic.matches_tdoc(tid, wg_name, ai_val, title, wi_val, abstract, ai_description=ai_desc):
                     continue
 
                 is_agreed = any(s in status.lower() for s in ("approved", "agreed", "endorsed"))
                 is_withdrawn = "withdrawn" in status.lower()
                 is_ls = "ls" in t_type.lower() or "liaison" in t_type.lower()
-                is_referenced = tid in decision_referenced_tids or is_agreed
+                is_referenced = is_decision_ref or is_agreed
 
                 if self.export_scope_mode == "post_meeting" and not (is_agreed or is_ls or is_referenced):
                     continue
@@ -482,6 +504,16 @@ class TopicDossierExporterThread(QThread):
                     "supersedes": predecessors_map.get(tid, []),
                 })
 
+            # B2. Prune superseded/withdrawn revisions from topic destination folder (keep global cache)
+            if self.deduplicate_revisions:
+                self._prune_superseded_topic_docs(
+                    target_dir=target_dir,
+                    manifest=manifest,
+                    meeting_rel_root=meeting_rel_root,
+                    active_tids={d["tdoc_id"] for d in meeting_candidates},
+                    superseded_or_withdrawn=superseded_set | withdrawn_tids,
+                )
+
             # C. Resolve Already Exported / Canonical Cache / Legacy Migration BEFORE FTP Download
             meeting_docs_to_convert: List[Dict[str, Any]] = []
             meeting_newly_converted: List[Dict[str, Any]] = []
@@ -531,6 +563,7 @@ class TopicDossierExporterThread(QThread):
 
             # E. Link formal decisions & export standalone RAN agreements
             seq_counters: Dict[str, int] = {}
+            dec_snapshot_records: List[Dict[str, Any]] = []
             for dec in meeting_decisions:
                 if dec.tdoc_id and not dec.dossier_rel_path and dec.decision_type in ("Approved pCR", "Approved CR", "Endorsed WF", "Agreed LS"):
                     for doc in meeting_candidates:
@@ -552,12 +585,20 @@ class TopicDossierExporterThread(QThread):
                 if not manifest.is_decision_exported(dec_key):
                     new_decisions_this_session.append(dec)
                 manifest.record_decision(dec_key, dec.dossier_rel_path)
+                dec_snapshot_records.append({
+                    "key": dec_key,
+                    "type": dec.decision_type,
+                    "tdoc_id": dec.tdoc_id or "",
+                    "ai": dec.ai or "",
+                    "rel_path": dec.dossier_rel_path or "",
+                    "summary": dec.title_or_summary or "",
+                })
 
             all_decisions.extend(meeting_decisions)
             all_candidates.extend(meeting_candidates)
             newly_converted_docs.extend(meeting_newly_converted)
 
-            # F. Auto-classify meeting lifecycle & generate Brought->Decided LLM Digest & Meeting Brief
+            # F. Auto-classify meeting lifecycle, snapshot/delta check, LLM Digest & Meeting Brief
             lifecycle = classify_meeting_lifecycle(mtg, meeting_decisions, meeting_candidates)
             digest_paths = write_company_positions_input(
                 meeting_dir=meeting_dir,
@@ -569,6 +610,68 @@ class TopicDossierExporterThread(QThread):
                 lifecycle=lifecycle,
             )
             digest_rel_paths = [safe_relpath(p, target_dir) for p in digest_paths]
+            max_digest_mtime = max(
+                (os.path.getmtime(to_extended_path(p)) for p in digest_paths if Path(to_extended_path(p)).is_file()),
+                default=time.time(),
+            )
+
+            active_tdocs_snap: Dict[str, Dict[str, Any]] = {}
+            stub_count = 0
+            for doc in meeting_candidates:
+                abs_p = doc["abs_path"]
+                is_stub = not is_export_complete(abs_p, doc_info=doc)
+                if is_stub:
+                    stub_count += 1
+                doc["is_stub"] = is_stub
+                active_tdocs_snap[doc["tdoc_id"]] = {
+                    "status": doc.get("status", ""),
+                    "is_stub": is_stub,
+                    "supersedes": doc.get("supersedes", []),
+                    "title": doc.get("title", ""),
+                    "source": doc.get("source", ""),
+                    "type": doc.get("type", ""),
+                    "ai": doc.get("ai", ""),
+                    "category": doc.get("category", ""),
+                    "rel_path": doc.get("rel_path", ""),
+                }
+
+            prev_snap = prev_mtg_state.get("current_snapshot")
+            analyzed_snap = copy.deepcopy(prev_mtg_state.get("analyzed_snapshot")) if prev_mtg_state.get("analyzed_snapshot") else None
+            probe_snap = compute_meeting_snapshot(lifecycle, dec_snapshot_records, active_tdocs_snap, packet_mtime=max_digest_mtime)
+            if prev_snap and prev_snap.get("fingerprint") == probe_snap["fingerprint"]:
+                # Preserve original packet_mtime when exported content has not changed
+                probe_snap["packet_mtime"] = float(prev_snap.get("packet_mtime", max_digest_mtime))
+
+            analysis_path = meeting_dir / "_company_positions_analysis.md"
+            analysis_exists = Path(to_extended_path(analysis_path)).is_file()
+            analysis_mtime = os.path.getmtime(to_extended_path(analysis_path)) if analysis_exists else 0.0
+
+            delta_info: Optional[Dict[str, Any]] = None
+            if lifecycle == "no_activity":
+                analysis_status = "no_activity"
+            elif not analysis_exists:
+                analyzed_snap = None
+                analysis_status = "pending"
+            else:
+                if analyzed_snap is None and prev_snap:
+                    prev_pkt_mtime = float(prev_snap.get("packet_mtime", 0.0) or 0.0)
+                    if analysis_mtime >= prev_pkt_mtime - 5.0:
+                        analyzed_snap = copy.deepcopy(prev_snap)
+                elif analyzed_snap is None and not prev_snap:
+                    if analysis_mtime >= probe_snap["packet_mtime"] - 5.0:
+                        analyzed_snap = copy.deepcopy(probe_snap)
+
+                if analyzed_snap and analyzed_snap.get("fingerprint") == probe_snap["fingerprint"]:
+                    analysis_status = "analyzed"
+                elif analyzed_snap:
+                    if analysis_mtime > probe_snap["packet_mtime"]:
+                        analyzed_snap = copy.deepcopy(probe_snap)
+                        analysis_status = "analyzed"
+                    else:
+                        delta_info = diff_meeting_snapshots(analyzed_snap, probe_snap)
+                        analysis_status = "stale" if delta_info.get("has_changes") else "analyzed"
+                else:
+                    analysis_status = "stale"
 
             brief_path = write_meeting_brief(
                 meeting_dir=meeting_dir,
@@ -581,8 +684,14 @@ class TopicDossierExporterThread(QThread):
                 deduped_count=deduped_skipped,
                 digest_rel_paths=digest_rel_paths,
                 lifecycle=lifecycle,
+                analysis_status=analysis_status,
+                analysis_exists=analysis_exists,
+                delta_info=delta_info,
             )
             brief_rel = safe_relpath(brief_path, target_dir)
+
+            ls_in_cnt = sum(1 for d in meeting_candidates if d.get("category") == "LS_IN")
+            ls_out_cnt = sum(1 for d in meeting_candidates if d.get("category") == "LS_OUT")
 
             # G. Atomic Per-Meeting Manifest Checkpoint (resumability boundary)
             valid_entries = [d for d in meeting_candidates if d["abs_path"].is_file()]
@@ -594,13 +703,20 @@ class TopicDossierExporterThread(QThread):
                     "meeting_folder_id": meeting_folder_id,
                     "folder_name": folder_name,
                     "cohort_key": cohort.key,
+                    "round_label": format_round_label(cohort.key),
                     "start_date": mtg_date,
                     "lifecycle": lifecycle,
                     "scope_mode": self.export_scope_mode,
                     "tdoc_count": len(meeting_candidates),
                     "decision_count": len(meeting_decisions),
+                    "stub_count": stub_count,
+                    "ls_in_count": ls_in_cnt,
+                    "ls_out_count": ls_out_cnt,
                     "brief_rel_path": brief_rel,
                     "digest_rel_paths": digest_rel_paths,
+                    "analysis_status": analysis_status,
+                    "current_snapshot": probe_snap,
+                    "analyzed_snapshot": analyzed_snap,
                 },
                 entries=valid_entries,
                 session_id=session_id,
@@ -617,10 +733,12 @@ class TopicDossierExporterThread(QThread):
                 "meeting_rel_root": meeting_rel_root,
                 "start_date": mtg_date,
                 "lifecycle": lifecycle,
+                "analysis_status": analysis_status,
                 "tdoc_count": len(meeting_candidates),
                 "decision_count": len(meeting_decisions),
-                "ls_in_count": sum(1 for d in meeting_candidates if d.get("category") == "LS_IN"),
-                "ls_out_count": sum(1 for d in meeting_candidates if d.get("category") == "LS_OUT"),
+                "stub_count": stub_count,
+                "ls_in_count": ls_in_cnt,
+                "ls_out_count": ls_out_cnt,
                 "brief_rel_path": brief_rel,
                 "digest_rel_paths": digest_rel_paths,
                 "deduped_skipped": deduped_skipped,
@@ -639,7 +757,8 @@ class TopicDossierExporterThread(QThread):
         with open(to_extended_path(target_dir / "ls_dialogue.md"), "w", encoding="utf-8") as f:
             f.write(ls_report_md)
 
-        write_e2e_synthesis_prompt(target_dir, self.topic, meeting_records)
+        synthesis_status = _evaluate_stage2_synthesis_state(target_dir, manifest)
+        write_e2e_synthesis_prompt(target_dir, self.topic, meeting_records, synthesis_status=synthesis_status)
 
         newly_exported_tids = [d["tdoc_id"] for d in newly_converted_docs if d["abs_path"].is_file()]
         self._write_llm_delta_feed(
@@ -661,17 +780,29 @@ class TopicDossierExporterThread(QThread):
             added_entries=[d for d in newly_converted_docs if d["abs_path"].is_file()],
         )
 
-        self._write_master_index(
+        total_stubs = sum(r.get("stub_count", 0) for r in meeting_records)
+        write_master_index_markdown(
             target_dir=target_dir,
+            topic=self.topic,
             manifest=manifest,
-            all_decisions=all_decisions,
-            all_candidates=all_candidates,
+            total_decisions=len(all_decisions),
+            total_active_docs=len(all_candidates),
+            stub_count=total_stubs,
+            round_count=len(self.cohorts),
             session_id=session_id,
+            scope_mode=self.export_scope_mode,
             meeting_records=meeting_records,
+            synthesis_status=synthesis_status,
         )
 
         if self.generate_consolidated_md:
-            self._write_consolidated_briefing(target_dir, all_decisions, all_candidates, meeting_records)
+            write_consolidated_briefing_markdown(
+                target_dir=target_dir,
+                topic=self.topic,
+                all_decisions=all_decisions,
+                meeting_records=meeting_records,
+                round_count=len(self.cohorts),
+            )
 
         save_manifest(target_dir, manifest)
 
@@ -1242,17 +1373,117 @@ class TopicDossierExporterThread(QThread):
             return root / "Data" / "Meetings" / folder_name
         return mtg_dir
 
-    def _load_meeting_tdocs(self, mtg: Dict[str, Any]) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _is_meeting_live_for_refresh(mtg: Dict[str, Any], prev_mtg_state: Dict[str, Any]) -> bool:
+        """Determines if an incremental run should probe FTP for fresher TDocs_by_Agenda / ChairNotes."""
+        if not prev_mtg_state:
+            return True
+        if prev_mtg_state.get("lifecycle") in ("upcoming", "no_activity"):
+            return True
+        if int(prev_mtg_state.get("stub_count", 0) or 0) > 0:
+            return True
+        if int(prev_mtg_state.get("decision_count", 0) or 0) == 0:
+            return True
+        start_str = str(mtg.get("start_date", "") or "").strip()[:10]
+        if start_str:
+            try:
+                m_date = datetime.date.fromisoformat(start_str)
+                if (datetime.date.today() - m_date).days <= 45:
+                    return True
+            except Exception:
+                pass
+        return False
+
+    @staticmethod
+    def _prune_superseded_topic_docs(
+        target_dir: Path,
+        manifest: ExportManifest,
+        meeting_rel_root: str,
+        active_tids: Set[str],
+        superseded_or_withdrawn: Set[str],
+    ) -> int:
+        """
+        Removes obsolete topic-folder Markdown files and companion `{stem}_media/`
+        directories for TDocs explicitly superseded by a newer revision or withdrawn,
+        while preserving `_company_positions_analysis.md` and shared canonical caches.
+        """
+        prefix = f"{meeting_rel_root}/"
+        active_upper = {str(t).strip().upper() for t in active_tids}
+        superseded_upper = {str(t).strip().upper() for t in superseded_or_withdrawn}
+        removed = 0
+        for tid in list(manifest.tdocs.keys()):
+            tid_upper = str(tid).strip().upper()
+            if tid_upper in active_upper or tid_upper not in superseded_upper:
+                continue
+            info = manifest.tdocs.get(tid) or {}
+            rel_path = str(info.get("rel_path", "")).replace("\\", "/")
+            if not rel_path.startswith(prefix):
+                continue
+            abs_file = target_dir / rel_path
+            ext_file = Path(to_extended_path(abs_file))
+            try:
+                if ext_file.is_file():
+                    os.remove(ext_file)
+                media_dir = abs_file.parent / f"{abs_file.stem}_media"
+                ext_media = Path(to_extended_path(media_dir))
+                if ext_media.is_dir():
+                    shutil.rmtree(ext_media, ignore_errors=True)
+            except Exception as e:
+                logger.debug(f"[TopicDossierExporter] Prune cleanup warning for {rel_path}: {e}")
+            manifest.tdocs.pop(tid, None)
+            removed += 1
+        return removed
+
+    def _download_and_parse_tdocs_excel(self, mtg: Dict[str, Any], mtg_dir: Path) -> List[Dict[str, Any]]:
+        """Downloads `TDocs_by_Agenda.xlsx` via `TDocsDownloaderThread` and parses the newest Excel."""
+        mtg_id = mtg.get("id") or mtg.get("meeting_number")
+        if not mtg_id:
+            return []
+        try:
+            from modules.meetings.core.tdocs.tdocs_downloader import TDocsDownloaderThread
+            dl = TDocsDownloaderThread(str(mtg_id), mtg_dir, cancel_check=lambda: self.is_cancelled)
+            dl.run()
+            agenda_dir = mtg_dir / "Agenda"
+            if agenda_dir.is_dir():
+                excels = sorted(
+                    [ef for ef in agenda_dir.glob("*.xlsx") if ef.is_file() and not ef.name.startswith("~$")],
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+                for ef in excels:
+                    res = TDocsParser.parse_tdocs_excel(str(ef))
+                    if res:
+                        return res
+        except Exception as e:
+            logger.debug(f"[TDocsDownloader] Auto-download failed for {mtg_dir.name}: {e}")
+        return []
+
+    def _load_meeting_tdocs(
+        self,
+        mtg: Dict[str, Any],
+        force_refresh: Optional[bool] = None,
+    ) -> List[Dict[str, Any]]:
         folder_name = mtg.get("folder_name", "")
         mtg_dir = self._get_meeting_dir(folder_name)
         if not mtg_dir:
             return []
 
+        eff_refresh = force_refresh if force_refresh is not None else getattr(self, "_force_live_refresh", False)
+        if eff_refresh and self.allow_network_download and not self.is_cancelled:
+            live_rows = self._download_and_parse_tdocs_excel(mtg, mtg_dir)
+            if live_rows:
+                return live_rows
+
         agenda_dir = mtg_dir / "Agenda"
 
         import json as _json
         if agenda_dir.is_dir():
-            for jf in agenda_dir.glob("*.xlsx.json"):
+            json_caches = sorted(
+                [jf for jf in agenda_dir.glob("*.xlsx.json") if jf.is_file()],
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            for jf in json_caches:
                 try:
                     with open(jf, "r", encoding="utf-8") as f:
                         return _json.load(f)
@@ -1264,6 +1495,10 @@ class TopicDossierExporterThread(QThread):
             excel_candidates.extend(list(agenda_dir.glob("*.xlsx")))
         if mtg_dir.is_dir():
             excel_candidates.extend(list(mtg_dir.glob("*.xlsx")))
+        excel_candidates.sort(
+            key=lambda p: p.stat().st_mtime if p.is_file() else 0.0,
+            reverse=True,
+        )
 
         for ef in excel_candidates:
             if ef.is_file() and not ef.name.startswith("~$"):
@@ -1274,25 +1509,71 @@ class TopicDossierExporterThread(QThread):
                 except Exception as e:
                     logger.debug(f"[TDocsParser] Excel parse failed for {ef}: {e}")
 
-        if self.allow_network_download and not self.is_cancelled:
-            mtg_id = mtg.get("id") or mtg.get("meeting_number")
-            if mtg_id:
-                try:
-                    from modules.meetings.core.tdocs.tdocs_downloader import TDocsDownloaderThread
-                    dl = TDocsDownloaderThread(str(mtg_id), mtg_dir, cancel_check=lambda: self.is_cancelled)
-                    dl.run()
-                    if agenda_dir.is_dir():
-                        for ef in agenda_dir.glob("*.xlsx"):
-                            if not ef.name.startswith("~$"):
-                                res = TDocsParser.parse_tdocs_excel(str(ef))
-                                if res:
-                                    return res
-                except Exception as e:
-                    logger.debug(f"[TDocsDownloader] Auto-download failed: {e}")
+        if not eff_refresh and self.allow_network_download and not self.is_cancelled:
+            live_rows = self._download_and_parse_tdocs_excel(mtg, mtg_dir)
+            if live_rows:
+                return live_rows
 
         return []
 
-    def _load_meeting_agreements(self, mtg: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _download_and_scan_chair_notes(self, mtg: Dict[str, Any], mtg_dir: Path) -> List[Dict[str, Any]]:
+        """Downloads latest RAN Chairman's Notes from 3GPP FTP and rescans agreements."""
+        try:
+            from modules.meetings.core.chair_notes_downloader import ChairNotesDownloaderThread
+            from core.network.session import NetworkSession
+
+            candidate_urls = []
+            raw_url = str(mtg.get("url_key", "")).strip()
+            if raw_url:
+                full = raw_url if raw_url.startswith("http") else f"https://www.3gpp.org/ftp/{raw_url.lstrip('/')}"
+                candidate_urls.append(full.rstrip("/"))
+            docs_url = str(mtg.get("docs_folder_url", "")).strip()
+            if docs_url:
+                full_docs = docs_url if docs_url.startswith("http") else f"https://www.3gpp.org/ftp/{docs_url.lstrip('/')}"
+                base = re.sub(r'/Docs/?$', '', full_docs.rstrip("/"), flags=re.IGNORECASE)
+                if base not in candidate_urls:
+                    candidate_urls.append(base)
+
+            if candidate_urls:
+                session = NetworkSession.get_instance()
+                base_url, html_text = ChairNotesDownloaderThread.locate_chair_notes_dir(
+                    session, candidate_urls, cancel_check=lambda: self.is_cancelled
+                )
+                if base_url and html_text and not self.is_cancelled:
+                    all_remote = ChairNotesDownloaderThread.parse_file_list_static(html_text, base_url)
+                    selected_remote = ChairNotesDownloaderThread.select_best_chair_notes_files(
+                        all_remote, only_final_or_latest=True
+                    )
+                    if selected_remote:
+                        cn_dir = mtg_dir / "Agenda" / "ChairNotes"
+                        cn_dir.mkdir(parents=True, exist_ok=True)
+                        downloaded_names = ChairNotesDownloaderThread.download_files_sync(
+                            session=session,
+                            files_to_download=selected_remote,
+                            target_dir=cn_dir,
+                            cancel_check=lambda: self.is_cancelled,
+                        )
+                        if downloaded_names:
+                            for fname in downloaded_names:
+                                f_path = cn_dir / fname
+                                if f_path.suffix.lower() == ".zip":
+                                    ChairNotesDownloaderThread.extract_chair_notes_zip(f_path, cn_dir)
+                            _, agreements, _ = ChairNotesAgreementsParser.scan_and_cache_chair_notes(
+                                meeting_dir=mtg_dir,
+                                mtg_info=mtg,
+                                force_rescan=True,
+                            )
+                            if agreements:
+                                return agreements
+        except Exception as e:
+            logger.debug(f"[TopicDossierExporter] Auto-download ChairNotes failed for {mtg_dir.name}: {e}")
+        return []
+
+    def _load_meeting_agreements(
+        self,
+        mtg: Dict[str, Any],
+        force_refresh: Optional[bool] = None,
+    ) -> List[Dict[str, Any]]:
         # Chairman's Notes text agreements are strictly RAN-only; SA/CT triage notes must not become Text Agreements
         wg_upper = str(mtg.get("wg_name", "")).strip().upper()
         if "RAN" not in wg_upper:
@@ -1302,6 +1583,12 @@ class TopicDossierExporterThread(QThread):
         mtg_dir = self._get_meeting_dir(folder_name)
         if not mtg_dir:
             return []
+
+        eff_refresh = force_refresh if force_refresh is not None else getattr(self, "_force_live_refresh", False)
+        if eff_refresh and self.allow_network_download and not self.is_cancelled:
+            live_agreements = self._download_and_scan_chair_notes(mtg, mtg_dir)
+            if live_agreements:
+                return live_agreements
 
         from modules.meetings.core.tdocs.chair_notes_agreements_parser import (
             CHAIR_NOTES_CACHE_VERSION,
@@ -1344,56 +1631,10 @@ class TopicDossierExporterThread(QThread):
                     except Exception:
                         pass
 
-        if self.allow_network_download and not self.is_cancelled:
-            try:
-                from modules.meetings.core.chair_notes_downloader import ChairNotesDownloaderThread
-                from core.network.session import NetworkSession
-
-                candidate_urls = []
-                raw_url = str(mtg.get("url_key", "")).strip()
-                if raw_url:
-                    full = raw_url if raw_url.startswith("http") else f"https://www.3gpp.org/ftp/{raw_url.lstrip('/')}"
-                    candidate_urls.append(full.rstrip("/"))
-                docs_url = str(mtg.get("docs_folder_url", "")).strip()
-                if docs_url:
-                    full_docs = docs_url if docs_url.startswith("http") else f"https://www.3gpp.org/ftp/{docs_url.lstrip('/')}"
-                    base = re.sub(r'/Docs/?$', '', full_docs.rstrip("/"), flags=re.IGNORECASE)
-                    if base not in candidate_urls:
-                        candidate_urls.append(base)
-
-                if candidate_urls:
-                    session = NetworkSession.get_instance()
-                    base_url, html_text = ChairNotesDownloaderThread.locate_chair_notes_dir(
-                        session, candidate_urls, cancel_check=lambda: self.is_cancelled
-                    )
-                    if base_url and html_text and not self.is_cancelled:
-                        all_remote = ChairNotesDownloaderThread.parse_file_list_static(html_text, base_url)
-                        selected_remote = ChairNotesDownloaderThread.select_best_chair_notes_files(
-                            all_remote, only_final_or_latest=True
-                        )
-                        if selected_remote:
-                            cn_dir = agenda_dir / "ChairNotes"
-                            cn_dir.mkdir(parents=True, exist_ok=True)
-                            downloaded_names = ChairNotesDownloaderThread.download_files_sync(
-                                session=session,
-                                files_to_download=selected_remote,
-                                target_dir=cn_dir,
-                                cancel_check=lambda: self.is_cancelled,
-                            )
-                            if downloaded_names:
-                                for fname in downloaded_names:
-                                    f_path = cn_dir / fname
-                                    if f_path.suffix.lower() == ".zip":
-                                        ChairNotesDownloaderThread.extract_chair_notes_zip(f_path, cn_dir)
-                                _, agreements, _ = ChairNotesAgreementsParser.scan_and_cache_chair_notes(
-                                    meeting_dir=mtg_dir,
-                                    mtg_info=mtg,
-                                    force_rescan=True,
-                                )
-                                if agreements:
-                                    return agreements
-            except Exception as e:
-                logger.debug(f"[TopicDossierExporter] Auto-download ChairNotes failed for {folder_name}: {e}")
+        if not eff_refresh and self.allow_network_download and not self.is_cancelled:
+            live_agreements = self._download_and_scan_chair_notes(mtg, mtg_dir)
+            if live_agreements:
+                return live_agreements
 
         return []
 
@@ -1596,92 +1837,24 @@ class TopicDossierExporterThread(QThread):
         all_candidates: List[Dict[str, Any]],
         session_id: int,
         meeting_records: Optional[List[Dict[str, Any]]] = None,
+        synthesis_status: Optional[str] = None,
     ):
-        """Generates master index.md with chronological cross-WG timeline and per-WG progression."""
-        now_str = datetime.datetime.now().strftime("%Y-%m-%d")
-        meeting_records = meeting_records or []
-
-        lines = [
-            f"# 🌐 Cross-WG Topic Dossier: {self.topic.name}",
-            f"**Last Updated:** {now_str} (Session #{session_id}) | **Scope Mode:** `{self.export_scope_mode}`",
-            "",
-            "> [!NOTE]",
-            f"> {self.topic.description or 'Consolidated multi-WG tracking organized by Working Group and Meeting.'}",
-            "",
-            "## 📊 Executive KPI Strip",
-            "",
-            f"- **Participating Working Groups:** {', '.join(sorted(self.topic.target_wgs))}",
-            f"- **Analyzed Meetings:** {len(meeting_records)} meetings across {len(self.cohorts)} synchronized round(s)" if meeting_records else "- **Analyzed Meetings:** None",
-            f"- **Unified Technical Decisions:** {len(all_decisions)} (Agreements, WAs, pCRs, CRs, WFs)",
-            f"- **Active Scoped Contributions:** {len(all_candidates)} documents",
-            "",
-            "## 🧭 Navigation & LLM Workflows",
-            "",
-            "- ⚖️ **[Unified Technical Decisions Baseline](agreements_timeline.md)** — Chronological matrix of all RAN agreements and SA/CT pCRs/CRs.",
-            "- 📬 **[Cross-WG Liaison Statement Dialogue](ls_dialogue.md)** — Inter-group question and reply threads.",
-            "- 🧠 **[2-Stage E2E Company Position Prompt & Checklist](company_positions_e2e_prompt.md)** — Resumable, per-meeting LLM instructions designed for standard/non-frontier models.",
-            f"- 🆕 **[Latest LLM Delta Feed](deltas/delta_session_{session_id}.md)** — Incremental additions in this session.",
-            "",
-            "## 🗓️ Cross-WG Chronological Meeting Timeline",
-            "",
-            "| Date | Synchronized Round | WG | Meeting | State | Decisions | Active Inputs | LS (In/Out) | Meeting Brief & LLM Packet |",
-            "| :--- | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :--- |",
-        ]
-
-        for rec in meeting_records:
-            d_str = rec.get("start_date") or "N/A"
-            r_lbl = rec.get("round_label") or rec.get("cohort_key", "")
-            wg = rec["wg"]
-            m_fid = rec["meeting_folder_id"]
-            lc = rec.get("lifecycle") or ("concluded" if rec.get("decision_count", 0) else "upcoming")
-            lc_badge = format_lifecycle_badge(lc)
-            brief_rel = rec["brief_rel_path"]
-            digests = rec.get("digest_rel_paths", [])
-            digest_str = " · ".join(f"[{Path(p).name}]({p})" for p in digests) if digests else "—"
-            ls_cell = f"{rec.get('ls_in_count', 0)} / {rec.get('ls_out_count', 0)}"
-            lines.append(
-                f"| `{d_str}` | {r_lbl} | **{wg}** | [{m_fid}]({brief_rel}) | {lc_badge} | {rec['decision_count']} | {rec['tdoc_count']} | {ls_cell} | [Brief]({brief_rel}) · {digest_str} |"
-            )
-
-        # Per-WG Progression Summary
-        lines.extend([
-            "",
-            "## 🏛️ Per-Working-Group Evolution",
-            "",
-            "| Working Group | Chronological Meetings (Click to Open Brief) | Total Decisions | Total Active Docs |",
-            "| :--- | :--- | :---: | :---: |",
-        ])
-
-        by_wg: Dict[str, List[Dict[str, Any]]] = {}
-        for rec in meeting_records:
-            by_wg.setdefault(rec["wg"], []).append(rec)
-
-        for wg in sorted(by_wg.keys()):
-            recs = by_wg[wg]
-            links = " → ".join(f"[{r['meeting_folder_id']}]({r['brief_rel_path']})" for r in recs)
-            tot_d = sum(r["decision_count"] for r in recs)
-            tot_c = sum(r["tdoc_count"] for r in recs)
-            lines.append(f"| **{wg}** | {links} | {tot_d} | {tot_c} |")
-
-        lines.extend([
-            "",
-            "---",
-            "### 🔄 Incremental Export History",
-            "",
-            "| Session | Timestamp | Scope Mode | New Documents | Total Registered |",
-            "| :--- | :--- | :--- | :--- | :--- |",
-        ])
-        for sess in manifest.sessions:
-            s_id = sess.get("session_id")
-            s_time = sess.get("timestamp")
-            s_mode = sess.get("scope_mode")
-            added_cnt = len(sess.get("added_tdocs", []))
-            tot_cnt = sess.get("total_tdocs", 0)
-            lines.append(f"| #{s_id} | {s_time} | `{s_mode}` | +{added_cnt} | {tot_cnt} |")
-
-        lines.append("")
-        with open(to_extended_path(target_dir / "index.md"), "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
+        """Delegates master `index.md` generation to `write_master_index_markdown`."""
+        recs = meeting_records or []
+        total_stubs = sum(int(r.get("stub_count", 0) or 0) for r in recs)
+        write_master_index_markdown(
+            target_dir=target_dir,
+            topic=self.topic,
+            manifest=manifest,
+            total_decisions=len(all_decisions),
+            total_active_docs=len(all_candidates),
+            stub_count=total_stubs,
+            round_count=len(self.cohorts),
+            session_id=session_id,
+            scope_mode=self.export_scope_mode,
+            meeting_records=recs,
+            synthesis_status=synthesis_status,
+        )
 
     def _write_consolidated_briefing(
         self,
@@ -1690,33 +1863,450 @@ class TopicDossierExporterThread(QThread):
         all_candidates: List[Dict[str, Any]],
         meeting_records: Optional[List[Dict[str, Any]]] = None,
     ):
-        """Generates single-file consolidated Markdown briefing for NotebookLM / LLM ingestion."""
-        meeting_records = meeting_records or []
-        lines = [
-            f"# Consolidated Executive Briefing: {self.topic.name}",
-            "",
-            "## 1. Executive Summary & Scope",
-            f"This briefing consolidates decisions and contribution briefs across {', '.join(sorted(self.topic.target_wgs))} "
-            f"spanning {len(meeting_records)} meetings ({len(self.cohorts)} synchronized round(s)).",
-            "",
-            "## 2. Chronological Technical Decisions",
-            "",
-        ]
-        for dec in sorted(all_decisions, key=lambda d: (d.date or d.cohort_key, d.wg, d.tdoc_id or "")):
-            m_lbl = dec.meeting_folder_id or f"{dec.wg}_{dec.meeting_number}"
-            link_suffix = f" ([{dec.tdoc_id or 'Agreement'}]({dec.dossier_rel_path}))" if dec.dossier_rel_path else ""
-            lines.append(f"- **[{dec.date or dec.cohort_key} | {m_lbl}]** ({dec.decision_type}){link_suffix}: {dec.title_or_summary}")
+        """Delegates consolidated single-file briefing generation to `write_consolidated_briefing_markdown`."""
+        write_consolidated_briefing_markdown(
+            target_dir=target_dir,
+            topic=self.topic,
+            all_decisions=all_decisions,
+            meeting_records=meeting_records or [],
+            round_count=len(self.cohorts),
+        )
 
-        if meeting_records:
-            lines.extend(["", "## 3. Per-Meeting Briefs & Company Position Digests", ""])
-            for rec in meeting_records:
-                digests = rec.get("digest_rel_paths", [])
-                digest_links = ", ".join(f"[{Path(p).name}]({p})" for p in digests) if digests else "—"
-                lines.append(
-                    f"- **{rec.get('start_date') or 'N/A'} · {rec['meeting_folder_id']}**: "
-                    f"[{Path(rec['brief_rel_path']).name}]({rec['brief_rel_path']}) · Digests: {digest_links}"
+    @staticmethod
+    def check_and_refresh_dossier(
+        target_dir: Path,
+        topic: Optional[MetaTopicDefinition] = None,
+    ) -> Dict[str, Any]:
+        """Static alias for `check_and_refresh_dossier(target_dir, topic=topic)`."""
+        return check_and_refresh_dossier(target_dir, topic=topic)
+
+
+def _evaluate_stage2_synthesis_state(target_dir: Path, manifest: ExportManifest) -> str:
+    """
+    Inspects `company_positions_e2e_synthesis.md` on disk against Stage-1 meeting
+    snapshots/analyses and updates `manifest.synthesis_state` cleanly.
+    Returns `"pending"`, `"stale"`, or `"analyzed"`.
+    """
+    syn_path = target_dir / STAGE2_SYNTHESIS_FILENAME
+    ext_syn = Path(to_extended_path(syn_path))
+    prev_state = dict(manifest.synthesis_state or {})
+    prev_cov = dict(prev_state.get("covered_fingerprints") or {})
+
+    if not ext_syn.is_file():
+        manifest.synthesis_state = {
+            "file": STAGE2_SYNTHESIS_FILENAME,
+            "exists": False,
+            "status": "pending",
+            "analyzed_mtime": 0.0,
+            "covered_fingerprints": prev_cov,
+        }
+        return "pending"
+
+    syn_mtime = float(os.path.getmtime(ext_syn))
+    any_meeting_stale = False
+    max_stage1_mtime = 0.0
+    max_packet_mtime = 0.0
+    active_fps: Dict[str, str] = {}
+
+    for m_key, m_state in (manifest.exported_meetings or {}).items():
+        if not isinstance(m_state, dict):
+            continue
+        lc = str(m_state.get("lifecycle", "")).strip().lower()
+        if lc == "no_activity":
+            continue
+        if m_state.get("analysis_status") == "stale":
+            any_meeting_stale = True
+        a_path = Path(to_extended_path(target_dir / m_key / "_company_positions_analysis.md"))
+        if a_path.is_file():
+            max_stage1_mtime = max(max_stage1_mtime, float(os.path.getmtime(a_path)))
+        snap = m_state.get("current_snapshot") or {}
+        max_packet_mtime = max(max_packet_mtime, float(snap.get("packet_mtime", 0.0) or 0.0))
+        if snap.get("fingerprint"):
+            active_fps[m_key] = str(snap["fingerprint"])
+
+    prev_syn_mtime = float(prev_state.get("analyzed_mtime", 0.0) or 0.0)
+    fp_changed_since_syn = bool(
+        prev_cov
+        and any(active_fps.get(k) != prev_cov.get(k) for k in set(active_fps) | set(prev_cov))
+        and syn_mtime <= prev_syn_mtime + 0.1
+    )
+
+    is_stale = bool(
+        any_meeting_stale
+        or (max_stage1_mtime > syn_mtime + 0.5)
+        or (max_packet_mtime > syn_mtime + 0.5)
+        or fp_changed_since_syn
+    )
+    status = "stale" if is_stale else "analyzed"
+    manifest.synthesis_state = {
+        "file": STAGE2_SYNTHESIS_FILENAME,
+        "exists": True,
+        "status": status,
+        "analyzed_mtime": prev_syn_mtime if is_stale and prev_syn_mtime > 0 else syn_mtime,
+        "covered_fingerprints": prev_cov if (is_stale and prev_cov) else active_fps,
+    }
+    return status
+
+
+def _resolve_topic_for_checkup(
+    target_dir: Path,
+    manifest: ExportManifest,
+    topic: Optional[MetaTopicDefinition] = None,
+) -> MetaTopicDefinition:
+    """Resolves a MetaTopicDefinition from caller, MetaTopicManager, or manifest fallback."""
+    if topic is not None:
+        return topic
+    try:
+        from modules.meetings.core.topic_manager import MetaTopicManager
+        mgr = MetaTopicManager()
+        matched = next((t for t in mgr.list_topics() if t.name == manifest.meeting), None)
+        if matched is not None:
+            return matched
+    except Exception:
+        pass
+    wgs = sorted({str(m.get("wg", "")).upper() for m in (manifest.exported_meetings or {}).values() if isinstance(m, dict) and m.get("wg")})
+    return MetaTopicDefinition(
+        id="checkup",
+        name=manifest.meeting or target_dir.name,
+        description="",
+        target_wgs=wgs or ["SA2", "RAN2", "RAN3", "CT1"],
+    )
+
+
+def _rebuild_meeting_state_for_checkup(
+    target_dir: Path,
+    manifest: ExportManifest,
+    m_key: str,
+    m_state: Dict[str, Any],
+    tdocs_by_meeting: Dict[str, Dict[str, Dict[str, Any]]],
+    decisions_by_fid: Dict[str, List[Dict[str, Any]]],
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Refreshes a single meeting's snapshot, 3-state lifecycle, Stage-1 analysis status,
+    `_meeting_brief.md` delta block, and returns `(updated_m_state, meeting_record)`.
+    """
+    m_dir = target_dir / m_key
+    m_fid = str(m_state.get("meeting_folder_id") or Path(m_key).name)
+    wg = str(m_state.get("wg") or m_fid.split("_")[0]).upper()
+
+    ext_mdir = Path(to_extended_path(m_dir))
+    digest_files = (
+        sorted([p for p in ext_mdir.glob("_company_positions_input*.md") if p.is_file()], key=lambda p: p.name)
+        if ext_mdir.is_dir()
+        else []
+    )
+    digest_rel_paths = (
+        [safe_relpath(m_dir / p.name, target_dir) for p in digest_files]
+        if digest_files
+        else list(m_state.get("digest_rel_paths") or [])
+    )
+    packet_mtime = max((float(os.path.getmtime(p)) for p in digest_files), default=0.0)
+
+    prev_snap = m_state.get("current_snapshot") if isinstance(m_state.get("current_snapshot"), dict) else {}
+    prev_tdocs_snap = prev_snap.get("active_tdocs") if isinstance(prev_snap.get("active_tdocs"), dict) else {}
+    raw_tdocs = tdocs_by_meeting.get(m_key, {})
+
+    active_tdocs_snap: Dict[str, Dict[str, Any]] = {}
+    stub_count = 0
+    for raw_tid, t_info in raw_tdocs.items():
+        tid = _normalize_tdoc_id(raw_tid)
+        prev_t = (
+            prev_tdocs_snap.get(tid)
+            or prev_tdocs_snap.get(raw_tid)
+            or prev_tdocs_snap.get(tid.upper())
+            or {}
+        ) if isinstance(prev_tdocs_snap, dict) else {}
+        rel_p = str(t_info.get("rel_path") or prev_t.get("rel_path") or "")
+        doc_probe = {
+            "tdoc_id": tid,
+            "title": t_info.get("title") or prev_t.get("title", ""),
+            "type": t_info.get("type") or prev_t.get("type", ""),
+        }
+        is_stub = not is_export_complete(target_dir / rel_p, doc_info=doc_probe) if rel_p else bool(prev_t.get("is_stub", False))
+        if is_stub:
+            stub_count += 1
+        active_tdocs_snap[tid] = {
+            "status": prev_t.get("status") or t_info.get("status", ""),
+            "is_stub": is_stub,
+            "supersedes": list(prev_t.get("supersedes") or t_info.get("supersedes") or []),
+            "title": doc_probe["title"],
+            "source": t_info.get("source") or prev_t.get("source", ""),
+            "type": doc_probe["type"],
+            "ai": t_info.get("ai") or prev_t.get("ai", ""),
+            "category": t_info.get("category") or prev_t.get("category", ""),
+            "rel_path": rel_p,
+        }
+
+    raw_prev_decs = prev_snap.get("decisions")
+    if isinstance(raw_prev_decs, dict):
+        dec_records = [v for v in raw_prev_decs.values() if isinstance(v, dict)]
+    elif isinstance(raw_prev_decs, list):
+        dec_records = [v for v in raw_prev_decs if isinstance(v, dict)]
+    else:
+        dec_records = []
+    if not dec_records:
+        dec_records = list(decisions_by_fid.get(m_fid, []))
+    tdoc_count = len(active_tdocs_snap)
+    decision_count = len(dec_records) if dec_records else int(m_state.get("decision_count", 0) or 0)
+
+    ls_in_cnt = (
+        sum(1 for v in active_tdocs_snap.values() if v.get("category") == "LS_IN")
+        if active_tdocs_snap
+        else int(m_state.get("ls_in_count", 0) or 0)
+    )
+    ls_out_cnt = (
+        sum(1 for v in active_tdocs_snap.values() if v.get("category") == "LS_OUT")
+        if active_tdocs_snap
+        else int(m_state.get("ls_out_count", 0) or 0)
+    )
+
+    if tdoc_count == 0 and decision_count == 0:
+        lifecycle = "no_activity"
+    else:
+        raw_lc = str(m_state.get("lifecycle", "") or "").strip().lower()
+        if raw_lc in ("", "no_activity"):
+            lifecycle = "concluded" if decision_count > 0 else "upcoming"
+        elif raw_lc == "upcoming" and decision_count > 0:
+            lifecycle = "concluded"
+        else:
+            lifecycle = raw_lc
+
+    probe_snap = compute_meeting_snapshot(lifecycle, dec_records, active_tdocs_snap, packet_mtime=packet_mtime)
+    if prev_snap.get("fingerprint") == probe_snap["fingerprint"] and prev_snap.get("packet_mtime"):
+        prev_pkt = float(prev_snap["packet_mtime"])
+        probe_snap["packet_mtime"] = min(prev_pkt, packet_mtime) if packet_mtime > 0.0 else prev_pkt
+
+    analysis_path = m_dir / "_company_positions_analysis.md"
+    ext_analysis = Path(to_extended_path(analysis_path))
+    analysis_exists = ext_analysis.is_file()
+    analysis_mtime = float(os.path.getmtime(ext_analysis)) if analysis_exists else 0.0
+
+    analyzed_snap = copy.deepcopy(m_state.get("analyzed_snapshot")) if isinstance(m_state.get("analyzed_snapshot"), dict) else None
+    newly_promoted = False
+    delta_md = ""
+
+    if lifecycle == "no_activity":
+        analysis_status = "no_activity"
+    elif not analysis_exists:
+        analyzed_snap = None
+        analysis_status = "pending"
+    else:
+        if analyzed_snap is None:
+            ref_pkt_mtime = float(prev_snap.get("packet_mtime") or probe_snap.get("packet_mtime") or 0.0)
+            if ref_pkt_mtime <= 0.0 or analysis_mtime >= ref_pkt_mtime - 5.0:
+                analyzed_snap = copy.deepcopy(probe_snap)
+                newly_promoted = True
+                analysis_status = "analyzed"
+            else:
+                analysis_status = "stale"
+                delta_info = diff_meeting_snapshots({"lifecycle": "upcoming", "decisions": [], "active_tdocs": {}}, probe_snap)
+                cand_docs = [
+                    {**v, "tdoc_id": tid, "abs_path": target_dir / v["rel_path"]}
+                    for tid, v in active_tdocs_snap.items()
+                    if v.get("rel_path")
+                ]
+                delta_md = build_delta_section_markdown(
+                    delta_info=delta_info,
+                    wg=wg,
+                    meeting_folder_id=m_fid,
+                    eff_lifecycle=lifecycle,
+                    candidates=cand_docs,
+                    target_dir=target_dir,
+                    digest_rel_paths=digest_rel_paths,
                 )
+        elif analyzed_snap.get("fingerprint") == probe_snap["fingerprint"]:
+            analysis_status = "analyzed"
+        elif analysis_mtime > float(probe_snap.get("packet_mtime", 0.0) or 0.0):
+            analyzed_snap = copy.deepcopy(probe_snap)
+            newly_promoted = True
+            analysis_status = "analyzed"
+        else:
+            delta_info = diff_meeting_snapshots(analyzed_snap, probe_snap)
+            if delta_info.get("has_changes"):
+                analysis_status = "stale"
+                cand_docs = [
+                    {**v, "tdoc_id": tid, "abs_path": target_dir / v["rel_path"]}
+                    for tid, v in active_tdocs_snap.items()
+                    if tid in set(delta_info.get("highlight_tids") or []) and v.get("rel_path")
+                ]
+                delta_md = build_delta_section_markdown(
+                    delta_info=delta_info,
+                    wg=wg,
+                    meeting_folder_id=m_fid,
+                    eff_lifecycle=lifecycle,
+                    candidates=cand_docs,
+                    target_dir=target_dir,
+                    digest_rel_paths=digest_rel_paths,
+                )
+            else:
+                analysis_status = "analyzed"
 
-        lines.append("")
-        with open(to_extended_path(target_dir / "consolidated_briefing.md"), "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
+    brief_rel = str(m_state.get("brief_rel_path") or f"{m_key}/_meeting_brief.md")
+    sync_meeting_brief_analysis_state(
+        brief_path=target_dir / brief_rel,
+        lifecycle=lifecycle,
+        analysis_status=analysis_status,
+        analysis_exists=analysis_exists,
+        delta_markdown=delta_md,
+    )
+
+    updated_state = dict(m_state)
+    updated_state.update({
+        "lifecycle": lifecycle,
+        "tdoc_count": tdoc_count,
+        "decision_count": decision_count,
+        "stub_count": stub_count,
+        "ls_in_count": ls_in_cnt,
+        "ls_out_count": ls_out_cnt,
+        "digest_rel_paths": digest_rel_paths,
+        "analysis_status": analysis_status,
+        "current_snapshot": probe_snap,
+        "analyzed_snapshot": analyzed_snap,
+    })
+
+    rec = {
+        "cohort_key": updated_state.get("cohort_key", ""),
+        "round_label": updated_state.get("round_label") or format_round_label(updated_state.get("cohort_key", "")),
+        "wg": wg,
+        "meeting_number": updated_state.get("meeting_number", ""),
+        "meeting_folder_id": m_fid,
+        "meeting_rel_root": m_key,
+        "start_date": updated_state.get("start_date", ""),
+        "lifecycle": lifecycle,
+        "analysis_status": analysis_status,
+        "newly_promoted": newly_promoted,
+        "tdoc_count": tdoc_count,
+        "decision_count": decision_count,
+        "stub_count": stub_count,
+        "ls_in_count": ls_in_cnt,
+        "ls_out_count": ls_out_cnt,
+        "brief_rel_path": brief_rel,
+        "digest_rel_paths": digest_rel_paths,
+    }
+    return updated_state, rec
+
+
+def check_and_refresh_dossier(
+    target_dir: Path,
+    topic: Optional[MetaTopicDefinition] = None,
+) -> Dict[str, Any]:
+    """
+    Fast offline checkup & non-destructive refresh for an existing Topic Dossier folder.
+
+    Scans `.export_manifest.json` + on-disk `_company_positions_analysis.md`,
+    `_company_positions_input*.md`, and `company_positions_e2e_synthesis.md` files
+    to promote freshly completed analyses, preserve stale delta blocks, and
+    regenerate `index.md`, `company_positions_e2e_prompt.md`, and `_meeting_brief.md`
+    without overwriting any LLM analysis files or re-running document conversions.
+    """
+    target_dir = Path(target_dir)
+    manifest = load_manifest(target_dir)
+    if manifest is None:
+        return {
+            "ok": False,
+            "target_dir": str(target_dir),
+            "error": f"No .export_manifest.json found in {target_dir}",
+        }
+
+    eff_topic = _resolve_topic_for_checkup(target_dir, manifest, topic=topic)
+
+    tdocs_by_meeting: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    meeting_keys = list((manifest.exported_meetings or {}).keys())
+    for tid, t_info in (manifest.tdocs or {}).items():
+        if not isinstance(t_info, dict):
+            continue
+        rel_p = str(t_info.get("rel_path", "")).replace("\\", "/")
+        matched_key = next((mk for mk in meeting_keys if rel_p.startswith(f"{mk}/")), "")
+        if matched_key:
+            tdocs_by_meeting.setdefault(matched_key, {})[tid] = t_info
+
+    decisions_by_fid: Dict[str, List[Dict[str, Any]]] = {}
+    for d_key, d_rel in (manifest.exported_decisions or {}).items():
+        parts = str(d_key).split("::")
+        if len(parts) >= 2:
+            fid = parts[0]
+            d_type = parts[1]
+            tid_or_ai = parts[2] if len(parts) >= 3 else ""
+            decisions_by_fid.setdefault(fid, []).append({
+                "key": d_key,
+                "type": d_type,
+                "tdoc_id": tid_or_ai if "-" in tid_or_ai else "",
+                "ai": "" if "-" in tid_or_ai else tid_or_ai,
+                "rel_path": d_rel or "",
+                "summary": "",
+            })
+
+    meeting_records: List[Dict[str, Any]] = []
+    newly_promoted_count = 0
+    for m_key in meeting_keys:
+        m_state = manifest.exported_meetings[m_key]
+        if not isinstance(m_state, dict):
+            continue
+        updated_state, rec = _rebuild_meeting_state_for_checkup(
+            target_dir=target_dir,
+            manifest=manifest,
+            m_key=m_key,
+            m_state=m_state,
+            tdocs_by_meeting=tdocs_by_meeting,
+            decisions_by_fid=decisions_by_fid,
+        )
+        manifest.exported_meetings[m_key] = updated_state
+        if rec.pop("newly_promoted", False):
+            newly_promoted_count += 1
+        meeting_records.append(rec)
+
+    meeting_records.sort(
+        key=lambda r: (
+            str(r.get("start_date") or ""),
+            str(r.get("wg") or ""),
+            str(r.get("meeting_folder_id") or ""),
+        )
+    )
+
+    synthesis_status = _evaluate_stage2_synthesis_state(target_dir, manifest)
+    write_e2e_synthesis_prompt(target_dir, eff_topic, meeting_records, synthesis_status=synthesis_status)
+
+    total_decisions = sum(int(r.get("decision_count", 0) or 0) for r in meeting_records)
+    total_active_docs = sum(int(r.get("tdoc_count", 0) or 0) for r in meeting_records)
+    total_stubs = sum(int(r.get("stub_count", 0) or 0) for r in meeting_records)
+    round_count = len({r.get("cohort_key") for r in meeting_records if r.get("cohort_key")}) or 1
+    latest_sess = manifest.sessions[-1] if manifest.sessions else {}
+    session_id = int(latest_sess.get("session_id", len(manifest.sessions) or 1))
+    scope_mode = str(latest_sess.get("scope_mode") or manifest.export_type.replace("topic_", "") or "full_dossier")
+
+    write_master_index_markdown(
+        target_dir=target_dir,
+        topic=eff_topic,
+        manifest=manifest,
+        total_decisions=total_decisions,
+        total_active_docs=total_active_docs,
+        stub_count=total_stubs,
+        round_count=round_count,
+        session_id=session_id,
+        scope_mode=scope_mode,
+        meeting_records=meeting_records,
+        synthesis_status=synthesis_status,
+    )
+    save_manifest(target_dir, manifest)
+
+    analyzed_cnt = sum(1 for r in meeting_records if r.get("analysis_status") == "analyzed")
+    stale_cnt = sum(1 for r in meeting_records if r.get("analysis_status") == "stale")
+    pending_cnt = sum(1 for r in meeting_records if r.get("analysis_status") == "pending")
+    no_act_cnt = sum(1 for r in meeting_records if r.get("analysis_status") == "no_activity")
+
+    return {
+        "ok": True,
+        "target_dir": str(target_dir),
+        "topic_name": eff_topic.name,
+        "total_meetings": len(meeting_records),
+        "analyzed": analyzed_cnt,
+        "stale": stale_cnt,
+        "pending": pending_cnt,
+        "no_activity": no_act_cnt,
+        "newly_promoted": newly_promoted_count,
+        "synthesis_status": synthesis_status,
+        "total_decisions": total_decisions,
+        "total_active_docs": total_active_docs,
+        "total_stubs": total_stubs,
+        "session_id": session_id,
+    }

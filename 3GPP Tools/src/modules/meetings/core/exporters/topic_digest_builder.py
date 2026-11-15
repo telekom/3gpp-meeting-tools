@@ -7,6 +7,7 @@ Produces compact, attribution-safe per-meeting packets (`_meeting_brief.md` and
 models can extract company positions meeting-by-meeting without exceeding token budgets.
 """
 
+import datetime
 import os
 import re
 from pathlib import Path
@@ -14,9 +15,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.utils.company_sanitizer import CompanySanitizer
 from core.utils.paths import to_extended_path
-from modules.meetings.core.exporters.export_manifest import sanitize_folder_name
+from modules.meetings.core.exporters.export_manifest import ExportManifest, sanitize_folder_name
 from modules.meetings.core.topic_decision import TopicDecision
 from modules.meetings.core.topic_manager import MetaTopicDefinition
+
+STAGE1_DELTA_START = "<!-- STAGE1_DELTA_START -->"
+STAGE1_DELTA_END = "<!-- STAGE1_DELTA_END -->"
+STAGE2_SYNTHESIS_FILENAME = "company_positions_e2e_synthesis.md"
 
 DEFAULT_MAX_DIGEST_CHARS = 140_000
 
@@ -275,11 +280,15 @@ def classify_meeting_lifecycle(
     candidates: List[Dict[str, Any]],
 ) -> str:
     """
-    Classifies a meeting deterministically as 'concluded' or 'upcoming' based on
-    extracted decisions and treated TDoc statuses.
+    Classifies a meeting deterministically as:
+    - 'concluded': extracted decisions exist OR any candidate has a treated status
+    - 'no_activity': 0 decisions and 0 active candidate inputs
+    - 'upcoming': 0 decisions, >= 1 candidates with pending/pre-meeting statuses
     """
     if decisions:
         return "concluded"
+    if not candidates:
+        return "no_activity"
     for doc in candidates:
         status_l = str(doc.get("status", "") or "").lower()
         if any(tok in status_l for tok in _TREATED_STATUS_TOKENS):
@@ -289,7 +298,23 @@ def classify_meeting_lifecycle(
 
 def format_lifecycle_badge(lifecycle: str) -> str:
     """Returns a concise human-readable lifecycle badge for Markdown tables and briefs."""
-    return "✅ Concluded" if lifecycle == "concluded" else "🧭 Upcoming / Pre-Meeting"
+    if lifecycle == "concluded":
+        return "✅ Concluded"
+    if lifecycle == "no_activity":
+        return "⚪ No Activity (0 Inputs)"
+    return "🧭 Upcoming / Pre-Meeting"
+
+
+def format_analysis_badge(analysis_status: str) -> str:
+    """Returns a concise human-readable Stage-1 LLM analysis status badge."""
+    st = str(analysis_status or "").strip().lower()
+    if st == "analyzed":
+        return "✅ Analyzed"
+    if st == "stale":
+        return "🔄 Stale (Delta Ready)"
+    if st == "no_activity":
+        return "⚪ Skip (0 Inputs)"
+    return "⬜ Pending"
 
 
 def build_tdoc_outcome_index(
@@ -366,6 +391,257 @@ def build_tdoc_outcome_index(
     return {"counts": counts, "per_tdoc": per_tdoc}
 
 
+def _format_analysis_footprint_line(analysis_status: str, analysis_exists: bool) -> str:
+    """Formats the Stage-1 LLM Analysis status line for `_meeting_brief.md`."""
+    st = str(analysis_status or "").strip().lower()
+    if st == "no_activity":
+        return "- **Stage-1 LLM Analysis:** ⚪ Skip (0 active topic inputs)"
+    badge = format_analysis_badge(st)
+    if analysis_exists:
+        return f"- **Stage-1 LLM Analysis:** [{badge}](_company_positions_analysis.md)"
+    return f"- **Stage-1 LLM Analysis:** {badge} (`_company_positions_analysis.md` not yet generated)"
+
+
+def _format_tdoc_digest_card(
+    d: Dict[str, Any],
+    outcome_idx: Dict[str, Any],
+    eff_lifecycle: str,
+    wg: str,
+    meeting_folder_id: str,
+    target_dir: Optional[Path] = None,
+) -> List[str]:
+    """Formats a single TDoc structured digest card shared by full LLM packets and delta blocks."""
+    tid = str(d.get("tdoc_id", "") or "").strip()
+    title = str(d.get("title", "")).strip()
+    preds = d.get("supersedes", []) or []
+    lineage = f"Supersedes {', '.join(preds)}" if preds else "Initial / Standalone"
+    src_ctx = CompanySanitizer.format_source_triage_context(d.get("source", ""))
+    rel_local = _rel_to_meeting_dir(d.get("rel_path", ""), wg, meeting_folder_id)
+    out_entry = (outcome_idx.get("per_tdoc") or {}).get(
+        tid.strip().upper(),
+        {"matched_decisions": [], "status_raw": d.get("status", "")},
+    )
+
+    c_lines = [
+        f"### {tid}: {title}",
+        f"- **Meta:** Type: `{d.get('type', '')}` | AI: `{d.get('ai', '')}` | Status: `{d.get('status', '')}` | Lineage: {lineage}",
+        f"- **Attribution:** {src_ctx}",
+    ]
+    c_lines.extend(_format_tdoc_outcome_lines(out_entry, eff_lifecycle, wg, meeting_folder_id))
+    if rel_local:
+        c_lines.append(f"- **Full Document:** [{rel_local}]({rel_local})")
+
+    abs_p = d.get("abs_path")
+    if not abs_p and target_dir and d.get("rel_path"):
+        abs_p = target_dir / str(d["rel_path"])
+    digest = extract_tdoc_position_digest(abs_p)
+    if digest["intro"]:
+        c_lines.append(f"- **Summary / Context:**\n{digest['intro']}")
+    if digest["proposals"]:
+        c_lines.append(f"- **Proposals / Conclusions:**\n{digest['proposals']}")
+    if digest["changes"]:
+        c_lines.append(f"- **Specification Changes:**\n{digest['changes']}")
+    if digest["fallback"]:
+        c_lines.append(f"- **Extracted Content:**\n{digest['fallback']}")
+
+    row = d.get("row_data", {}) or {}
+    abstract = str(row.get("Abstract", "") or row.get("Secretary Remarks", "")).strip()
+    if abstract and not digest["intro"] and not digest["proposals"] and not digest["fallback"]:
+        c_lines.append(f"- **Abstract:** {abstract}")
+    c_lines.append("")
+    return c_lines
+
+
+def build_delta_section_markdown(
+    delta_info: Optional[Dict[str, Any]],
+    wg: str,
+    meeting_folder_id: str,
+    eff_lifecycle: str,
+    candidates: Optional[List[Dict[str, Any]]] = None,
+    decisions: Optional[List[TopicDecision]] = None,
+    outcome_idx: Optional[Dict[str, Any]] = None,
+    target_dir: Optional[Path] = None,
+    digest_rel_paths: Optional[List[str]] = None,
+    max_delta_digest_chars: int = 50_000,
+) -> str:
+    """
+    Renders an in-place, token-minimal `## 🔄 Delta Since Last Analysis` block wrapped
+    with HTML markers so Stage-1 LLMs can incrementally merge only new decisions, status
+    shifts, and newly arrived/revised/un-stubbed TDocs into `_company_positions_analysis.md`.
+    """
+    if not delta_info or not delta_info.get("has_changes"):
+        return ""
+
+    prev_lc = format_lifecycle_badge(delta_info.get("previous_lifecycle") or "upcoming")
+    curr_lc = format_lifecycle_badge(delta_info.get("current_lifecycle") or eff_lifecycle)
+    added_decisions = delta_info.get("added_decisions") or []
+    superseded_revs = delta_info.get("superseded_revisions") or []
+    unstubbed_tids = delta_info.get("unstubbed_tids") or []
+    status_changes = delta_info.get("status_changes") or []
+    added_tids = delta_info.get("added_tids") or []
+    highlight_tids = list(delta_info.get("highlight_tids") or [])
+
+    lines = [
+        STAGE1_DELTA_START,
+        "",
+        "## 🔄 Delta Since Last Analysis (Incremental Merge Packet)",
+        "",
+        "> [!IMPORTANT] Token-Efficient Incremental Update Mode",
+        "> `_company_positions_analysis.md` already exists for an earlier state of this meeting.",
+        "> **Do NOT re-read full `_company_positions_input*.md` files.** Read ONLY `_company_positions_analysis.md` and this delta section, then **merge** the new outcomes, revisions, and contributions directly into `_company_positions_analysis.md`.",
+        "",
+    ]
+
+    if prev_lc != curr_lc:
+        lines.append(f"- **Lifecycle Transition:** {prev_lc} → **{curr_lc}**")
+    lines.append(
+        f"- **Delta Summary:** +{len(added_decisions)} new decision(s), "
+        f"+{len(added_tids)} new TDoc(s), {len(superseded_revs)} revised TDoc(s), "
+        f"{len(unstubbed_tids)} un-stubbed upload(s), {len(status_changes)} status update(s)"
+    )
+
+    if added_decisions:
+        lines.extend(["", "### 🆕 New Binding Decisions & Agreements", ""])
+        dec_by_key = {}
+        for d in decisions or []:
+            k = f"{meeting_folder_id}::{d.decision_type}::{d.tdoc_id or d.ai or ''}"
+            dec_by_key[k] = d
+        for ad in added_decisions:
+            d_type = ad.get("type", "Decision")
+            tid_lbl = ad.get("tdoc_id") or f"AI {ad.get('ai') or 'N/A'}"
+            summary = re.sub(r'\s+', ' ', str(ad.get("summary", ""))).strip()
+            rel_d = _rel_to_meeting_dir(ad.get("rel_path", ""), wg, meeting_folder_id)
+            link_suffix = f" ([View]({rel_d}))" if rel_d else ""
+            lines.append(f"- **[{d_type}]** ({tid_lbl}){link_suffix}: {summary}")
+
+    if superseded_revs or status_changes or unstubbed_tids:
+        lines.extend([
+            "",
+            "### 🔄 Revision, Upload & Status Transitions",
+            "",
+            "| Previous TDoc / State | Updated TDoc / State | Change Type |",
+            "| :--- | :--- | :--- |",
+        ])
+        for sr in superseded_revs:
+            lines.append(
+                f"| `{sr['old_tid']}` ({sr.get('old_status') or '—'}) | **`{sr['new_tid']}`** ({sr.get('new_status') or '—'}) | New Revision |"
+            )
+        for uid in unstubbed_tids:
+            lines.append(f"| `{uid}` *(Placeholder Stub)* | **`{uid}`** *(Full Document Now Available)* | Un-Stubbed Upload |")
+        for sc in status_changes:
+            lines.append(
+                f"| `{sc['tdoc_id']}` ({sc.get('old_status') or '—'}) | `{sc['tdoc_id']}` (**{sc.get('new_status') or '—'}**) | Status Update |"
+            )
+
+    cand_map = {str(c.get("tdoc_id", "")).strip().upper(): c for c in (candidates or [])}
+    if highlight_tids and cand_map:
+        eff_out_idx = outcome_idx or build_tdoc_outcome_index(decisions or [], candidates or [], eff_lifecycle, wg, meeting_folder_id)
+        lines.extend(["", "### 📄 Digests for Newly Added / Revised / Un-Stubbed TDocs", ""])
+        used_chars = 0
+        omitted = 0
+        for h_tid in highlight_tids:
+            doc = cand_map.get(h_tid.upper())
+            if not doc:
+                continue
+            card_text = "\n".join(
+                _format_tdoc_digest_card(doc, eff_out_idx, eff_lifecycle, wg, meeting_folder_id, target_dir=target_dir)
+            )
+            if used_chars + len(card_text) > max_delta_digest_chars and used_chars > 0:
+                omitted += 1
+                continue
+            lines.append(card_text)
+            used_chars += len(card_text)
+        if omitted:
+            pkt_links = ", ".join(f"[{Path(p).name}]({Path(p).name})" for p in (digest_rel_paths or [])) or "`_company_positions_input.md`"
+            lines.append(f"*({omitted} additional new/revised TDoc digest(s) omitted for brevity; inspect {pkt_links} if needed.)*")
+
+    lines.extend(["", STAGE1_DELTA_END])
+    return "\n".join(lines)
+
+
+def sync_meeting_brief_analysis_state(
+    brief_path: Path,
+    lifecycle: str,
+    analysis_status: str,
+    analysis_exists: bool,
+    delta_markdown: str = "",
+) -> bool:
+    """
+    Non-destructively updates an existing `_meeting_brief.md` on disk to reflect the latest
+    lifecycle badge (`no_activity` / `concluded` / `upcoming`), Stage-1 Analysis link/badge,
+    and either inserts/updates or clears the `STAGE1_DELTA` block.
+    """
+    ext_brief = Path(to_extended_path(brief_path))
+    if not ext_brief.is_file():
+        return False
+
+    try:
+        raw = ext_brief.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return False
+
+    new_text = raw
+    # 1. Keep State / Lifecycle badge accurate (e.g. reclassifying 0-input meetings)
+    lc_badge = format_lifecycle_badge(lifecycle)
+    new_text = re.sub(
+        r'(\*\*State:\*\*\s*)[^\r\n]+',
+        rf'\g<1>{lc_badge}',
+        new_text,
+        count=1,
+    )
+    new_text = re.sub(
+        r'(-\s*\*\*Lifecycle State:\*\*\s*)[^\r\n]+',
+        rf'\g<1>{lc_badge}',
+        new_text,
+        count=1,
+    )
+
+    # 2. Insert or update `- **Stage-1 LLM Analysis:** ...` inside Meeting Topic Footprint
+    analysis_line = _format_analysis_footprint_line(analysis_status, analysis_exists)
+    if re.search(r'^-\s*\*\*Stage-1 LLM Analysis:\*\*.*$', new_text, flags=re.MULTILINE):
+        new_text = re.sub(
+            r'^-\s*\*\*Stage-1 LLM Analysis:\*\*.*$',
+            analysis_line,
+            new_text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+    elif re.search(r'^-\s*\*\*LLM Company Position Packet\(s\):.*$', new_text, flags=re.MULTILINE):
+        new_text = re.sub(
+            r'^(-\s*\*\*LLM Company Position Packet\(s\):.*)$',
+            rf'\1\n{analysis_line}',
+            new_text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+    elif "## ⚖️ Binding Decisions" in new_text:
+        new_text = new_text.replace("## ⚖️ Binding Decisions", f"{analysis_line}\n\n## ⚖️ Binding Decisions", 1)
+
+    # 3. Strip any existing STAGE1_DELTA block
+    new_text = re.sub(
+        r'\n?' + re.escape(STAGE1_DELTA_START) + r'.*?' + re.escape(STAGE1_DELTA_END) + r'\n*',
+        '\n\n',
+        new_text,
+        flags=re.DOTALL,
+    )
+
+    # 4. Insert delta_markdown right before Binding Decisions when stale
+    if delta_markdown and delta_markdown.strip():
+        marker = "## ⚖️ Binding Decisions & Agreements"
+        if marker in new_text:
+            new_text = new_text.replace(marker, f"{delta_markdown.strip()}\n\n{marker}", 1)
+        else:
+            new_text = new_text.rstrip() + "\n\n" + delta_markdown.strip() + "\n"
+
+    if new_text != raw:
+        try:
+            ext_brief.write_text(new_text, encoding="utf-8")
+            return True
+        except Exception:
+            return False
+    return True
+
+
 def write_meeting_brief(
     meeting_dir: Path,
     topic_name: str,
@@ -377,6 +653,9 @@ def write_meeting_brief(
     deduped_count: int = 0,
     digest_rel_paths: Optional[List[str]] = None,
     lifecycle: Optional[str] = None,
+    analysis_status: str = "pending",
+    analysis_exists: bool = False,
+    delta_info: Optional[Dict[str, Any]] = None,
 ) -> Path:
     """Writes a deterministic executive brief (`_meeting_brief.md`) inside `{WG}/{MeetingFolder}/`."""
     meeting_dir_ext = Path(to_extended_path(meeting_dir))
@@ -393,6 +672,9 @@ def write_meeting_brief(
     eff_lifecycle = lifecycle or classify_meeting_lifecycle(mtg, decisions, candidates)
     outcome_idx = build_tdoc_outcome_index(decisions, candidates, eff_lifecycle, wg, meeting_folder_id)
     disp = outcome_idx["counts"]
+
+    eff_analysis_status = "no_activity" if eff_lifecycle == "no_activity" else analysis_status
+    eff_analysis_exists = analysis_exists or (meeting_dir_ext / "_company_positions_analysis.md").is_file()
 
     lines = [
         f"# 📋 Meeting Brief: {wg} #{mtg_num} (`{meeting_folder_id}`)",
@@ -416,6 +698,22 @@ def write_meeting_brief(
     if digest_rel_paths:
         digest_links = ", ".join(f"[{Path(p).name}]({Path(p).name})" for p in digest_rel_paths)
         lines.append(f"- **LLM Company Position Packet(s):** {digest_links}")
+
+    lines.append(_format_analysis_footprint_line(eff_analysis_status, eff_analysis_exists))
+
+    if eff_analysis_status == "stale" and delta_info and delta_info.get("has_changes"):
+        delta_block = build_delta_section_markdown(
+            delta_info=delta_info,
+            wg=wg,
+            meeting_folder_id=meeting_folder_id,
+            eff_lifecycle=eff_lifecycle,
+            candidates=candidates,
+            decisions=decisions,
+            outcome_idx=outcome_idx,
+            digest_rel_paths=digest_rel_paths,
+        )
+        if delta_block:
+            lines.extend(["", delta_block])
 
     lines.extend(["", "## ⚖️ Binding Decisions & Agreements", ""])
     if decisions:
@@ -646,38 +944,7 @@ def write_company_positions_input(
         docs = sorted(by_company[comp], key=lambda d: (str(d.get("ai", "")), str(d.get("tdoc_id", ""))))
         c_lines = [f"---", f"## 🏢 {comp} ({len(docs)} contribution{'s' if len(docs) != 1 else ''})", ""]
         for d in docs:
-            tid = d["tdoc_id"]
-            title = str(d.get("title", "")).strip()
-            preds = d.get("supersedes", [])
-            lineage = f"Supersedes {', '.join(preds)}" if preds else "Initial / Standalone"
-            src_ctx = CompanySanitizer.format_source_triage_context(d.get("source", ""))
-            rel_local = _rel_to_meeting_dir(d.get("rel_path", ""), wg, meeting_folder_id)
-            out_entry = outcome_idx["per_tdoc"].get(tid.strip().upper(), {"matched_decisions": [], "status_raw": d.get("status", "")})
-
-            c_lines.append(f"### {tid}: {title}")
-            c_lines.append(
-                f"- **Meta:** Type: `{d.get('type', '')}` | AI: `{d.get('ai', '')}` | Status: `{d.get('status', '')}` | Lineage: {lineage}"
-            )
-            c_lines.append(f"- **Attribution:** {src_ctx}")
-            c_lines.extend(_format_tdoc_outcome_lines(out_entry, eff_lifecycle, wg, meeting_folder_id))
-            if rel_local:
-                c_lines.append(f"- **Full Document:** [{rel_local}]({rel_local})")
-
-            digest = extract_tdoc_position_digest(d.get("abs_path"))
-            if digest["intro"]:
-                c_lines.append(f"- **Summary / Context:**\n{digest['intro']}")
-            if digest["proposals"]:
-                c_lines.append(f"- **Proposals / Conclusions:**\n{digest['proposals']}")
-            if digest["changes"]:
-                c_lines.append(f"- **Specification Changes:**\n{digest['changes']}")
-            if digest["fallback"]:
-                c_lines.append(f"- **Extracted Content:**\n{digest['fallback']}")
-
-            row = d.get("row_data", {})
-            abstract = str(row.get("Abstract", "") or row.get("Secretary Remarks", "")).strip()
-            if abstract and not digest["intro"] and not digest["proposals"] and not digest["fallback"]:
-                c_lines.append(f"- **Abstract:** {abstract}")
-            c_lines.append("")
+            c_lines.extend(_format_tdoc_digest_card(d, outcome_idx, eff_lifecycle, wg, meeting_folder_id))
         company_blocks.append("\n".join(c_lines))
 
     # Remove stale part files from previous runs before writing
@@ -726,33 +993,83 @@ def write_company_positions_input(
     return written_paths
 
 
+def _resolve_rec_analysis_status(rec: Dict[str, Any], target_dir: Path) -> Tuple[str, bool, str]:
+    """Resolves (analysis_status, file_exists, rel_path) for a meeting record."""
+    wg = rec["wg"]
+    m_fid = rec["meeting_folder_id"]
+    lc = rec.get("lifecycle") or ("concluded" if rec.get("decision_count", 0) else "upcoming")
+    analysis_rel = f"{wg}/{m_fid}/_company_positions_analysis.md"
+    exists = (target_dir / analysis_rel).is_file()
+    raw_st = str(rec.get("analysis_status") or "").strip().lower()
+    if lc == "no_activity":
+        return "no_activity", exists, analysis_rel
+    if raw_st in ("analyzed", "stale", "pending", "no_activity"):
+        return raw_st, exists, analysis_rel
+    return ("analyzed" if exists else "pending"), exists, analysis_rel
+
+
 def write_e2e_synthesis_prompt(
     target_dir: Path,
     topic: MetaTopicDefinition,
     meeting_records: List[Dict[str, Any]],
+    synthesis_status: Optional[str] = None,
 ) -> Path:
     """
     Writes `company_positions_e2e_prompt.md` at the topic root containing copy-pasteable
-    Stage-1 (per-meeting low-cost map) and Stage-2 (cross-WG E2E reduce) prompts + checklist.
+    Stage-1 (per-meeting low-cost map + token-minimal delta merge) and Stage-2 (cross-WG E2E reduce)
+    prompts + live status checklist.
     """
     out_p = target_dir / "company_positions_e2e_prompt.md"
+    s2_path = target_dir / STAGE2_SYNTHESIS_FILENAME
+    s2_exists = s2_path.is_file()
+    eff_s2_status = synthesis_status or ("analyzed" if s2_exists else "pending")
+    s2_badge = format_analysis_badge(eff_s2_status)
+
+    pending_rows = []
+    stale_rows = []
+    done_rows = []
+    skip_rows = []
+    for rec in meeting_records:
+        st, exists, a_rel = _resolve_rec_analysis_status(rec, target_dir)
+        m_fid = rec["meeting_folder_id"]
+        if st == "no_activity":
+            skip_rows.append(m_fid)
+        elif st == "stale":
+            stale_rows.append(m_fid)
+        elif st == "analyzed":
+            done_rows.append(m_fid)
+        else:
+            pending_rows.append(m_fid)
+
     lines = [
         f"# 🌐 E2E Cross-WG Company Position Synthesis Guide: {topic.name}",
         "",
         "This workspace is structured for **token-efficient, resumable 2-stage AI analysis** across Working Groups:",
-        "1. **Stage 1 (Map — Per-Meeting, Low/Medium Cost Model):** Analyze one meeting at a time using its pre-compacted `_company_positions_input.md` and `_meeting_brief.md`.",
-        "2. **Stage 2 (Reduce — Cross-WG Synthesis):** Synthesize the E2E company positions across all WGs using only the compact Stage-1 outputs + `agreements_timeline.md` + `ls_dialogue.md`.",
+        "1. **Stage 1 (Map — Per-Meeting, Low/Medium Cost Model):** Analyze active meetings (`⬜ Pending`) once, and use token-minimal delta merges (`🔄 Stale`) whenever an already-analyzed meeting gains post-meeting outcomes or new revisions.",
+        f"2. **Stage 2 (Reduce — Cross-WG Synthesis → [`{STAGE2_SYNTHESIS_FILENAME}`]({STAGE2_SYNTHESIS_FILENAME})):** Synthesize E2E company positions across WGs using only active `*/_company_positions_analysis.md` outputs + `agreements_timeline.md` + `ls_dialogue.md`.",
+        "",
+        f"**Current Status:** ✅ {len(done_rows)} Analyzed | 🔄 {len(stale_rows)} Stale (Delta Ready) | ⬜ {len(pending_rows)} Pending | ⚪ {len(skip_rows)} Skipped (0 Inputs) | **Stage-2 Report:** {s2_badge}"
+        + (f" ([Open Report]({STAGE2_SYNTHESIS_FILENAME}))" if s2_exists else f" (`{STAGE2_SYNTHESIS_FILENAME}` not yet created)"),
         "",
         "---",
         "",
-        "## 🔹 Stage 1 Prompt (Run Once Per Meeting)",
+        "## 🔹 Stage 1 Prompt (Run Once Per Active Meeting — Supports Full & Delta Merge)",
         "```text",
-        "Read `<WG>/<MeetingFolder>/_meeting_brief.md` and `<WG>/<MeetingFolder>/_company_positions_input*.md`.",
-        "Write `<WG>/<MeetingFolder>/_company_positions_analysis.md` containing:",
-        "1. Key Technical Decisions & Outcomes in this meeting (and which proposals won/lost).",
-        "2. Company Stance Table: | Company | Architectural Position | Concrete Proposals (TDoc IDs) | Confirmed Allies | Outcome |",
-        "   - Strict rule: ignore companies flagged as carry-over unconfirmed co-sponsors.",
-        "3. Open Issues / Contested Topics carrying forward.",
+        "Check each active meeting's status in the checklist below (skip rows marked '⚪ Skip (0 Inputs)'):",
+        "",
+        "- If Stage-1 Output is '⬜ Pending':",
+        "  Read `<WG>/<MeetingFolder>/_meeting_brief.md` and `<WG>/<MeetingFolder>/_company_positions_input*.md`.",
+        "  Write `<WG>/<MeetingFolder>/_company_positions_analysis.md` containing:",
+        "  1. Key Technical Decisions & Outcomes in this meeting (and which proposals won/lost).",
+        "  2. Company Stance Table: | Company | Architectural Position | Concrete Proposals (TDoc IDs) | Confirmed Allies | Outcome |",
+        "     - Strict rule: ignore companies flagged as carry-over unconfirmed co-sponsors.",
+        "  3. Open Issues / Contested Topics carrying forward.",
+        "",
+        "- If Stage-1 Output is '🔄 Stale (Delta Ready)':",
+        "  TOKEN-SAVING RULE: Do NOT re-read `_company_positions_input*.md`.",
+        "  Read ONLY `<WG>/<MeetingFolder>/_company_positions_analysis.md` and the `## 🔄 Delta Since Last Analysis` section in `<WG>/<MeetingFolder>/_meeting_brief.md`.",
+        "  Merge the new decisions, revision transitions, and newly added/un-stubbed TDocs directly into `<WG>/<MeetingFolder>/_company_positions_analysis.md` in place (update stale stances/statuses and Lifecycle State; keep the single clean analysis file).",
+        "",
         "Be concise, factual, and cite TDoc IDs for every claim.",
         "```",
         "",
@@ -771,27 +1088,34 @@ def write_e2e_synthesis_prompt(
         brief_rel = f"{wg}/{m_fid}/_meeting_brief.md"
         digests = rec.get("digest_rel_paths", [])
         digest_links = " · ".join(f"[{Path(p).name}]({p})" for p in digests) if digests else "—"
-        analysis_rel = f"{wg}/{m_fid}/_company_positions_analysis.md"
-        done_mark = "✅" if (target_dir / analysis_rel).is_file() else "⬜"
+        st, exists, analysis_rel = _resolve_rec_analysis_status(rec, target_dir)
+        badge = format_analysis_badge(st)
+        if st == "no_activity":
+            stage1_cell = f"{badge}" + (f" *([old file]({analysis_rel}))*" if exists else "")
+        elif exists:
+            stage1_cell = f"[{badge}]({analysis_rel})"
+        else:
+            stage1_cell = f"{badge} (`{analysis_rel}`)"
         lines.append(
-            f"| {d_str} | **{wg}** | {m_fid} | {lc_badge} | {rec['tdoc_count']} | {rec['decision_count']} | [Brief]({brief_rel}) | {digest_links} | {done_mark} `{analysis_rel}` |"
+            f"| {d_str} | **{wg}** | {m_fid} | {lc_badge} | {rec['tdoc_count']} | {rec['decision_count']} | [Brief]({brief_rel}) | {digest_links} | {stage1_cell} |"
         )
 
     lines.extend([
         "",
         "---",
         "",
-        "## 🔸 Stage 2 Prompt (Cross-WG End-to-End Reduce)",
+        f"## 🔸 Stage 2 Prompt (Cross-WG End-to-End Reduce → `{STAGE2_SYNTHESIS_FILENAME}`)",
         "```text",
         f"You are analyzing the cross-WG evolution of '{topic.name}' across {', '.join(sorted(topic.target_wgs))}.",
         "Read:",
         "- `index.md`",
         "- `agreements_timeline.md`",
         "- `ls_dialogue.md`",
-        "- All `*/_company_positions_analysis.md` files (do NOT re-read raw TDocs unless verifying a specific quote).",
+        "- Only active `*/*/_company_positions_analysis.md` files (skip any row marked '⚪ Skip (0 Inputs)' above; do NOT re-read raw TDocs unless verifying a specific quote).",
+        f"- If `{STAGE2_SYNTHESIS_FILENAME}` already exists and only a few meetings were updated, read the existing `{STAGE2_SYNTHESIS_FILENAME}` and merge the updated meetings cleanly instead of regenerating unchanged sections from scratch.",
         "",
-        "Produce an End-to-End Cross-WG Company Position Report covering:",
-        "1. Per-Company E2E Strategy Matrix (how each major vendor/operator aligns across SA2, RAN2, RAN3, SA5, CT4 — e.g. consistency vs. contradictions between SA2 and RAN2 stances).",
+        f"Write/update `{STAGE2_SYNTHESIS_FILENAME}` at the topic root covering:",
+        "1. Per-Company E2E Strategy Matrix (how each major vendor/operator aligns across WGs — e.g. consistency vs. contradictions between SA2 and RAN2 stances).",
         "2. Key Architectural Fault Lines & Alliances over time (chronological trajectory across meetings).",
         "3. Outcomes & Impact on Baseline Specifications (which company's vision shaped the final agreements/pCRs).",
         "4. Strategic Outlook & Open Conflicts entering the next meeting cycle.",
@@ -799,6 +1123,232 @@ def write_e2e_synthesis_prompt(
         "",
     ])
 
+    with open(to_extended_path(out_p), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    return out_p
+
+
+def write_master_index_markdown(
+    target_dir: Path,
+    topic: MetaTopicDefinition,
+    manifest: ExportManifest,
+    total_decisions: int,
+    total_active_docs: int,
+    stub_count: int,
+    round_count: int,
+    session_id: int,
+    scope_mode: str,
+    meeting_records: List[Dict[str, Any]],
+    synthesis_status: Optional[str] = None,
+) -> Path:
+    """
+    Generates root `index.md` using a single shared template for both full exports
+    and fast offline checkup/sync passes.
+    """
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    s2_path = target_dir / STAGE2_SYNTHESIS_FILENAME
+    s2_exists = s2_path.is_file()
+    eff_s2_status = synthesis_status or ("analyzed" if s2_exists else "pending")
+
+    concluded_cnt = sum(1 for r in meeting_records if r.get("lifecycle") == "concluded")
+    upcoming_cnt = sum(1 for r in meeting_records if r.get("lifecycle") == "upcoming")
+    no_act_cnt = sum(1 for r in meeting_records if r.get("lifecycle") == "no_activity")
+
+    active_mtgs = 0
+    analyzed_mtgs = 0
+    stale_mtgs = 0
+    pending_mtgs = 0
+    for rec in meeting_records:
+        st, _, _ = _resolve_rec_analysis_status(rec, target_dir)
+        if st == "no_activity":
+            continue
+        active_mtgs += 1
+        if st == "analyzed":
+            analyzed_mtgs += 1
+        elif st == "stale":
+            stale_mtgs += 1
+        else:
+            pending_mtgs += 1
+
+    stage1_summary = f"{analyzed_mtgs}/{active_mtgs} Active Meetings Analyzed"
+    extra_s1 = []
+    if stale_mtgs:
+        extra_s1.append(f"🔄 {stale_mtgs} Stale (Delta Ready)")
+    if pending_mtgs:
+        extra_s1.append(f"⬜ {pending_mtgs} Pending")
+    if no_act_cnt:
+        extra_s1.append(f"⚪ {no_act_cnt} Empty Skipped")
+    if extra_s1:
+        stage1_summary += " (" + ", ".join(extra_s1) + ")"
+
+    if s2_exists:
+        s2_kpi = f"[{format_analysis_badge(eff_s2_status)}]({STAGE2_SYNTHESIS_FILENAME}) (`{STAGE2_SYNTHESIS_FILENAME}`)"
+        s2_nav = f"- 🏆 **[Cross-WG E2E Company Position Synthesis]({STAGE2_SYNTHESIS_FILENAME})** — {format_analysis_badge(eff_s2_status)}."
+    else:
+        s2_kpi = f"⬜ Pending (`{STAGE2_SYNTHESIS_FILENAME}` not yet created)"
+        s2_nav = f"- 🏆 **Cross-WG E2E Company Position Synthesis** — ⬜ Pending (generate `{STAGE2_SYNTHESIS_FILENAME}` using Stage 2 prompt)."
+
+    contrib_kpi = f"{total_active_docs} documents"
+    if stub_count > 0:
+        contrib_kpi += f" *(including {stub_count} reserved/missing placeholder stub(s))*"
+
+    delta_link_line = (
+        f"- 🆕 **[Latest LLM Delta Feed](deltas/delta_session_{session_id}.md)** — Incremental additions in this session."
+        if (target_dir / "deltas" / f"delta_session_{session_id}.md").is_file()
+        else ""
+    )
+
+    lines = [
+        f"# 🌐 Cross-WG Topic Dossier: {topic.name}",
+        f"**Last Updated:** {now_str} (Session #{session_id}) | **Scope Mode:** `{scope_mode}`",
+        "",
+        "> [!NOTE]",
+        f"> {topic.description or 'Consolidated multi-WG tracking organized by Working Group and Meeting.'}",
+        "",
+        "## 📊 Executive KPI Strip",
+        "",
+        f"- **Participating Working Groups:** {', '.join(sorted(topic.target_wgs))}",
+        (
+            f"- **Analyzed Meetings:** {len(meeting_records)} meetings "
+            f"({concluded_cnt} Concluded, {upcoming_cnt} Upcoming, {no_act_cnt} No Activity) across {round_count} synchronized round(s)"
+            if meeting_records
+            else "- **Analyzed Meetings:** None"
+        ),
+        f"- **Unified Technical Decisions:** {total_decisions} (Agreements, WAs, pCRs, CRs, WFs)",
+        f"- **Active Scoped Contributions:** {contrib_kpi}",
+        f"- **Stage-1 Per-Meeting Analyses:** {stage1_summary}",
+        f"- **Stage-2 Cross-WG Synthesis:** {s2_kpi}",
+        "",
+        "## 🧭 Navigation & LLM Workflows",
+        "",
+        "- ⚖️ **[Unified Technical Decisions Baseline](agreements_timeline.md)** — Chronological matrix of all RAN agreements and SA/CT pCRs/CRs.",
+        "- 📬 **[Cross-WG Liaison Statement Dialogue](ls_dialogue.md)** — Inter-group question and reply threads.",
+        "- 🧠 **[2-Stage E2E Company Position Prompt & Checklist](company_positions_e2e_prompt.md)** — Resumable, per-meeting LLM instructions designed for standard/non-frontier models.",
+        s2_nav,
+    ]
+    if delta_link_line:
+        lines.append(delta_link_line)
+
+    lines.extend([
+        "",
+        "## 🗓️ Cross-WG Chronological Meeting Timeline",
+        "",
+        "| Date | Synchronized Round | WG | Meeting | State | Decisions | Active Inputs | LS (In/Out) | Meeting Brief & LLM Packet |",
+        "| :--- | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :--- |",
+    ])
+
+    for rec in meeting_records:
+        d_str = rec.get("start_date") or "N/A"
+        r_lbl = rec.get("round_label") or rec.get("cohort_key", "")
+        wg = rec["wg"]
+        m_fid = rec["meeting_folder_id"]
+        lc = rec.get("lifecycle") or ("concluded" if rec.get("decision_count", 0) else "upcoming")
+        lc_badge = format_lifecycle_badge(lc)
+        brief_rel = rec["brief_rel_path"]
+        digests = rec.get("digest_rel_paths", [])
+        digest_str = " · ".join(f"[{Path(p).name}]({p})" for p in digests) if digests else "—"
+        st, exists, analysis_rel = _resolve_rec_analysis_status(rec, target_dir)
+        a_badge = format_analysis_badge(st)
+        if st == "no_activity":
+            analysis_cell = "⚪ 0 Inputs"
+        elif exists:
+            analysis_cell = f"[{a_badge}]({analysis_rel})"
+        else:
+            analysis_cell = a_badge
+        ls_cell = f"{rec.get('ls_in_count', 0)} / {rec.get('ls_out_count', 0)}"
+        lines.append(
+            f"| `{d_str}` | {r_lbl} | **{wg}** | [{m_fid}]({brief_rel}) | {lc_badge} | {rec['decision_count']} | {rec['tdoc_count']} | {ls_cell} | [Brief]({brief_rel}) · {digest_str} · {analysis_cell} |"
+        )
+
+    lines.extend([
+        "",
+        "## 🏛️ Per-Working-Group Evolution",
+        "",
+        "| Working Group | Chronological Meetings (Click to Open Brief) | Decisions | Active Docs | Stage-1 Analysis |",
+        "| :--- | :--- | :---: | :---: | :--- |",
+    ])
+
+    by_wg: Dict[str, List[Dict[str, Any]]] = {}
+    for rec in meeting_records:
+        by_wg.setdefault(rec["wg"], []).append(rec)
+
+    for wg in sorted(by_wg.keys()):
+        recs = by_wg[wg]
+        links = " → ".join(f"[{r['meeting_folder_id']}]({r['brief_rel_path']})" for r in recs)
+        tot_d = sum(r["decision_count"] for r in recs)
+        tot_c = sum(r["tdoc_count"] for r in recs)
+        wg_statuses = [_resolve_rec_analysis_status(r, target_dir)[0] for r in recs]
+        wg_active = [s for s in wg_statuses if s != "no_activity"]
+        wg_done = sum(1 for s in wg_active if s == "analyzed")
+        wg_stale = sum(1 for s in wg_active if s == "stale")
+        if not wg_active:
+            wg_s1 = f"⚪ 0 Active ({len(recs)} Empty)"
+        else:
+            wg_s1 = f"✅ {wg_done}/{len(wg_active)}"
+            if wg_stale:
+                wg_s1 += f" · 🔄 {wg_stale} Stale"
+        lines.append(f"| **{wg}** | {links} | {tot_d} | {tot_c} | {wg_s1} |")
+
+    lines.extend([
+        "",
+        "---",
+        "### 🔄 Incremental Export History",
+        "",
+        "| Session | Timestamp | Scope Mode | New Documents | Total Registered |",
+        "| :--- | :--- | :--- | :--- | :--- |",
+    ])
+    for sess in manifest.sessions:
+        s_id = sess.get("session_id")
+        s_time = sess.get("timestamp")
+        s_mode = sess.get("scope_mode")
+        added_cnt = len(sess.get("added_tdocs", []))
+        tot_cnt = sess.get("total_tdocs", 0)
+        lines.append(f"| #{s_id} | {s_time} | `{s_mode}` | +{added_cnt} | {tot_cnt} |")
+
+    lines.append("")
+    out_p = target_dir / "index.md"
+    with open(to_extended_path(out_p), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    return out_p
+
+
+def write_consolidated_briefing_markdown(
+    target_dir: Path,
+    topic: MetaTopicDefinition,
+    all_decisions: List[TopicDecision],
+    meeting_records: List[Dict[str, Any]],
+    round_count: int,
+) -> Path:
+    """Generates single-file `consolidated_briefing.md` linking decisions, briefs, digests, and Stage-1 analyses."""
+    lines = [
+        f"# Consolidated Executive Briefing: {topic.name}",
+        "",
+        "## 1. Executive Summary & Scope",
+        f"This briefing consolidates decisions and contribution briefs across {', '.join(sorted(topic.target_wgs))} "
+        f"spanning {len(meeting_records)} meetings ({round_count} synchronized round(s)).",
+        "",
+        "## 2. Chronological Technical Decisions",
+        "",
+    ]
+    for dec in sorted(all_decisions, key=lambda d: (d.date or d.cohort_key, d.wg, d.tdoc_id or "")):
+        m_lbl = dec.meeting_folder_id or f"{dec.wg}_{dec.meeting_number}"
+        link_suffix = f" ([{dec.tdoc_id or 'Agreement'}]({dec.dossier_rel_path}))" if dec.dossier_rel_path else ""
+        lines.append(f"- **[{dec.date or dec.cohort_key} | {m_lbl}]** ({dec.decision_type}){link_suffix}: {dec.title_or_summary}")
+
+    if meeting_records:
+        lines.extend(["", "## 3. Per-Meeting Briefs, Digests & Stage-1 Analyses", ""])
+        for rec in meeting_records:
+            digests = rec.get("digest_rel_paths", [])
+            digest_links = ", ".join(f"[{Path(p).name}]({p})" for p in digests) if digests else "—"
+            st, exists, analysis_rel = _resolve_rec_analysis_status(rec, target_dir)
+            a_suffix = f" · Analysis: [{format_analysis_badge(st)}]({analysis_rel})" if (exists and st != "no_activity") else ""
+            lines.append(
+                f"- **{rec.get('start_date') or 'N/A'} · {rec['meeting_folder_id']}**: "
+                f"[{Path(rec['brief_rel_path']).name}]({rec['brief_rel_path']}) · Digests: {digest_links}{a_suffix}"
+            )
+
+    lines.append("")
+    out_p = target_dir / "consolidated_briefing.md"
     with open(to_extended_path(out_p), "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     return out_p

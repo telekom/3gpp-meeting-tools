@@ -1633,6 +1633,448 @@ class TestTopicDossierRefactorAndDigests(unittest.TestCase):
             running_worker.cancel.assert_called_once()
             running_worker.wait.assert_called_once_with(5000)
 
+    def test_three_state_lifecycle_and_stage2_synthesis_status(self):
+        from modules.meetings.core.exporters.topic_digest_builder import (
+            STAGE2_SYNTHESIS_FILENAME,
+            classify_meeting_lifecycle,
+            write_e2e_synthesis_prompt,
+        )
+
+        # Zero decisions AND zero inputs -> 3rd state 'no_activity' regardless of dates
+        lc_empty_past = classify_meeting_lifecycle(
+            {"start_date": "2025-11-01", "end_date": "2025-11-05"},
+            decisions=[],
+            candidates=[],
+        )
+        self.assertEqual(lc_empty_past, "no_activity")
+
+        lc_empty_future = classify_meeting_lifecycle(
+            {"start_date": "2099-05-01", "end_date": "2099-05-05"},
+            decisions=[],
+            candidates=[],
+        )
+        self.assertEqual(lc_empty_future, "no_activity")
+
+        topic_def = MetaTopicDefinition(
+            id="t_3state",
+            name="Data Framework",
+            description="3-State Test",
+            target_wgs=["RAN2", "SA2", "CT4"],
+            rules=MetaTopicRules(),
+        )
+        out_dir = self.temp_dir / "Topic_3State"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "RAN2" / "RAN2_133").mkdir(parents=True, exist_ok=True)
+        (out_dir / "RAN2" / "RAN2_133" / "_company_positions_analysis.md").write_text("# Done", encoding="utf-8")
+        (out_dir / STAGE2_SYNTHESIS_FILENAME).write_text("# Root E2E", encoding="utf-8")
+
+        e2e_path = write_e2e_synthesis_prompt(
+            target_dir=out_dir,
+            topic=topic_def,
+            meeting_records=[
+                {
+                    "start_date": "2026-02-09",
+                    "round_label": "Feb 2026",
+                    "wg": "RAN2",
+                    "meeting_folder_id": "RAN2_133",
+                    "meeting_rel_root": "RAN2/RAN2_133",
+                    "lifecycle": "concluded",
+                    "analysis_status": "stale",
+                    "tdoc_count": 3,
+                    "decision_count": 1,
+                    "stub_count": 0,
+                    "digest_rel_paths": ["RAN2/RAN2_133/_company_positions_input.md"],
+                },
+                {
+                    "start_date": "2026-02-09",
+                    "round_label": "Feb 2026",
+                    "wg": "CT4",
+                    "meeting_folder_id": "CT4_136",
+                    "meeting_rel_root": "CT4/CT4_136",
+                    "lifecycle": "no_activity",
+                    "analysis_status": "no_activity",
+                    "tdoc_count": 0,
+                    "decision_count": 0,
+                    "stub_count": 0,
+                    "digest_rel_paths": [],
+                },
+            ],
+            synthesis_status="stale",
+        )
+        prompt_txt = e2e_path.read_text(encoding="utf-8")
+        self.assertIn("⚪ No Activity (0 Inputs)", prompt_txt)
+        self.assertIn("⚪ Skip (0 Inputs)", prompt_txt)
+        self.assertIn("🔄 Stale (Delta Ready)", prompt_txt)
+        self.assertIn("[🔄 Stale (Delta Ready)](RAN2/RAN2_133/_company_positions_analysis.md)", prompt_txt)
+        self.assertIn("## 🔄 Delta Since Last Analysis", prompt_txt)
+        self.assertIn("Stage-2 Report:** 🔄 Stale (Delta Ready)", prompt_txt)
+        self.assertIn("merge the updated meetings cleanly instead of regenerating", prompt_txt)
+
+    def test_check_and_refresh_dossier_legacy_and_record_session_count(self):
+        from modules.meetings.core.exporters.export_manifest import save_manifest
+        from modules.meetings.core.exporters.topic_digest_builder import (
+            STAGE2_SYNTHESIS_FILENAME,
+            write_meeting_brief,
+        )
+        from modules.meetings.core.exporters.topic_dossier_exporter import check_and_refresh_dossier
+
+        # 1. Verify ExportManifest.record_session does not double-count total_tdocs
+        m = ExportManifest(meeting="Test Topic", export_type="topic_full_dossier")
+        entries = [
+            {"tdoc_id": "R2-2600101", "rel_path": "RAN2/RAN2_133/Discussion/R2-2600101.md", "category": "Discussion"},
+            {"tdoc_id": "R2-2600102", "rel_path": "RAN2/RAN2_133/Discussion/R2-2600102.md", "category": "Discussion"},
+        ]
+        m.record_session(1, "2026-11-15 10:00:00", "full_dossier", ["R2-2600101", "R2-2600102"], [], added_entries=entries)
+        self.assertEqual(m.sessions[0]["total_tdocs"], 2)
+
+        # 2. Simulate a legacy exported folder lacking current_snapshot/analyzed_snapshot
+        root = self.temp_dir / "LegacyTopic"
+        ran2_dir = root / "RAN2" / "RAN2_133"
+        ct4_dir = root / "CT4" / "CT4_136"
+        (ran2_dir / "Discussion").mkdir(parents=True, exist_ok=True)
+        ct4_dir.mkdir(parents=True, exist_ok=True)
+
+        doc_p = ran2_dir / "Discussion" / "R2-2600101.md"
+        doc_p.write_text("# R2-2600101\n\nComplete contribution text > 150 chars " + ("x" * 200), encoding="utf-8")
+        pkt_p = ran2_dir / "_company_positions_input.md"
+        pkt_p.write_text("# Packet", encoding="utf-8")
+        os.utime(pkt_p, (1000.0, 1000.0))
+
+        analysis_p = ran2_dir / "_company_positions_analysis.md"
+        analysis_p.write_text("# Pre-existing Stage 1 Analysis", encoding="utf-8")
+        os.utime(analysis_p, (1100.0, 1100.0))
+
+        syn_p = root / STAGE2_SYNTHESIS_FILENAME
+        syn_p.write_text("# Root E2E Synthesis", encoding="utf-8")
+        os.utime(syn_p, (1200.0, 1200.0))
+
+        write_meeting_brief(
+            meeting_dir=ran2_dir,
+            topic_name="Legacy Topic",
+            cohort_label="Feb 2026",
+            mtg={"wg_name": "RAN2", "meeting_number": "133", "start_date": "2026-02-09"},
+            meeting_folder_id="RAN2_133",
+            decisions=[],
+            candidates=[{"tdoc_id": "R2-2600101", "rel_path": "RAN2/RAN2_133/Discussion/R2-2600101.md", "abs_path": doc_p, "type": "Discussion", "ai": "10.2", "status": "Noted", "source": "Nokia"}],
+            digest_rel_paths=["RAN2/RAN2_133/_company_positions_input.md"],
+            lifecycle="upcoming",
+        )
+        write_meeting_brief(
+            meeting_dir=ct4_dir,
+            topic_name="Legacy Topic",
+            cohort_label="Feb 2026",
+            mtg={"wg_name": "CT4", "meeting_number": "136", "start_date": "2026-02-09"},
+            meeting_folder_id="CT4_136",
+            decisions=[],
+            candidates=[],
+            lifecycle="upcoming",
+        )
+
+        legacy_manifest = ExportManifest(meeting="Legacy Topic", export_type="topic_full_dossier")
+        legacy_manifest.register_tdoc_entries([
+            {"tdoc_id": "R2-2600101", "rel_path": "RAN2/RAN2_133/Discussion/R2-2600101.md", "category": "Discussion", "title": "Data Transfer", "type": "Discussion", "source": "Nokia", "ai": "10.2"}
+        ], session_id=1, timestamp="2026-11-14 10:00:00")
+        legacy_manifest.exported_meetings = {
+            "RAN2/RAN2_133": {
+                "wg": "RAN2",
+                "meeting_number": "133",
+                "meeting_folder_id": "RAN2_133",
+                "cohort_key": "2026-Q1",
+                "start_date": "2026-02-09",
+                "lifecycle": "upcoming",
+                "tdoc_count": 1,
+                "decision_count": 0,
+                "brief_rel_path": "RAN2/RAN2_133/_meeting_brief.md",
+                "digest_rel_paths": ["RAN2/RAN2_133/_company_positions_input.md"],
+            },
+            "CT4/CT4_136": {
+                "wg": "CT4",
+                "meeting_number": "136",
+                "meeting_folder_id": "CT4_136",
+                "cohort_key": "2026-Q1",
+                "start_date": "2026-02-09",
+                "lifecycle": "upcoming",
+                "tdoc_count": 0,
+                "decision_count": 0,
+                "brief_rel_path": "CT4/CT4_136/_meeting_brief.md",
+                "digest_rel_paths": [],
+            },
+        }
+        save_manifest(root, legacy_manifest)
+
+        res = check_and_refresh_dossier(root)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["analyzed"], 1)
+        self.assertEqual(res["no_activity"], 1)
+        self.assertEqual(res["stale"], 0)
+        self.assertEqual(res["synthesis_status"], "analyzed")
+
+        ct4_brief = (ct4_dir / "_meeting_brief.md").read_text(encoding="utf-8")
+        self.assertIn("⚪ No Activity (0 Inputs)", ct4_brief)
+        ran2_brief = (ran2_dir / "_meeting_brief.md").read_text(encoding="utf-8")
+        self.assertIn("_company_positions_analysis.md", ran2_brief)
+        idx_txt = (root / "index.md").read_text(encoding="utf-8")
+        self.assertIn("✅ Analyzed", idx_txt)
+        self.assertIn("[✅ Analyzed](company_positions_e2e_synthesis.md)", idx_txt)
+
+    def test_pre_to_post_meeting_stale_delta_and_pruning(self):
+        from unittest.mock import MagicMock, patch
+        from modules.meetings.core.exporters.export_manifest import load_manifest
+        from modules.meetings.core.exporters.topic_digest_builder import (
+            STAGE1_DELTA_START,
+            STAGE2_SYNTHESIS_FILENAME,
+        )
+        from modules.meetings.core.exporters.topic_dossier_exporter import (
+            TopicDossierExporterThread,
+            check_and_refresh_dossier,
+        )
+
+        topic_def = MetaTopicDefinition(
+            id="t_delta",
+            name="Data Delta Topic",
+            description="Test Pre/Post Delta Merge",
+            target_wgs=["RAN2"],
+            rules=MetaTopicRules(keywords=["data framework"]),
+        )
+        cohort = MeetingCohort(
+            key="2026-Q1",
+            year=2026,
+            quarter=1,
+            label="Feb 2026 Round",
+            meetings=[{"wg_name": "RAN2", "meeting_number": "133", "folder_name": "TSGR2_133", "start_date": "2026-02-09"}],
+        )
+        base_out = self.temp_dir / "PrePostBase"
+        target_dir = base_out / "Topic_Data_Delta_Topic"
+
+        # Session 1 rows (pre-meeting): R2-2600100r00 + R2-2600200 (stub)
+        s1_rows = [
+            {
+                "TDoc": "R2-2600100r00",
+                "Title": "Data framework baseline proposal",
+                "Agenda Item": "9.3",
+                "Type": "Discussion",
+                "Status": "Available",
+                "Source": "Ericsson",
+                "Revised to": "",
+            },
+            {
+                "TDoc": "R2-2600200",
+                "Title": "Data framework pCR candidate",
+                "Agenda Item": "9.3",
+                "Type": "pCR",
+                "Status": "Treated",
+                "Source": "Nokia",
+                "Revised to": "",
+            },
+        ]
+
+        def fake_convert_pipeline(docs, t_dir, base_pct=0, pct_span=10):
+            for doc in docs:
+                tid = doc["tdoc_id"]
+                p = Path(doc["abs_path"])
+                p.parent.mkdir(parents=True, exist_ok=True)
+                if tid == "R2-2600200" and doc.get("status") == "Treated":
+                    # Write incomplete stub during session 1
+                    p.write_text(f"# {tid}\n\n⏳ *Pending / Document not yet uploaded to 3GPP FTP.*", encoding="utf-8")
+                else:
+                    p.write_text(f"# {tid}\n\n## Introduction\nFull markdown body for {tid} " + ("z" * 160), encoding="utf-8")
+
+        exporter1 = TopicDossierExporterThread(
+            meetings_db=MagicMock(),
+            topic=topic_def,
+            selected_cohorts=[cohort],
+            export_scope_mode="full_dossier",
+            output_base_dir=base_out,
+            target_folder_name="Topic_Data_Delta_Topic",
+            allow_network_download=False,
+        )
+        exporter1._load_meeting_tdocs = lambda mtg: s1_rows
+        exporter1._load_meeting_agreements = lambda mtg: []
+        exporter1._convert_docs_pipeline = fake_convert_pipeline
+        exporter1._run_export()
+
+        ran2_dir = target_dir / "RAN2" / "RAN2_133"
+        self.assertTrue((ran2_dir / "Discussion" / "R2-2600100r00.md").is_file())
+
+        # User/LLM produces Stage-1 analysis and Stage-2 synthesis after Session 1 (timestamped before Session 2)
+        import time as _time
+        t_base = _time.time() - 120.0
+        digest_p = ran2_dir / "_company_positions_input.md"
+        os.utime(digest_p, (t_base, t_base))
+        check_and_refresh_dossier(target_dir, topic=topic_def)
+
+        analysis_p = ran2_dir / "_company_positions_analysis.md"
+        analysis_p.write_text("PRE-MEETING ANALYSIS CONTENT\n- Ericsson: baseline", encoding="utf-8")
+        os.utime(analysis_p, (t_base + 20.0, t_base + 20.0))
+
+        syn_p = target_dir / STAGE2_SYNTHESIS_FILENAME
+        syn_p.write_text("PRE-MEETING E2E SYNTHESIS", encoding="utf-8")
+        os.utime(syn_p, (t_base + 30.0, t_base + 30.0))
+
+        r_check1 = check_and_refresh_dossier(target_dir, topic=topic_def)
+        self.assertEqual(r_check1["analyzed"], 1)
+        self.assertEqual(r_check1["synthesis_status"], "analyzed")
+
+        # Session 2 rows (post-meeting): r01 supersedes r00, R2-2600200 Agreed + full doc, R2-2600300 cited by ChairNotes agreement
+        s2_rows = [
+            {
+                "TDoc": "R2-2600100r00",
+                "Title": "Data framework baseline proposal",
+                "Agenda Item": "9.3",
+                "Type": "Discussion",
+                "Status": "Revised",
+                "Source": "Ericsson",
+                "Revised to": "R2-2600100r01",
+            },
+            {
+                "TDoc": "R2-2600100r01",
+                "Title": "Data framework baseline proposal rev1",
+                "Agenda Item": "9.3",
+                "Type": "Discussion",
+                "Status": "Noted",
+                "Source": "Ericsson",
+                "Revision of": "R2-2600100r00",
+            },
+            {
+                "TDoc": "R2-2600200",
+                "Title": "Data framework pCR candidate",
+                "Agenda Item": "9.3",
+                "Type": "pCR",
+                "Status": "Agreed",
+                "Source": "Nokia",
+            },
+            {
+                "TDoc": "R2-2600300",
+                "Title": "Follow-up architecture alignment details",  # Note: does NOT match 'data framework' keyword directly!
+                "Agenda Item": "9.3",
+                "Type": "Discussion",
+                "Status": "Noted",
+                "Source": "Huawei",
+            },
+        ]
+        s2_agreements = [
+            {
+                "ai": "9.3",
+                "decision_type": "Agreement",
+                "text": "Agreement: Adopt data framework signaling alignment based on R2-2600300.",
+                "tdoc_id": "R2-2600300",
+                "status": "Agreed",
+            }
+        ]
+
+        exporter2 = TopicDossierExporterThread(
+            meetings_db=MagicMock(),
+            topic=topic_def,
+            selected_cohorts=[cohort],
+            export_scope_mode="full_dossier",
+            output_base_dir=base_out,
+            target_folder_name="Topic_Data_Delta_Topic",
+            allow_network_download=False,
+        )
+        exporter2._load_meeting_tdocs = lambda mtg: s2_rows
+        exporter2._load_meeting_agreements = lambda mtg: s2_agreements
+        exporter2._convert_docs_pipeline = fake_convert_pipeline
+        exporter2._run_export()
+
+        # Verify pre-meeting analysis is untouched and NO extra analysis/delta files were created
+        self.assertEqual(analysis_p.read_text(encoding="utf-8"), "PRE-MEETING ANALYSIS CONTENT\n- Ericsson: baseline")
+        extra_md = [p.name for p in ran2_dir.glob("*.md") if p.name not in ("_meeting_brief.md", "_company_positions_input.md", "_company_positions_analysis.md")]
+        self.assertEqual(extra_md, [])
+
+        # Verify superseded R2-2600100r00 was pruned, r01 + agreement-cited R2-2600300 exist
+        self.assertFalse((ran2_dir / "Discussion" / "R2-2600100r00.md").exists())
+        self.assertTrue((ran2_dir / "Discussion" / "R2-2600100r01.md").is_file())
+        self.assertTrue((ran2_dir / "Discussion" / "R2-2600300.md").is_file())
+
+        brief_stale = (ran2_dir / "_meeting_brief.md").read_text(encoding="utf-8")
+        self.assertIn("🔄 Stale (Delta Ready)", brief_stale)
+        self.assertIn(STAGE1_DELTA_START, brief_stale)
+        self.assertIn("## 🔄 Delta Since Last Analysis", brief_stale)
+        self.assertIn("R2-2600100r00", brief_stale)
+        self.assertIn("R2-2600100r01", brief_stale)
+
+        # Ensure Stage-2 prompt flags synthesis as Stale
+        m_after_s2 = load_manifest(target_dir)
+        self.assertEqual(m_after_s2.exported_meetings["RAN2/RAN2_133"]["analysis_status"], "stale")
+        self.assertEqual(m_after_s2.synthesis_state["status"], "stale")
+
+        # Simulate LLM merging the delta into _company_positions_analysis.md
+        new_pkt_mtime = os.path.getmtime(ran2_dir / "_company_positions_input.md")
+        analysis_p.write_text("MERGED PRE + POST ANALYSIS CONTENT", encoding="utf-8")
+        os.utime(analysis_p, (new_pkt_mtime + 20.0, new_pkt_mtime + 20.0))
+
+        r_check2 = check_and_refresh_dossier(target_dir, topic=topic_def)
+        self.assertEqual(r_check2["analyzed"], 1)
+        self.assertEqual(r_check2["stale"], 0)
+        self.assertEqual(r_check2["synthesis_status"], "stale")  # synthesis still older than merged Stage-1
+
+        brief_clean = (ran2_dir / "_meeting_brief.md").read_text(encoding="utf-8")
+        self.assertNotIn(STAGE1_DELTA_START, brief_clean)
+        self.assertIn("✅ Analyzed", brief_clean)
+
+        # Simulate LLM updating Stage-2 E2E synthesis
+        syn_p.write_text("MERGED STAGE 2 E2E SYNTHESIS", encoding="utf-8")
+        os.utime(syn_p, (new_pkt_mtime + 40.0, new_pkt_mtime + 40.0))
+        r_check3 = check_and_refresh_dossier(target_dir, topic=topic_def)
+        self.assertEqual(r_check3["synthesis_status"], "analyzed")
+
+    def test_topic_dossier_dialog_check_status_button_and_kpi_banner(self):
+        from unittest.mock import MagicMock
+        from PyQt5.QtWidgets import QApplication
+        from modules.meetings.core.exporters.export_manifest import save_manifest
+        from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
+
+        app = QApplication.instance() or QApplication([])
+        dlg = TopicDossierDialog(meetings_db=MagicMock(), parent=None)
+
+        new_dir = self.temp_dir / "BrandNewDir"
+        dlg.edit_dest_folder.setText(str(new_dir))
+        self.assertFalse(dlg.btn_check_status.isEnabled())
+        self.assertIn("New Directory", dlg.lbl_inc_status.text())
+
+        existing_dir = self.temp_dir / "ExistingCorpus"
+        (existing_dir / "RAN2" / "RAN2_133").mkdir(parents=True, exist_ok=True)
+        (existing_dir / "RAN2" / "RAN2_133" / "_company_positions_analysis.md").write_text("# Done", encoding="utf-8")
+        manifest = ExportManifest(meeting="Data Framework", export_type="topic_full_dossier")
+        manifest.exported_meetings = {
+            "RAN2/RAN2_133": {
+                "wg": "RAN2",
+                "meeting_number": "133",
+                "meeting_folder_id": "RAN2_133",
+                "cohort_key": "2026-Q1",
+                "start_date": "2026-02-09",
+                "lifecycle": "concluded",
+                "tdoc_count": 2,
+                "decision_count": 1,
+                "stub_count": 0,
+                "analysis_status": "analyzed",
+                "brief_rel_path": "RAN2/RAN2_133/_meeting_brief.md",
+                "digest_rel_paths": [],
+            }
+        }
+        save_manifest(existing_dir, manifest)
+
+        dlg.edit_dest_folder.setText(str(existing_dir))
+        self.assertTrue(dlg.btn_check_status.isEnabled())
+        self.assertIn("Existing Corpus Detected:", dlg.lbl_inc_status.text())
+        self.assertIn("1 Analyzed", dlg.lbl_inc_status.text())
+
+        res = dlg._on_check_status(silent=True)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["analyzed"], 1)
+        self.assertIn("1 analyzed", dlg.lbl_status.text())
+        dlg.close()
+
+    def test_is_meeting_live_for_refresh_heuristic(self):
+        from modules.meetings.core.exporters.topic_dossier_exporter import TopicDossierExporterThread
+
+        self.assertTrue(TopicDossierExporterThread._is_meeting_live_for_refresh({"start_date": "2020-01-01"}, {}))
+        self.assertTrue(TopicDossierExporterThread._is_meeting_live_for_refresh({"start_date": "2020-01-01"}, {"lifecycle": "upcoming", "decision_count": 1, "stub_count": 0}))
+        self.assertTrue(TopicDossierExporterThread._is_meeting_live_for_refresh({"start_date": "2020-01-01"}, {"lifecycle": "no_activity", "decision_count": 0, "stub_count": 0}))
+        self.assertTrue(TopicDossierExporterThread._is_meeting_live_for_refresh({"start_date": "2020-01-01"}, {"lifecycle": "concluded", "decision_count": 2, "stub_count": 1}))
+        self.assertTrue(TopicDossierExporterThread._is_meeting_live_for_refresh({"start_date": "2020-01-01"}, {"lifecycle": "concluded", "decision_count": 0, "stub_count": 0}))
+        self.assertFalse(TopicDossierExporterThread._is_meeting_live_for_refresh({"start_date": "2020-01-01"}, {"lifecycle": "concluded", "decision_count": 3, "stub_count": 0}))
+
 
 if __name__ == "__main__":
     unittest.main()
