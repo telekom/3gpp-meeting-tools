@@ -82,7 +82,7 @@ python -m main_tools
 │   │   ├── ai/                    # OllamaClient, health monitoring, OllamaConfigDialog
 │   │   ├── config/                # Global application constants and paths
 │   │   ├── network/               # NetworkSession singleton, RFC 1918 proxy bypassing
-│   │   ├── ui/                    # Centralized theme tokens (`theme.py`), Lucide SVG icons (`icons.py`), grouped NavRail (`nav_rail.py`), RightSidePanel (`right_side_panel.py`), CommandPaletteDialog (`command_palette.py`), AppUpdateDialog (`update_dialog.py`), 2-tier `PageRibbonCard` (`page_ribbon.py`), BottomDrawer (`bottom_drawer.py`), Smart Toast (`toast.py`, `notify_success`), QSettings shell state (`shell_state.py`), hex migrator, base components, ModernDropZone, global QSS, panels
+│   │   ├── ui/                    # Centralized theme tokens (`theme.py`), Lucide SVG icons (`icons.py`), global font scaling & live reader zoom (`font_scale.py`, `display_settings_dialog.py`), grouped NavRail (`nav_rail.py`), RightSidePanel (`right_side_panel.py`), CommandPaletteDialog (`command_palette.py`), AppUpdateDialog (`update_dialog.py`), 2-tier `PageRibbonCard` (`page_ribbon.py`), BottomDrawer (`bottom_drawer.py`), Smart Toast (`toast.py`, `notify_success`), QSettings shell state (`shell_state.py`), hex migrator, base components, ModernDropZone, global QSS, panels
 │   │   ├── updater/               # Manual continuous GitHub master updater (`app_updater.py`, pure-stdlib `apply_worker.py`)
 │   │   ├── utils/                 # Path resolution, Java runtime detection, 3GPP Portal URL generators, helpers
 │   │   └── queue_manager.py       # Multi-threaded background conversion & sync task queue

@@ -2,6 +2,7 @@
 from PyQt5.QtCore import pyqtSignal, QRectF, QSize, QEvent, Qt, QPoint
 from PyQt5.QtGui import QTextDocument, QPainter, QColor, QPen
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem, QStyle
+from core.ui.font_scale import scale_pt, scale_px
 from core.ui.theme import C
 
 
@@ -94,7 +95,7 @@ class TDocActionDelegate(QStyledItemDelegate):
         painter.setPen(text_color)
         font = painter.font()
         font.setBold(True)
-        font.setPointSize(8)
+        font.setPointSize(scale_pt(8))
         painter.setFont(font)
         painter.drawText(rect, Qt.AlignCenter, text)
         painter.restore()
@@ -144,7 +145,7 @@ class AgendaItemDelegate(QStyledItemDelegate):
         else:
             # Two-line: AI number top, Sub-Item pill bottom
             # 1. AI Number (top)
-            ai_rect = QRectF(rect.left(), rect.top() + 3, rect.width(), 20)
+            ai_rect = QRectF(rect.left(), rect.top() + 3, rect.width(), scale_px(20, minimum=18))
             painter.setPen(
                 options.palette.color(options.palette.Normal, options.palette.Text)
                 if not (options.state & QStyle.State_Selected)
@@ -156,9 +157,14 @@ class AgendaItemDelegate(QStyledItemDelegate):
             painter.drawText(ai_rect, Qt.AlignCenter, ai_text)
 
             # 2. Sub-Item pill (bottom)
-            pill_h = 18
+            pill_h = scale_px(18, minimum=16)
             pill_margin = 3
-            pill_rect = QRectF(rect.left() + pill_margin, rect.top() + 24, rect.width() - (2 * pill_margin), pill_h)
+            pill_rect = QRectF(
+                rect.left() + pill_margin,
+                rect.top() + scale_px(24, minimum=21),
+                rect.width() - (2 * pill_margin),
+                pill_h,
+            )
 
             if pill_rect.width() > 16:
                 bg_color = QColor(C.BG_CANVAS) if not (options.state & QStyle.State_Selected) else QColor(C.INFO_SOFT_STRONG)

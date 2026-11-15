@@ -20,6 +20,7 @@ check_dependencies_or_exit()
 from PyQt5.QtWidgets import QApplication, QDialog
 
 from core.network.session import NetworkSession
+from core.ui.font_scale import apply_font_scale, install_font_scaling, load_font_scale
 from core.ui.theme import load_app_fonts
 from core.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
 from core.ui.ui_panels import GuiLogHandler
@@ -108,6 +109,8 @@ if __name__ == '__main__':
     logging.info("🏁 [STARTUP] Plugins registered successfully.")
 
     app = QApplication(sys.argv)
+    install_font_scaling(app)
+    apply_font_scale(load_font_scale(), app=app, save=False)
     load_app_fonts(app)
     app_icon = create_app_icon()
     app.setWindowIcon(app_icon)

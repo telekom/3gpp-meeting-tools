@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
     QMenu,
 )
 
+from core.ui.font_scale import scale_pt, scale_px
 from core.ui.ui_components import WG_DESCRIPTIONS, get_wg_colors
 from core.ui.theme import C
 
@@ -104,13 +105,13 @@ class WgBadgeDelegate(QStyledItemDelegate):
 
         font = option.font
         font.setBold(True)
-        font.setPointSize(max(9, font.pointSize()))
+        font.setPointSize(scale_pt(9))
         painter.setFont(font)
         fm = painter.fontMetrics()
 
         badges = []
         total_width = 0
-        badge_h = 22
+        badge_h = scale_px(22, minimum=20)
         spacing = 3
 
         for wg in wgs:
@@ -153,7 +154,7 @@ class WidDelegate(QStyledItemDelegate):
             return
 
         badge_w = max(100, option.rect.width() - 6)
-        badge_h = 22
+        badge_h = scale_px(22, minimum=20)
         badge_rect = QRect(
             option.rect.left() + (option.rect.width() - badge_w) // 2,
             option.rect.top() + (option.rect.height() - badge_h) // 2,
@@ -176,7 +177,7 @@ class WidDelegate(QStyledItemDelegate):
         painter.setPen(QColor(C.INFO_DARK if is_selected else C.ACCENT_PRIMARY))
         font = option.font
         font.setBold(True)
-        font.setPointSize(max(9, font.pointSize()))
+        font.setPointSize(scale_pt(9))
         painter.setFont(font)
         painter.drawText(badge_rect, Qt.AlignCenter, f"📄 {text}")
         painter.restore()
@@ -200,7 +201,7 @@ class ReleaseBadgeDelegate(QStyledItemDelegate):
             return
 
         badge_w = min(max(58, option.rect.width() - 8), 66)
-        badge_h = 22
+        badge_h = scale_px(22, minimum=20)
         badge_rect = QRect(
             option.rect.left() + (option.rect.width() - badge_w) // 2,
             option.rect.top() + (option.rect.height() - badge_h) // 2,
@@ -217,7 +218,7 @@ class ReleaseBadgeDelegate(QStyledItemDelegate):
         painter.setPen(QColor(C.TEXT_BODY))
         font = option.font
         font.setBold(True)
-        font.setPointSize(max(9, font.pointSize()))
+        font.setPointSize(scale_pt(9))
         painter.setFont(font)
         painter.drawText(badge_rect, Qt.AlignCenter, text)
         painter.restore()
@@ -234,7 +235,7 @@ class StatusBadgeDelegate(QStyledItemDelegate):
 
         is_active = (str(text).strip().lower() == "active")
         badge_w = max(84, option.rect.width() - 6)
-        badge_h = 22
+        badge_h = scale_px(22, minimum=20)
         badge_rect = QRect(
             option.rect.left() + (option.rect.width() - badge_w) // 2,
             option.rect.top() + (option.rect.height() - badge_h) // 2,
@@ -261,7 +262,7 @@ class StatusBadgeDelegate(QStyledItemDelegate):
         painter.setPen(text_color)
         font = option.font
         font.setBold(True)
-        font.setPointSize(max(9, font.pointSize()))
+        font.setPointSize(scale_pt(9))
         painter.setFont(font)
         painter.drawText(badge_rect, Qt.AlignCenter, label)
         painter.restore()
@@ -282,7 +283,7 @@ class SpecsDelegate(QStyledItemDelegate):
             return
 
         badge_w = min(max(44, option.rect.width() - 8), 52)
-        badge_h = 22
+        badge_h = scale_px(22, minimum=20)
         badge_rect = QRect(
             option.rect.left() + (option.rect.width() - badge_w) // 2,
             option.rect.top() + (option.rect.height() - badge_h) // 2,
@@ -299,7 +300,7 @@ class SpecsDelegate(QStyledItemDelegate):
         painter.setPen(QColor(C.ACCENT_PRIMARY))
         font = option.font
         font.setBold(True)
-        font.setPointSize(max(9, font.pointSize()))
+        font.setPointSize(scale_pt(9))
         painter.setFont(font)
         painter.drawText(badge_rect, Qt.AlignCenter, text)
         painter.restore()
@@ -332,7 +333,7 @@ class TimelineDelegate(QStyledItemDelegate):
         else:
             painter.setPen(QColor(C.TEXT_BODY))
         font = option.font
-        font.setPointSize(max(9, font.pointSize()))
+        font.setPointSize(scale_pt(9))
         painter.setFont(font)
         text_rect = option.rect.adjusted(4, 0, -4, 0)
         elided = painter.fontMetrics().elidedText(text, Qt.ElideRight, text_rect.width())

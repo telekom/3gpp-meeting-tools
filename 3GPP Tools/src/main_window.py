@@ -26,11 +26,16 @@ from core.ui.command_palette import (
     build_static_command_items,
 )
 from core.ui.icons import lucide_icon
+from core.ui.font_scale import (
+    find_active_zoom_target,
+    get_font_scale_notifier,
+    zoom_text_widget,
+)
 from core.ui.nav_rail import NavRail
 from core.ui.right_side_panel import MODE_ASSISTANT, MODE_SPEC_SEARCH, RightSidePanel
 from core.ui.shell_state import restore_shell_state, save_shell_state
 from core.ui.theme import C
-from core.ui.toast import ToastAction, ToastManager
+from core.ui.toast import ToastAction, ToastManager, notify_info
 from core.ui.ui_components import ProxyDialog, create_app_icon
 from core.ui.ui_panels import (
     ConsolePanel, QueuePanel, ProcessManagerDialog, DatabaseMaintenanceDialog, GuiLogHandler
@@ -482,6 +487,24 @@ class DragDropUI(QMainWindow):
             self.command_palette_shortcut.setContext(Qt.WindowShortcut)
             self.command_palette_shortcut.activated.connect(self.open_command_palette)
 
+        self.zoom_in_shortcut = QShortcut(QKeySequence.ZoomIn, self)
+        self.zoom_in_shortcut.setContext(Qt.WindowShortcut)
+        self.zoom_in_shortcut.activated.connect(lambda: self._zoom_active_reader(1))
+
+        self.zoom_eq_shortcut = QShortcut(QKeySequence("Ctrl+="), self)
+        self.zoom_eq_shortcut.setContext(Qt.WindowShortcut)
+        self.zoom_eq_shortcut.activated.connect(lambda: self._zoom_active_reader(1))
+
+        self.zoom_out_shortcut = QShortcut(QKeySequence.ZoomOut, self)
+        self.zoom_out_shortcut.setContext(Qt.WindowShortcut)
+        self.zoom_out_shortcut.activated.connect(lambda: self._zoom_active_reader(-1))
+
+        self.zoom_reset_shortcut = QShortcut(QKeySequence("Ctrl+0"), self)
+        self.zoom_reset_shortcut.setContext(Qt.WindowShortcut)
+        self.zoom_reset_shortcut.activated.connect(lambda: self._zoom_active_reader(0, reset=True))
+
+        get_font_scale_notifier().scale_changed.connect(self._on_font_scale_changed)
+
         if hasattr(self, "toggle_right_panel"):
             self.assistant_dock_shortcut = QShortcut(QKeySequence("Ctrl+Shift+A"), self)
             self.assistant_dock_shortcut.setContext(Qt.WindowShortcut)
@@ -888,6 +911,8 @@ class DragDropUI(QMainWindow):
     def _populate_settings_menu(self):
         """Populates the rail footer Settings & System Tools dropdown menu."""
         self.settings_menu.clear()
+        self.settings_menu.addAction("🔤 Display && Text Size...", self.open_display_settings)
+        self.settings_menu.addSeparator()
         self.settings_menu.addAction("🦙 Ollama AI Settings...", self.open_ollama_settings)
         self.settings_menu.addAction("🛡️ Proxy Settings...", self.open_proxy_settings)
         self.settings_menu.addAction("🌐 Network Profiles && Connectivity...", lambda: NetworkConfigDialog(self).exec_())
@@ -1412,6 +1437,35 @@ class DragDropUI(QMainWindow):
 
     def open_ollama_settings(self):
         self.status_bar.open_ollama_settings()
+
+    def open_display_settings(self):
+        """Open the Display & Text Size dialog for global font scaling."""
+        from core.ui.display_settings_dialog import DisplaySettingsDialog
+
+        dlg = DisplaySettingsDialog(parent=self)
+        dlg.exec_()
+
+    def _on_font_scale_changed(self, scale: float) -> None:
+        """Refresh active table layouts and confirm live font scaling to the user."""
+        pct = int(round(scale * 100))
+        if hasattr(self, "specs_tab") and hasattr(self.specs_tab, "on_font_scale_changed"):
+            self.specs_tab.on_font_scale_changed()
+        elif hasattr(self, "specs_tab") and hasattr(self.specs_tab, "refresh_table"):
+            self.specs_tab.refresh_table()
+        if hasattr(self, "status_bar") and hasattr(self.status_bar, "showMessage"):
+            self.status_bar.showMessage(f"🔤 Text size set to {pct}%", 3000)
+        notify_info(self, "Text Size Updated", f"Global typography set to {pct}%.", duration_ms=2600)
+
+    def _zoom_active_reader(self, delta_steps: int, reset: bool = False) -> None:
+        """Zoom the focused or active reading/code pane via Ctrl++/Ctrl+-/Ctrl+0."""
+        target = find_active_zoom_target(self)
+        if target is None:
+            return
+        new_steps = zoom_text_widget(target, delta_steps, reset=reset)
+        if new_steps is not None and hasattr(self, "status_bar"):
+            sign = "+" if new_steps > 0 else ""
+            label = "Default" if new_steps == 0 else f"{sign}{new_steps}"
+            self.status_bar.showMessage(f"🔍 Reader zoom: {label}", 2200)
 
 
     def closeEvent(self, event):

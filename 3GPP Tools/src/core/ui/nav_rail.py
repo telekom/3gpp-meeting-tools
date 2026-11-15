@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.font_scale import get_font_scale_notifier, scale_px
 from core.ui.icons import lucide_icon
 from core.ui.theme import B, C, R, S, T
 from core.ui.ui_components import escape_qt_mnemonic
@@ -92,6 +93,10 @@ class NavRail(QFrame):
         self._build_ui()
         self._apply_styles()
         self._apply_collapsed_state(False, emit=False)
+        get_font_scale_notifier().scale_changed.connect(self._on_font_scale_changed)
+
+    def _on_font_scale_changed(self, _scale: float) -> None:
+        self._apply_collapsed_state(self._collapsed, emit=False)
 
     def _build_ui(self) -> None:
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
@@ -422,7 +427,8 @@ class NavRail(QFrame):
     def _apply_collapsed_state(self, collapsed: bool, emit: bool) -> None:
         changed = collapsed != self._collapsed
         self._collapsed = collapsed
-        target_width = S.RAIL_COLLAPSED_WIDTH if collapsed else S.RAIL_EXPANDED_WIDTH
+        expanded_w = max(S.RAIL_EXPANDED_WIDTH, min(280, scale_px(S.RAIL_EXPANDED_WIDTH)))
+        target_width = S.RAIL_COLLAPSED_WIDTH if collapsed else expanded_w
         self.setFixedWidth(target_width)
 
         self.brand_badge.setVisible(not collapsed)

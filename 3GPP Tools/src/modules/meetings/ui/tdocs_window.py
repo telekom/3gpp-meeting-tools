@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.network.network_state import NetworkState
+from core.ui.font_scale import register_scaled_row_height
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY
 )
@@ -835,7 +836,7 @@ class TDocsWindow(QWidget):
             }}
         """)
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
-        self.table.verticalHeader().setDefaultSectionSize(48)
+        register_scaled_row_height(self.table, 48)
 
         self.action_delegate = TDocActionDelegate(self.table)
         self.action_delegate.actionClicked.connect(self._handle_tdoc_action)

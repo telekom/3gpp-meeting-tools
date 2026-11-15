@@ -5,6 +5,7 @@ from PyQt5.QtCore import Qt, QEvent
 from PyQt5.QtGui import QBrush, QColor, QPen
 from PyQt5.QtWidgets import QMenu, QStyle, QStyledItemDelegate
 
+from core.ui.font_scale import scale_pt
 from core.ui.ui_components import get_wg_colors
 from core.ui.theme import C
 
@@ -47,7 +48,7 @@ class WGTagDelegate(QStyledItemDelegate):
         painter.drawRoundedRect(badge_rect, 4, 4)
 
         font = painter.font()
-        font.setPointSize(9)
+        font.setPointSize(scale_pt(9))
         font.setBold(True)
         painter.setFont(font)
         painter.setPen(QPen(QColor(text_col)))
@@ -91,7 +92,7 @@ class TDocsButtonDelegate(QStyledItemDelegate):
         painter.drawRoundedRect(btn_rect, 6, 6)
 
         font = painter.font()
-        font.setPointSize(8)
+        font.setPointSize(scale_pt(8))
         font.setBold(True)
         painter.setFont(font)
         painter.setPen(QPen(QColor(text_col)))
@@ -124,7 +125,7 @@ class DynamicHoverMenuDelegate(QStyledItemDelegate):
         super().paint(painter, option, index)
         painter.save()
         font = painter.font()
-        font.setPointSize(16)
+        font.setPointSize(scale_pt(16))
         font.setBold(True)
         painter.setFont(font)
 

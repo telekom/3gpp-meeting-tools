@@ -35,6 +35,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.font_scale import scale_px, scale_row_height
 from core.ui.icons import lucide_icon
 from core.ui.right_side_panel import MODE_ASSISTANT, MODE_SPEC_SEARCH
 from core.ui.theme import C, R, S, T
@@ -86,7 +87,7 @@ class _PaletteRowDelegate(QStyledItemDelegate):
         if kind == _KIND_HEADER:
             painter.setPen(QColor(C.TEXT_FAINT))
             f = QFont(T.FONT_FAMILY_UI)
-            f.setPixelSize(10)
+            f.setPixelSize(scale_px(10, minimum=8))
             f.setWeight(QFont.Bold)
             painter.setFont(f)
             text = str(index.data(Qt.DisplayRole) or "").upper()
@@ -122,12 +123,12 @@ class _PaletteRowDelegate(QStyledItemDelegate):
         pill_text = cmd.shortcut or cmd.badge or ""
         if pill_text:
             pf = QFont(T.FONT_FAMILY_MONO if cmd.shortcut else T.FONT_FAMILY_UI)
-            pf.setPixelSize(11)
+            pf.setPixelSize(scale_px(11, minimum=9))
             pf.setWeight(QFont.DemiBold)
             painter.setFont(pf)
             fm_p = painter.fontMetrics()
             pw = fm_p.horizontalAdvance(pill_text) + 12
-            ph = 20
+            ph = scale_px(20, minimum=18)
             pill_rect = QRect(right_x - pw, row_rect.top() + (row_rect.height() - ph) // 2, pw, ph)
             if cmd.shortcut:
                 painter.setBrush(QColor(C.BG_SURFACE))
@@ -145,7 +146,7 @@ class _PaletteRowDelegate(QStyledItemDelegate):
 
         # Title + inline muted subtitle
         tf = QFont(T.FONT_FAMILY_UI)
-        tf.setPixelSize(T.SIZE_BODY)
+        tf.setPixelSize(scale_px(T.SIZE_BODY))
         tf.setWeight(QFont.DemiBold if selected else QFont.Medium)
         painter.setFont(tf)
         fm_t = painter.fontMetrics()
@@ -161,7 +162,7 @@ class _PaletteRowDelegate(QStyledItemDelegate):
         rem_w = avail_w - title_w - 10
         if cmd.subtitle and rem_w > 48:
             sf = QFont(T.FONT_FAMILY_UI)
-            sf.setPixelSize(T.SIZE_CAPTION)
+            sf.setPixelSize(scale_px(T.SIZE_CAPTION))
             painter.setFont(sf)
             fm_s = painter.fontMetrics()
             sub_elided = fm_s.elidedText(cmd.subtitle, Qt.ElideRight, rem_w)
@@ -177,8 +178,8 @@ class _PaletteRowDelegate(QStyledItemDelegate):
     def sizeHint(self, option, index) -> QSize:
         kind = index.data(_ROLE_KIND)
         if kind == _KIND_HEADER:
-            return QSize(option.rect.width(), 24)
-        return QSize(option.rect.width(), 36)
+            return QSize(option.rect.width(), scale_row_height(24, minimum=22))
+        return QSize(option.rect.width(), scale_row_height(36, minimum=32))
 
 
 def _score_command(item: CommandItem, query: str) -> Optional[Tuple[int, str]]:
@@ -583,6 +584,7 @@ def build_static_command_items(window: object) -> List[CommandItem]:
         ("sys:task_mgr", "COM Task Manager", "Inspect Word/Visio/PPT background processes", "activity", getattr(window, "open_task_manager", None)),
         ("sys:java", "Java & PlantUML Engine", "Verify Java runtime & PlantUML JAR status", "cpu", getattr(window, "open_java_maintenance", None)),
         ("sys:mcp", "MCP Server & AI Cockpit", "Inspect stdio MCP tools and agent activity", "terminal", getattr(window, "open_mcp_monitor", None)),
+        ("sys:display_settings", "Display & Text Size", "Configure global font size presets (90%–140%) & readability scale", "settings", getattr(window, "open_display_settings", None)),
         ("sys:check_updates", "Check for App Updates", "Check GitHub master for new changes and update", "download", getattr(window, "open_app_updater", None)),
     ]
     for cid, title, sub, icon, fn in sys_actions:

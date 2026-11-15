@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.network.session import NetworkConfigDialog
+from core.ui.font_scale import register_scaled_row_height
 from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon, make_filter_label
 from core.ui.theme import C, R, S, T
 from core.ui.toast import notify_success
@@ -518,7 +519,7 @@ class MeetingsTab(QWidget):
         self.table.setSelectionMode(QTableView.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(36)
+        register_scaled_row_height(self.table, 36)
         self.table.setStyleSheet(f"""
             QTableView {{
                 border: none;

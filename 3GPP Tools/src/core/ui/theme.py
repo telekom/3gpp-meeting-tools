@@ -408,10 +408,12 @@ def load_app_fonts(app: Optional[object] = None) -> List[str]:
                     logger.warning("Failed to load bundled font: %s", font_file)
 
     if app is not None and hasattr(app, "setFont"):
+        from core.ui.font_scale import scale_px
+
         available = set(QFontDatabase().families())
         preferred = "Inter" if "Inter" in available else "Segoe UI"
         default_font = QFont(preferred)
-        default_font.setPixelSize(T.SIZE_BODY)
+        default_font.setPixelSize(scale_px(T.SIZE_BODY))
         app.setFont(default_font)
 
     if loaded_families:

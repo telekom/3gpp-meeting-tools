@@ -248,6 +248,7 @@ Built specifically with telecommunications and 3GPP standards workflows in mind,
 * **Collapsible Console & Queue Drawer (<kbd>Ctrl+J</kbd>):** Slide-up bottom drawer toggled from the Status Bar badge pill showing active queued item counts and unread error badges (auto-clears unread errors upon opening).
 * **Non-Blocking Smart Toasts:** Floating completion notifications in the bottom-right corner (automatically shifting left of the open right dock) with 1-click `[Open]` and `[Show in Folder]` actions for converted/exported files, as well as non-blocking status feedback across Meetings, Spec Search, Specifications, Work Items, Protocols, Assistant, and PlantUML Studio.
 * **Unified 2-Tier Workspace Ribbons & Carded Tables (`PageRibbonCard`):** Consistent carded top toolbars with wrapping responsive filter bars (`FlowLayout`), crisp Lucide SVG action icons, and centralized Slate + 3GPP Blue design tokens across all major engineering workspaces.
+* **Configurable Display & Text Size (<kbd>Settings ▾ → Display & Text Size...</kbd>) & Reader Zoom (<kbd>Ctrl++</kbd> / <kbd>Ctrl+-</kbd> / <kbd>Ctrl+0</kbd>):** Per-user typography scaling presets (`Compact 90%`, `Standard 100%`, `Comfortable 115%`, `Large 125%`, `Extra Large 140%`, or fine-tuned `85%–160%`) applied live across stylesheets, table rows, badges, and menus, plus quick keyboard zooming in PlantUML, Spec Search, Assistant, and Email reading panes.
 * **Persistent Workspace Layout (`QSettings`):** Automatically saves and restores window size/position (clamped safely to connected monitors), navigation rail collapse preference, right dock state/mode/width, drawer state/height, and active workspace tab across restarts.
 
 ### 📖 Help & Configurable Useful Links Menu
@@ -949,6 +950,14 @@ py -3.14 -m main_tools
 4. **Emergency Orphan Process Termination:**
    * If a background conversion or comparison hangs due to a modal prompt or blocked file lock, select the hanging process and click **Kill Process**.
    * Click **Kill All Office Processes** to immediately clean up all orphaned background Word, PowerPoint, and Visio processes in one click.
+
+---
+
+### 🔤 Adjusting Text Size & Zoom (Accessibility)
+Delegates with different display preferences or laptop screen sizes can customize text legibility per machine without affecting shared configs:
+
+1. **Global Text Size Presets:** Open **Settings ▾ $\rightarrow$ 🔤 Display & Text Size...** (or press <kbd>Ctrl+K</kbd> and search **Display & Text Size**). Choose from **Compact (90%)**, **Standard (100% · Default)**, **Comfortable (115%)**, **Large (125%)**, or **Extra Large (140%)**, or fine-tune with the `85%–160%` slider and click **Apply** / **OK** to update toolbars, menus, badges, and tables immediately.
+2. **Quick Reader & Editor Zoom:** Press <kbd>Ctrl++</kbd>, <kbd>Ctrl+-</kbd>, or <kbd>Ctrl+0</kbd> inside PlantUML Studio, Spec Search clause previews, Research Assistant conversations, or Email threads to zoom reading text on the fly.
 
 ---
 

@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (
     QScrollArea, QFormLayout, QShortcut
 )
 
+from core.ui.font_scale import register_scaled_row_height
 from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon, make_filter_label
 from core.ui.theme import C, R, S, T
 from core.ui.toast import notify_info, notify_success
@@ -431,7 +432,7 @@ class WorkItemsTab(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableView.SelectRows)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(34)
+        register_scaled_row_height(self.table, 34)
         self.table.setShowGrid(True)
         self.table.setStyleSheet(f"""
             QTableView {{

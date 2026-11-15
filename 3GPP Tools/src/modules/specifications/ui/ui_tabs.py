@@ -32,6 +32,12 @@ from PyQt5.QtWidgets import (
     QDialog,
 )
 
+from core.ui.font_scale import (
+    get_font_scale_notifier,
+    register_scaled_row_height,
+    scale_px,
+    scale_row_height,
+)
 from core.ui.icons import lucide_svg_path
 from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon, make_filter_label
 from core.ui.theme import C, R, S, T
@@ -166,6 +172,7 @@ class SpecificationsTab(QWidget):
         self.save_settings_timer.timeout.connect(self._save_settings)
 
         self._setup_ui()
+        get_font_scale_notifier().scale_changed.connect(self.on_font_scale_changed)
 
         # Lazy loading flag: table populates only when the tab becomes active
         self._is_loaded = False
@@ -287,7 +294,7 @@ class SpecificationsTab(QWidget):
         # Tier 1 Primary Actions
         self.sync_menu_btn = QPushButton("Sync && Fetch ▾")
         self.sync_menu_btn.setObjectName("primaryBtn")
-        self.sync_menu_btn.setFixedHeight(30)
+        self.sync_menu_btn.setMinimumHeight(scale_px(30))
         self.sync_menu_btn.setCursor(Qt.PointingHandCursor)
         apply_lucide_icon(self.sync_menu_btn, "globe", color=C.TEXT_ON_ACCENT, active_color=C.TEXT_ON_ACCENT, size=14)
 
@@ -325,7 +332,7 @@ class SpecificationsTab(QWidget):
 
         # Add Individual Specification Button
         self.add_spec_btn = QPushButton("Add Spec")
-        self.add_spec_btn.setFixedHeight(30)
+        self.add_spec_btn.setMinimumHeight(scale_px(30))
         self.add_spec_btn.setToolTip("Add and inspect an individual specification without running a full sync.")
         self.add_spec_btn.setCursor(Qt.PointingHandCursor)
         self.add_spec_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -340,7 +347,7 @@ class SpecificationsTab(QWidget):
 
         # Tier 1 Utility Actions (Right-Aligned)
         self.open_dir_btn = QPushButton("Open Folder")
-        self.open_dir_btn.setFixedHeight(30)
+        self.open_dir_btn.setMinimumHeight(scale_px(30))
         self.open_dir_btn.setToolTip("Open the local specifications storage directory in Explorer.")
         self.open_dir_btn.setCursor(Qt.PointingHandCursor)
         self.open_dir_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -349,7 +356,7 @@ class SpecificationsTab(QWidget):
         self.ribbon_card.add_utility_widget(self.open_dir_btn)
 
         self.settings_btn = QPushButton("Settings")
-        self.settings_btn.setFixedHeight(30)
+        self.settings_btn.setMinimumHeight(scale_px(30))
         self.settings_btn.setToolTip("Configure the local specifications download folder and paths.")
         self.settings_btn.setCursor(Qt.PointingHandCursor)
         self.settings_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -358,7 +365,7 @@ class SpecificationsTab(QWidget):
         self.ribbon_card.add_utility_widget(self.settings_btn)
 
         self.wipe_db_btn = QPushButton("Wipe DB")
-        self.wipe_db_btn.setFixedHeight(30)
+        self.wipe_db_btn.setMinimumHeight(scale_px(30))
         self.wipe_db_btn.setToolTip("Clear all specifications, file mappings, and reset the local database.")
         self.wipe_db_btn.setCursor(Qt.PointingHandCursor)
         self.wipe_db_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_DANGER)
@@ -393,7 +400,7 @@ class SpecificationsTab(QWidget):
         self.version_search_input.setText(self.saved_version)
         self.version_search_input.setClearButtonEnabled(True)
         self.version_search_input.setToolTip("Filter table by 3GPP release version (e.g. '15', '16.2', '17').")
-        self.version_search_input.setFixedWidth(105)
+        self.version_search_input.setMinimumWidth(scale_px(105))
         self.version_search_input.textChanged.connect(self._on_search_changed)
         search_layout.addWidget(self.version_search_input)
         self.ribbon_card.add_filter_widget(search_group)
@@ -592,13 +599,13 @@ class SpecificationsTab(QWidget):
         self.table.setHorizontalHeaderLabels(["Specification", "Title", "Version / Documents"])
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Interactive)
-        self.table.setColumnWidth(0, 200)
+        self.table.setColumnWidth(0, max(210, scale_px(210)))
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(2, QHeaderView.Interactive)
-        self.table.setColumnWidth(2, 435)
+        self.table.setColumnWidth(2, max(445, scale_px(445)))
 
         self.table.setShowGrid(False)
-        self.table.verticalHeader().setDefaultSectionSize(44)
+        register_scaled_row_height(self.table, 44)
         self.table.verticalHeader().setStyleSheet(f"""
             QHeaderView {{
                 background-color: {C.BG_CARD};
@@ -764,6 +771,13 @@ class SpecificationsTab(QWidget):
                 self.download_dir = new_path
                 self._save_settings()
                 self.refresh_table()
+
+    def on_font_scale_changed(self, _scale: float = 0.0):
+        """Adapt column widths and re-populate row widgets for the updated font scale."""
+        self.table.setColumnWidth(0, max(210, scale_px(210)))
+        self.table.setColumnWidth(2, max(445, scale_px(445)))
+        if getattr(self, "_is_loaded", False) or self.table.rowCount() > 0:
+            self.refresh_table()
 
     def _on_search_changed(self):
         self.search_timer.start()
@@ -1571,7 +1585,7 @@ class SpecificationsTab(QWidget):
                 spec_layout.setAlignment(Qt.AlignVCenter)
 
                 action_btn = HoverMenuButton("⋮")
-                action_btn.setFixedSize(20, 22)
+                action_btn.setFixedSize(scale_px(20), scale_px(22))
                 action_btn.setToolTip("Specification Actions")
                 action_btn.setCursor(Qt.PointingHandCursor)
                 action_btn.setStyleSheet(f"""
@@ -1667,7 +1681,7 @@ class SpecificationsTab(QWidget):
                 spec_type = (data["type"] or "TS").upper()
                 wg_name = (data.get("wg") or "").strip()
                 wg_badge = QLabel(wg_name if wg_name and wg_name != "-" else "—")
-                wg_badge.setMinimumWidth(48)
+                wg_badge.setMinimumWidth(max(48, scale_px(48)))
                 wg_badge.setAlignment(Qt.AlignCenter)
                 if wg_name and wg_name != "-":
                     wg_badge.setCursor(Qt.PointingHandCursor)
@@ -1742,20 +1756,21 @@ class SpecificationsTab(QWidget):
                     title_layout.addLayout(meta_row)
                     self.table.setCellWidget(row_idx, 1, title_widget)
                     # Give generous row height so wrapped titles and 11px tag pills never clip at the bottom edge.
-                    needed_h = max(64, title_widget.sizeHint().height() + 10)
+                    needed_h = max(scale_row_height(64), title_widget.sizeHint().height() + scale_px(12))
                     if len(title_text) > 55:
-                        needed_h = max(needed_h, 76)
+                        needed_h = max(needed_h, scale_row_height(78))
                     self.table.setRowHeight(row_idx, needed_h)
                 else:
                     self.table.setItem(row_idx, 1, QTableWidgetItem(title_text))
-                    self.table.setRowHeight(row_idx, 44)
+                    self.table.setRowHeight(row_idx, scale_row_height(44))
 
                 # --- COLUMN 2: Documents Action Bar ---
                 version_combo = QComboBox()
-                version_combo.setFixedWidth(250)
-                version_combo.setFixedHeight(30)
+                combo_w = max(255, scale_px(255))
+                version_combo.setFixedWidth(combo_w)
+                version_combo.setFixedHeight(max(30, scale_px(30)))
                 version_combo.setStyleSheet(self._version_combo_style)
-                version_combo.view().setMinimumWidth(265)
+                version_combo.view().setMinimumWidth(combo_w + 15)
 
                 # Snapshot local files in memory once per specification
                 local_files = []
@@ -1829,8 +1844,8 @@ class SpecificationsTab(QWidget):
                     version_combo.setItemData(item_idx, " • ".join(tooltips), Qt.ToolTipRole)
 
                 doc_action_btn = QPushButton()
-                doc_action_btn.setFixedWidth(150)
-                doc_action_btn.setFixedHeight(30)
+                doc_action_btn.setFixedWidth(max(150, scale_px(150)))
+                doc_action_btn.setFixedHeight(max(30, scale_px(30)))
                 doc_action_btn.setCursor(Qt.PointingHandCursor)
 
                 doc_menu = QMenu(self)
