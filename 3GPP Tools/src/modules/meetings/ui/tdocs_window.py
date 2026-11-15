@@ -905,7 +905,7 @@ class TDocsWindow(QWidget):
     def _apply_scaled_table_columns(self):
         """Scale TDocsWindow table column widths to match the current font scale."""
         header = self.table.horizontalHeader()
-        header.resizeSection(0, max(110, scale_px(110)))
+        header.resizeSection(0, max(120, scale_px(120)))
         header.resizeSection(1, max(100, scale_px(100)))
         header.resizeSection(2, max(200, scale_px(200)))
         header.resizeSection(3, max(100, scale_px(100)))

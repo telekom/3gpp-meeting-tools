@@ -956,7 +956,7 @@ py -3.14 -m main_tools
 ### 🔤 Adjusting Text Size & Zoom (Accessibility)
 Delegates with different display preferences or laptop screen sizes can customize text legibility per machine without affecting shared configs:
 
-1. **Global Text Size Presets:** Open **Settings ▾ $\rightarrow$ 🔤 Display & Text Size...** (or press <kbd>Ctrl+K</kbd> and search **Display & Text Size**). Choose from **Compact (90%)**, **Standard (100% · Default)**, **Comfortable (115%)**, **Large (125%)**, or **Extra Large (140%)**, or fine-tune with the `85%–160%` slider and click **Apply** / **OK** to update toolbars, menus, badges, and tables immediately.
+1. **Global Text Size Presets & Live Text Preview:** Open **Settings ▾ $\rightarrow$ 🔤 Display & Text Size...** (or press <kbd>Ctrl+K</kbd> and search **Display & Text Size**). Choose from **Compact (90%)**, **Standard (100% · Default)**, **Comfortable (115%)**, **Large (125%)**, or **Extra Large (140%)**, or fine-tune with the `85%–160%` slider while inspecting the real-time **Live Text Preview** card (`Body / Table / Caption` pixel readout) before clicking **Apply** / **OK** to update toolbars, dropdowns, badges, and tables immediately.
 2. **Quick Reader & Editor Zoom:** Press <kbd>Ctrl++</kbd>, <kbd>Ctrl+-</kbd>, or <kbd>Ctrl+0</kbd> inside PlantUML Studio, Spec Search clause previews, Research Assistant conversations, or Email threads to zoom reading text on the fly.
 
 ---

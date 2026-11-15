@@ -9,6 +9,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+SRC_DIR = Path(__file__).resolve().parent.parent / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
 from PyQt5.QtCore import QSettings
 from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QTableWidget, QTextBrowser
 
