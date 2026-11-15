@@ -8,7 +8,6 @@ from __future__ import annotations
 from typing import Dict, Optional
 
 from PyQt5.QtCore import QSettings, Qt
-from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -33,6 +32,7 @@ from core.ui.font_scale import (
     get_font_scale,
     preset_for_scale,
     scale_px,
+    set_unscaled_stylesheet,
 )
 from core.ui.page_ribbon import apply_lucide_icon
 from core.ui.theme import C, R, S, T
@@ -56,7 +56,7 @@ class DisplaySettingsDialog(QDialog):
         self._preset_cards: Dict[str, QFrame] = {}
 
         self.setWindowTitle("Display & Text Size")
-        self.setMinimumWidth(scale_px(560))
+        self.setMinimumWidth(scale_px(620))
         self.setModal(True)
 
         self._build_ui()
@@ -146,7 +146,7 @@ class DisplaySettingsDialog(QDialog):
         self.pct_badge = QLabel("100%")
         self.pct_badge.setObjectName("scalePctBadge")
         self.pct_badge.setAlignment(Qt.AlignCenter)
-        self.pct_badge.setMinimumWidth(58)
+        self.pct_badge.setMinimumWidth(max(58, scale_px(58)))
         slider_row.addWidget(self.pct_badge)
         presets_layout.addLayout(slider_row)
 
@@ -184,6 +184,7 @@ class DisplaySettingsDialog(QDialog):
         text_col.setSpacing(2)
         self.pv_title = QLabel("TS 23.501 · System architecture for the 5G System (5GS)")
         self.pv_title.setObjectName("previewTitleText")
+        self.pv_title.setWordWrap(True)
         self.pv_body = QLabel("Clause 5.2.3.2: AMF registration management & UDM subscription retrieval.")
         self.pv_body.setObjectName("previewBodyText")
         self.pv_body.setWordWrap(True)
@@ -286,6 +287,9 @@ class DisplaySettingsDialog(QDialog):
                 font-size: {T.SIZE_BODY}px;
                 font-weight: 600;
                 color: {C.TEXT_PRIMARY};
+                background: transparent;
+                spacing: 8px;
+                min-height: 22px;
             }}
             QLabel#scalePctBadge {{
                 background-color: {C.ACCENT_SOFT};
@@ -300,29 +304,6 @@ class DisplaySettingsDialog(QDialog):
                 background-color: {C.BG_SURFACE};
                 border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: {R.MD}px;
-            }}
-            QLabel#previewWgBadge {{
-                background-color: {C.WG_SA_BG};
-                color: {C.WG_SA_TEXT};
-                border: 1px solid {C.WG_SA_BORDER};
-                border-radius: {R.SM}px;
-                padding: 3px 8px;
-                font-weight: 700;
-            }}
-            QLabel#previewTitleText {{
-                color: {C.TEXT_PRIMARY};
-                font-weight: 700;
-            }}
-            QLabel#previewBodyText {{
-                color: {C.TEXT_BODY};
-            }}
-            QPushButton#previewActionBtn {{
-                background-color: {C.SUCCESS_SOFT};
-                color: {C.SUCCESS};
-                border: 1px solid {C.SUCCESS_BORDER};
-                border-radius: {R.MD}px;
-                padding: 5px 12px;
-                font-weight: 700;
             }}
         """)
 
@@ -340,10 +321,12 @@ class DisplaySettingsDialog(QDialog):
             for key, radio in self._preset_radios.items():
                 is_match = matched is not None and matched.key == key
                 radio.setChecked(is_match)
+                radio.update()
                 card = self._preset_cards[key]
                 card.setProperty("selected", is_match)
                 card.style().unpolish(card)
                 card.style().polish(card)
+                card.update()
             self.preset_group.setExclusive(True)
 
             self._update_preview(clamped)
@@ -358,24 +341,67 @@ class DisplaySettingsDialog(QDialog):
             f"Body {body_px}px · Table {table_px}px · Caption {caption_px}px"
         )
 
-        f_title = QFont(self.pv_title.font())
-        f_title.setPixelSize(body_px)
-        f_title.setBold(True)
-        self.pv_title.setFont(f_title)
-
-        f_body = QFont(self.pv_body.font())
-        f_body.setPixelSize(table_px)
-        self.pv_body.setFont(f_body)
-
-        f_badge = QFont(self.pv_badge.font())
-        f_badge.setPixelSize(caption_px)
-        f_badge.setBold(True)
-        self.pv_badge.setFont(f_badge)
-
-        f_btn = QFont(self.pv_btn.font())
-        f_btn.setPixelSize(table_px)
-        f_btn.setBold(True)
-        self.pv_btn.setFont(f_btn)
+        # Preview widgets opt out of global stylesheet multiplication so sliding
+        # between 85% and 160% renders exact target pixel sizes regardless of the
+        # active app scale (QWidget.setFont alone is overridden by QSS font rules).
+        badge_py = scale_px(3, scale=scale)
+        badge_px = scale_px(8, scale=scale)
+        set_unscaled_stylesheet(
+            self.pv_badge,
+            f"""
+            QLabel#previewWgBadge {{
+                background-color: {C.WG_SA_BG};
+                color: {C.WG_SA_TEXT};
+                border: 1px solid {C.WG_SA_BORDER};
+                border-radius: {R.SM}px;
+                padding: {badge_py}px {badge_px}px;
+                font-size: {caption_px}px;
+                font-weight: 700;
+            }}
+            """,
+        )
+        set_unscaled_stylesheet(
+            self.pv_title,
+            f"""
+            QLabel#previewTitleText {{
+                color: {C.TEXT_PRIMARY};
+                font-size: {body_px}px;
+                font-weight: 700;
+                background: transparent;
+            }}
+            """,
+        )
+        set_unscaled_stylesheet(
+            self.pv_body,
+            f"""
+            QLabel#previewBodyText {{
+                color: {C.TEXT_BODY};
+                font-size: {table_px}px;
+                font-weight: 400;
+                background: transparent;
+            }}
+            """,
+        )
+        btn_py = scale_px(5, scale=scale)
+        btn_px = scale_px(12, scale=scale)
+        set_unscaled_stylesheet(
+            self.pv_btn,
+            f"""
+            QPushButton#previewActionBtn {{
+                background-color: {C.SUCCESS_SOFT};
+                color: {C.SUCCESS};
+                border: 1px solid {C.SUCCESS_BORDER};
+                border-radius: {R.MD}px;
+                padding: {btn_py}px {btn_px}px;
+                font-size: {table_px}px;
+                font-weight: 700;
+            }}
+            """,
+        )
+        sample_row = self.pv_title.parentWidget()
+        if sample_row is not None and sample_row.layout() is not None:
+            sample_row.layout().invalidate()
+            sample_row.updateGeometry()
 
     def _on_preset_toggled(self, checked: bool, scale: float) -> None:
         if self._syncing_controls or not checked:
@@ -397,6 +423,7 @@ class DisplaySettingsDialog(QDialog):
             save=True,
             settings=self._settings,
         )
+        self.pct_badge.setMinimumWidth(max(58, scale_px(58)))
         self._apply_styles()
         self._sync_ui_from_scale(applied)
         return applied

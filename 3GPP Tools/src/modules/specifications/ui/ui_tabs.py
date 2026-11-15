@@ -387,7 +387,7 @@ class SpecificationsTab(QWidget):
         self.spec_search_input.setPlaceholderText("Spec # (e.g. 23.501) or title...")
         self.spec_search_input.setText(self.saved_search)
         self.spec_search_input.setClearButtonEnabled(True)
-        self.spec_search_input.setMinimumWidth(210)
+        self.spec_search_input.setMinimumWidth(scale_px(210))
         self.spec_search_input.setToolTip("Filter instantly by specification number or title keywords.")
         self.spec_search_input.textChanged.connect(self._on_search_changed)
         search_layout.addWidget(self.spec_search_input)
@@ -472,7 +472,7 @@ class SpecificationsTab(QWidget):
 
         self.wg_combo = CheckableComboBox("WG")
         self.wg_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
-        self.wg_combo.setMinimumWidth(125)
+        self.wg_combo.setMinimumWidth(scale_px(125))
         self.wg_combo.selectionChanged.connect(self._on_wg_filter_changed)
         self.wg_combo.setContextMenuPolicy(Qt.CustomContextMenu)
         self.wg_combo.customContextMenuRequested.connect(self._show_wg_context_menu)
@@ -480,7 +480,7 @@ class SpecificationsTab(QWidget):
 
         self.wg_scope_btn = QPushButton("Active WGs")
         self.wg_scope_btn.setCheckable(True)
-        self.wg_scope_btn.setMinimumHeight(26)
+        self.wg_scope_btn.setMinimumHeight(scale_px(26))
         self.wg_scope_btn.setCursor(Qt.PointingHandCursor)
         self.wg_scope_btn.setStyleSheet(SEGMENT_BTN_STYLE)
         self.wg_scope_btn.clicked.connect(self._toggle_wg_scope)
@@ -489,14 +489,14 @@ class SpecificationsTab(QWidget):
 
         self.series_combo = CheckableComboBox("Series")
         self.series_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
-        self.series_combo.setMinimumWidth(125)
+        self.series_combo.setMinimumWidth(scale_px(125))
         self.series_combo.addItems(self.filter_options.get("series", []))
         self.series_combo.selectionChanged.connect(self._on_series_filter_changed)
         wg_layout.addWidget(self.series_combo)
 
         self.tech_combo = CheckableComboBox("Tech")
         self.tech_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
-        self.tech_combo.setMinimumWidth(105)
+        self.tech_combo.setMinimumWidth(scale_px(105))
         self.tech_combo.addItems(self.filter_options.get("techs", []))
         self.tech_combo.selectionChanged.connect(self._on_tech_filter_changed)
         wg_layout.addWidget(self.tech_combo)
@@ -524,7 +524,8 @@ class SpecificationsTab(QWidget):
         tt_layout.addWidget(make_filter_label("Tag:"))
         self.tag_filter_combo = QComboBox()
         self.tag_filter_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
-        self.tag_filter_combo.setMinimumWidth(115)
+        self.tag_filter_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.tag_filter_combo.setMinimumWidth(scale_px(115))
         self.tag_filter_combo.currentIndexChanged.connect(self._on_tag_filter_changed)
         tt_layout.addWidget(self.tag_filter_combo)
 
@@ -773,7 +774,22 @@ class SpecificationsTab(QWidget):
                 self.refresh_table()
 
     def on_font_scale_changed(self, _scale: float = 0.0):
-        """Adapt column widths and re-populate row widgets for the updated font scale."""
+        """Adapt filter controls, column widths, and row widgets for the updated font scale."""
+        self.spec_search_input.setMinimumWidth(scale_px(210))
+        self.version_search_input.setMinimumWidth(scale_px(105))
+        self.wg_combo.setMinimumWidth(scale_px(125))
+        self.series_combo.setMinimumWidth(scale_px(125))
+        self.tech_combo.setMinimumWidth(scale_px(105))
+        self.tag_filter_combo.setMinimumWidth(scale_px(115))
+        self.wg_scope_btn.setMinimumHeight(scale_px(26))
+        for btn in (
+            self.sync_menu_btn,
+            self.add_spec_btn,
+            self.open_dir_btn,
+            self.settings_btn,
+            self.wipe_db_btn,
+        ):
+            btn.setMinimumHeight(scale_px(30))
         self.table.setColumnWidth(0, max(210, scale_px(210)))
         self.table.setColumnWidth(2, max(445, scale_px(445)))
         if getattr(self, "_is_loaded", False) or self.table.rowCount() > 0:

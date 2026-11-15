@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Tuple
 from PyQt5.QtCore import QObject, QSettings, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
+    QComboBox,
     QHeaderView,
     QPlainTextEdit,
     QTableView,
@@ -232,6 +233,9 @@ def install_font_scaling(app: Optional[QApplication]) -> None:
 
         def _scaled_widget_set_stylesheet(self_widget: QWidget, qss: str) -> None:
             raw_text = qss or ""
+            if self_widget.property("_font_scale_ignore"):
+                _ORIG_WIDGET_SET_STYLESHEET(self_widget, raw_text)
+                return
             base_qss = _resolve_unscaled_qss(raw_text)
             self_widget.setProperty("_font_scale_base_qss", base_qss)
             scaled = scale_stylesheet(base_qss, _CURRENT_SCALE)
@@ -252,6 +256,24 @@ def install_font_scaling(app: Optional[QApplication]) -> None:
             _ORIG_APP_SET_STYLESHEET(self_app, scaled)
 
         QApplication.setStyleSheet = _scaled_app_set_stylesheet  # type: ignore[method-assign]
+
+
+def set_unscaled_stylesheet(widget: QWidget, qss: str) -> None:
+    """
+    Apply a literal stylesheet without automatic font-scale multiplication.
+
+    Used by live preview widgets that explicitly format pixel sizes for a
+    previewed target scale rather than the active application scale.
+    """
+    widget.setProperty("_font_scale_ignore", True)
+    raw = qss or ""
+    if _ORIG_WIDGET_SET_STYLESHEET is not None:
+        _ORIG_WIDGET_SET_STYLESHEET(widget, raw)
+    else:
+        widget.setStyleSheet(raw)
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+    widget.updateGeometry()
 
 
 def register_scaled_row_height(view_or_header: object, base_row_height: int, minimum: Optional[int] = None) -> None:
@@ -281,7 +303,7 @@ def _refresh_registered_widgets(app: QApplication) -> None:
 
     for widget in app.allWidgets():
         try:
-            if _ORIG_WIDGET_SET_STYLESHEET is not None:
+            if not widget.property("_font_scale_ignore") and _ORIG_WIDGET_SET_STYLESHEET is not None:
                 base_qss = widget.property("_font_scale_base_qss")
                 if isinstance(base_qss, str):
                     scaled_qss = scale_stylesheet(base_qss, _CURRENT_SCALE)
@@ -289,6 +311,15 @@ def _refresh_registered_widgets(app: QApplication) -> None:
                     _ORIG_WIDGET_SET_STYLESHEET(widget, scaled_qss)
                     widget.style().unpolish(widget)
                     widget.style().polish(widget)
+
+            if isinstance(widget, QComboBox):
+                # Force Qt to invalidate cached AdjustToContentsOnFirstShow size hints.
+                if widget.sizeAdjustPolicy() == QComboBox.AdjustToContentsOnFirstShow:
+                    widget.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+                    widget.setSizeAdjustPolicy(QComboBox.AdjustToContentsOnFirstShow)
+                if widget.view() is not None:
+                    widget.view().doItemsLayout()
+                    widget.view().updateGeometry()
 
             if isinstance(widget, QHeaderView):
                 base_h = widget.property("_base_row_height")

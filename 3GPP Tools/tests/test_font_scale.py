@@ -127,12 +127,20 @@ class TestFontScale(unittest.TestCase):
         self.assertEqual(dlg.scale_slider.value(), 125)
         self.assertEqual(dlg.pct_badge.text(), "125%")
         self.assertIn("Body 16px", dlg.pv_metrics_label.text())
+        self.assertIn("font-size: 16px;", dlg.pv_title.styleSheet())
+        self.assertIn("font-size: 15px;", dlg.pv_body.styleSheet())
 
         dlg._on_apply_clicked()
         self.assertEqual(get_font_scale(), 1.25)
         self.assertEqual(load_font_scale(self.settings), 1.25)
+        # Active scale is now 1.25 — preview must NOT double-scale (16 * 1.25 = 20)!
+        self.assertIn("font-size: 16px;", dlg.pv_title.styleSheet())
+        dlg._preset_radios["xlarge"].setChecked(True)
+        self.assertIn("font-size: 18px;", dlg.pv_title.styleSheet())
+        self.assertIn("font-size: 17px;", dlg.pv_body.styleSheet())
 
         dlg._on_reset_clicked()
+        self.assertIn("font-size: 13px;", dlg.pv_title.styleSheet())
         dlg._on_ok_clicked()
         self.assertEqual(get_font_scale(), 1.0)
         self.assertEqual(load_font_scale(self.settings), 1.0)
@@ -143,6 +151,25 @@ class TestFontScale(unittest.TestCase):
         self.assertEqual(len(disp_items), 1)
         disp_items[0].callback()  # type: ignore[misc]
         self.assertEqual(dummy.display_opened, 1)
+
+    def test_checkable_combobox_size_hint_scales(self) -> None:
+        from core.ui.ui_components import SPEC_FILTER_COMBO_STYLE
+        from modules.meetings.ui.tdocs_components import CheckableComboBox
+
+        apply_font_scale(1.00, app=self.app, save=False)
+        combo = CheckableComboBox("Working Group")
+        combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
+        combo.addItems(["SA1", "SA2", "SA5"])
+        hint_100 = combo.sizeHint()
+        text_w_100 = combo.fontMetrics().horizontalAdvance("Working Group: All")
+        self.assertGreaterEqual(hint_100.width(), text_w_100 + 32)
+
+        apply_font_scale(1.40, app=self.app, save=False)
+        hint_140 = combo.sizeHint()
+        text_w_140 = combo.fontMetrics().horizontalAdvance("Working Group: All")
+        self.assertGreater(hint_140.width(), hint_100.width())
+        self.assertGreaterEqual(hint_140.width(), text_w_140 + 40)
+        self.assertGreater(hint_140.height(), hint_100.height())
 
     def test_reader_text_zoom_controls(self) -> None:
         browser = QTextBrowser()

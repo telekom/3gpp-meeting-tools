@@ -35,6 +35,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.font_scale import get_font_scale_notifier, scale_px
 from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon
 from core.ui.theme import C, R, S, T
 from core.ui.toast import notify_info, notify_success
@@ -481,7 +482,7 @@ class SpecSearchTab(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("🔍 Search exact substring or phrase (e.g. 'No-Transmit Zone', 'emergency', 'PDU session')...")
         self.search_input.setClearButtonEnabled(True)
-        self.search_input.setMinimumWidth(200)
+        self.search_input.setMinimumWidth(scale_px(200))
         self.search_input.setStyleSheet(f"""
             QLineEdit {{
                 padding: 5px 10px;
@@ -500,7 +501,8 @@ class SpecSearchTab(QWidget):
 
         self.clause_filter_input = QLineEdit()
         self.clause_filter_input.setPlaceholderText("Clause (e.g. 5.2)...")
-        self.clause_filter_input.setFixedWidth(150)
+        self.clause_filter_input.setMinimumWidth(scale_px(150))
+        self.clause_filter_input.setMaximumWidth(scale_px(240))
         self.clause_filter_input.setClearButtonEnabled(True)
         self.clause_filter_input.setStyleSheet(f"""
             QLineEdit {{
@@ -542,7 +544,7 @@ class SpecSearchTab(QWidget):
         self.cutoff_date_edit.setCalendarPopup(True)
         self.cutoff_date_edit.setDisplayFormat("yyyy-MM-dd")
         self.cutoff_date_edit.setDate(QDate.currentDate().addYears(-3))
-        self.cutoff_date_edit.setMinimumWidth(125)
+        self.cutoff_date_edit.setMinimumWidth(scale_px(125))
         self.cutoff_date_edit.setEnabled(False)
         self.cutoff_date_edit.setStyleSheet(f"""
             QDateEdit {{
@@ -878,7 +880,7 @@ class SpecSearchTab(QWidget):
             h_header.setSectionResizeMode(1, QHeaderView.Stretch)
             for c in range(2, model.columnCount()):
                 h_header.setSectionResizeMode(c, QHeaderView.Interactive)
-                table.setColumnWidth(c, 115)
+                table.setColumnWidth(c, max(115, scale_px(115)))
 
             table.clicked.connect(lambda idx, s=spec_num, t=table: self._on_tab_table_clicked(idx, s, t))
             table.doubleClicked.connect(lambda idx, s=spec_num, t=table: self._on_table_double_clicked(idx, s, t))

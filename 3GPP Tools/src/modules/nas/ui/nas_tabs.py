@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.font_scale import get_font_scale_notifier, scale_px
 from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon
 from core.ui.toast import notify_info
 from core.ui.ui_components import (
@@ -1438,15 +1439,15 @@ class NASTab(QWidget):
         h_header = self.matrix_table.horizontalHeader()
         if model.columnCount() > 0:
             h_header.setSectionResizeMode(0, QHeaderView.Interactive)
-            self.matrix_table.setColumnWidth(0, 75)
+            self.matrix_table.setColumnWidth(0, max(75, scale_px(75)))
 
             h_header.setSectionResizeMode(1, QHeaderView.Stretch)
             h_header.setSectionResizeMode(2, QHeaderView.Interactive)
-            self.matrix_table.setColumnWidth(2, 280)
+            self.matrix_table.setColumnWidth(2, max(280, scale_px(280)))
 
             for col in range(3, model.columnCount()):
                 h_header.setSectionResizeMode(col, QHeaderView.Interactive)
-                self.matrix_table.setColumnWidth(col, 130)
+                self.matrix_table.setColumnWidth(col, max(130, scale_px(130)))
 
     def _start_reverse_lookup(self, clause: str, ie_name: str, spec_num: Optional[str]):
         self._reverse_lookup_request_id += 1

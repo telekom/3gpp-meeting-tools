@@ -14,7 +14,11 @@ from PyQt5.QtWidgets import (
     QScrollArea, QFormLayout, QShortcut
 )
 
-from core.ui.font_scale import register_scaled_row_height
+from core.ui.font_scale import (
+    get_font_scale_notifier,
+    register_scaled_row_height,
+    scale_px,
+)
 from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon, make_filter_label
 from core.ui.theme import C, R, S, T
 from core.ui.toast import notify_info, notify_success
@@ -107,10 +111,41 @@ class WorkItemsTab(QWidget):
         self.save_filters_timer.timeout.connect(self._save_filters)
 
         self._setup_ui()
+        get_font_scale_notifier().scale_changed.connect(self.on_font_scale_changed)
         self._populate_filters()
         self._load_filters()
         self._update_chip_styles()
         self.refresh_table(reset_pagination=True)
+
+    def _apply_scaled_table_columns(self):
+        """Scale Work Items table column widths to match the current font scale."""
+        widths = (
+            (0, 50),
+            (1, 102),
+            (2, 124),
+            (4, 54),
+            (5, 130),
+            (6, 64),
+            (7, 106),
+            (8, 50),
+            (9, 174),
+            (10, 104),
+        )
+        for col_idx, base_w in widths:
+            self.table.setColumnWidth(col_idx, max(base_w, scale_px(base_w)))
+
+    def on_font_scale_changed(self, _scale: float = 0.0):
+        """Adapt filter boxes, dropdowns, buttons, and fixed table columns for the new font scale."""
+        self.search_input.setMinimumWidth(scale_px(210))
+        self.release_combo.setMinimumWidth(scale_px(130))
+        self.wg_combo.setMinimumWidth(scale_px(120))
+        self.status_combo.setMinimumWidth(scale_px(140))
+        for btn in (self.add_wi_btn, self.sync_tracked_btn, self.sync_btn):
+            btn.setMinimumHeight(scale_px(30))
+        for w in (self.search_input, self.release_combo, self.wg_combo, self.status_combo):
+            w.updateGeometry()
+        self._apply_scaled_table_columns()
+        self.table.viewport().update()
 
     def _save_filters(self):
         filters = {
@@ -244,7 +279,7 @@ class WorkItemsTab(QWidget):
         self.ribbon_card.add_primary_widget(self.progress_bar)
 
         self.add_wi_btn = QPushButton("Add WI")
-        self.add_wi_btn.setFixedHeight(30)
+        self.add_wi_btn.setMinimumHeight(scale_px(30))
         self.add_wi_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         apply_lucide_icon(self.add_wi_btn, "plus", size=14)
         self.add_wi_btn.setToolTip("Add and scrape an individual Work Item by ID or Portal URL without running a full sync.")
@@ -253,7 +288,7 @@ class WorkItemsTab(QWidget):
         self.ribbon_card.add_utility_widget(self.add_wi_btn)
 
         self.sync_tracked_btn = QPushButton("Update Tracked (0)")
-        self.sync_tracked_btn.setFixedHeight(30)
+        self.sync_tracked_btn.setMinimumHeight(scale_px(30))
         self.sync_tracked_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         apply_lucide_icon(self.sync_tracked_btn, "refresh-cw", size=14)
         self.sync_tracked_btn.setToolTip("Quickly update details and remarks for only your Starred and Following Work Items.")
@@ -263,7 +298,7 @@ class WorkItemsTab(QWidget):
 
         self.sync_btn = QPushButton("Sync 3GPP WIs")
         self.sync_btn.setObjectName("primaryBtn")
-        self.sync_btn.setFixedHeight(30)
+        self.sync_btn.setMinimumHeight(scale_px(30))
         apply_lucide_icon(self.sync_btn, "globe", color=C.TEXT_ON_ACCENT, active_color=C.TEXT_ON_ACCENT, size=14)
         self.sync_btn.setToolTip("Click to download and synchronize 3GPP Work Items in parallel from the server.")
         self.sync_btn.clicked.connect(self._start_sync)
@@ -281,7 +316,7 @@ class WorkItemsTab(QWidget):
         self.search_input.setStyleSheet(SPEC_FILTER_INPUT_STYLE)
         self.search_input.setPlaceholderText("Code, Acronym, or Name...")
         self.search_input.setClearButtonEnabled(True)
-        self.search_input.setMinimumWidth(210)
+        self.search_input.setMinimumWidth(scale_px(210))
         self.search_input.setToolTip("Filter the table instantly by typing keywords or WI code.")
         self.search_input.textChanged.connect(lambda: self.search_timer.start())
         search_layout.addWidget(self.search_input)
@@ -316,21 +351,22 @@ class WorkItemsTab(QWidget):
         self.release_combo = CheckableComboBox("Release")
         self.release_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
         self.release_combo.setToolTip("Filter by 3GPP Release")
-        self.release_combo.setMinimumWidth(130)
+        self.release_combo.setMinimumWidth(scale_px(130))
         self.release_combo.selectionChanged.connect(lambda _: self.search_timer.start())
         combos_layout.addWidget(self.release_combo)
 
         self.wg_combo = CheckableComboBox("WG")
         self.wg_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
         self.wg_combo.setToolTip("Filter by Working Group")
-        self.wg_combo.setMinimumWidth(120)
+        self.wg_combo.setMinimumWidth(scale_px(120))
         self.wg_combo.selectionChanged.connect(lambda _: self.search_timer.start())
         combos_layout.addWidget(self.wg_combo)
 
         self.status_combo = QComboBox()
         self.status_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
+        self.status_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.status_combo.setToolTip("Filter by Work Item completion status (End Date)")
-        self.status_combo.setMinimumWidth(140)
+        self.status_combo.setMinimumWidth(scale_px(140))
         self.status_combo.addItem("🟢 Active / Ongoing", "active")
         self.status_combo.addItem("All Statuses", "all")
         self.status_combo.addItem("🏁 Finished", "finished")
@@ -473,57 +509,38 @@ class WorkItemsTab(QWidget):
 
         # Column 0: Track (Fixed)
         header.setSectionResizeMode(0, QHeaderView.Fixed)
-        self.table.setColumnWidth(0, 50)
         self.tracking_delegate = TrackingDelegate(self.table)
         self.tracking_delegate.star_toggled.connect(self._toggle_star)
         self.tracking_delegate.follow_toggled.connect(self._toggle_follow)
         self.table.setItemDelegateForColumn(0, self.tracking_delegate)
 
-        # Column 1: Code (fits 7-digit Rel-19/20 Consolas 10pt bold ID e.g. '1100033' cleanly)
-        self.table.setColumnWidth(1, 106)
-
-        # Column 2: Acronym
-        self.table.setColumnWidth(2, 126)
-
         # Column 3: Name (Stretch — primary WI title gets remaining width)
         header.setSectionResizeMode(3, QHeaderView.Stretch)
 
-        # Column 4: WG
-        self.table.setColumnWidth(4, 54)
         self.wg_delegate = WgBadgeDelegate(self.table)
         self.table.setItemDelegateForColumn(4, self.wg_delegate)
 
-        # Column 5: Latest WID (fits full 'SP-260423' pill cleanly)
-        self.table.setColumnWidth(5, 122)
         self.wid_delegate = WidDelegate(self.table)
         self.wid_delegate.link_clicked.connect(self._log_and_forward_action)
         self.table.setItemDelegateForColumn(5, self.wid_delegate)
 
-        # Column 6: Release
-        self.table.setColumnWidth(6, 62)
         self.release_delegate = ReleaseBadgeDelegate(self.table)
         self.table.setItemDelegateForColumn(6, self.release_delegate)
 
-        # Column 7: Status (fits '🏁 Finished' pill cleanly)
-        self.table.setColumnWidth(7, 106)
         self.status_delegate = StatusBadgeDelegate(self.table)
         self.table.setItemDelegateForColumn(7, self.status_delegate)
 
-        # Column 8: Specs
-        self.table.setColumnWidth(8, 50)
         self.specs_delegate = SpecsDelegate(self.table)
         self.specs_delegate.specs_clicked.connect(self._on_specs_clicked)
         self.table.setItemDelegateForColumn(8, self.specs_delegate)
 
-        # Column 9: Timeline (fits 'YYYY-MM → YYYY-MM' without edge clipping)
-        self.table.setColumnWidth(9, 170)
         self.timeline_delegate = TimelineDelegate(self.table)
         self.table.setItemDelegateForColumn(9, self.timeline_delegate)
 
-        # Column 10: Remarks (Interactive compact width so Name stays readable on 14" screens)
-        self.table.setColumnWidth(10, 114)
         self.remarks_delegate = RemarksDelegate(self.table)
         self.table.setItemDelegateForColumn(10, self.remarks_delegate)
+
+        self._apply_scaled_table_columns()
 
         self.table.verticalScrollBar().valueChanged.connect(self._on_scroll)
         table_card_layout.addWidget(self.table, 1)

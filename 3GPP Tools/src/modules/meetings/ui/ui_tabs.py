@@ -13,7 +13,11 @@ from PyQt5.QtWidgets import (
 )
 
 from core.network.session import NetworkConfigDialog
-from core.ui.font_scale import register_scaled_row_height
+from core.ui.font_scale import (
+    get_font_scale_notifier,
+    register_scaled_row_height,
+    scale_px,
+)
 from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon, make_filter_label
 from core.ui.theme import C, R, S, T
 from core.ui.toast import notify_success
@@ -73,11 +77,57 @@ class MeetingsTab(QWidget):
         self.save_filters_timer.timeout.connect(self._save_filters)
 
         self._setup_ui()
+        get_font_scale_notifier().scale_changed.connect(self.on_font_scale_changed)
         self.search_controller.connect_signals()
 
         self._load_filters()
         self._update_last_meeting_btn()
         self.refresh_table()
+
+    def _apply_scaled_table_columns(self):
+        """Scale fixed table section widths so pills, dates, and TDoc ranges fit cleanly."""
+        header = self.table.horizontalHeader()
+        header.resizeSection(0, max(38, scale_px(38)))
+        header.resizeSection(1, max(96, scale_px(96)))
+        header.resizeSection(2, max(78, scale_px(78)))
+        header.resizeSection(3, max(100, scale_px(100)))
+        # col 4 Stretch (Location)
+        header.resizeSection(5, max(155, scale_px(155)))
+        header.resizeSection(6, max(215, scale_px(215)))
+
+    def on_font_scale_changed(self, _scale: float = 0.0):
+        """Adapt filter inputs, dropdowns, and fixed table columns for the new font scale."""
+        self.global_tdoc_input.setMinimumHeight(scale_px(30))
+        self.global_tdoc_input.setMinimumWidth(scale_px(250))
+        self.search_input.setMinimumHeight(scale_px(28))
+        self.search_input.setMinimumWidth(scale_px(210))
+
+        for btn in (self.btn_open_last, self.sync_menu_btn, self.reports_menu_btn, self.btn_config):
+            btn.setMinimumHeight(scale_px(30))
+        for btn in (
+            self.btn_open_tdoc,
+            self.btn_open_meeting,
+            self.btn_compare_active_word,
+            self.btn_copy_tdoc,
+            self.btn_reset_filters,
+        ):
+            btn.setMinimumHeight(scale_px(28))
+        for btn in self.tsg_buttons.values():
+            btn.setMinimumHeight(scale_px(26))
+        self.btn_update_tdoc_metadata.setMinimumHeight(scale_px(26))
+
+        for widget in (
+            self.wg_filter,
+            self.adhoc_filter,
+            self.type_filter,
+            self.date_preset_combo,
+            self.date_from,
+            self.date_to,
+        ):
+            widget.setMinimumHeight(scale_px(28))
+            widget.updateGeometry()
+
+        self._apply_scaled_table_columns()
 
     def _save_filters(self):
         filters = {
@@ -196,7 +246,7 @@ class MeetingsTab(QWidget):
         # 1. Quick Launch Last Meeting
         self.btn_open_last = QPushButton("Open Last Meeting")
         self.btn_open_last.setObjectName("primaryBtn")
-        self.btn_open_last.setFixedHeight(30)
+        self.btn_open_last.setMinimumHeight(scale_px(30))
         self.btn_open_last.setCursor(Qt.PointingHandCursor)
         apply_lucide_icon(self.btn_open_last, "play", color=C.TEXT_ON_ACCENT, active_color=C.TEXT_ON_ACCENT, size=13)
         self.btn_open_last.clicked.connect(self._open_last_meeting)
@@ -220,8 +270,8 @@ class MeetingsTab(QWidget):
         self.global_tdoc_input = QLineEdit()
         self.global_tdoc_input.setStyleSheet(SPEC_FILTER_INPUT_STYLE)
         self.global_tdoc_input.setPlaceholderText("Jump to TDoc (e.g., S2-2605740)...")
-        self.global_tdoc_input.setFixedHeight(30)
-        self.global_tdoc_input.setMinimumWidth(205)
+        self.global_tdoc_input.setMinimumHeight(scale_px(30))
+        self.global_tdoc_input.setMinimumWidth(scale_px(250))
         self.global_tdoc_input.setClearButtonEnabled(True)
         self.global_tdoc_input.setContextMenuPolicy(Qt.CustomContextMenu)
         self.global_tdoc_input.customContextMenuRequested.connect(self._on_tdoc_input_context_menu)
@@ -231,7 +281,7 @@ class MeetingsTab(QWidget):
         self.btn_open_tdoc = QPushButton("Doc")
         self.btn_open_tdoc.setObjectName("primaryBtn")
         self.btn_open_tdoc.setCursor(Qt.PointingHandCursor)
-        self.btn_open_tdoc.setFixedHeight(28)
+        self.btn_open_tdoc.setMinimumHeight(scale_px(28))
         self.btn_open_tdoc.setVisible(False)
         apply_lucide_icon(self.btn_open_tdoc, "file-text", color=C.TEXT_ON_ACCENT, active_color=C.TEXT_ON_ACCENT, size=13)
         self.btn_open_tdoc.setToolTip("Download and open the specified TDoc directly in Microsoft Word.")
@@ -240,7 +290,7 @@ class MeetingsTab(QWidget):
         self.btn_open_meeting = QPushButton("Mtg")
         self.btn_open_meeting.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.btn_open_meeting.setCursor(Qt.PointingHandCursor)
-        self.btn_open_meeting.setFixedHeight(28)
+        self.btn_open_meeting.setMinimumHeight(scale_px(28))
         self.btn_open_meeting.setVisible(False)
         apply_lucide_icon(self.btn_open_meeting, "calendar", size=13)
         self.btn_open_meeting.setToolTip("Open the full meeting table containing this TDoc.")
@@ -249,7 +299,7 @@ class MeetingsTab(QWidget):
         self.btn_compare_active_word = QPushButton("vs Word")
         self.btn_compare_active_word.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.btn_compare_active_word.setCursor(Qt.PointingHandCursor)
-        self.btn_compare_active_word.setFixedHeight(28)
+        self.btn_compare_active_word.setMinimumHeight(scale_px(28))
         self.btn_compare_active_word.setVisible(False)
         apply_lucide_icon(self.btn_compare_active_word, "git-compare", size=13)
         self.btn_compare_active_word.setToolTip(
@@ -260,7 +310,7 @@ class MeetingsTab(QWidget):
         self.btn_copy_tdoc = QPushButton("Copy ▾")
         self.btn_copy_tdoc.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.btn_copy_tdoc.setCursor(Qt.PointingHandCursor)
-        self.btn_copy_tdoc.setFixedHeight(28)
+        self.btn_copy_tdoc.setMinimumHeight(scale_px(28))
         self.btn_copy_tdoc.setVisible(False)
         apply_lucide_icon(self.btn_copy_tdoc, "copy", size=13)
         self.btn_copy_tdoc.setToolTip("Copy TDoc number, title, citation, or direct 3GPP download URLs to clipboard.")
@@ -273,7 +323,7 @@ class MeetingsTab(QWidget):
 
         self.btn_update_tdoc_metadata = QPushButton("Update metadata")
         self.btn_update_tdoc_metadata.setStyleSheet(BUTTON_STYLE_TOOLBAR_WARNING)
-        self.btn_update_tdoc_metadata.setFixedHeight(26)
+        self.btn_update_tdoc_metadata.setMinimumHeight(scale_px(26))
         self.btn_update_tdoc_metadata.setVisible(False)
         apply_lucide_icon(self.btn_update_tdoc_metadata, "refresh-cw", color=C.WARNING, size=13)
         self.btn_update_tdoc_metadata.setToolTip("Deep-scrape Docs/ folders to rebuild missing first/last TDoc ranges.")
@@ -285,7 +335,7 @@ class MeetingsTab(QWidget):
         # 3. Network Sync Menu (Utility bar)
         self.sync_menu_btn = QPushButton("Sync ▾")
         self.sync_menu_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.sync_menu_btn.setFixedHeight(30)
+        self.sync_menu_btn.setMinimumHeight(scale_px(30))
         self.sync_menu_btn.setCursor(Qt.PointingHandCursor)
         apply_lucide_icon(self.sync_menu_btn, "refresh-cw", size=14)
         self.sync_menu_btn.setToolTip("Synchronization and FTP scraping options...")
@@ -311,7 +361,7 @@ class MeetingsTab(QWidget):
         # 4. Reports & Analytics Menu
         self.reports_menu_btn = QPushButton("Reports ▾")
         self.reports_menu_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.reports_menu_btn.setFixedHeight(30)
+        self.reports_menu_btn.setMinimumHeight(scale_px(30))
         self.reports_menu_btn.setCursor(Qt.PointingHandCursor)
         apply_lucide_icon(self.reports_menu_btn, "bar-chart-2", size=14)
         self.reports_menu_btn.setToolTip("Reports, analytics, and consolidated exports...")
@@ -344,7 +394,7 @@ class MeetingsTab(QWidget):
         # 5. Settings Button
         self.btn_config = QPushButton("Settings")
         self.btn_config.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_config.setFixedHeight(30)
+        self.btn_config.setMinimumHeight(scale_px(30))
         self.btn_config.setCursor(Qt.PointingHandCursor)
         apply_lucide_icon(self.btn_config, "settings", size=14)
         self.btn_config.setToolTip("Open Meetings & Cache Configuration...")
@@ -365,8 +415,8 @@ class MeetingsTab(QWidget):
         self.search_input.setStyleSheet(SPEC_FILTER_INPUT_STYLE)
         self.search_input.setPlaceholderText("Filter number, city, or title...")
         self.search_input.setClearButtonEnabled(True)
-        self.search_input.setFixedHeight(28)
-        self.search_input.setMinimumWidth(200)
+        self.search_input.setMinimumHeight(scale_px(28))
+        self.search_input.setMinimumWidth(scale_px(210))
         self.search_input.setToolTip("Filter visible meetings by meeting number, host city, or title.")
         self.search_input.textChanged.connect(self.refresh_table)
         search_layout.addWidget(self.search_input)
@@ -388,7 +438,7 @@ class MeetingsTab(QWidget):
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setStyleSheet(SEGMENT_BTN_STYLE)
-            btn.setFixedHeight(26)
+            btn.setMinimumHeight(scale_px(26))
             btn.setToolTip(f"Filter meetings under TSG {t_label}" if t_val else "Show meetings across all TSGs")
             btn.clicked.connect(lambda _, tv=t_val: self._on_tsg_button_clicked(tv))
             self.tsg_buttons[t_val] = btn
@@ -408,8 +458,7 @@ class MeetingsTab(QWidget):
 
         self.wg_filter = CheckableComboBox("Working Group")
         self.wg_filter.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
-        self.wg_filter.setMinimumWidth(130)
-        self.wg_filter.setFixedHeight(28)
+        self.wg_filter.setMinimumHeight(scale_px(28))
         self.wg_filter.setToolTip("Filter meetings by Working Group (e.g., SA2, RAN1).")
         self.wg_filter.selectionChanged.connect(self.refresh_table)
         wg_layout.addWidget(self.wg_filter)
@@ -424,16 +473,18 @@ class MeetingsTab(QWidget):
 
         self.adhoc_filter = QComboBox()
         self.adhoc_filter.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
+        self.adhoc_filter.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.adhoc_filter.addItems(["All Meetings", "Regular", "Ad-Hoc / BIS"])
-        self.adhoc_filter.setFixedHeight(28)
+        self.adhoc_filter.setMinimumHeight(scale_px(28))
         self.adhoc_filter.setToolTip("Filter by regular vs. ad-hoc meetings.")
         self.adhoc_filter.currentTextChanged.connect(self.refresh_table)
         nature_layout.addWidget(self.adhoc_filter)
 
         self.type_filter = QComboBox()
         self.type_filter.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
+        self.type_filter.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.type_filter.addItems(["All Formats", "In-Person", "Electronic"])
-        self.type_filter.setFixedHeight(28)
+        self.type_filter.setMinimumHeight(scale_px(28))
         self.type_filter.setToolTip("Filter by in-person vs. electronic meetings.")
         self.type_filter.currentTextChanged.connect(self.refresh_table)
         nature_layout.addWidget(self.type_filter)
@@ -451,8 +502,9 @@ class MeetingsTab(QWidget):
 
         self.date_preset_combo = QComboBox()
         self.date_preset_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
+        self.date_preset_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.date_preset_combo.addItems(["All Dates", "Upcoming", "This Year", "Past 12 Months", "Custom Range..."])
-        self.date_preset_combo.setFixedHeight(28)
+        self.date_preset_combo.setMinimumHeight(scale_px(28))
         self.date_preset_combo.setToolTip("Quickly scope meetings by date presets or select a custom range.")
         self.date_preset_combo.currentIndexChanged.connect(self._on_date_preset_changed)
         dates_layout.addWidget(self.date_preset_combo)
@@ -463,7 +515,7 @@ class MeetingsTab(QWidget):
 
         self.date_from = QDateEdit()
         self.date_from.setCalendarPopup(True)
-        self.date_from.setFixedHeight(28)
+        self.date_from.setMinimumHeight(scale_px(28))
         self.date_from.setDate(QDate.currentDate().addYears(-1))
         self.date_from.setToolTip("Filter meetings starting on or after this date.")
         self.date_from.dateChanged.connect(self.refresh_table)
@@ -479,7 +531,7 @@ class MeetingsTab(QWidget):
 
         self.date_to = QDateEdit()
         self.date_to.setCalendarPopup(True)
-        self.date_to.setFixedHeight(28)
+        self.date_to.setMinimumHeight(scale_px(28))
         self.date_to.setDate(QDate.currentDate().addYears(1))
         self.date_to.setToolTip("Filter meetings ending on or before this date.")
         self.date_to.dateChanged.connect(self.refresh_table)
@@ -491,7 +543,7 @@ class MeetingsTab(QWidget):
         # Reset Filters Button
         self.btn_reset_filters = QPushButton("Clear")
         self.btn_reset_filters.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_reset_filters.setFixedHeight(28)
+        self.btn_reset_filters.setMinimumHeight(scale_px(28))
         self.btn_reset_filters.setCursor(Qt.PointingHandCursor)
         apply_lucide_icon(self.btn_reset_filters, "rotate-ccw", size=13)
         self.btn_reset_filters.setToolTip("Reset all filters to defaults.")
@@ -572,13 +624,7 @@ class MeetingsTab(QWidget):
         header.setSectionResizeMode(5, QHeaderView.Fixed)
         header.setSectionResizeMode(6, QHeaderView.Fixed)
 
-        header.resizeSection(0, 38)
-        header.resizeSection(1, 90)
-        header.resizeSection(2, 75)
-        header.resizeSection(3, 95)
-        # col 4 Stretch (Location)
-        header.resizeSection(5, 145)
-        header.resizeSection(6, 185)
+        self._apply_scaled_table_columns()
 
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_right_click_menu)

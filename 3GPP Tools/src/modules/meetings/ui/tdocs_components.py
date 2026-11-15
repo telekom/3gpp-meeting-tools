@@ -1,7 +1,7 @@
 # --- File: src/modules/meetings/ui/tdocs_components.py ---
 import logging
 from pathlib import Path
-from PyQt5.QtCore import pyqtSignal, QEvent, Qt, QPoint
+from PyQt5.QtCore import pyqtSignal, QEvent, Qt, QPoint, QSize
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QPalette, QColor, QBrush, QCursor
 from PyQt5.QtWidgets import (
     QComboBox,
@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QToolTip,
     QWidget,
 )
+from core.ui.font_scale import get_font_scale_notifier, scale_px
 from core.ui.theme import C
 
 
@@ -37,11 +38,56 @@ class CheckableComboBox(QComboBox):
         self.setModel(QStandardItemModel(self))
 
         self._updating = False
+        self._current_summary_text = f"{self.title}: All"
 
         # Install filter ONLY to catch clicks on the dropdown list (viewport)
         self.view().viewport().installEventFilter(self)
+        get_font_scale_notifier().scale_changed.connect(self._on_font_scale_changed)
+
+    def _on_font_scale_changed(self, _scale: float = 0.0) -> None:
+        """Recompute custom summary width/height when global text scaling changes."""
+        self.updateGeometry()
+        self.update()
+
+    def _compute_summary_size_hint(self) -> QSize:
+        """Compute sizeHint from the rendered summary string rather than raw model item text."""
+        base = super().sizeHint()
+        fm = self.fontMetrics()
+        current_text = getattr(self, "_current_summary_text", "") or f"{self.title}: All"
+        candidates = (
+            current_text,
+            f"{self.title}: All",
+            f"{self.title}: 99 sel",
+            f"{self.title}: None",
+        )
+        max_text_w = max(fm.horizontalAdvance(text) for text in candidates)
+        opt = QStyleOptionComboBox()
+        self.initStyleOption(opt)
+        styled = self.style().sizeFromContents(
+            QStyle.CT_ComboBox,
+            opt,
+            QSize(max_text_w + scale_px(18), max(fm.height(), scale_px(16))),
+            self,
+        )
+        width = max(base.width(), styled.width(), max_text_w + scale_px(42))
+        height = max(base.height(), styled.height(), fm.height() + scale_px(10))
+        return QSize(width, height)
+
+    def sizeHint(self) -> QSize:
+        return self._compute_summary_size_hint()
+
+    def minimumSizeHint(self) -> QSize:
+        return self._compute_summary_size_hint()
 
     def showPopup(self):
+        if self.view() is not None:
+            fm = self.view().fontMetrics()
+            max_item_w = 0
+            for row in range(self.model().rowCount()):
+                item = self.model().item(row)
+                if item and item.text():
+                    max_item_w = max(max_item_w, fm.horizontalAdvance(item.text()))
+            self.view().setMinimumWidth(max(self.width(), max_item_w + scale_px(56)))
         super().showPopup()
         if self.view():
             self.view().scrollToTop()
@@ -77,7 +123,10 @@ class CheckableComboBox(QComboBox):
             self.style().unpolish(self)
             self.style().polish(self)
 
+        prev_text = getattr(self, "_current_summary_text", None)
         self._current_summary_text = text
+        if prev_text != text:
+            self.updateGeometry()
         return text
 
     def paintEvent(self, event):

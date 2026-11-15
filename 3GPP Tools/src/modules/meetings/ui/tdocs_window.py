@@ -18,7 +18,11 @@ from PyQt5.QtWidgets import (
 )
 
 from core.network.network_state import NetworkState
-from core.ui.font_scale import register_scaled_row_height
+from core.ui.font_scale import (
+    get_font_scale_notifier,
+    register_scaled_row_height,
+    scale_px,
+)
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY
 )
@@ -423,7 +427,8 @@ class TDocsWindow(QWidget):
             tip="Bypasses table scrolling completely when documents are called up live in the meeting room."
         ))
         self.instant_fetch_input.setText(self._get_tdoc_prefix())
-        self.instant_fetch_input.setFixedWidth(120)
+        self.instant_fetch_input.setMinimumWidth(scale_px(120))
+        self.instant_fetch_input.setMaximumWidth(scale_px(160))
         self.instant_fetch_input.returnPressed.connect(self._on_instant_fetch)
         self.instant_fetch_input.setFocus()
         self.instant_fetch_input.setCursorPosition(len(self.instant_fetch_input.text()))
@@ -644,14 +649,14 @@ class TDocsWindow(QWidget):
             '• Substrings & numbers: S2-260855, TS 23.501'
         )
         self.search_input.setClearButtonEnabled(True)
-        self.search_input.setMinimumWidth(160)
+        self.search_input.setMinimumWidth(scale_px(160))
         self.search_input.textChanged.connect(lambda _: self.search_timer.start())
         filter_layout.addWidget(self.search_input, stretch=2)
 
         self.btn_followed_wis = QPushButton("🎯")
         self.btn_followed_wis.setCheckable(True)
         self.btn_followed_wis.setCursor(Qt.PointingHandCursor)
-        self.btn_followed_wis.setFixedSize(30, 28)
+        self.btn_followed_wis.setFixedSize(scale_px(30), scale_px(28))
         self.btn_followed_wis.setContextMenuPolicy(Qt.CustomContextMenu)
         self.btn_followed_wis.customContextMenuRequested.connect(self._show_tracked_wi_context_menu)
         self.btn_followed_wis.setToolTip(make_rich_tooltip(
@@ -665,7 +670,7 @@ class TDocsWindow(QWidget):
         self.btn_starred_wis = QPushButton("⭐")
         self.btn_starred_wis.setCheckable(True)
         self.btn_starred_wis.setCursor(Qt.PointingHandCursor)
-        self.btn_starred_wis.setFixedSize(30, 28)
+        self.btn_starred_wis.setFixedSize(scale_px(30), scale_px(28))
         self.btn_starred_wis.setContextMenuPolicy(Qt.CustomContextMenu)
         self.btn_starred_wis.customContextMenuRequested.connect(self._show_tracked_wi_context_menu)
         self.btn_starred_wis.setToolTip(make_rich_tooltip(
@@ -679,7 +684,7 @@ class TDocsWindow(QWidget):
         self.btn_agreements_filter = QPushButton("⚖️")
         self.btn_agreements_filter.setCheckable(True)
         self.btn_agreements_filter.setCursor(Qt.PointingHandCursor)
-        self.btn_agreements_filter.setFixedSize(30, 28)
+        self.btn_agreements_filter.setFixedSize(scale_px(30), scale_px(28))
         self.btn_agreements_filter.setToolTip(make_rich_tooltip(
             title="⚖️ Chairman's Notes Agreements Filter (RAN)",
             description="Filter table to only TDocs with Chairman's Notes text agreements or working assumptions.",
@@ -703,7 +708,7 @@ class TDocsWindow(QWidget):
         filter_layout.addWidget(_make_vsep())
 
         self.company_combo = CheckableComboBox("Company")
-        self.company_combo.setMaximumWidth(160)
+        self.company_combo.setMaximumWidth(scale_px(200))
         self.company_combo.setContextMenuPolicy(Qt.CustomContextMenu)
         self.company_combo.customContextMenuRequested.connect(self._show_company_filter_context_menu)
         self.company_combo.setToolTip(
@@ -714,38 +719,38 @@ class TDocsWindow(QWidget):
         filter_layout.addWidget(self.company_combo)
 
         self.type_combo = CheckableComboBox("Type")
-        self.type_combo.setMaximumWidth(110)
+        self.type_combo.setMaximumWidth(scale_px(150))
         self.type_combo.setToolTip('Filter by TDoc type. Grey entries currently have no intersection with the other active filters but remain selectable.')
         self.type_combo.selectionChanged.connect(self._on_type_changed)
         filter_layout.addWidget(self.type_combo)
 
         self.ai_combo = CheckableComboBox("AI")
-        self.ai_combo.setMaximumWidth(110)
+        self.ai_combo.setMaximumWidth(scale_px(150))
         self.ai_combo.setToolTip('Filter by Agenda Item. When agenda.csv is available, associated acronyms are shown in parentheses.')
         self.ai_combo.selectionChanged.connect(self._on_ai_changed)
         filter_layout.addWidget(self.ai_combo)
 
         self.sub_item_combo = CheckableComboBox("Sub-Item")
-        self.sub_item_combo.setMaximumWidth(130)
+        self.sub_item_combo.setMaximumWidth(scale_px(175))
         self.sub_item_combo.setToolTip('Filter by Agenda Sub-Item / topic separator from TdocsByAgenda.htm or Chairman notes.')
         self.sub_item_combo.selectionChanged.connect(self._on_sub_item_changed)
         self.sub_item_combo.setVisible(False)
         filter_layout.addWidget(self.sub_item_combo)
 
         self.wi_combo = CheckableComboBox("WI")
-        self.wi_combo.setMaximumWidth(120)
+        self.wi_combo.setMaximumWidth(scale_px(160))
         self.wi_combo.setToolTip('Filter by the Related WIs metadata from the official TDoc list. Grey entries currently have no intersection with the other active filters.')
         self.wi_combo.selectionChanged.connect(self._on_wi_changed)
         filter_layout.addWidget(self.wi_combo)
 
         self.status_combo = CheckableComboBox("TDoc Status")
-        self.status_combo.setMaximumWidth(125)
+        self.status_combo.setMaximumWidth(scale_px(185))
         self.status_combo.setToolTip('Filter by the meeting/secretary TDoc status.')
         self.status_combo.selectionChanged.connect(self._on_status_changed)
         filter_layout.addWidget(self.status_combo)
 
         self.my_status_combo = CheckableComboBox("My Status")
-        self.my_status_combo.setMaximumWidth(120)
+        self.my_status_combo.setMaximumWidth(scale_px(175))
         self.my_status_combo.setToolTip('Filter by your personal TDoc status.')
         self.my_status_combo.selectionChanged.connect(self._on_my_status_changed)
         filter_layout.addWidget(self.my_status_combo)
@@ -764,7 +769,8 @@ class TDocsWindow(QWidget):
         filter_layout.addWidget(order_lbl)
 
         self.order_combo = QComboBox()
-        self.order_combo.setMaximumWidth(155)
+        self.order_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.order_combo.setMaximumWidth(scale_px(195))
         self.order_combo.setToolTip(
             "Change the display ordering of TDocs.\n"
             "• 📋 Agenda Order: Sort by Agenda Item and Sub-Item discussion order (superseded by TdocsByAgenda.htm).\n"
@@ -856,22 +862,12 @@ class TDocsWindow(QWidget):
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
-        header.resizeSection(0, 110)
-        header.resizeSection(1, 100)
-        header.resizeSection(2, 200)
-        header.resizeSection(3, 100)
         header.setSectionResizeMode(6, QHeaderView.Fixed)
-        header.resizeSection(6, 28)
         header.setSectionResizeMode(7, QHeaderView.Stretch)
-        header.resizeSection(8, 90)
         header.setSectionResizeMode(9, QHeaderView.Fixed)
-        header.resizeSection(9, 28)
-        header.resizeSection(10, 115)
-        header.resizeSection(12, 160)
+        self._apply_scaled_table_columns()
         header.sectionClicked.connect(self._on_header_section_clicked)
-
-        if len(self.model._headers) > 13:
-            header.resizeSection(13, 85)
+        get_font_scale_notifier().scale_changed.connect(self._on_font_scale_changed)
 
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
@@ -905,6 +901,43 @@ class TDocsWindow(QWidget):
         from PyQt5.QtGui import QKeySequence
         self.copy_shortcut = QShortcut(QKeySequence.Copy, self.table)
         self.copy_shortcut.activated.connect(self._copy_table_selection)
+
+    def _apply_scaled_table_columns(self):
+        """Scale TDocsWindow table column widths to match the current font scale."""
+        header = self.table.horizontalHeader()
+        header.resizeSection(0, max(110, scale_px(110)))
+        header.resizeSection(1, max(100, scale_px(100)))
+        header.resizeSection(2, max(200, scale_px(200)))
+        header.resizeSection(3, max(100, scale_px(100)))
+        header.resizeSection(6, max(28, scale_px(28)))
+        header.resizeSection(8, max(90, scale_px(90)))
+        header.resizeSection(9, max(28, scale_px(28)))
+        header.resizeSection(10, max(115, scale_px(115)))
+        header.resizeSection(12, max(160, scale_px(160)))
+        if len(self.model._headers) > 13:
+            header.resizeSection(13, max(85, scale_px(85)))
+
+    def _on_font_scale_changed(self, _scale: float = 0.0):
+        """Update filter dropdown caps, toolbar buttons, and column widths when font scale changes."""
+        self.instant_fetch_input.setMinimumWidth(scale_px(120))
+        self.instant_fetch_input.setMaximumWidth(scale_px(160))
+        self.search_input.setMinimumWidth(scale_px(160))
+        for btn in (self.btn_followed_wis, self.btn_starred_wis, self.btn_agreements_filter):
+            btn.setFixedSize(scale_px(30), scale_px(28))
+        caps = (
+            (self.company_combo, 200),
+            (self.type_combo, 150),
+            (self.ai_combo, 150),
+            (self.sub_item_combo, 175),
+            (self.wi_combo, 160),
+            (self.status_combo, 185),
+            (self.my_status_combo, 175),
+            (self.order_combo, 195),
+        )
+        for combo, base_max in caps:
+            combo.setMaximumWidth(scale_px(base_max))
+            combo.updateGeometry()
+        self._apply_scaled_table_columns()
 
     def _setup_cache(self):
         agenda_dir = self.meeting_dir / "Agenda"
