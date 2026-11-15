@@ -227,8 +227,18 @@ class TestPhase3CommandPalette(unittest.TestCase):
             proto_hits[0].callback()
             self.assertEqual(proto_opened, [("NAS", "REGISTRATION REQUEST")])
 
-            # --- Filter-safe UI helpers on real tab widgets ---
-            specs_tab = SpecificationsTab(data_db)
+            # --- Filter-safe UI helpers on real tab widgets (isolated temp configs) ---
+            from core.utils.paths import get_project_root
+
+            live_specs_cfg = get_project_root() / "config" / "specs_config.json"
+            live_before = (
+                live_specs_cfg.read_text(encoding="utf-8")
+                if live_specs_cfg.exists()
+                else None
+            )
+
+            specs_cfg = tmp_dir / "specs_config.json"
+            specs_tab = SpecificationsTab(data_db, config_file=specs_cfg)
             specs_tab.favorites = set()
             specs_tab.favorites_only = True
             specs_tab.fav_chip.setChecked(True)  # Hide non-favorites
@@ -236,18 +246,28 @@ class TestPhase3CommandPalette(unittest.TestCase):
             self.app.processEvents()
             self.assertFalse(specs_tab.favorites_only)
             self.assertGreaterEqual(specs_tab.table.rowCount(), 1)
+            specs_tab.save_settings_timer.stop()
             specs_tab.close()
 
-            mtgs_tab = MeetingsTab(data_db)
+            if live_before is not None:
+                self.assertEqual(
+                    live_specs_cfg.read_text(encoding="utf-8"),
+                    live_before,
+                )
+
+            mtgs_cfg = tmp_dir / "meetings_config.json"
+            mtgs_tab = MeetingsTab(data_db, config_file=mtgs_cfg)
             mtgs_tab.search_input.setText("NONEXISTENT_MEETING")
             mtgs_tab.refresh_table()
             self.assertEqual(mtgs_tab.table_model.rowCount(), 0)
             mtgs_tab.focus_meeting("SA2#168")
             self.app.processEvents()
             self.assertGreaterEqual(mtgs_tab.table_model.rowCount(), 1)
+            mtgs_tab.save_filters_timer.stop()
             mtgs_tab.close()
 
-            wi_tab = WorkItemsTab(data_db)
+            wi_cfg = tmp_dir / "work_items_config.json"
+            wi_tab = WorkItemsTab(data_db, config_file=wi_cfg)
             wi_tab.following_only = True
             wi_tab.refresh_table(reset_pagination=True)
             self.assertEqual(wi_tab.table_model.rowCount(), 0)

@@ -2,6 +2,7 @@
 import logging
 import re
 from pathlib import Path
+from typing import Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal, QDate, QPoint, QTimer
 from PyQt5.QtWidgets import (
@@ -55,10 +56,10 @@ class MeetingsTab(QWidget):
     update_db_requested = pyqtSignal(bool, bool, bool)
     update_specific_requested = pyqtSignal(list, bool, bool, bool)
 
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, config_file: Optional[Path] = None):
         super().__init__()
         self.db = MeetingsDatabase(db_path)
-        self.settings = MeetingsSettings()
+        self.settings = MeetingsSettings(config_file=config_file)
         self.search_controller = GlobalSearchController(self)
 
         self.tdoc_windows = {}
@@ -719,8 +720,10 @@ class MeetingsTab(QWidget):
         model = self.wg_filter.model()
         self.wg_filter.blockSignals(True)
         try:
-            for i in range(1, model.rowCount()):
-                model.item(i).setCheckState(Qt.Unchecked)
+            for i in range(model.rowCount()):
+                item = model.item(i)
+                if item is not None:
+                    item.setCheckState(Qt.Checked)
             self.wg_filter.updateText()
         finally:
             self.wg_filter.blockSignals(False)

@@ -117,14 +117,18 @@ class SpecificationsTab(QWidget):
     batch_index_in_spec_search_requested = pyqtSignal(list) # list of (spec_number, version) tuples
     smart_index_in_spec_search_requested = pyqtSignal(str)  # spec_number
 
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, config_file: Optional[Path] = None):
         super().__init__()
         self.db = SpecsDatabase(db_path)
         self.spec_search_db = SpecSearchDatabase(get_project_root() / "db" / "3gpp_spec_search.db")
         self.history_db = SpecHistoryDatabase(get_project_root() / "db" / "3gpp_spec_history.db")
         self._download_threads = []
 
-        self.config_file = get_project_root() / "config" / "specs_config.json"
+        self.config_file = (
+            Path(config_file)
+            if config_file is not None
+            else (get_project_root() / "config" / "specs_config.json")
+        )
 
         # Defaults
         self.default_dl_dir = str(Path.home() / "3GPP_SA2_Meeting_Helper" / "specs")
@@ -260,6 +264,7 @@ class SpecificationsTab(QWidget):
                 "show_all_wgs": getattr(self, "_show_all_wgs", False),
                 "table_filters": self.table_filters,
             }
+            self.config_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.config_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
         except Exception as e:

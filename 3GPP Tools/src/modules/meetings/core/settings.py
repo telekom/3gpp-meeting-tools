@@ -2,13 +2,18 @@
 import json
 import logging
 from pathlib import Path
+from typing import Optional
 import core.utils.paths
 
 logger = logging.getLogger(__name__)
 
 class MeetingsSettings:
-    def __init__(self):
-        self.config_file = core.utils.paths.get_project_root() / "config" / "meetings_config.json"
+    def __init__(self, config_file: Optional[Path] = None):
+        self.config_file = (
+            Path(config_file)
+            if config_file is not None
+            else (core.utils.paths.get_project_root() / "config" / "meetings_config.json")
+        )
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
         self.cache_dir = self._load_settings()
 

@@ -2,6 +2,7 @@
 import webbrowser
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 import logging
 
 from PyQt5.QtCore import Qt, QModelIndex, QTimer, QEvent, QRect, pyqtSignal
@@ -74,11 +75,11 @@ __all__ = [
 class WorkItemsTab(QWidget):
     global_action_requested = pyqtSignal(str, str)
 
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, config_file: Optional[Path] = None):
         super().__init__()
         self.db_path = db_path
         self.db = WorkItemsDatabase(db_path)
-        self.settings = WorkItemsSettings()
+        self.settings = WorkItemsSettings(config_file=config_file)
 
         self._chunk_size = 60
         self._current_offset = 0

@@ -1,7 +1,8 @@
 # --- File: src/modules/work_items/core/wi_settings.py ---
 import json
 import logging
-from typing import Set, Tuple
+from pathlib import Path
+from typing import Optional, Set, Tuple
 
 import core.utils.paths
 
@@ -11,9 +12,13 @@ logger = logging.getLogger(__name__)
 class WorkItemsSettings:
     """Handles saving and loading configurations specific to the Work Items tab."""
 
-    def __init__(self):
+    def __init__(self, config_file: Optional[Path] = None):
         # Save to the root directory next to meetings_config.json
-        self.config_file = core.utils.paths.get_project_root() / "config" / "work_items_config.json"
+        self.config_file = (
+            Path(config_file)
+            if config_file is not None
+            else (core.utils.paths.get_project_root() / "config" / "work_items_config.json")
+        )
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
 
     def _read_data(self) -> dict:
