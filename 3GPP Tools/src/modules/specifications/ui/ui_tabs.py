@@ -10,7 +10,7 @@ from typing import Optional
 
 from PyQt5 import sip
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
-from PyQt5.QtGui import QKeySequence
+from PyQt5.QtGui import QColor, QKeySequence, QPalette
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QAction,
@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import (
     QDialog,
 )
 
+from core.ui.icons import lucide_svg_path
 from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon, make_filter_label
 from core.ui.theme import C, R, S, T
 from core.ui.toast import notify_info
@@ -591,13 +592,65 @@ class SpecificationsTab(QWidget):
         self.table.setHorizontalHeaderLabels(["Specification", "Title", "Version / Documents"])
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Interactive)
-        self.table.setColumnWidth(0, 195)
+        self.table.setColumnWidth(0, 200)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(2, QHeaderView.Interactive)
-        self.table.setColumnWidth(2, 420)
+        self.table.setColumnWidth(2, 435)
 
-        self.table.verticalHeader().setDefaultSectionSize(38)
-        self.table.verticalHeader().setStyleSheet(f"QHeaderView::section {{ color: {C.TEXT_FAINT}; font-size: {T.SIZE_CAPTION}px; }}")
+        self.table.setShowGrid(False)
+        self.table.verticalHeader().setDefaultSectionSize(44)
+        self.table.verticalHeader().setStyleSheet(f"""
+            QHeaderView {{
+                background-color: {C.BG_CARD};
+                border: none;
+            }}
+            QHeaderView::section {{
+                background-color: {C.BG_SURFACE};
+                color: {C.TEXT_FAINT};
+                font-size: {T.SIZE_CAPTION}px;
+                border: none;
+                border-bottom: 1px solid {C.BORDER_ROW};
+                padding: 0px 6px;
+            }}
+        """)
+        table_pal = self.table.viewport().palette()
+        table_pal.setColor(QPalette.Base, QColor(C.BG_CARD))
+        table_pal.setColor(QPalette.AlternateBase, QColor(C.BG_SURFACE))
+        self.table.viewport().setPalette(table_pal)
+        self.table.viewport().setAutoFillBackground(True)
+
+        chevron_url = lucide_svg_path("chevron-down", C.TEXT_MUTED)
+        self._version_combo_style = f"""
+            QComboBox {{
+                background-color: {C.BG_CARD};
+                color: {C.TEXT_STRONG};
+                border: 1px solid {C.BORDER_STRONG};
+                border-radius: {R.SM}px;
+                padding: 2px 24px 2px 8px;
+                font-size: {T.SIZE_TABLE}px;
+                font-weight: 600;
+            }}
+            QComboBox:hover {{
+                border-color: {C.BORDER_HOVER};
+                background-color: {C.BG_SURFACE};
+            }}
+            QComboBox:focus, QComboBox:on {{
+                border-color: {C.ACCENT_PRIMARY};
+                background-color: {C.BG_CARD};
+            }}
+            QComboBox::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 22px;
+                border: none;
+            }}
+            QComboBox::down-arrow {{
+                image: url("{chevron_url}");
+                width: 12px;
+                height: 12px;
+            }}
+        """
+
         self.table.setStyleSheet(f"""
             QTableWidget {{
                 border: none;
@@ -605,14 +658,20 @@ class SpecificationsTab(QWidget):
                 border-bottom-right-radius: {R.LG}px;
                 background-color: {C.BG_CARD};
                 alternate-background-color: {C.BG_SURFACE};
-                gridline-color: {C.BORDER_ROW};
                 selection-background-color: {C.ACCENT_SOFT};
                 selection-color: {C.TEXT_STRONG};
                 font-size: {T.SIZE_TABLE}px;
             }}
+            QTableWidget > QWidget {{
+                background-color: {C.BG_CARD};
+            }}
             QTableWidget::item {{
-                padding: 4px 6px;
+                padding: 4px 8px;
                 border-bottom: 1px solid {C.BORDER_ROW};
+            }}
+            QTableWidget::item:selected {{
+                background-color: {C.ACCENT_SOFT};
+                color: {C.TEXT_STRONG};
             }}
             QHeaderView::section {{
                 background-color: {C.BG_SURFACE};
@@ -622,6 +681,15 @@ class SpecificationsTab(QWidget):
                 border: none;
                 border-bottom: 1px solid {C.BORDER_SUBTLE};
                 padding: 6px 8px;
+            }}
+            QTableCornerButton::section {{
+                background-color: {C.BG_SURFACE};
+                border: none;
+                border-bottom: 1px solid {C.BORDER_SUBTLE};
+            }}
+            QWidget#specRowCell {{
+                background-color: transparent;
+                border: none;
             }}
         """)
 
@@ -1487,14 +1555,20 @@ class SpecificationsTab(QWidget):
 
             for row_idx, (spec_num, data) in enumerate(rendered_specs):
                 self.table.insertRow(row_idx)
+                for col_idx in (0, 1, 2):
+                    placeholder = QTableWidgetItem("")
+                    placeholder.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                    self.table.setItem(row_idx, col_idx, placeholder)
                 spec_target_dir = base_dl_dir / spec_num
                 is_fav = spec_num in self.favorites
 
                 # --- COLUMN 0: Action Button + Badged Spec Number ---
                 spec_widget = QWidget()
+                spec_widget.setObjectName("specRowCell")
                 spec_layout = QHBoxLayout(spec_widget)
-                spec_layout.setContentsMargins(3, 0, 3, 0)
-                spec_layout.setSpacing(4)
+                spec_layout.setContentsMargins(4, 2, 4, 2)
+                spec_layout.setSpacing(5)
+                spec_layout.setAlignment(Qt.AlignVCenter)
 
                 action_btn = HoverMenuButton("⋮")
                 action_btn.setFixedSize(20, 22)
@@ -1593,7 +1667,7 @@ class SpecificationsTab(QWidget):
                 spec_type = (data["type"] or "TS").upper()
                 wg_name = (data.get("wg") or "").strip()
                 wg_badge = QLabel(wg_name if wg_name and wg_name != "-" else "—")
-                wg_badge.setFixedWidth(42)
+                wg_badge.setMinimumWidth(48)
                 wg_badge.setAlignment(Qt.AlignCenter)
                 if wg_name and wg_name != "-":
                     wg_badge.setCursor(Qt.PointingHandCursor)
@@ -1631,12 +1705,13 @@ class SpecificationsTab(QWidget):
 
                 if tags or comments:
                     title_widget = QWidget()
+                    title_widget.setObjectName("specRowCell")
                     title_layout = QVBoxLayout(title_widget)
-                    title_layout.setContentsMargins(6, 5, 6, 5)
+                    title_layout.setContentsMargins(6, 6, 6, 6)
                     title_layout.setSpacing(4)
 
                     title_lbl = QLabel(title_text)
-                    title_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_STRONG};")
+                    title_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_STRONG}; background: transparent;")
                     title_lbl.setWordWrap(True)
                     title_layout.addWidget(title_lbl)
 
@@ -1667,19 +1742,20 @@ class SpecificationsTab(QWidget):
                     title_layout.addLayout(meta_row)
                     self.table.setCellWidget(row_idx, 1, title_widget)
                     # Give generous row height so wrapped titles and 11px tag pills never clip at the bottom edge.
-                    needed_h = max(60, title_widget.sizeHint().height() + 8)
+                    needed_h = max(64, title_widget.sizeHint().height() + 10)
                     if len(title_text) > 55:
-                        needed_h = max(needed_h, 74)
+                        needed_h = max(needed_h, 76)
                     self.table.setRowHeight(row_idx, needed_h)
                 else:
                     self.table.setItem(row_idx, 1, QTableWidgetItem(title_text))
-                    self.table.setRowHeight(row_idx, 38)
+                    self.table.setRowHeight(row_idx, 44)
 
                 # --- COLUMN 2: Documents Action Bar ---
                 version_combo = QComboBox()
-                version_combo.setFixedWidth(230)
+                version_combo.setFixedWidth(250)
                 version_combo.setFixedHeight(30)
-                version_combo.view().setMinimumWidth(255)
+                version_combo.setStyleSheet(self._version_combo_style)
+                version_combo.view().setMinimumWidth(265)
 
                 # Snapshot local files in memory once per specification
                 local_files = []
@@ -1941,9 +2017,11 @@ class SpecificationsTab(QWidget):
                 _update_btn_state()
 
                 cell_widget = QWidget()
+                cell_widget.setObjectName("specRowCell")
                 layout = QHBoxLayout(cell_widget)
-                layout.setContentsMargins(4, 0, 4, 0)
+                layout.setContentsMargins(6, 4, 6, 4)
                 layout.setSpacing(6)
+                layout.setAlignment(Qt.AlignVCenter)
 
                 layout.addWidget(version_combo)
                 layout.addWidget(doc_action_btn)

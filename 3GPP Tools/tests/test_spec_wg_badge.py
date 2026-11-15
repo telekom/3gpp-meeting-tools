@@ -1,7 +1,8 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QComboBox
 
 from modules.specifications.core.database import SpecsDatabase
 from modules.specifications.ui.ui_tabs import get_wg_badge_style_and_desc, SpecificationsTab
@@ -64,34 +65,49 @@ class TestSpecWGBadge(unittest.TestCase):
         self.assertEqual(def_desc, "Working Group")
 
     def test_spec_tab_column_width_and_wg_badge_click(self):
-        tab = SpecificationsTab(self.db_path)
-        # Column 0 width should be 195 to fit action button, type badge, WG badge, and spec number
-        self.assertEqual(tab.table.columnWidth(0), 195)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tab = SpecificationsTab(self.db_path, config_file=Path(tmp_dir) / "specs_config.json")
+            # Column 0 width should be at least 200 to fit action button, WG badge (incl. SMG01), and spec number
+            self.assertGreaterEqual(tab.table.columnWidth(0), 200)
+            self.assertGreaterEqual(tab.table.verticalHeader().defaultSectionSize(), 44)
+            self.assertFalse(tab.table.showGrid())
 
-        # Populate a single spec and verify badges have exact uniform widths
-        tab.spec_search_input.setText("23.501")
-        tab.refresh_table()
-        self.assertGreater(tab.table.rowCount(), 0)
-        cell = tab.table.cellWidget(0, 0)
-        layout = cell.layout()
-        wg_badge = layout.itemAt(1).widget()
-        spec_label = layout.itemAt(2).widget()
-        self.assertEqual(wg_badge.text(), "SA2")
-        self.assertEqual(wg_badge.width(), 42)
-        self.assertIn("TS 23.501", spec_label.text())
+            # Populate a single spec and verify badges, row fit, and background alignment
+            tab.spec_search_input.setText("23.501")
+            tab.refresh_table()
+            self.assertGreater(tab.table.rowCount(), 0)
+            for col in (0, 1, 2):
+                self.assertIsNotNone(tab.table.item(0, col))
 
-        # Test 1-click filter by WG
-        tab._on_wg_badge_clicked("SA2")
-        self.assertEqual(tab.table_filters.get("group"), "SA2")
-        self.assertEqual(tab._current_tsg, "SA")
+            cell0 = tab.table.cellWidget(0, 0)
+            self.assertEqual(cell0.objectName(), "specRowCell")
+            layout0 = cell0.layout()
+            wg_badge = layout0.itemAt(1).widget()
+            spec_label = layout0.itemAt(2).widget()
+            self.assertEqual(wg_badge.text(), "SA2")
+            self.assertGreaterEqual(wg_badge.minimumWidth(), 48)
+            self.assertIn("TS 23.501", spec_label.text())
 
-        # Test Phase 2.3 shared ribbon, table card, Lucide icons, and non-blocking missing folder notify
-        self.assertTrue(hasattr(tab, "ribbon_card"))
-        self.assertTrue(hasattr(tab, "table_card"))
-        for btn in (tab.sync_menu_btn, tab.add_spec_btn, tab.open_dir_btn, tab.settings_btn, tab.wipe_db_btn):
-            self.assertFalse(btn.icon().isNull())
-        tab._open_spec_folder("__NONEXISTENT_SPEC_DIR__")  # Non-blocking notify_info in standalone test
-        tab.close()
+            cell2 = tab.table.cellWidget(0, 2)
+            self.assertEqual(cell2.objectName(), "specRowCell")
+            combos = cell2.findChildren(QComboBox)
+            self.assertEqual(len(combos), 1)
+            version_combo = combos[0]
+            self.assertGreaterEqual(tab.table.rowHeight(0), version_combo.height() + 8)
+            self.assertIn("chevron-down", version_combo.styleSheet())
+
+            # Test 1-click filter by WG
+            tab._on_wg_badge_clicked("SA2")
+            self.assertEqual(tab.table_filters.get("group"), "SA2")
+            self.assertEqual(tab._current_tsg, "SA")
+
+            # Test Phase 2.3 shared ribbon, table card, Lucide icons, and non-blocking missing folder notify
+            self.assertTrue(hasattr(tab, "ribbon_card"))
+            self.assertTrue(hasattr(tab, "table_card"))
+            for btn in (tab.sync_menu_btn, tab.add_spec_btn, tab.open_dir_btn, tab.settings_btn, tab.wipe_db_btn):
+                self.assertFalse(btn.icon().isNull())
+            tab._open_spec_folder("__NONEXISTENT_SPEC_DIR__")  # Non-blocking notify_info in standalone test
+            tab.close()
 
 
 if __name__ == "__main__":

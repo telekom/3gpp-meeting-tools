@@ -328,3 +328,17 @@ def lucide_icon(
     icon.addPixmap(active_pm, QIcon.Selected, QIcon.On)
     icon.addPixmap(active_pm, QIcon.Active, QIcon.On)
     return icon
+
+
+def lucide_svg_path(name: str, color: Optional[str] = None) -> str:
+    """Write/cache a named Lucide SVG to AppData cache and return its POSIX path for QSS `url(...)`."""
+    from core.utils.paths import get_cache_root
+
+    resolved_color = color or C.TEXT_SECONDARY
+    safe_color = resolved_color.lstrip("#").replace("/", "_")
+    icon_dir = get_cache_root() / "icons"
+    icon_dir.mkdir(parents=True, exist_ok=True)
+    svg_file = icon_dir / f"{name}_{safe_color}.svg"
+    if not svg_file.exists():
+        svg_file.write_text(build_svg_markup(name, color=resolved_color), encoding="utf-8")
+    return svg_file.as_posix()
