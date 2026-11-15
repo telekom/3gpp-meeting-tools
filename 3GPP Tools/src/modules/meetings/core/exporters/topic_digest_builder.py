@@ -22,6 +22,7 @@ from modules.meetings.core.topic_manager import MetaTopicDefinition
 STAGE1_DELTA_START = "<!-- STAGE1_DELTA_START -->"
 STAGE1_DELTA_END = "<!-- STAGE1_DELTA_END -->"
 STAGE2_SYNTHESIS_FILENAME = "company_positions_e2e_synthesis.md"
+STAGE2_REPORT_FILENAME = "COMPANY_VIEWS_AND_PROGRESS.md"
 
 DEFAULT_MAX_DIGEST_CHARS = 140_000
 
@@ -306,15 +307,87 @@ def format_lifecycle_badge(lifecycle: str) -> str:
 
 
 def format_analysis_badge(analysis_status: str) -> str:
-    """Returns a concise human-readable Stage-1 LLM analysis status badge."""
+    """Returns a concise human-readable Stage-1 or Stage-2 LLM analysis status badge."""
     st = str(analysis_status or "").strip().lower()
     if st == "analyzed":
         return "✅ Analyzed"
     if st == "stale":
         return "🔄 Stale (Delta Ready)"
+    if st == "in_progress":
+        return "🏗️ In Progress"
     if st == "no_activity":
         return "⚪ Skip (0 Inputs)"
     return "⬜ Pending"
+
+
+def _resolve_effective_synthesis_state(
+    target_dir: Path,
+    synthesis_status: Optional[str],
+    synthesis_state: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Normalizes Stage-2 synthesis state dict with safe fallback to root synthesis file."""
+    if isinstance(synthesis_state, dict) and synthesis_state:
+        eff = dict(synthesis_state)
+        if synthesis_status and not eff.get("status"):
+            eff["status"] = synthesis_status
+        return eff
+
+    s2_path = target_dir / STAGE2_SYNTHESIS_FILENAME
+    s2_exists = s2_path.is_file()
+    eff_status = synthesis_status or ("analyzed" if s2_exists else "pending")
+    return {
+        "file": STAGE2_SYNTHESIS_FILENAME,
+        "folder_name": "",
+        "package_id": "legacy-root" if s2_exists else "",
+        "baseline_package_id": "none supplied",
+        "as_of": "",
+        "revision": "legacy" if s2_exists else "",
+        "coverage_rel_path": "",
+        "handoff_zip_rel_path": "",
+        "exists": s2_exists,
+        "status": eff_status,
+        "changed_meetings": [],
+        "latest_package": None,
+        "packages": [],
+    }
+
+
+def format_stage2_summary_badge(
+    synthesis_status: Optional[str],
+    synthesis_state: Optional[Dict[str, Any]] = None,
+    as_markdown_link: bool = True,
+) -> str:
+    """Formats a dated, revision-aware Stage-2 synthesis status string for Markdown."""
+    state = dict(synthesis_state or {})
+    st = str(synthesis_status or state.get("status") or "pending").strip().lower()
+    exists = bool(state.get("exists"))
+    folder_name = str(state.get("folder_name") or "").strip()
+    report_rel = str(state.get("file") or STAGE2_SYNTHESIS_FILENAME).replace("\\", "/")
+    coverage_rel = str(state.get("coverage_rel_path") or "").replace("\\", "/")
+    as_of = str(state.get("as_of") or "").strip()
+    rev = str(state.get("revision") or "").strip()
+    changed = list(state.get("changed_meetings") or [])
+
+    if not exists:
+        if st == "in_progress" and folder_name:
+            return f"🏗️ In Progress (`{folder_name}/`)"
+        return f"⬜ Pending (`{STAGE2_SYNTHESIS_FILENAME}` or `stage2_YYYY-MM-DD_r1/` not yet created)"
+
+    dated_parts = [p for p in (as_of, f"({rev})" if rev else "") if p]
+    dated_str = " ".join(dated_parts)
+    if st == "stale":
+        delta_note = f"{len(changed)} meeting(s) updated" if changed else "inputs updated"
+        status_label = f"🔄 Stale ({delta_note} since {dated_str or 'baseline'})"
+    else:
+        status_label = f"✅ Current ({dated_str})" if dated_str else "✅ Current"
+
+    if not as_markdown_link:
+        return f"{status_label} [{folder_name or report_rel}]"
+
+    rep_name = Path(report_rel).name
+    folder_suffix = f" in `{folder_name}/`" if folder_name else ""
+    cov_suffix = f" · [COVERAGE.md]({coverage_rel})" if coverage_rel else ""
+    return f"{status_label} — [{rep_name}]({report_rel}){cov_suffix}{folder_suffix}"
 
 
 def build_tdoc_outcome_index(
@@ -1013,43 +1086,69 @@ def write_e2e_synthesis_prompt(
     topic: MetaTopicDefinition,
     meeting_records: List[Dict[str, Any]],
     synthesis_status: Optional[str] = None,
+    synthesis_state: Optional[Dict[str, Any]] = None,
 ) -> Path:
     """
     Writes `company_positions_e2e_prompt.md` at the topic root containing copy-pasteable
     Stage-1 (per-meeting low-cost map + token-minimal delta merge) and Stage-2 (cross-WG E2E reduce)
-    prompts + live status checklist.
+    prompts + live status checklist + dated Stage-2 baseline chaining metadata.
     """
     out_p = target_dir / "company_positions_e2e_prompt.md"
-    s2_path = target_dir / STAGE2_SYNTHESIS_FILENAME
-    s2_exists = s2_path.is_file()
-    eff_s2_status = synthesis_status or ("analyzed" if s2_exists else "pending")
-    s2_badge = format_analysis_badge(eff_s2_status)
+    s2_state = _resolve_effective_synthesis_state(target_dir, synthesis_status, synthesis_state)
+    eff_s2_status = str(s2_state.get("status") or "pending")
+    s2_exists = bool(s2_state.get("exists"))
+    s2_report_rel = str(s2_state.get("file") or STAGE2_SYNTHESIS_FILENAME).replace("\\", "/")
+    s2_folder = str(s2_state.get("folder_name") or "").strip()
+    s2_pkg_id = str(s2_state.get("package_id") or "").strip()
+    s2_as_of = str(s2_state.get("as_of") or "").strip()
+    s2_rev = str(s2_state.get("revision") or "").strip()
+    changed_meetings: List[str] = list(s2_state.get("changed_meetings") or [])
+    s2_summary = format_stage2_summary_badge(eff_s2_status, s2_state, as_markdown_link=True)
 
     pending_rows = []
     stale_rows = []
     done_rows = []
     skip_rows = []
+    rec_by_key: Dict[str, Dict[str, Any]] = {}
+    stale_keys_fallback: List[str] = []
     for rec in meeting_records:
         st, exists, a_rel = _resolve_rec_analysis_status(rec, target_dir)
         m_fid = rec["meeting_folder_id"]
+        wg = rec.get("wg", "")
+        if wg and m_fid:
+            rec_by_key[f"{wg}/{m_fid}"] = rec
         if st == "no_activity":
             skip_rows.append(m_fid)
         elif st == "stale":
             stale_rows.append(m_fid)
+            if wg and m_fid:
+                stale_keys_fallback.append(f"{wg}/{m_fid}")
         elif st == "analyzed":
             done_rows.append(m_fid)
         else:
             pending_rows.append(m_fid)
+
+    if not changed_meetings and eff_s2_status == "stale" and stale_keys_fallback:
+        changed_meetings = stale_keys_fallback
 
     lines = [
         f"# 🌐 E2E Cross-WG Company Position Synthesis Guide: {topic.name}",
         "",
         "This workspace is structured for **token-efficient, resumable 2-stage AI analysis** across Working Groups:",
         "1. **Stage 1 (Map — Per-Meeting, Low/Medium Cost Model):** Analyze active meetings (`⬜ Pending`) once, and use token-minimal delta merges (`🔄 Stale`) whenever an already-analyzed meeting gains post-meeting outcomes or new revisions.",
-        f"2. **Stage 2 (Reduce — Cross-WG Synthesis → [`{STAGE2_SYNTHESIS_FILENAME}`]({STAGE2_SYNTHESIS_FILENAME})):** Synthesize E2E company positions across WGs using only active `*/_company_positions_analysis.md` outputs + `agreements_timeline.md` + `ls_dialogue.md`.",
+        "2. **Stage 2 (Reduce — Dated Cross-WG Synthesis Package → `stage2_<YYYY-MM-DD>_r1/`):** Synthesize E2E company positions across WGs using only active `*/_company_positions_analysis.md` outputs + `agreements_timeline.md` + `ls_dialogue.md` (and chain `--baseline` from the prior dated Stage-2 package on updates).",
         "",
-        f"**Current Status:** ✅ {len(done_rows)} Analyzed | 🔄 {len(stale_rows)} Stale (Delta Ready) | ⬜ {len(pending_rows)} Pending | ⚪ {len(skip_rows)} Skipped (0 Inputs) | **Stage-2 Report:** {s2_badge}"
-        + (f" ([Open Report]({STAGE2_SYNTHESIS_FILENAME}))" if s2_exists else f" (`{STAGE2_SYNTHESIS_FILENAME}` not yet created)"),
+        f"**Current Status:** ✅ {len(done_rows)} Analyzed | 🔄 {len(stale_rows)} Stale (Delta Ready) | ⬜ {len(pending_rows)} Pending | ⚪ {len(skip_rows)} Skipped (0 Inputs)",
+        f"**Latest Stage-2 Synthesis:** {s2_summary}",
+    ]
+
+    if s2_exists and s2_pkg_id:
+        base_id = str(s2_state.get("baseline_package_id") or "none supplied")
+        claims_note = f" | **Claims:** {s2_state['claims']}" if s2_state.get("claims") is not None else ""
+        words_note = f" | **Words:** {s2_state['synthesis_words']}" if s2_state.get("synthesis_words") is not None else ""
+        lines.append(f"**Package Metadata:** `{s2_pkg_id}` | **Baseline:** `{base_id}`{claims_note}{words_note}")
+
+    lines.extend([
         "",
         "---",
         "",
@@ -1077,7 +1176,7 @@ def write_e2e_synthesis_prompt(
         "",
         "| Date | WG | Meeting | State | Active Docs | Decisions | Brief | Input Packet(s) | Stage-1 Output |",
         "| :--- | :--- | :--- | :--- | :---: | :---: | :--- | :--- | :--- |",
-    ]
+    ])
 
     for rec in meeting_records:
         wg = rec["wg"]
@@ -1100,21 +1199,63 @@ def write_e2e_synthesis_prompt(
             f"| {d_str} | **{wg}** | {m_fid} | {lc_badge} | {rec['tdoc_count']} | {rec['decision_count']} | [Brief]({brief_rel}) | {digest_links} | {stage1_cell} |"
         )
 
+    if changed_meetings:
+        lines.extend([
+            "",
+            f"### 🔄 Meetings Updated Since Baseline (`{s2_pkg_id or s2_report_rel}`)",
+            "",
+            "| Meeting Key | Stage-1 Status | Active Docs | Decisions | Links |",
+            "| :--- | :--- | :---: | :---: | :--- |",
+        ])
+        for m_key in changed_meetings:
+            rec = rec_by_key.get(m_key, {})
+            st, exists, analysis_rel = _resolve_rec_analysis_status(rec, target_dir) if rec else ("stale", False, f"{m_key}/_company_positions_analysis.md")
+            brief_rel = rec.get("brief_rel_path") or f"{m_key}/_meeting_brief.md"
+            a_link = f"[{format_analysis_badge(st)}]({analysis_rel})" if exists else format_analysis_badge(st)
+            lines.append(
+                f"| `{m_key}` | {a_link} | {rec.get('tdoc_count', '—')} | {rec.get('decision_count', '—')} | [Brief]({brief_rel}) |"
+            )
+
+    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    next_rev = "r2" if (s2_folder and s2_as_of == today_str and s2_rev == "r1") else "r1"
+    target_pkg_dir = f"stage2_{today_str}_{next_rev}/"
+
+    if s2_exists:
+        baseline_lines = [
+            f"- **Prior Baseline Package:** `{s2_report_rel}` (Package ID: `{s2_pkg_id or s2_folder or 'legacy-root'}`).",
+            f"- **Baseline Chaining Rule:** Do NOT overwrite `{s2_folder + '/' if s2_folder else s2_report_rel}`. Read the prior synthesis `{s2_report_rel}` as `--baseline`, preserve unchanged sections/claims, and merge updates into a NEW dated folder `{target_pkg_dir}`.",
+        ]
+        if changed_meetings:
+            baseline_lines.append(
+                f"- **Updated Meetings Since Baseline ({len(changed_meetings)}):** {', '.join(changed_meetings)} — prioritize reading their updated `_company_positions_analysis.md` + `_meeting_brief.md` delta sections."
+            )
+        elif eff_s2_status == "stale":
+            baseline_lines.append(
+                "- **Current Status:** Stage-1 inputs changed since this baseline — merge updated meetings cleanly into the new dated folder instead of regenerating unchanged sections from scratch."
+            )
+        else:
+            baseline_lines.append(
+                "- **Current Status:** All active Stage-1 analyses match this baseline. Run a new dated subfolder only when a subsequent meeting round or fresh revision arrives."
+            )
+    else:
+        baseline_lines = [
+            "- Only active `*/*/_company_positions_analysis.md` files (skip any row marked '⚪ Skip (0 Inputs)' above; do NOT re-read raw TDocs unless verifying a specific quote).",
+        ]
+
     lines.extend([
         "",
         "---",
         "",
-        f"## 🔸 Stage 2 Prompt (Cross-WG End-to-End Reduce → `{STAGE2_SYNTHESIS_FILENAME}`)",
+        f"## 🔸 Stage 2 Prompt (Cross-WG End-to-End Reduce → `{target_pkg_dir}{STAGE2_REPORT_FILENAME}`)",
         "```text",
         f"You are analyzing the cross-WG evolution of '{topic.name}' across {', '.join(sorted(topic.target_wgs))}.",
         "Read:",
         "- `index.md`",
         "- `agreements_timeline.md`",
         "- `ls_dialogue.md`",
-        "- Only active `*/*/_company_positions_analysis.md` files (skip any row marked '⚪ Skip (0 Inputs)' above; do NOT re-read raw TDocs unless verifying a specific quote).",
-        f"- If `{STAGE2_SYNTHESIS_FILENAME}` already exists and only a few meetings were updated, read the existing `{STAGE2_SYNTHESIS_FILENAME}` and merge the updated meetings cleanly instead of regenerating unchanged sections from scratch.",
+        *baseline_lines,
         "",
-        f"Write/update `{STAGE2_SYNTHESIS_FILENAME}` at the topic root covering:",
+        f"Write the new dated synthesis package into `{target_pkg_dir}` (`{STAGE2_REPORT_FILENAME}`, `COVERAGE.md`, `working/package_state.json`) covering:",
         "1. Per-Company E2E Strategy Matrix (how each major vendor/operator aligns across WGs — e.g. consistency vs. contradictions between SA2 and RAN2 stances).",
         "2. Key Architectural Fault Lines & Alliances over time (chronological trajectory across meetings).",
         "3. Outcomes & Impact on Baseline Specifications (which company's vision shaped the final agreements/pCRs).",
@@ -1140,15 +1281,19 @@ def write_master_index_markdown(
     scope_mode: str,
     meeting_records: List[Dict[str, Any]],
     synthesis_status: Optional[str] = None,
+    synthesis_state: Optional[Dict[str, Any]] = None,
 ) -> Path:
     """
     Generates root `index.md` using a single shared template for both full exports
     and fast offline checkup/sync passes.
     """
     now_str = datetime.datetime.now().strftime("%Y-%m-%d")
-    s2_path = target_dir / STAGE2_SYNTHESIS_FILENAME
-    s2_exists = s2_path.is_file()
-    eff_s2_status = synthesis_status or ("analyzed" if s2_exists else "pending")
+    s2_state = _resolve_effective_synthesis_state(target_dir, synthesis_status, synthesis_state)
+    eff_s2_status = str(s2_state.get("status") or "pending")
+    s2_exists = bool(s2_state.get("exists"))
+    s2_report_rel = str(s2_state.get("file") or STAGE2_SYNTHESIS_FILENAME).replace("\\", "/")
+    s2_packages: List[Dict[str, Any]] = list(s2_state.get("packages") or [])
+    s2_kpi = format_stage2_summary_badge(eff_s2_status, s2_state, as_markdown_link=True)
 
     concluded_cnt = sum(1 for r in meeting_records if r.get("lifecycle") == "concluded")
     upcoming_cnt = sum(1 for r in meeting_records if r.get("lifecycle") == "upcoming")
@@ -1182,11 +1327,11 @@ def write_master_index_markdown(
         stage1_summary += " (" + ", ".join(extra_s1) + ")"
 
     if s2_exists:
-        s2_kpi = f"[{format_analysis_badge(eff_s2_status)}]({STAGE2_SYNTHESIS_FILENAME}) (`{STAGE2_SYNTHESIS_FILENAME}`)"
-        s2_nav = f"- 🏆 **[Cross-WG E2E Company Position Synthesis]({STAGE2_SYNTHESIS_FILENAME})** — {format_analysis_badge(eff_s2_status)}."
+        s2_nav = f"- 🏆 **[Cross-WG E2E Company Position Synthesis]({s2_report_rel})** — {s2_kpi}."
+    elif eff_s2_status == "in_progress":
+        s2_nav = f"- 🏆 **Cross-WG E2E Company Position Synthesis** — {s2_kpi}."
     else:
-        s2_kpi = f"⬜ Pending (`{STAGE2_SYNTHESIS_FILENAME}` not yet created)"
-        s2_nav = f"- 🏆 **Cross-WG E2E Company Position Synthesis** — ⬜ Pending (generate `{STAGE2_SYNTHESIS_FILENAME}` using Stage 2 prompt)."
+        s2_nav = f"- 🏆 **Cross-WG E2E Company Position Synthesis** — ⬜ Pending (generate `stage2_<YYYY-MM-DD>_r1/{STAGE2_REPORT_FILENAME}` using Stage 2 prompt)."
 
     contrib_kpi = f"{total_active_docs} documents"
     if stub_count > 0:
@@ -1288,6 +1433,48 @@ def write_master_index_markdown(
             if wg_stale:
                 wg_s1 += f" · 🔄 {wg_stale} Stale"
         lines.append(f"| **{wg}** | {links} | {tot_d} | {tot_c} | {wg_s1} |")
+
+    if s2_packages:
+        lines.extend([
+            "",
+            "---",
+            "### 📦 Stage-2 Cross-WG Synthesis Packages",
+            "",
+            "| # | Package Folder | Cut-Off Date | Revision | Package ID | Baseline ID | Validation | Artifacts |",
+            "| :---: | :--- | :--- | :---: | :--- | :--- | :--- | :--- |",
+        ])
+        for idx, pkg in enumerate(s2_packages, start=1):
+            p_folder = pkg.get("folder_name") or "(root)"
+            p_as_of = pkg.get("as_of") or "N/A"
+            p_rev = pkg.get("revision") or "—"
+            p_id = pkg.get("package_id") or "—"
+            p_base = pkg.get("baseline_package_id") or "none supplied"
+            v_pass = pkg.get("validation_passed")
+            if pkg.get("status") == "in_progress":
+                val_str = "🏗️ In Progress"
+            elif v_pass is True:
+                extra_v = []
+                if pkg.get("claims") is not None:
+                    extra_v.append(f"{pkg['claims']} claims")
+                if pkg.get("synthesis_words") is not None:
+                    extra_v.append(f"{pkg['synthesis_words']}w")
+                val_str = "✅ Passed" + (f" ({', '.join(extra_v)})" if extra_v else "")
+            elif v_pass is False:
+                val_str = "⚠️ Validation Issues"
+            else:
+                val_str = "—"
+
+            arts = []
+            if pkg.get("status") == "completed" and pkg.get("report_rel_path"):
+                arts.append(f"[Report]({pkg['report_rel_path']})")
+            if pkg.get("coverage_rel_path"):
+                arts.append(f"[COVERAGE.md]({pkg['coverage_rel_path']})")
+            if pkg.get("handoff_zip_rel_path"):
+                arts.append(f"[Handoff ZIP]({pkg['handoff_zip_rel_path']})")
+            art_str = " · ".join(arts) if arts else "—"
+            lines.append(
+                f"| {idx} | `{p_folder}` | `{p_as_of}` | `{p_rev}` | `{p_id}` | `{p_base}` | {val_str} | {art_str} |"
+            )
 
     lines.extend([
         "",

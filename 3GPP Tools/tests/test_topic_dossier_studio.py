@@ -1707,8 +1707,9 @@ class TestTopicDossierRefactorAndDigests(unittest.TestCase):
         self.assertIn("🔄 Stale (Delta Ready)", prompt_txt)
         self.assertIn("[🔄 Stale (Delta Ready)](RAN2/RAN2_133/_company_positions_analysis.md)", prompt_txt)
         self.assertIn("## 🔄 Delta Since Last Analysis", prompt_txt)
-        self.assertIn("Stage-2 Report:** 🔄 Stale (Delta Ready)", prompt_txt)
-        self.assertIn("merge the updated meetings cleanly instead of regenerating", prompt_txt)
+        self.assertIn("**Latest Stage-2 Synthesis:** 🔄 Stale", prompt_txt)
+        self.assertIn("--baseline", prompt_txt)
+        self.assertIn("RAN2/RAN2_133", prompt_txt)
 
     def test_check_and_refresh_dossier_legacy_and_record_session_count(self):
         from modules.meetings.core.exporters.export_manifest import save_manifest
@@ -1815,7 +1816,8 @@ class TestTopicDossierRefactorAndDigests(unittest.TestCase):
         self.assertIn("_company_positions_analysis.md", ran2_brief)
         idx_txt = (root / "index.md").read_text(encoding="utf-8")
         self.assertIn("✅ Analyzed", idx_txt)
-        self.assertIn("[✅ Analyzed](company_positions_e2e_synthesis.md)", idx_txt)
+        self.assertIn("[company_positions_e2e_synthesis.md](company_positions_e2e_synthesis.md)", idx_txt)
+        self.assertIn("✅ Current", idx_txt)
 
     def test_pre_to_post_meeting_stale_delta_and_pruning(self):
         from unittest.mock import MagicMock, patch
@@ -2074,6 +2076,178 @@ class TestTopicDossierRefactorAndDigests(unittest.TestCase):
         self.assertTrue(TopicDossierExporterThread._is_meeting_live_for_refresh({"start_date": "2020-01-01"}, {"lifecycle": "concluded", "decision_count": 2, "stub_count": 1}))
         self.assertTrue(TopicDossierExporterThread._is_meeting_live_for_refresh({"start_date": "2020-01-01"}, {"lifecycle": "concluded", "decision_count": 0, "stub_count": 0}))
         self.assertFalse(TopicDossierExporterThread._is_meeting_live_for_refresh({"start_date": "2020-01-01"}, {"lifecycle": "concluded", "decision_count": 3, "stub_count": 0}))
+
+    def test_dated_stage2_subfolder_discovery_and_baseline_chaining(self):
+        import json
+        import os
+        import time
+        from unittest.mock import MagicMock
+        from PyQt5.QtWidgets import QApplication
+        from modules.meetings.core.exporters.export_manifest import ExportManifest, load_manifest, save_manifest
+        from modules.meetings.core.exporters.topic_dossier_exporter import (
+            check_and_refresh_dossier,
+            discover_stage2_packages,
+        )
+        from modules.meetings.core.topic_manager import MetaTopicDefinition, MetaTopicRules
+        from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
+
+        dossier_dir = self.temp_dir / "DatedStage2Corpus"
+        ran2_dir = dossier_dir / "RAN2" / "RAN2_135"
+        sa2_dir = dossier_dir / "SA2" / "SA2_176"
+        ran2_dir.mkdir(parents=True, exist_ok=True)
+        sa2_dir.mkdir(parents=True, exist_ok=True)
+
+        now = time.time() - 600.0
+        for m_dir, doc_id in ((ran2_dir, "R2-2601001"), (sa2_dir, "S2-2602001")):
+            pkt = m_dir / "_company_positions_input.md"
+            ana = m_dir / "_company_positions_analysis.md"
+            (m_dir / "Discussion").mkdir(parents=True, exist_ok=True)
+            (m_dir / "Discussion" / f"{doc_id}.md").write_text("# Doc", encoding="utf-8")
+            pkt.write_text("# Packet", encoding="utf-8")
+            ana.write_text("# Stage 1 Analysis", encoding="utf-8")
+            os.utime(pkt, (now, now))
+            os.utime(ana, (now + 10.0, now + 10.0))
+
+        manifest = ExportManifest(meeting="Data Framework & Data Transfer", export_type="topic_full_dossier")
+        manifest.tdocs = {
+            "R2-2601001": {"rel_path": "RAN2/RAN2_135/Discussion/R2-2601001.md"},
+            "S2-2602001": {"rel_path": "SA2/SA2_176/Discussion/S2-2602001.md"},
+        }
+        manifest.exported_meetings = {
+            "RAN2/RAN2_135": {
+                "wg": "RAN2",
+                "meeting_number": "135",
+                "meeting_folder_id": "RAN2_135",
+                "cohort_key": "2026-Q4",
+                "start_date": "2026-10-12",
+                "lifecycle": "concluded",
+                "tdoc_count": 1,
+                "decision_count": 1,
+                "stub_count": 0,
+                "analysis_status": "analyzed",
+                "brief_rel_path": "RAN2/RAN2_135/_meeting_brief.md",
+                "digest_rel_paths": ["RAN2/RAN2_135/_company_positions_input.md"],
+            },
+            "SA2/SA2_176": {
+                "wg": "SA2",
+                "meeting_number": "176",
+                "meeting_folder_id": "SA2_176",
+                "cohort_key": "2026-Q4",
+                "start_date": "2026-10-12",
+                "lifecycle": "concluded",
+                "tdoc_count": 1,
+                "decision_count": 1,
+                "stub_count": 0,
+                "analysis_status": "analyzed",
+                "brief_rel_path": "SA2/SA2_176/_meeting_brief.md",
+                "digest_rel_paths": ["SA2/SA2_176/_company_positions_input.md"],
+            },
+        }
+        save_manifest(dossier_dir, manifest)
+
+        topic_def = MetaTopicDefinition(
+            id="df_dt",
+            name="Data Framework & Data Transfer",
+            description="Test topic",
+            target_wgs=["RAN2", "SA2"],
+            rules=MetaTopicRules(keywords=["data framework"]),
+        )
+
+        # 1. In-progress dated folder (working/ exists without final report)
+        s2_r1_dir = dossier_dir / "stage2_2026-11-15_r1"
+        (s2_r1_dir / "working").mkdir(parents=True, exist_ok=True)
+        res_prog = check_and_refresh_dossier(dossier_dir, topic=topic_def)
+        self.assertEqual(res_prog["synthesis_status"], "in_progress")
+        # Backfilled TDoc meeting metadata
+        m_after_prog = load_manifest(dossier_dir)
+        self.assertEqual(m_after_prog.tdocs["R2-2601001"]["wg"], "RAN2")
+        self.assertEqual(m_after_prog.tdocs["R2-2601001"]["meeting_number"], "135")
+        self.assertEqual(m_after_prog.tdocs["S2-2602001"]["meeting_folder_id"], "SA2_176")
+
+        # 2. Completed dated Stage-2 package newer than Stage-1 analyses -> analyzed
+        rep_r1 = s2_r1_dir / "COMPANY_VIEWS_AND_PROGRESS.md"
+        cov_r1 = s2_r1_dir / "COVERAGE.md"
+        zip_r1 = s2_r1_dir / "handoff_DF-DT-20261115-stage2-r1.zip"
+        rep_r1.write_text("# Report\nPackage ID: DF-DT-20261115-stage2-r1\n", encoding="utf-8")
+        cov_r1.write_text("# Coverage", encoding="utf-8")
+        zip_r1.write_bytes(b"PK")
+        (s2_r1_dir / "working" / "package_state.json").write_text(
+            json.dumps({
+                "package_id": "DF-DT-20261115-stage2-r1",
+                "baseline_package_id": "none supplied",
+                "as_of": "2026-11-15",
+            }),
+            encoding="utf-8",
+        )
+        (s2_r1_dir / "working" / "validation.json").write_text(
+            json.dumps({"passed": True, "claims": 32, "synthesis_words": 5518}),
+            encoding="utf-8",
+        )
+        os.utime(rep_r1, (now + 100.0, now + 100.0))
+
+        res_ok = check_and_refresh_dossier(dossier_dir, topic=topic_def)
+        self.assertEqual(res_ok["synthesis_status"], "analyzed")
+        s2_state = res_ok["synthesis_state"]
+        self.assertEqual(s2_state["folder_name"], "stage2_2026-11-15_r1")
+        self.assertEqual(s2_state["package_id"], "DF-DT-20261115-stage2-r1")
+        self.assertEqual(s2_state["changed_meetings"], [])
+
+        idx_txt = (dossier_dir / "index.md").read_text(encoding="utf-8")
+        self.assertIn("stage2_2026-11-15_r1/COMPANY_VIEWS_AND_PROGRESS.md", idx_txt)
+        self.assertIn("stage2_2026-11-15_r1/COVERAGE.md", idx_txt)
+        self.assertIn("### 📦 Stage-2 Cross-WG Synthesis Packages", idx_txt)
+        self.assertIn("DF-DT-20261115-stage2-r1", idx_txt)
+
+        # Running checkup again must remain "analyzed" (bookkeeping mtimes ignored)
+        res_ok2 = check_and_refresh_dossier(dossier_dir, topic=topic_def)
+        self.assertEqual(res_ok2["synthesis_status"], "analyzed")
+
+        # 3. Updating SA2 Stage-1 analysis after Stage-2 run -> stale with changed_meetings=["SA2/SA2_176"]
+        os.utime(sa2_dir / "_company_positions_analysis.md", (now + 200.0, now + 200.0))
+        res_stale = check_and_refresh_dossier(dossier_dir, topic=topic_def)
+        self.assertEqual(res_stale["synthesis_status"], "stale")
+        self.assertEqual(res_stale["synthesis_state"]["changed_meetings"], ["SA2/SA2_176"])
+
+        prompt_txt = (dossier_dir / "company_positions_e2e_prompt.md").read_text(encoding="utf-8")
+        self.assertIn("Meetings Updated Since Baseline (`DF-DT-20261115-stage2-r1`)", prompt_txt)
+        self.assertIn("`SA2/SA2_176`", prompt_txt)
+        self.assertIn("--baseline", prompt_txt)
+
+        # 4. Second dated Stage-2 revision chains from r1 and restores "analyzed"
+        s2_r2_dir = dossier_dir / "stage2_2026-11-22_r1"
+        (s2_r2_dir / "working").mkdir(parents=True, exist_ok=True)
+        rep_r2 = s2_r2_dir / "COMPANY_VIEWS_AND_PROGRESS.md"
+        rep_r2.write_text("# Report r2", encoding="utf-8")
+        (s2_r2_dir / "working" / "package_state.json").write_text(
+            json.dumps({
+                "package_id": "DF-DT-20261122-stage2-r1",
+                "baseline_package_id": "DF-DT-20261115-stage2-r1",
+                "as_of": "2026-11-22",
+            }),
+            encoding="utf-8",
+        )
+        os.utime(rep_r2, (now + 300.0, now + 300.0))
+
+        pkgs = discover_stage2_packages(dossier_dir, excluded_dirs={"RAN2", "SA2"})
+        self.assertEqual([p["folder_name"] for p in pkgs], ["stage2_2026-11-15_r1", "stage2_2026-11-22_r1"])
+
+        res_r2 = check_and_refresh_dossier(dossier_dir, topic=topic_def)
+        self.assertEqual(res_r2["synthesis_status"], "analyzed")
+        self.assertEqual(res_r2["synthesis_state"]["folder_name"], "stage2_2026-11-22_r1")
+        self.assertEqual(res_r2["synthesis_state"]["baseline_package_id"], "DF-DT-20261115-stage2-r1")
+
+        # 5. UI displays dated Stage-2 info and uses visible "⏳" instead of "⬜"
+        app = QApplication.instance() or QApplication([])
+        dlg = TopicDossierDialog(meetings_db=MagicMock(), parent=None)
+        dlg.edit_dest_folder.setText(str(dossier_dir))
+        self.assertNotIn("⬜", dlg.lbl_inc_status.text())
+        self.assertIn("⏳ 0 Pending", dlg.lbl_inc_status.text())
+        self.assertIn("2026-11-22 (r1) [stage2_2026-11-22_r1] · 2 runs", dlg.lbl_inc_status.text())
+        res_ui = dlg._on_check_status(silent=True)
+        self.assertTrue(res_ui["ok"])
+        self.assertNotIn("⬜", dlg.lbl_status.text())
+        self.assertIn("stage2_2026-11-22_r1", dlg.lbl_status.text())
+        dlg.close()
 
 
 if __name__ == "__main__":

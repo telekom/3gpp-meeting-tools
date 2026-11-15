@@ -36,6 +36,7 @@ from modules.meetings.core.exporters.topic_digest_builder import STAGE2_SYNTHESI
 from modules.meetings.core.exporters.topic_dossier_exporter import (
     TopicDossierExporterThread,
     check_and_refresh_dossier,
+    discover_stage2_packages,
     get_default_topic_export_base,
     sanitize_folder_name,
 )
@@ -800,10 +801,14 @@ class TopicDossierDialog(QDialog):
         dec_cnt = 0
         doc_cnt = 0
         stub_cnt = 0
+        max_input_mtime = 0.0
+        excluded_wgs: Set[str] = set()
 
         for m_key, m_state in manifest.exported_meetings.items():
             if not isinstance(m_state, dict):
                 continue
+            if m_state.get("wg"):
+                excluded_wgs.add(str(m_state["wg"]).strip())
             d_c = int(m_state.get("decision_count", 0) or 0)
             t_c = int(m_state.get("tdoc_count", 0) or 0)
             s_c = int(m_state.get("stub_count", 0) or 0)
@@ -816,16 +821,19 @@ class TopicDossierDialog(QDialog):
                 no_act_cnt += 1
                 continue
 
+            cur_snap = m_state.get("current_snapshot") or {}
+            pkt_mtime = float(cur_snap.get("packet_mtime", 0.0) or 0.0)
+            max_input_mtime = max(max_input_mtime, pkt_mtime)
+
             a_file = Path(to_extended_path(p / m_key / "_company_positions_analysis.md"))
             if not a_file.is_file():
                 pending_cnt += 1
                 continue
 
             st = m_state.get("analysis_status")
-            cur_snap = m_state.get("current_snapshot") or {}
             ana_snap = m_state.get("analyzed_snapshot") or {}
             a_mtime = float(os.path.getmtime(a_file))
-            pkt_mtime = float(cur_snap.get("packet_mtime", 0.0) or 0.0)
+            max_input_mtime = max(max_input_mtime, a_mtime)
 
             if st == "stale" and a_mtime > pkt_mtime > 0.0:
                 analyzed_cnt += 1
@@ -843,20 +851,42 @@ class TopicDossierDialog(QDialog):
                 else:
                     analyzed_cnt += 1
 
-        syn_path = Path(to_extended_path(p / STAGE2_SYNTHESIS_FILENAME))
-        syn_state = (manifest.synthesis_state or {}).get("status", "pending")
-        if not syn_path.is_file():
-            syn_badge = "⬜ Stage-2 Pending"
-        elif syn_state == "stale" or stale_cnt > 0:
-            syn_badge = "🔄 Stage-2 Stale"
+        packages = discover_stage2_packages(p, excluded_dirs=excluded_wgs)
+        completed_pkgs = [pkg for pkg in packages if pkg.get("status") == "completed"]
+        in_prog_pkgs = [pkg for pkg in packages if pkg.get("status") == "in_progress"]
+        syn_state_dict = manifest.synthesis_state or {}
+        syn_state = str(syn_state_dict.get("status") or "pending").lower()
+
+        if not completed_pkgs:
+            if in_prog_pkgs:
+                syn_badge = f"🏗️ Stage-2 In Progress [{in_prog_pkgs[-1]['folder_name']}]"
+            else:
+                syn_badge = "⏳ Stage-2 Pending"
         else:
-            syn_badge = "✅ Stage-2 Current"
+            latest_pkg = completed_pkgs[-1]
+            dated_lbl = f"{latest_pkg.get('as_of') or 'dated'} ({latest_pkg.get('revision') or 'r1'})"
+            folder_tag = f" [{latest_pkg['folder_name']}]" if latest_pkg.get("folder_name") else " [root]"
+            runs_tag = f" · {len(completed_pkgs)} runs" if len(completed_pkgs) > 1 else ""
+            latest_mtime = float(latest_pkg.get("report_mtime", 0.0) or 0.0)
+            is_stale = (
+                syn_state == "stale"
+                or stale_cnt > 0
+                or (latest_mtime > 0.0 and max_input_mtime > latest_mtime + 0.5)
+            )
+            if is_stale:
+                chg_cnt = len(syn_state_dict.get("changed_meetings") or [])
+                if chg_cnt:
+                    syn_badge = f"🔄 Stage-2 Stale: {chg_cnt} updated since {dated_lbl}{folder_tag}{runs_tag}"
+                else:
+                    syn_badge = f"🔄 Stage-2 Stale (since {dated_lbl}{folder_tag}){runs_tag}"
+            else:
+                syn_badge = f"✅ Stage-2: {dated_lbl}{folder_tag}{runs_tag}"
 
         total_mtgs = len(manifest.exported_meetings)
         stage1_parts = [f"✅ {analyzed_cnt} Analyzed"]
         if stale_cnt:
             stage1_parts.append(f"🔄 {stale_cnt} Stale")
-        stage1_parts.append(f"⬜ {pending_cnt} Pending")
+        stage1_parts.append(f"⏳ {pending_cnt} Pending")
         if no_act_cnt:
             stage1_parts.append(f"⚪ {no_act_cnt} No Activity")
 
@@ -887,24 +917,62 @@ class TopicDossierDialog(QDialog):
                 )
             return res
 
-        syn = res.get("synthesis_status", "pending")
+        syn = str(res.get("synthesis_status") or "pending").lower()
+        s2_state = res.get("synthesis_state") or {}
+        latest_pkg = s2_state.get("latest_package") or {}
+        all_pkgs = list(s2_state.get("packages") or [])
+        completed_cnt = sum(1 for pk in all_pkgs if pk.get("status") == "completed")
+
+        if latest_pkg:
+            dated_s2 = f"{latest_pkg.get('as_of') or 'dated'} ({latest_pkg.get('revision') or 'r1'})"
+            s2_folder = latest_pkg.get("folder_name") or "(root)"
+            if syn == "stale":
+                chg_cnt = len(s2_state.get("changed_meetings") or [])
+                syn_short = f"🔄 stale ({chg_cnt} updated since {dated_s2})" if chg_cnt else f"🔄 stale (since {dated_s2})"
+            else:
+                syn_short = f"✅ {dated_s2} [{s2_folder}]"
+        elif syn == "in_progress":
+            syn_short = f"🏗️ in-progress [{s2_state.get('folder_name') or 'stage2'}]"
+        else:
+            syn_short = "⏳ pending"
+
         self.lbl_status.setText(
             f"Index refreshed: ✅ {res['analyzed']} analyzed · 🔄 {res['stale']} stale · "
-            f"⬜ {res['pending']} pending · ⚪ {res['no_activity']} no-activity · Stage-2: {syn}"
+            f"⏳ {res['pending']} pending · ⚪ {res['no_activity']} no-activity · Stage-2: {syn_short}"
         )
 
         if not silent:
             promo = res.get("newly_promoted", 0)
             promo_line = f"\n• Newly Linked / Promoted Analyses: +{promo}" if promo else ""
+            if latest_pkg:
+                val_note = (
+                    f" | Validation: {'PASSED' if latest_pkg.get('validation_passed') else 'ISSUES'}"
+                    if latest_pkg.get("validation_passed") is not None
+                    else ""
+                )
+                claims_note = f" ({latest_pkg['claims']} claims)" if latest_pkg.get("claims") is not None else ""
+                s2_detail = (
+                    f"• Stage-2 Synthesis: {syn.upper()} — {s2_folder} "
+                    f"[{latest_pkg.get('package_id', '')}, cut-off {latest_pkg.get('as_of', 'N/A')} {latest_pkg.get('revision', '')}]"
+                    f"{val_note}{claims_note}"
+                    + (f" ({completed_cnt} package(s) total)" if completed_cnt > 1 else "")
+                )
+                chg_list = list(s2_state.get("changed_meetings") or [])
+                if chg_list:
+                    preview_chg = ", ".join(chg_list[:5]) + ("..." if len(chg_list) > 5 else "")
+                    s2_detail += f"\n  ↳ Updated since baseline ({len(chg_list)}): {preview_chg}"
+            else:
+                s2_detail = f"• Stage-2 E2E Synthesis ({STAGE2_SYNTHESIS_FILENAME} / stage2_*): {syn.upper()}"
+
             QMessageBox.information(
                 self,
                 "Corpus Status & Index Refreshed",
                 f"Checked '{res.get('topic_name', '')}' ({res['total_meetings']} meetings):\n"
                 f"• Decisions: {res['total_decisions']} | Active Docs: {res['total_active_docs']} (Stubs: {res['total_stubs']})\n"
                 f"• Stage-1 Analyses: ✅ {res['analyzed']} Analyzed | 🔄 {res['stale']} Stale (Delta Ready) | "
-                f"⬜ {res['pending']} Pending | ⚪ {res['no_activity']} No Activity"
+                f"⏳ {res['pending']} Pending | ⚪ {res['no_activity']} No Activity"
                 f"{promo_line}\n"
-                f"• Stage-2 E2E Synthesis ({STAGE2_SYNTHESIS_FILENAME}): {syn.upper()}\n\n"
+                f"{s2_detail}\n\n"
                 f"Updated index.md, company_positions_e2e_prompt.md, per-meeting briefs, and .export_manifest.json.",
             )
         return res

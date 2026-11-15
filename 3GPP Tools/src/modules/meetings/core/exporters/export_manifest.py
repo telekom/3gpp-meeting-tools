@@ -256,6 +256,9 @@ class ExportManifest:
                 continue
             self.tdocs[tid] = {
                 "tdoc_id": tid,
+                "wg": str(entry.get("wg", "")).strip().upper(),
+                "meeting_number": str(entry.get("meeting_number", "")).strip(),
+                "meeting_folder_id": str(entry.get("meeting_folder_id", "")).strip(),
                 "title": str(entry.get("title", "")).strip(),
                 "source": str(entry.get("source", "")).strip(),
                 "type": str(entry.get("type", "")).strip(),
