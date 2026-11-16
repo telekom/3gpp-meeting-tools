@@ -18,12 +18,15 @@ from core.ai.ollama_client import load_ollama_config, OllamaMonitorThread
 from core.ai.ollama_dialog import OllamaConfigDialog
 from core.network.session import NetworkSession, ProxyProfileManager
 from core.network.wifi_monitor import WifiMonitorThread
+from core.ui.font_scale import get_font_scale_notifier
 from core.ui.icons import lucide_icon
-from core.ui.theme import B, C, R, T
+from core.ui.theme import C, R, T
 from core.ui.ui_components import ProxyDialog
 from core.ui.world_clock_service import WebTimezoneSyncWorker, WorldClockService
 
 logger = logging.getLogger(__name__)
+
+_MINIMAL_HYSTERESIS_PX = 24
 
 
 def _status_pill_qss(
@@ -70,6 +73,10 @@ class SystemStatusBar(QStatusBar):
         self.wifi_monitor: Optional[WifiMonitorThread] = None
         self.ollama_monitor: Optional[OllamaMonitorThread] = None
         self._minimal_mode: bool = False
+        self._responsive_armed: bool = False
+        self._in_responsive_check: bool = False
+        self._last_available_width: Optional[int] = None
+        self._full_pill_widths: dict = {}
         self._drawer_open: bool = False
         self._drawer_queue_count: int = 0
         self._drawer_unread_errors: int = 0
@@ -81,6 +88,7 @@ class SystemStatusBar(QStatusBar):
         self._mcp_state: tuple = (False, 0)
         self._proxy_active: bool = False
         self._network_state: tuple = ("", False, False)
+        self._last_full_clock_text: str = "🕒 --:--"
         self._world_clock_service = WorldClockService()
         self._clock_sync_workers: list = []
         self._clock_auto_synced: set = set()
@@ -88,18 +96,151 @@ class SystemStatusBar(QStatusBar):
 
         self.showMessage("⏳ Initializing...")
         self._setup_indicators()
+        self.messageChanged.connect(self._on_status_message_changed)
+        get_font_scale_notifier().scale_changed.connect(
+            lambda _scale: self._recheck_responsive_fit()
+        )
 
     @property
     def is_minimal_mode(self) -> bool:
         """Whether the status bar is currently in narrow-window minimalist icon mode."""
         return self._minimal_mode
 
-    def apply_responsive_width(self, window_width: int) -> None:
-        """Apply responsive breakpoint hysteresis (`<1040 px` minimalist, `>=1070 px` full)."""
-        if window_width < B.STATUS_MINIMAL_COLLAPSE_PX:
-            self.set_minimal_mode(True)
-        elif window_width >= B.STATUS_MINIMAL_EXPAND_PX:
-            self.set_minimal_mode(False)
+    def _full_update_text(self) -> str:
+        visible, count, _, _ = self._update_state
+        if not visible:
+            return ""
+        return f"Update ({count})" if count > 0 else "Update Available"
+
+    def _full_ollama_text(self) -> str:
+        if self._ollama_state is None:
+            return f"🦙 {self._ollama_initial_model}" if self._ollama_initial_model else "🦙 Ollama"
+        is_online, model_display, _, _ = self._ollama_state
+        return f"🦙 {model_display}" if is_online else "🦙 Offline"
+
+    def _full_mcp_text(self) -> str:
+        active, total_calls = self._mcp_state
+        if active:
+            return f"🤖 MCP: 🟢 Active ({total_calls})"
+        return f"🤖 MCP: {total_calls} calls" if total_calls > 0 else "🤖 MCP: Idle"
+
+    def _full_proxy_text(self) -> str:
+        return "🛡️ Proxy: ON" if self._proxy_active else "🌐 Direct"
+
+    def _full_network_text(self) -> str:
+        ssid, is_3gpp, server_reachable = self._network_state
+        if is_3gpp and server_reachable:
+            return f"🟢 {ssid} (Local Server Active)"
+        if is_3gpp and not server_reachable:
+            return f"🟡 {ssid} (No Local Server)"
+        display_name = ssid if ssid else ("Network" if self.wifi_monitor is None else "Offline")
+        return "📶 Network" if display_name == "Network" else f"🌐 {display_name}"
+
+    def _full_drawer_text(self) -> str:
+        parts = ["Console && Queue"]
+        if self._drawer_queue_count > 0:
+            parts.append(f"{self._drawer_queue_count} queued")
+        if self._drawer_unread_errors > 0:
+            noun = "err" if self._drawer_unread_errors == 1 else "errs"
+            parts.append(f"{self._drawer_unread_errors} {noun}")
+        return " · ".join(parts)
+
+    def _estimate_full_pill_width(
+        self, widget: QWidget, full_text: str, is_label: bool = False, has_icon: bool = False
+    ) -> int:
+        """Return exact/estimated pixel width of a pill when rendered in full mode."""
+        if not self._minimal_mode:
+            w = widget.sizeHint().width()
+            self._full_pill_widths[widget] = (full_text, w)
+            return w
+        cached = self._full_pill_widths.get(widget)
+        if cached is not None and cached[0] == full_text:
+            return cached[1]
+        display_text = full_text.replace("&&", "&")
+        fm = widget.fontMetrics()
+        text_w = fm.horizontalAdvance(display_text) if display_text else 0
+        if is_label:
+            return text_w + 16
+        icon_w = 18 if has_icon else 0
+        return text_w + icon_w + 18
+
+    def compute_full_required_width(self) -> int:
+        """
+        Compute the total width required to display the left status message
+        plus all active status bar pills in full (non-minimalist) mode.
+        """
+        entries = []
+        if self._update_state[0]:
+            entries.append((self.update_indicator, self._full_update_text(), False, True))
+        entries.extend([
+            (self.ollama_indicator, self._full_ollama_text(), False, False),
+            (self.mcp_indicator, self._full_mcp_text(), False, False),
+            (self.proxy_indicator, self._full_proxy_text(), False, False),
+            (self.network_indicator, self._full_network_text(), True, False),
+            (self.system_btn, "System", False, True),
+            (self.assistant_dock_btn, "Assistant", False, True),
+            (self.search_dock_btn, "Quick Search", False, True),
+            (self.drawer_toggle_btn, self._full_drawer_text(), False, True),
+            (self.clock_indicator, self._last_full_clock_text, False, False),
+        ])
+
+        pills_total = sum(
+            self._estimate_full_pill_width(w, txt, is_label=is_lbl, has_icon=has_ico)
+            for w, txt, is_lbl, has_ico in entries
+        )
+        spacing_total = len(entries) * 6
+
+        msg = self.currentMessage() or "🟢 System Idle."
+        msg_w = self.fontMetrics().horizontalAdvance(msg)
+        left_reserve = max(125, msg_w + 28)
+
+        return left_reserve + pills_total + spacing_total + 24
+
+    def _on_status_message_changed(self, _message: str) -> None:
+        self._recheck_responsive_fit()
+
+    def _recheck_responsive_fit(self) -> None:
+        """Re-evaluate minimalist mode after pill content or left message changes."""
+        if not self._responsive_armed or self._in_responsive_check:
+            return
+        self.apply_responsive_width(self._last_available_width)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        w = event.size().width()
+        if w > 0:
+            self._responsive_armed = True
+            self.apply_responsive_width(w)
+
+    def apply_responsive_width(self, available_width: Optional[int] = None) -> None:
+        """Dynamically toggle minimalist mode based on actual full-mode pill width + hysteresis."""
+        if self._in_responsive_check:
+            return
+        if available_width is not None:
+            self._responsive_armed = True
+            self._last_available_width = int(available_width)
+            avail = int(available_width)
+        elif self.width() > 200 and self.isVisible():
+            avail = self.width()
+            self._last_available_width = avail
+        elif self._last_available_width is not None:
+            avail = self._last_available_width
+        else:
+            win = self.window()
+            avail = win.width() if win is not None else self.width()
+
+        if avail <= 0:
+            return
+
+        self._in_responsive_check = True
+        try:
+            req = self.compute_full_required_width()
+            if not self._minimal_mode and avail < req:
+                self.set_minimal_mode(True)
+            elif self._minimal_mode and avail >= req + _MINIMAL_HYSTERESIS_PX:
+                self.set_minimal_mode(False)
+        finally:
+            self._in_responsive_check = False
 
     def set_minimal_mode(self, minimal: bool) -> None:
         """Switch between full pill labels and compact icon-only minimalist mode."""
@@ -282,14 +423,14 @@ class SystemStatusBar(QStatusBar):
         )
 
     def _render_update_indicator(self) -> None:
-        visible, count, latest_short_sha, summary = self._update_state
+        visible, _count, latest_short_sha, summary = self._update_state
         if not visible:
             self.update_indicator.setVisible(False)
             return
         if self._minimal_mode:
-            label = f"{count}" if count > 0 else ""
+            label = f"{_count}" if _count > 0 else ""
         else:
-            label = f"Update ({count})" if count > 0 else "Update Available"
+            label = self._full_update_text()
         self.update_indicator.setText(label)
         tip = f"New update available on GitHub master ({latest_short_sha})"
         if summary:
@@ -314,11 +455,13 @@ class SystemStatusBar(QStatusBar):
         """Display the clickable update badge in the status bar."""
         self._update_state = (True, int(count), str(latest_short_sha), str(summary))
         self._render_update_indicator()
+        self._recheck_responsive_fit()
 
     def clear_update_available(self) -> None:
         """Hide the status-bar update badge."""
         self._update_state = (False, 0, "", "")
         self._render_update_indicator()
+        self._recheck_responsive_fit()
 
     def update_drawer_badge(self, opened: bool, queue_count: int, unread_errors: int) -> None:
         """Update the status-bar Console & Queue pill text, active state, and error/queue badges."""
@@ -335,13 +478,7 @@ class SystemStatusBar(QStatusBar):
                 text = ""
             pad = "1px 5px"
         else:
-            parts = ["Console && Queue"]
-            if self._drawer_queue_count > 0:
-                parts.append(f"{self._drawer_queue_count} queued")
-            if self._drawer_unread_errors > 0:
-                noun = "err" if self._drawer_unread_errors == 1 else "errs"
-                parts.append(f"{self._drawer_unread_errors} {noun}")
-            text = " · ".join(parts)
+            text = self._full_drawer_text()
             pad = "1px 8px"
 
         self.drawer_toggle_btn.blockSignals(True)
@@ -375,6 +512,7 @@ class SystemStatusBar(QStatusBar):
                 border-color: {C.BORDER_HOVER};
             }}
         """)
+        self._recheck_responsive_fit()
 
     def update_right_panel_badges(self, opened: bool, mode: str) -> None:
         """Synchronize the status-bar Assistant & Quick Search dock pill styles."""
@@ -477,6 +615,7 @@ class SystemStatusBar(QStatusBar):
             self._render_proxy_indicator()
             if console_panel:
                 console_panel.set_proxy_status(False, tooltip)
+        self._recheck_responsive_fit()
 
     def open_proxy_settings(self):
         """Presents proxy dialog and synchronizes active proxy state."""
@@ -567,17 +706,17 @@ class SystemStatusBar(QStatusBar):
         clean_ssid = str(ssid or "").strip() or "Offline"
         self._network_state = (clean_ssid, bool(is_3gpp), bool(server_reachable))
         self._render_network_indicator()
+        self._recheck_responsive_fit()
 
     def _render_ollama_indicator(self) -> None:
         if self._ollama_state is None:
-            full_txt = f"🦙 {self._ollama_initial_model}" if self._ollama_initial_model else "🦙 Ollama"
-            self.ollama_indicator.setText("🦙" if self._minimal_mode else full_txt)
+            self.ollama_indicator.setText("🦙" if self._minimal_mode else self._full_ollama_text())
             self.ollama_indicator.setStyleSheet(_status_pill_qss(compact=self._minimal_mode))
             return
 
         is_online, model_display, models_count, error = self._ollama_state
         if is_online:
-            self.ollama_indicator.setText("🦙" if self._minimal_mode else f"🦙 {model_display}")
+            self.ollama_indicator.setText("🦙" if self._minimal_mode else self._full_ollama_text())
             self.ollama_indicator.setToolTip(
                 f"Ollama Online ({model_display}, {models_count} models available)\nClick to configure"
             )
@@ -592,7 +731,7 @@ class SystemStatusBar(QStatusBar):
                 )
             )
         else:
-            self.ollama_indicator.setText("🦙" if self._minimal_mode else "🦙 Offline")
+            self.ollama_indicator.setText("🦙" if self._minimal_mode else self._full_ollama_text())
             self.ollama_indicator.setToolTip(f"Ollama Unreachable: {error}\nClick to configure")
             self.ollama_indicator.setStyleSheet(
                 _status_pill_qss(
@@ -609,6 +748,7 @@ class SystemStatusBar(QStatusBar):
         model_display = selected_model if selected_model else (models[0] if models else "Connected")
         self._ollama_state = (bool(is_online), str(model_display), len(models), str(error or ""))
         self._render_ollama_indicator()
+        self._recheck_responsive_fit()
 
     def open_ollama_settings(self):
         """Opens Ollama connection, model preferences, and service management dialog."""
@@ -686,6 +826,7 @@ class SystemStatusBar(QStatusBar):
                 self._mcp_state = (False, total_calls)
                 self.mcp_indicator.setToolTip(tooltip)
                 self._render_mcp_indicator()
+            self._recheck_responsive_fit()
         except Exception:
             pass
 
@@ -693,6 +834,9 @@ class SystemStatusBar(QStatusBar):
         """Refreshes the status-bar World Clock pill text and rich tooltip."""
         try:
             snapshot = self._world_clock_service.get_snapshot()
+            self._last_full_clock_text = self._world_clock_service.format_status_bar_text(
+                snapshot, compact=False
+            )
             self.clock_indicator.setText(
                 self._world_clock_service.format_status_bar_text(
                     snapshot, compact=self._minimal_mode
@@ -702,6 +846,7 @@ class SystemStatusBar(QStatusBar):
             self.clock_indicator.setStyleSheet(
                 _status_pill_qss(bg=C.BG_SURFACE, fg=C.TEXT_BODY, compact=self._minimal_mode)
             )
+            self._recheck_responsive_fit()
         except Exception as e:
             logger.debug(f"[StatusBarClock] Failed to update clock indicator: {e}")
 

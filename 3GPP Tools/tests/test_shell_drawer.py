@@ -10,8 +10,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QSplitter, QWidget
 
 from core.ui.bottom_drawer import BottomDrawer
-from core.ui.system_status_bar import SystemStatusBar
-from core.ui.theme import B
+from core.ui.system_status_bar import SystemStatusBar, _MINIMAL_HYSTERESIS_PX
 from core.ui.ui_panels import ConsolePanel, QueuePanel
 
 
@@ -139,8 +138,8 @@ class TestBottomDrawerAndStatusBadges(unittest.TestCase):
             self.assertEqual(bar.network_indicator.text(), "🌐 Ramada")
             self.assertFalse(bar.network_indicator.isHidden())
 
-            # Shrink below STATUS_MINIMAL_COLLAPSE_PX -> enters minimalist mode
-            bar.apply_responsive_width(B.STATUS_MINIMAL_COLLAPSE_PX - 20)
+            # Shrink to narrow width (600 px) -> enters minimalist mode
+            bar.apply_responsive_width(600)
             self.assertTrue(bar.is_minimal_mode)
             self.assertEqual(bar.system_btn.text(), "")
             self.assertEqual(bar.assistant_dock_btn.text(), "")
@@ -163,11 +162,14 @@ class TestBottomDrawerAndStatusBadges(unittest.TestCase):
             self.assertEqual(bar.network_indicator.text(), "🟢 3GPP")
 
             # Hysteresis zone keeps minimal mode active
-            bar.apply_responsive_width(B.STATUS_MINIMAL_COLLAPSE_PX + 10)
+            req_after = bar.compute_full_required_width()
+            bar.apply_responsive_width(req_after - 10)
+            self.assertTrue(bar.is_minimal_mode)
+            bar.apply_responsive_width(req_after + _MINIMAL_HYSTERESIS_PX // 2)
             self.assertTrue(bar.is_minimal_mode)
 
-            # Expand >= STATUS_MINIMAL_EXPAND_PX -> restores full labels
-            bar.apply_responsive_width(B.STATUS_MINIMAL_EXPAND_PX)
+            # Expand >= req_after + _MINIMAL_HYSTERESIS_PX -> restores full labels
+            bar.apply_responsive_width(req_after + _MINIMAL_HYSTERESIS_PX + 20)
             self.assertFalse(bar.is_minimal_mode)
             self.assertEqual(bar.system_btn.text(), "System")
             self.assertEqual(bar.assistant_dock_btn.text(), "Assistant")
@@ -175,6 +177,25 @@ class TestBottomDrawerAndStatusBadges(unittest.TestCase):
             self.assertEqual(bar.drawer_toggle_btn.text(), "Console && Queue")
             self.assertEqual(bar.ollama_indicator.text(), "🦙 qwen3:8b")
             self.assertEqual(bar.network_indicator.text(), "🟢 3GPP-Meeting (Local Server Active)")
+
+            # Mid-session content growth triggers minimalist mode without a resize event,
+            # and shrinking content back below threshold restores full mode automatically
+            req_before_long = bar.compute_full_required_width()
+            bar.apply_responsive_width(req_before_long + 10)
+            self.assertFalse(bar.is_minimal_mode)
+            bar._update_ollama_indicator(
+                True,
+                "qwen2.5-coder:32b-instruct-q8_0-custom-long-tag",
+                ["qwen2.5-coder:32b-instruct-q8_0-custom-long-tag"],
+                "",
+            )
+            self.assertGreater(bar.compute_full_required_width(), req_before_long + 10)
+            self.assertTrue(bar.is_minimal_mode)
+
+            # Reverting to a short model name when enough space + hysteresis is available restores full mode
+            bar.apply_responsive_width(req_before_long + _MINIMAL_HYSTERESIS_PX + 10)
+            bar._update_ollama_indicator(True, "qwen3:8b", ["qwen3:8b"], "")
+            self.assertFalse(bar.is_minimal_mode)
         finally:
             bar.stop_monitors()
             bar.mcp_timer.stop()
