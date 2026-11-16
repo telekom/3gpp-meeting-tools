@@ -1,156 +1,194 @@
 # --- File: src/core/utils/company_sanitizer.py ---
 import html
+import json
+import logging
 import re
 from functools import lru_cache
-from typing import List, Tuple, Set, Optional
+from pathlib import Path
+from typing import Dict, List, Optional, Pattern, Set, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class CompanySanitizer:
-    SIGNATURE_SYNONYMS_REGEX = {
-        'Deutsche Telekom': re.compile(r'(\bdt\b)|(deutsche tele[kc]om)|(@magenta\.at)|(@t-mobile\.pl)|(@telekom\.de)'),
-        'KT': re.compile(r'(\bkt\b)'),
-        'Nokia': re.compile(r'nokia'),
-        'Qualcomm': re.compile(r'qualcom[m]?'),
-        'Huawei': re.compile(r'(huawei)|(h[i]?s[i]?l[l]?icon)'),
+    # Built-in zero-I/O baseline catalog of canonical 3GPP contributors and regex rules.
+    # Externalized descriptions, metadata, and optional user overrides are loaded from:
+    #   - src/config/company_synonyms.json (tracked baseline with full_name, category, description)
+    #   - src/config/company_synonyms_user.json (optional local user overrides/additions, preserved across updates)
+    _BUILTIN_SYNONYMS_PATTERNS: Dict[str, str] = {
+        'Deutsche Telekom': r'(\bdt\b)|(deutsche tele[kc]om)|(@magenta\.at)|(@t-mobile\.pl)|(@telekom\.de)',
+        'KT': r'(\bkt\b)',
+        'Nokia': r'nokia',
+        'Qualcomm': r'qualcom[m]?',
+        'Huawei': r'(huawei)|(h[i]?s[i]?l[l]?icon)',
 
-        # ---> THE FIX: Added a \b (word boundary) so it won't trigger on cic[tmobile]
-        'T-Mobile USA': re.compile(r'(\bt[-]?mobile(?!\.pl))|(@t-mobile\.com)'),
+        # Word boundary prevents triggering on cic[tmobile]
+        'T-Mobile USA': r'(\bt[-]?mobile(?!\.pl))|(@t-mobile\.com)',
 
-        # ---> NEW: Explicit entry for CICT
-        'CICT': re.compile(r'cict'),
-
-        'Verizon': re.compile(r'verizon'),
-        'ZTE': re.compile(r'zte'),
-        'NTT DoCoMo': re.compile(r'(ntt)|(docomo)'),
-        'Samsung': re.compile(r'samsung'),
-        'Blackberry': re.compile(r'blackberry'),
-        'Toyota': re.compile(r'toyota'),
-        'LG': re.compile(r'lg[e]?( electronics)?'),
-        'Cisco': re.compile(r'cisco'),
-        'Oppo': re.compile(r'oppo'),
-        'Interdigital': re.compile(r'inter[ ]?digital|interdigtial|intedigital'),
-        'Mediatek': re.compile(r'mediatek'),
-        'NEC': re.compile(r'nec'),
-        'Orange': re.compile(r'orange'),
-        'Continental': re.compile(r'continental'),
-        'Thales': re.compile(r'thales'),
-        'China Telecom': re.compile(r'china telecom'),
-        'TIM': re.compile(r'(telecom italia)|(tim)'),
-        'Ericsson': re.compile(r'eric[s]?sson'),
-        'Convida Wireless': re.compile(r'convida'),
-        'China Mobile': re.compile(r'china mobile'),
-        'China Unicom': re.compile(r'china unicom'),
-        'Comtech': re.compile(r'comtech'),
-        'Gemalto': re.compile(r'gemalto'),
-        'Intel': re.compile(r'intel'),
-        'KDDI': re.compile(r'kddi'),
-        'KPN': re.compile(r'kpn'),
-        'Oracle': re.compile(r'oracle'),
-        'FirstNet': re.compile(r'firstnet'),
-        'Telstra': re.compile(r'telstra'),
-        'Vodafone': re.compile(r'vodafone'),
-        'Tencent': re.compile(r'tencent'),
-        'Sprint': re.compile(r'sprint'),
-        'Sony': re.compile(r'sony'),
-        'CableLabs': re.compile(r'cablelabs'),
+        'CICT': r'cict',
+        'Verizon': r'verizon',
+        'ZTE': r'\bzte\b',
+        'NTT DoCoMo': r'(\bntt\b)|(docomo)',
+        'Samsung': r'samsung',
+        'Blackberry': r'blackberry',
+        'Toyota': r'toyota',
+        'LG': r'lg[e]?( electronics)?',
+        'Cisco': r'cisco',
+        'Oppo': r'oppo',
+        'Interdigital': r'inter[ ]?digital|interdigtial|intedigital',
+        'Mediatek': r'mediatek',
+        'NEC': r'\bnec\b',
+        'Orange': r'orange',
+        'Continental': r'continental',
+        'Thales': r'thales',
+        'China Telecom': r'china\s*telecom',
+        'TIM': r'(telecom italia)|(\btim\b)',
+        'Ericsson': r'eric[s]?sson',
+        'Convida Wireless': r'convida',
+        'China Mobile': r'china mobile',
+        'China Unicom': r'china unicom',
+        'Comtech': r'comtech',
+        'Gemalto': r'gemalto',
+        'Intel': r'intel',
+        'KDDI': r'kddi',
+        'KPN': r'kpn',
+        'Oracle': r'oracle',
+        'FirstNet': r'firstnet',
+        'Telstra': r'telstra',
+        'Vodafone': r'vodafone',
+        'Tencent': r'tencent',
+        'Sprint': r'sprint',
+        'Sony': r'sony',
+        'CableLabs': r'cablelabs',
 
         # Word boundaries prevent collision with CATT
-        'AT&T': re.compile(r'\bat[&]?t\b'),
-        'Charter': re.compile(r'charter'),
-        'Lenovo': re.compile(r'(motorola mobility)|(lenovo)'),
-        'SK Telecom': re.compile(r'sk telecom'),
-        'TNO': re.compile(r'tno'),
-        'Telefonica': re.compile(r'telefonica'),
-        'Softbank': re.compile(r'softbank'),
-        'Volkwagen': re.compile(r'volkswagen'),
-        'Vivo': re.compile(r'vivo'),
-        'Xiaomi': re.compile(r'xiaomi'),
-        'Alibaba': re.compile(r'alibaba'),
-        'Apple': re.compile(r'apple'),
-        'Broadcom': re.compile(r'broadcom'),
-        'CAICT': re.compile(r'caict'),
-        'CATR': re.compile(r'catr'),
-        'CATT': re.compile(r'\bcatt\b'),
-        'CMCC': re.compile(r'cmcc'),
-        'UK HO': re.compile(r'uk ho'),
-        'Affirmed': re.compile(r'affirmed'),
-        'Expway': re.compile(r'expway'),
-        'HPE': re.compile(r'hewlett packard'),
+        'AT&T': r'\bat[&]?t\b',
+        'Charter': r'charter',
+        'Lenovo': r'(motorola mobility)|(lenovo)',
+        'SK Telecom': r'sk telecom',
+        'TNO': r'tno',
+        'Telefonica': r'telefonica',
+        'Softbank': r'softbank',
+        'Volkwagen': r'volkswagen',
+        'Vivo': r'vivo',
+        'Xiaomi': r'xiaomi',
+        'Alibaba': r'alibaba',
+        'Apple': r'apple',
+        'Broadcom': r'broadcom',
+        'CAICT': r'caict',
+        'CATR': r'catr',
+        'CATT': r'\bcatt\b',
+        'CMCC': r'cmcc',
+        'UK HO': r'uk ho',
+        'Affirmed': r'affirmed',
+        'Expway': r'expway',
+        'HPE': r'hewlett packard',
 
-        'RAN WG1': re.compile(r'ran wg1'),
-        'RAN WG2': re.compile(r'ran wg2'),
-        'RAN WG3': re.compile(r'ran wg3'),
-        'SA WG1': re.compile(r'sa wg1'),
-        'SA WG2': re.compile(r'sa wg2'),
-        'SA WG3': re.compile(r'sa wg3'),
-        'SA WG4': re.compile(r'sa wg4'),
-        'SA WG5': re.compile(r'sa wg5'),
-        'SA WG6': re.compile(r'sa wg6'),
-        'TSG SA': re.compile(r'tsg sa'),
-        'TSG CT': re.compile(r'tsg ct'),
-        'TSG RAN': re.compile(r'tsg ran'),
-        'CT WG1': re.compile(r'ct wg1'),
-        'CT WG2': re.compile(r'ct wg2'),
-        'CT WG3': re.compile(r'ct wg3'),
-        'CT WG4': re.compile(r'ct wg4'),
+        'RAN WG1': r'ran wg1',
+        'RAN WG2': r'ran wg2',
+        'RAN WG3': r'ran wg3',
+        'SA WG1': r'sa wg1',
+        'SA WG2': r'sa wg2',
+        'SA WG3': r'sa wg3',
+        'SA WG4': r'sa wg4',
+        'SA WG5': r'sa wg5',
+        'SA WG6': r'sa wg6',
+        'TSG SA': r'tsg sa',
+        'TSG CT': r'tsg ct',
+        'TSG RAN': r'tsg ran',
+        'CT WG1': r'ct wg1',
+        'CT WG2': r'ct wg2',
+        'CT WG3': r'ct wg3',
+        'CT WG4': r'ct wg4',
 
-        'IETF': re.compile(r'ietf'),
-        'IEEE': re.compile(r'ieee'),
-        'BBF': re.compile(r'bbf'),
-        'Swisscom': re.compile(r'swisscom'),
-        'Sharp': re.compile(r'sharp'),
-        'Korea Telecom': re.compile(r'korea telecom'),
-        'Siemens': re.compile(r'siemens'),
-        'Sierra Wireless': re.compile(r'sierra wireless'),
-        'Fraunhofer HHI': re.compile(r'fraunhofer hhi'),
-        'GSMA': re.compile(r'gsma'),
-        'Broadband Forum': re.compile(r'broadband forum'),
-        'OneM2M': re.compile(r'onem2m'),
-        'Juniper Networks': re.compile(r'juniper'),
-        'Spirent': re.compile(r'spirent'),
-        'Airbus': re.compile(r'airbus'),
-        'Mavenir': re.compile(r'mavenir'),
-        'Sennheiser': re.compile(r'sennheiser'),
-        'Sandvine': re.compile(r'sandvine'),
-        'Philips': re.compile(r'philips'),
-        'Google': re.compile(r'google'),
-        'Matrixx': re.compile(r'matrixx'),
-        'Comcast': re.compile(r'comcast'),
-        'Turkcell': re.compile(r'turkcell'),
-        'Airtel': re.compile(r'airtel'),
-        'Bosch': re.compile(r'bosch'),
-        'Sequans': re.compile(r'sequans'),
-        'Rakuten': re.compile(r'rakute'),
-        'Futurewei': re.compile(r'futurewei'),
-        'Microsoft': re.compile(r'microsoft'),
-        'Facebook': re.compile(r'facebook|meta'),
-        'DISH': re.compile(r'dish|boost mobile'),
-        'ETRI': re.compile(r'etri'),
-        'INSPUR': re.compile(r'inspur'),
+        'IETF': r'ietf',
+        'IEEE': r'ieee',
+        'BBF': r'bbf',
+        'Swisscom': r'swisscom',
+        'Sharp': r'sharp',
+        'Korea Telecom': r'korea telecom',
+        'Siemens': r'siemens',
+        'Sierra Wireless': r'sierra wireless',
+        'Fraunhofer HHI': r'fraunhofer hhi',
+        'GSMA': r'gsma',
+        'Broadband Forum': r'broadband forum',
+        'OneM2M': r'onem2m',
+        'Juniper Networks': r'juniper',
+        'Spirent': r'spirent',
+        'Airbus': r'airbus',
+        'Mavenir': r'mavenir',
+        'Sennheiser': r'sennheiser',
+        'Sandvine': r'sandvine',
+        'Philips': r'philips',
+        'Google': r'google',
+        'Matrixx': r'matrixx',
+        'Comcast': r'comcast',
+        'Turkcell': r'turkcell',
+        'Airtel': r'airtel',
+        'Bosch': r'bosch',
+        'Sequans': r'sequans',
+        'Rakuten': r'rakute',
+        'Futurewei': r'futurewei',
+        'Microsoft': r'microsoft',
+        'Facebook': r'facebook|meta',
+        'DISH': r'dish|boost mobile',
+        'ETRI': r'etri',
+        'INSPUR': r'inspur',
 
         # Added at SA2#175AHE
-        'HONOR': re.compile(r'honor'),
-        'JIO': re.compile(r'jio platforms'),
-        'Kyocera': re.compile(r'kyocera'),
-        'NVIDIA': re.compile(r'nvidia'),
-        'Ofinno': re.compile(r'ofinno'),
-        'Skylo': re.compile(r'skylo technologies'),
-        'Peraton Labs': re.compile(r'peraton labs'),
-        'CEWiT': re.compile(r'cewit'),
-        'CANON': re.compile(r'canon'),
-        'Eutelsat': re.compile(r'eutelsat'),
-        'Panasonic': re.compile(r'panasonic'),
-        'Quectel': re.compile(r'quectel'),
-        'SpaceX': re.compile(r'spacex'),
-        'Tejas Networks': re.compile(r'tejas network'),
-        'ViaSat': re.compile(r'viasat'),
-        'VIAVI': re.compile(r'viavi Solutions'),
-        'ASUSTeK': re.compile(r'asustek'),
-        'BDBOS': re.compile(r'bdbos'),
-        'Keysight Technologies': re.compile(r'keysight technologies'),
-        'Sateliot': re.compile(r'sateliot'),
-        'Novamint': re.compile(r'novamint'),
+        'HONOR': r'honor',
+        'JIO': r'jio platforms',
+        'Kyocera': r'kyocera',
+        'NVIDIA': r'nvidia',
+        'Ofinno': r'ofinno',
+        'Skylo': r'skylo technologies',
+        'Peraton Labs': r'peraton labs',
+        'CEWiT': r'cewit',
+        'CANON': r'canon',
+        'Eutelsat': r'eutelsat',
+        'Panasonic': r'panasonic',
+        'Quectel': r'quectel',
+        'SpaceX': r'spacex',
+        'Tejas Networks': r'tejas network',
+        'ViaSat': r'viasat',
+        'VIAVI': r'\bviavi\b',
+        'ASUSTeK': r'asustek',
+        'BDBOS': r'bdbos',
+        'Keysight Technologies': r'keysight technologies',
+        'Sateliot': r'sateliot',
+        'Novamint': r'novamint',
+
+        # Added at SA2#178
+        'ATIS': r'\batis\b|ims911',
+        'BSI': r'\bbsi\b',
+        'BUPT': r'\bbupt\b|beijing university of posts',
+        'CSCN': r'\bcscn\b|china satcom|china satellite network',
+        'ETSI': r'\betsi\b',
+        'Free Stream Technologies': r'free\s*stream\s*tech',
+        'HFCL': r'\bhfcl\b',
+        'HIPE IP': r'\bhipe\s*ip\b',
+        'IIT Bombay': r'\biit\s*bombay\b|\biitb\b',
+        'IIT Kharagpur': r'\biit\s*kharagpur\b|\biitkgp\b',
+        'NCSC': r'\bncsc\b',
+        'NPL': r'\bnpl\b|national physical laboratory',
+        'NSA': r'\bus\s+nsa\b|\bnsa\b',
+        'Pengcheng Laboratory': r'\bpeng\s*cheng\s*lab|\bpcl\b',
+        'PML': r'\bpml\b|purple mountain lab',
+        'Seoul National University': r'seoul national university|\bsnu\b',
+        'SKY Perfect JSAT': r'sky\s*perfect|\bjsat\b',
+        'Transsion': r'\btranssion\b|\binfinix\b|\btecno\b|\bitel\b',
+        'UNISOC': r'\bunisoc\b|\bspreadtrum\b',
+        'ZGC Institute': r'\bzgc\b|ubiquitous-x',
     }
+
+    SIGNATURE_SYNONYMS_REGEX: Dict[str, Pattern] = {
+        name: re.compile(pattern)
+        for name, pattern in _BUILTIN_SYNONYMS_PATTERNS.items()
+    }
+
+    # Rich descriptive metadata loaded from src/config/company_synonyms.json (+ _user.json)
+    # Structure: {canonical_name: {"pattern": str, "full_name": str, "category": str, "description": str}}
+    COMPANY_METADATA: Dict[str, Dict[str, str]] = {}
 
     SOURCE_REPLACE_REGEX = re.compile(
         r'\(Rapporteur\)|\(\?\)|[\[\]\?\(\)]|(([\w\d]{2,3})-(\d\d)([\d]+))',
@@ -170,6 +208,118 @@ class CompanySanitizer:
         r'(\s*\(\s*\?\s*\)|\s*\?+)?',
         re.IGNORECASE,
     )
+
+    @classmethod
+    def get_config_paths(cls) -> Tuple[Path, Path]:
+        """Returns (default_config_path, user_config_path) for externalized company synonym rules."""
+        config_dir = Path(__file__).resolve().parent.parent.parent / "config"
+        return config_dir / "company_synonyms.json", config_dir / "company_synonyms_user.json"
+
+    @classmethod
+    def reload_rules(
+        cls,
+        default_config_path: Optional[Path] = None,
+        user_config_path: Optional[Path] = None,
+    ) -> None:
+        """
+        Loads or reloads company synonym regex rules and descriptive metadata from:
+        1. Built-in `_BUILTIN_SYNONYMS_PATTERNS` (guaranteed zero-I/O baseline)
+        2. `src/config/company_synonyms.json` (tracked catalog with full_name, category, description)
+        3. `src/config/company_synonyms_user.json` (optional user overrides/additions)
+
+        Mutates `SIGNATURE_SYNONYMS_REGEX` and `COMPANY_METADATA` in-place to preserve
+        any external references, and clears LRU caches so changes take effect immediately.
+        """
+        def_path, usr_path = cls.get_config_paths()
+        if default_config_path is not None:
+            def_path = Path(default_config_path)
+        if user_config_path is not None:
+            usr_path = Path(user_config_path)
+
+        new_regex: Dict[str, Pattern] = {
+            name: re.compile(pattern)
+            for name, pattern in cls._BUILTIN_SYNONYMS_PATTERNS.items()
+        }
+        new_meta: Dict[str, Dict[str, str]] = {
+            name: {
+                "pattern": pattern,
+                "full_name": name,
+                "category": "Contributor",
+                "description": "",
+            }
+            for name, pattern in cls._BUILTIN_SYNONYMS_PATTERNS.items()
+        }
+
+        for cfg_path in (def_path, usr_path):
+            if not cfg_path or not cfg_path.is_file():
+                continue
+            try:
+                raw = json.loads(cfg_path.read_text(encoding="utf-8"))
+                companies_block = raw.get("companies", raw) if isinstance(raw, dict) else {}
+                if not isinstance(companies_block, dict):
+                    continue
+                for canonical_name, entry in companies_block.items():
+                    if not canonical_name or str(canonical_name).startswith("_"):
+                        continue
+                    if isinstance(entry, str):
+                        pattern_str = entry
+                        meta_entry = {
+                            "pattern": pattern_str,
+                            "full_name": new_meta.get(canonical_name, {}).get("full_name", canonical_name),
+                            "category": new_meta.get(canonical_name, {}).get("category", "Contributor"),
+                            "description": new_meta.get(canonical_name, {}).get("description", ""),
+                        }
+                    elif isinstance(entry, dict):
+                        pattern_str = entry.get("pattern") or new_meta.get(canonical_name, {}).get("pattern", "")
+                        if not pattern_str:
+                            continue
+                        prev = new_meta.get(canonical_name, {})
+                        meta_entry = {
+                            "pattern": str(pattern_str),
+                            "full_name": str(entry.get("full_name") or prev.get("full_name") or canonical_name),
+                            "category": str(entry.get("category") or prev.get("category") or "Contributor"),
+                            "description": str(entry.get("description") or prev.get("description") or ""),
+                        }
+                    else:
+                        continue
+
+                    try:
+                        compiled = re.compile(pattern_str)
+                        new_regex[canonical_name] = compiled
+                        new_meta[canonical_name] = meta_entry
+                    except re.error as exc:
+                        logger.warning(
+                            "Invalid regex pattern for company %r in %s: %s",
+                            canonical_name,
+                            cfg_path,
+                            exc,
+                        )
+            except Exception as exc:
+                logger.warning("Failed to load company synonyms from %s: %s", cfg_path, exc)
+
+        cls.SIGNATURE_SYNONYMS_REGEX.clear()
+        cls.SIGNATURE_SYNONYMS_REGEX.update(new_regex)
+        cls.COMPANY_METADATA.clear()
+        cls.COMPANY_METADATA.update(new_meta)
+
+        # Invalidate LRU caches so updated rules take effect immediately
+        if hasattr(cls.tokenize_source_segments, "cache_clear"):
+            cls.tokenize_source_segments.cache_clear()
+        if hasattr(cls.parse_contributors_detailed, "cache_clear"):
+            cls.parse_contributors_detailed.cache_clear()
+
+    @classmethod
+    def get_company_metadata(cls, canonical_name: str) -> Dict[str, str]:
+        """
+        Returns descriptive metadata for a canonical company name:
+        `{"pattern": ..., "full_name": ..., "category": ..., "description": ...}`.
+        """
+        return dict(cls.COMPANY_METADATA.get(canonical_name, {
+            "pattern": cls._BUILTIN_SYNONYMS_PATTERNS.get(canonical_name, ""),
+            "full_name": canonical_name,
+            "category": "Contributor",
+            "description": "",
+        }))
 
     @classmethod
     def _match_text_to_companies(cls, text_fragment: str) -> list:
@@ -591,3 +741,6 @@ class CompanySanitizer:
             return f"None confirmed (carry-over co-sponsors: {tentative})"
         return str(original_source).strip()
 
+
+# Load externalized rules and descriptive metadata at module initialization
+CompanySanitizer.reload_rules()

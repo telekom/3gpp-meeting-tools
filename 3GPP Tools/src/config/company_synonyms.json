@@ -1,0 +1,918 @@
+{
+  "version": 1,
+  "description": "Canonical 3GPP company, operator, vendor, SDO, research institute, and government agency normalization rules used by CompanySanitizer. Custom local overrides or additions can be placed in company_synonyms_user.json.",
+  "companies": {
+    "Deutsche Telekom": {
+      "pattern": "(\\bdt\\b)|(deutsche tele[kc]om)|(@magenta\\.at)|(@t-mobile\\.pl)|(@telekom\\.de)",
+      "full_name": "Deutsche Telekom AG",
+      "category": "Operator",
+      "description": "European telecommunications operator headquartered in Bonn, Germany (includes Telekom Deutschland, Magenta Telekom Austria, T-Mobile Poland)."
+    },
+    "KT": {
+      "pattern": "(\\bkt\\b)",
+      "full_name": "KT Corporation",
+      "category": "Operator",
+      "description": "South Korean telecommunications operator (formerly Korea Telecom)."
+    },
+    "Nokia": {
+      "pattern": "nokia",
+      "full_name": "Nokia Corporation",
+      "category": "Vendor / Infrastructure",
+      "description": "Finnish multinational telecommunications, network infrastructure, and technology vendor (including Nokia Bell Labs)."
+    },
+    "Qualcomm": {
+      "pattern": "qualcom[m]?",
+      "full_name": "Qualcomm Incorporated",
+      "category": "Chipset / Silicon",
+      "description": "US semiconductor, wireless technology, and cellular modem/SoC vendor."
+    },
+    "Huawei": {
+      "pattern": "(huawei)|(h[i]?s[i]?l[l]?icon)",
+      "full_name": "Huawei Technologies Co., Ltd. / HiSilicon",
+      "category": "Vendor / Infrastructure",
+      "description": "Chinese telecommunications equipment vendor and consumer electronics manufacturer, grouped with its semiconductor subsidiary HiSilicon."
+    },
+    "T-Mobile USA": {
+      "pattern": "(\\bt[-]?mobile(?!\\.pl))|(@t-mobile\\.com)",
+      "full_name": "T-Mobile US, Inc.",
+      "category": "Operator",
+      "description": "US wireless network operator (excludes T-Mobile Poland @t-mobile.pl which maps to Deutsche Telekom)."
+    },
+    "CICT": {
+      "pattern": "cict",
+      "full_name": "China Information Communication Technologies Group (CICT)",
+      "category": "Vendor / R&D",
+      "description": "Chinese state-owned telecommunications technology group (parent organization of CATT / Datang and FiberHome)."
+    },
+    "Verizon": {
+      "pattern": "verizon",
+      "full_name": "Verizon Communications Inc.",
+      "category": "Operator",
+      "description": "US telecommunications and wireless network operator."
+    },
+    "ZTE": {
+      "pattern": "\\bzte\\b",
+      "full_name": "ZTE Corporation",
+      "category": "Vendor / Infrastructure",
+      "description": "Chinese telecommunications equipment and network solutions vendor."
+    },
+    "NTT DoCoMo": {
+      "pattern": "(\\bntt\\b)|(docomo)",
+      "full_name": "NTT DOCOMO, INC.",
+      "category": "Operator",
+      "description": "Japanese mobile network operator and subsidiary of Nippon Telegraph and Telephone (NTT)."
+    },
+    "Samsung": {
+      "pattern": "samsung",
+      "full_name": "Samsung Electronics Co., Ltd.",
+      "category": "Vendor / OEM",
+      "description": "South Korean electronics, mobile device, chipset, and network infrastructure manufacturer."
+    },
+    "Blackberry": {
+      "pattern": "blackberry",
+      "full_name": "BlackBerry Limited",
+      "category": "Vendor / Software",
+      "description": "Canadian enterprise software, cybersecurity, and IoT/automotive (QNX) technology provider."
+    },
+    "Toyota": {
+      "pattern": "toyota",
+      "full_name": "Toyota Motor Corporation",
+      "category": "Automotive / Vertical",
+      "description": "Japanese multinational automotive manufacturer active in V2X and connected vehicle standards."
+    },
+    "LG": {
+      "pattern": "lg[e]?( electronics)?",
+      "full_name": "LG Electronics Inc.",
+      "category": "Vendor / OEM",
+      "description": "South Korean electronics and telecommunications R&D company."
+    },
+    "Cisco": {
+      "pattern": "cisco",
+      "full_name": "Cisco Systems, Inc.",
+      "category": "Vendor / Infrastructure",
+      "description": "US multinational IP networking, routing, cloud, and core network infrastructure vendor."
+    },
+    "Oppo": {
+      "pattern": "oppo",
+      "full_name": "Guangdong OPPO Mobile Telecommunications Corp., Ltd.",
+      "category": "Vendor / OEM",
+      "description": "Chinese consumer electronics and smartphone manufacturer."
+    },
+    "Interdigital": {
+      "pattern": "inter[ ]?digital|interdigtial|intedigital",
+      "full_name": "InterDigital, Inc.",
+      "category": "R&D / IP",
+      "description": "US wireless and video R&D and technology licensing company."
+    },
+    "Mediatek": {
+      "pattern": "mediatek",
+      "full_name": "MediaTek Inc.",
+      "category": "Chipset / Silicon",
+      "description": "Taiwanese fabless semiconductor company providing 5G/6G cellular modems and SoCs."
+    },
+    "NEC": {
+      "pattern": "\\bnec\\b",
+      "full_name": "NEC Corporation",
+      "category": "Vendor / Infrastructure",
+      "description": "Japanese multinational IT and telecommunications network infrastructure provider."
+    },
+    "Orange": {
+      "pattern": "orange",
+      "full_name": "Orange S.A.",
+      "category": "Operator",
+      "description": "French multinational telecommunications operator."
+    },
+    "Continental": {
+      "pattern": "continental",
+      "full_name": "Continental AG",
+      "category": "Automotive / Vertical",
+      "description": "German automotive parts and connected mobility technology manufacturer."
+    },
+    "Thales": {
+      "pattern": "thales",
+      "full_name": "Thales Group",
+      "category": "Aerospace / Security",
+      "description": "French multinational aerospace, defense, satellite (NTN), and digital identity/SIM security company."
+    },
+    "China Telecom": {
+      "pattern": "china\\s*telecom",
+      "full_name": "China Telecom Corporation Limited",
+      "category": "Operator",
+      "description": "Chinese state-owned telecommunications operator (includes China Telecom Cloud / CTYun)."
+    },
+    "TIM": {
+      "pattern": "(telecom italia)|(\\btim\\b)",
+      "full_name": "Telecom Italia S.p.A. (TIM)",
+      "category": "Operator",
+      "description": "Italian telecommunications operator."
+    },
+    "Ericsson": {
+      "pattern": "eric[s]?sson",
+      "full_name": "Telefonaktiebolaget LM Ericsson",
+      "category": "Vendor / Infrastructure",
+      "description": "Swedish multinational networking and telecommunications equipment and software vendor."
+    },
+    "Convida Wireless": {
+      "pattern": "convida",
+      "full_name": "Convida Wireless, LLC",
+      "category": "R&D / IP",
+      "description": "Joint venture between InterDigital and Sony focused on IoT and cellular communications R&D."
+    },
+    "China Mobile": {
+      "pattern": "china mobile",
+      "full_name": "China Mobile Communications Group Co., Ltd. (CMCC)",
+      "category": "Operator",
+      "description": "Chinese mobile telecommunications network operator."
+    },
+    "China Unicom": {
+      "pattern": "china unicom",
+      "full_name": "China United Network Communications Group Co., Ltd.",
+      "category": "Operator",
+      "description": "Chinese state-owned telecommunications operator."
+    },
+    "Comtech": {
+      "pattern": "comtech",
+      "full_name": "Comtech Telecommunications Corp.",
+      "category": "Vendor / Public Safety",
+      "description": "US provider of next-generation 911 (NG911), satellite, and location-based communications technologies."
+    },
+    "Gemalto": {
+      "pattern": "gemalto",
+      "full_name": "Gemalto (now part of Thales DIS)",
+      "category": "Aerospace / Security",
+      "description": "Digital security and SIM/eSIM provider (acquired by Thales Group)."
+    },
+    "Intel": {
+      "pattern": "intel",
+      "full_name": "Intel Corporation",
+      "category": "Chipset / Silicon",
+      "description": "US multinational semiconductor, processor, and cloud/network compute vendor."
+    },
+    "KDDI": {
+      "pattern": "kddi",
+      "full_name": "KDDI Corporation",
+      "category": "Operator",
+      "description": "Japanese telecommunications operator."
+    },
+    "KPN": {
+      "pattern": "kpn",
+      "full_name": "Koninklijke KPN N.V.",
+      "category": "Operator",
+      "description": "Dutch landline and mobile telecommunications operator."
+    },
+    "Oracle": {
+      "pattern": "oracle",
+      "full_name": "Oracle Corporation",
+      "category": "Cloud / Software",
+      "description": "US enterprise software and cloud-native 5G Core signaling ( Diameter / HTTP/2 SCP/SEPP/NRF ) vendor."
+    },
+    "FirstNet": {
+      "pattern": "firstnet",
+      "full_name": "First Responder Network Authority (FirstNet)",
+      "category": "Gov / Public Safety",
+      "description": "US nationwide public safety broadband network authority."
+    },
+    "Telstra": {
+      "pattern": "telstra",
+      "full_name": "Telstra Group Limited",
+      "category": "Operator",
+      "description": "Australian telecommunications and mobile network operator."
+    },
+    "Vodafone": {
+      "pattern": "vodafone",
+      "full_name": "Vodafone Group Plc",
+      "category": "Operator",
+      "description": "British multinational telecommunications operator."
+    },
+    "Tencent": {
+      "pattern": "tencent",
+      "full_name": "Tencent Holdings Ltd.",
+      "category": "Cloud / Internet",
+      "description": "Chinese multinational technology, cloud computing, multimedia, and gaming conglomerate."
+    },
+    "Sprint": {
+      "pattern": "sprint",
+      "full_name": "Sprint Corporation (merged into T-Mobile US)",
+      "category": "Operator",
+      "description": "Former US telecommunications operator (merged with T-Mobile USA in 2020)."
+    },
+    "Sony": {
+      "pattern": "sony",
+      "full_name": "Sony Group Corporation",
+      "category": "Vendor / OEM",
+      "description": "Japanese multinational electronics, mobile device, and media technology corporation."
+    },
+    "CableLabs": {
+      "pattern": "cablelabs",
+      "full_name": "Cable Television Laboratories, Inc. (CableLabs)",
+      "category": "SDO / R&D",
+      "description": "Non-profit R&D and innovation consortium for the broadband cable and fixed-mobile convergence industry."
+    },
+    "AT&T": {
+      "pattern": "\\bat[&]?t\\b",
+      "full_name": "AT&T Inc.",
+      "category": "Operator",
+      "description": "US multinational telecommunications and mobile network operator."
+    },
+    "Charter": {
+      "pattern": "charter",
+      "full_name": "Charter Communications, Inc.",
+      "category": "Operator",
+      "description": "US broadband connectivity and cable/MVNO mobile operator (Spectrum)."
+    },
+    "Lenovo": {
+      "pattern": "(motorola mobility)|(lenovo)",
+      "full_name": "Lenovo Group Limited / Motorola Mobility",
+      "category": "Vendor / OEM",
+      "description": "Multinational PC, smart device, and server manufacturer, grouped with subsidiary Motorola Mobility."
+    },
+    "SK Telecom": {
+      "pattern": "sk telecom",
+      "full_name": "SK Telecom Co., Ltd.",
+      "category": "Operator",
+      "description": "South Korean wireless telecommunications operator."
+    },
+    "TNO": {
+      "pattern": "tno",
+      "full_name": "Netherlands Organisation for Applied Scientific Research (TNO)",
+      "category": "University / Lab",
+      "description": "Independent Dutch research organization active in telecom architecture and security."
+    },
+    "Telefonica": {
+      "pattern": "telefonica",
+      "full_name": "Telefónica, S.A.",
+      "category": "Operator",
+      "description": "Spanish multinational telecommunications operator."
+    },
+    "Softbank": {
+      "pattern": "softbank",
+      "full_name": "SoftBank Corp.",
+      "category": "Operator",
+      "description": "Japanese multinational telecommunications and technology operator."
+    },
+    "Volkwagen": {
+      "pattern": "volkswagen",
+      "full_name": "Volkswagen AG",
+      "category": "Automotive / Vertical",
+      "description": "German multinational automotive manufacturer active in V2X and connected vehicle standards."
+    },
+    "Vivo": {
+      "pattern": "vivo",
+      "full_name": "vivo Mobile Communication Co., Ltd.",
+      "category": "Vendor / OEM",
+      "description": "Chinese smartphone and consumer electronics manufacturer."
+    },
+    "Xiaomi": {
+      "pattern": "xiaomi",
+      "full_name": "Xiaomi Corporation",
+      "category": "Vendor / OEM",
+      "description": "Chinese designer and manufacturer of smartphones, IoT devices, and connected vehicles."
+    },
+    "Alibaba": {
+      "pattern": "alibaba",
+      "full_name": "Alibaba Group Holding Limited",
+      "category": "Cloud / Internet",
+      "description": "Chinese multinational technology and cloud computing (Alibaba Cloud) company."
+    },
+    "Apple": {
+      "pattern": "apple",
+      "full_name": "Apple Inc.",
+      "category": "Vendor / OEM",
+      "description": "US multinational consumer electronics, smartphone, silicon, and software company."
+    },
+    "Broadcom": {
+      "pattern": "broadcom",
+      "full_name": "Broadcom Inc.",
+      "category": "Chipset / Silicon",
+      "description": "US semiconductor, Wi-Fi/RF front-end, and enterprise software (VMware) supplier."
+    },
+    "CAICT": {
+      "pattern": "caict",
+      "full_name": "China Academy of Information and Communications Technology (CAICT)",
+      "category": "Gov / Lab",
+      "description": "Scientific research institute directly under China's Ministry of Industry and Information Technology (MIIT)."
+    },
+    "CATR": {
+      "pattern": "catr",
+      "full_name": "China Academy of Telecommunication Research (CATR, now CAICT)",
+      "category": "Gov / Lab",
+      "description": "Former name of CAICT (China Academy of Information and Communications Technology)."
+    },
+    "CATT": {
+      "pattern": "\\bcatt\\b",
+      "full_name": "China Academy of Telecommunications Technology (CATT / Datang)",
+      "category": "Vendor / R&D",
+      "description": "Chinese telecom R&D institute and standards contributor (part of CICT / Datang Telecom)."
+    },
+    "CMCC": {
+      "pattern": "cmcc",
+      "full_name": "China Mobile Communications Corporation (CMCC)",
+      "category": "Operator",
+      "description": "Acronym identifier for China Mobile used in email domains and contribution headers."
+    },
+    "UK HO": {
+      "pattern": "uk ho",
+      "full_name": "UK Home Office",
+      "category": "Gov / Public Safety",
+      "description": "United Kingdom government department responsible for public safety communications (ESN) and law enforcement."
+    },
+    "Affirmed": {
+      "pattern": "affirmed",
+      "full_name": "Affirmed Networks (acquired by Microsoft)",
+      "category": "Cloud / Software",
+      "description": "Virtualized mobile core network vendor (acquired by Microsoft Azure)."
+    },
+    "Expway": {
+      "pattern": "expway",
+      "full_name": "Expway (Enensys Technologies)",
+      "category": "Vendor / Tech",
+      "description": "French LTE/5G Broadcast (eMBMS / MBS) and multicast software specialist."
+    },
+    "HPE": {
+      "pattern": "hewlett packard",
+      "full_name": "Hewlett Packard Enterprise (HPE)",
+      "category": "Vendor / Infrastructure",
+      "description": "US enterprise IT, edge-to-cloud, and 5G Core network function vendor."
+    },
+    "RAN WG1": {
+      "pattern": "ran wg1",
+      "full_name": "3GPP TSG RAN Working Group 1",
+      "category": "3GPP Working Group",
+      "description": "3GPP Radio Layer 1 (Physical Layer) working group (typically seen in Liaison Statements)."
+    },
+    "RAN WG2": {
+      "pattern": "ran wg2",
+      "full_name": "3GPP TSG RAN Working Group 2",
+      "category": "3GPP Working Group",
+      "description": "3GPP Radio Layer 2 and Radio Layer 3 RRC working group."
+    },
+    "RAN WG3": {
+      "pattern": "ran wg3",
+      "full_name": "3GPP TSG RAN Working Group 3",
+      "category": "3GPP Working Group",
+      "description": "3GPP UTRAN/E-UTRAN/NG-RAN architecture and network interfaces (NGAP, XnAP, F1AP, E1AP) working group."
+    },
+    "SA WG1": {
+      "pattern": "sa wg1",
+      "full_name": "3GPP TSG SA Working Group 1",
+      "category": "3GPP Working Group",
+      "description": "3GPP Services and Stage 1 requirements working group."
+    },
+    "SA WG2": {
+      "pattern": "sa wg2",
+      "full_name": "3GPP TSG SA Working Group 2",
+      "category": "3GPP Working Group",
+      "description": "3GPP System Architecture and Services (Stage 2) working group."
+    },
+    "SA WG3": {
+      "pattern": "sa wg3",
+      "full_name": "3GPP TSG SA Working Group 3",
+      "category": "3GPP Working Group",
+      "description": "3GPP Security and Privacy working group."
+    },
+    "SA WG4": {
+      "pattern": "sa wg4",
+      "full_name": "3GPP TSG SA Working Group 4",
+      "category": "3GPP Working Group",
+      "description": "3GPP Multimedia Codecs, Systems and Services working group."
+    },
+    "SA WG5": {
+      "pattern": "sa wg5",
+      "full_name": "3GPP TSG SA Working Group 5",
+      "category": "3GPP Working Group",
+      "description": "3GPP Telecom Management, OAM, Charging, and Network Slice Management working group."
+    },
+    "SA WG6": {
+      "pattern": "sa wg6",
+      "full_name": "3GPP TSG SA Working Group 6",
+      "category": "3GPP Working Group",
+      "description": "3GPP Application Enablement and Critical Communication Applications (CAPIF, SEAL, EDGEAPP, MCX) working group."
+    },
+    "TSG SA": {
+      "pattern": "tsg sa",
+      "full_name": "3GPP Technical Specification Group Service and System Aspects",
+      "category": "3GPP Working Group",
+      "description": "3GPP TSG SA plenary."
+    },
+    "TSG CT": {
+      "pattern": "tsg ct",
+      "full_name": "3GPP Technical Specification Group Core Network and Terminals",
+      "category": "3GPP Working Group",
+      "description": "3GPP TSG CT plenary."
+    },
+    "TSG RAN": {
+      "pattern": "tsg ran",
+      "full_name": "3GPP Technical Specification Group Radio Access Network",
+      "category": "3GPP Working Group",
+      "description": "3GPP TSG RAN plenary."
+    },
+    "CT WG1": {
+      "pattern": "ct wg1",
+      "full_name": "3GPP TSG CT Working Group 1",
+      "category": "3GPP Working Group",
+      "description": "3GPP User Equipment to Core Network protocols (NAS, TS 24.501 / 24.301, UE policies) working group."
+    },
+    "CT WG2": {
+      "pattern": "ct wg2",
+      "full_name": "3GPP TSG CT Working Group 2",
+      "category": "3GPP Working Group",
+      "description": "Former 3GPP Terminal capabilities working group."
+    },
+    "CT WG3": {
+      "pattern": "ct wg3",
+      "full_name": "3GPP TSG CT Working Group 3",
+      "category": "3GPP Working Group",
+      "description": "3GPP Interworking with External Networks & Policy and Charging Control (N7/N5/Npcf, TS 29.512/29.514) working group."
+    },
+    "CT WG4": {
+      "pattern": "ct wg4",
+      "full_name": "3GPP TSG CT Working Group 4",
+      "category": "3GPP Working Group",
+      "description": "3GPP Core Network Protocols (Stage 3 SBA, PFCP, GTP-C/U, UDM/AMF/SMF/NRF APIs) working group."
+    },
+    "IETF": {
+      "pattern": "ietf",
+      "full_name": "Internet Engineering Task Force (IETF)",
+      "category": "SDO / Forum",
+      "description": "International Internet standards organization responsible for TCP/IP, HTTP, QUIC, TLS, and routing protocols."
+    },
+    "IEEE": {
+      "pattern": "ieee",
+      "full_name": "Institute of Electrical and Electronics Engineers (IEEE)",
+      "category": "SDO / Forum",
+      "description": "International standards organization responsible for IEEE 802.11 (Wi-Fi) and 802.1 (TSN)."
+    },
+    "BBF": {
+      "pattern": "bbf",
+      "full_name": "Broadband Forum (BBF)",
+      "category": "SDO / Forum",
+      "description": "Industry consortium developing broadband wireline and 5G Wireline-Wireless Convergence (WWC) standards."
+    },
+    "Swisscom": {
+      "pattern": "swisscom",
+      "full_name": "Swisscom AG",
+      "category": "Operator",
+      "description": "Major telecommunications provider in Switzerland."
+    },
+    "Sharp": {
+      "pattern": "sharp",
+      "full_name": "Sharp Corporation",
+      "category": "Vendor / OEM",
+      "description": "Japanese multinational electronics and mobile device manufacturer."
+    },
+    "Korea Telecom": {
+      "pattern": "korea telecom",
+      "full_name": "Korea Telecom (KT Corporation)",
+      "category": "Operator",
+      "description": "Full spelled-out name for South Korean operator KT Corporation."
+    },
+    "Siemens": {
+      "pattern": "siemens",
+      "full_name": "Siemens AG",
+      "category": "Industrial / Vertical",
+      "description": "German multinational technology conglomerate active in industrial 5G, IIoT, and Time-Sensitive Networking (TSN)."
+    },
+    "Sierra Wireless": {
+      "pattern": "sierra wireless",
+      "full_name": "Sierra Wireless (now part of Semtech)",
+      "category": "Vendor / IoT",
+      "description": "Canadian wireless IoT module, router, and connectivity provider."
+    },
+    "Fraunhofer HHI": {
+      "pattern": "fraunhofer hhi",
+      "full_name": "Fraunhofer Institute for Telecommunications, Heinrich Hertz Institute (HHI)",
+      "category": "University / Lab",
+      "description": "German applied research institute for mobile communications, video coding, and photonics."
+    },
+    "GSMA": {
+      "pattern": "gsma",
+      "full_name": "GSM Association (GSMA)",
+      "category": "SDO / Forum",
+      "description": "Global industry organization representing mobile network operators (roaming, eSIM, NG, FASG)."
+    },
+    "Broadband Forum": {
+      "pattern": "broadband forum",
+      "full_name": "Broadband Forum",
+      "category": "SDO / Forum",
+      "description": "Full name of the Broadband Forum (BBF) standards consortium."
+    },
+    "OneM2M": {
+      "pattern": "onem2m",
+      "full_name": "oneM2M Partnership Project",
+      "category": "SDO / Forum",
+      "description": "Global standards initiative for Machine-to-Machine (M2M) communications and the Internet of Things (IoT)."
+    },
+    "Juniper Networks": {
+      "pattern": "juniper",
+      "full_name": "Juniper Networks, Inc. (now part of HPE)",
+      "category": "Vendor / Infrastructure",
+      "description": "US networking, routing, SDN, and cloud infrastructure vendor."
+    },
+    "Spirent": {
+      "pattern": "spirent",
+      "full_name": "Spirent Communications plc",
+      "category": "Test & Measurement",
+      "description": "Multinational telecommunications test, assurance, and measurement company."
+    },
+    "Airbus": {
+      "pattern": "airbus",
+      "full_name": "Airbus SE",
+      "category": "Aerospace / Security",
+      "description": "European aerospace, satellite (NTN), and mission-critical communications corporation."
+    },
+    "Mavenir": {
+      "pattern": "mavenir",
+      "full_name": "Mavenir Systems, Inc.",
+      "category": "Vendor / Infrastructure",
+      "description": "US cloud-native network software provider for Open RAN, 5G Core, and IMS."
+    },
+    "Sennheiser": {
+      "pattern": "sennheiser",
+      "full_name": "Sennheiser electronic GmbH & Co. KG",
+      "category": "Audio / Vertical",
+      "description": "German professional audio equipment manufacturer active in PMSE and low-latency audio standards."
+    },
+    "Sandvine": {
+      "pattern": "sandvine",
+      "full_name": "Sandvine Corporation",
+      "category": "Vendor / Software",
+      "description": "Application and network intelligence, deep packet inspection (DPI), and policy control vendor."
+    },
+    "Philips": {
+      "pattern": "philips",
+      "full_name": "Koninklijke Philips N.V.",
+      "category": "Healthcare / Tech",
+      "description": "Dutch multinational health technology and electronics company."
+    },
+    "Google": {
+      "pattern": "google",
+      "full_name": "Google LLC (Alphabet Inc.)",
+      "category": "Cloud / Internet",
+      "description": "US technology company developing Android OS, Pixel devices, Google Cloud, and wireless standards."
+    },
+    "Matrixx": {
+      "pattern": "matrixx",
+      "full_name": "MATRIXX Software",
+      "category": "Vendor / Software",
+      "description": "Cloud-native 5G converged charging (CHF) and monetization software vendor."
+    },
+    "Comcast": {
+      "pattern": "comcast",
+      "full_name": "Comcast Corporation",
+      "category": "Operator",
+      "description": "US multinational broadband, cable, and wireless MVNO (Xfinity Mobile) operator."
+    },
+    "Turkcell": {
+      "pattern": "turkcell",
+      "full_name": "Turkcell İletişim Hizmetleri A.Ş.",
+      "category": "Operator",
+      "description": "Leading mobile network operator in Türkiye."
+    },
+    "Airtel": {
+      "pattern": "airtel",
+      "full_name": "Bharti Airtel Limited",
+      "category": "Operator",
+      "description": "Indian multinational telecommunications and mobile network operator."
+    },
+    "Bosch": {
+      "pattern": "bosch",
+      "full_name": "Robert Bosch GmbH",
+      "category": "Industrial / Vertical",
+      "description": "German multinational engineering, automotive, and industrial IoT technology company."
+    },
+    "Sequans": {
+      "pattern": "sequans",
+      "full_name": "Sequans Communications S.A.",
+      "category": "Chipset / Silicon",
+      "description": "French developer and supplier of cellular IoT (LTE-M, NB-IoT, 5G NR RedCap/eRedCap) chips and modules."
+    },
+    "Rakuten": {
+      "pattern": "rakute",
+      "full_name": "Rakuten Mobile, Inc. / Rakuten Symphony",
+      "category": "Operator",
+      "description": "Japanese cloud-native mobile network operator and Open RAN platform provider."
+    },
+    "Futurewei": {
+      "pattern": "futurewei",
+      "full_name": "Futurewei Technologies, Inc.",
+      "category": "R&D / IP",
+      "description": "US-based ICT research and standards development company."
+    },
+    "Microsoft": {
+      "pattern": "microsoft",
+      "full_name": "Microsoft Corporation",
+      "category": "Cloud / Software",
+      "description": "US multinational cloud computing (Azure for Operators), OS, and AI technology corporation."
+    },
+    "Facebook": {
+      "pattern": "facebook|meta",
+      "full_name": "Meta Platforms, Inc. (formerly Facebook)",
+      "category": "Cloud / Internet",
+      "description": "US technology company active in XR/AR/VR, real-time media, and connectivity standards."
+    },
+    "DISH": {
+      "pattern": "dish|boost mobile",
+      "full_name": "DISH Wireless / EchoStar (Boost Mobile)",
+      "category": "Operator",
+      "description": "US cloud-native 5G Open RAN wireless network operator."
+    },
+    "ETRI": {
+      "pattern": "etri",
+      "full_name": "Electronics and Telecommunications Research Institute (ETRI)",
+      "category": "University / Lab",
+      "description": "South Korean government-funded electronics and telecommunications research institute."
+    },
+    "INSPUR": {
+      "pattern": "inspur",
+      "full_name": "Inspur Group Co., Ltd.",
+      "category": "Vendor / Infrastructure",
+      "description": "Chinese cloud computing, data center server, and telecom IT infrastructure supplier."
+    },
+    "HONOR": {
+      "pattern": "honor",
+      "full_name": "Honor Device Co., Ltd.",
+      "category": "Vendor / OEM",
+      "description": "Chinese smartphone and smart device manufacturer."
+    },
+    "JIO": {
+      "pattern": "jio platforms",
+      "full_name": "Reliance Jio Infocomm Limited / Jio Platforms",
+      "category": "Operator",
+      "description": "Indian telecommunications and 5G network operator."
+    },
+    "Kyocera": {
+      "pattern": "kyocera",
+      "full_name": "Kyocera Corporation",
+      "category": "Vendor / OEM",
+      "description": "Japanese multinational ceramics, electronics, and mobile communications device manufacturer."
+    },
+    "NVIDIA": {
+      "pattern": "nvidia",
+      "full_name": "NVIDIA Corporation",
+      "category": "Chipset / Silicon",
+      "description": "US accelerated computing, GPU, AI/ML, and AI-RAN technology company."
+    },
+    "Ofinno": {
+      "pattern": "ofinno",
+      "full_name": "Ofinno, LLC",
+      "category": "R&D / IP",
+      "description": "US wireless communication and video standards R&D laboratory."
+    },
+    "Skylo": {
+      "pattern": "skylo technologies",
+      "full_name": "Skylo Technologies, Inc.",
+      "category": "Operator / SatCom",
+      "description": "US non-terrestrial network (NTN) direct-to-device satellite connectivity operator."
+    },
+    "Peraton Labs": {
+      "pattern": "peraton labs",
+      "full_name": "Peraton Labs (formerly Bell Labs / Telcordia / Applied Communication Sciences)",
+      "category": "R&D / Security",
+      "description": "US communications, cybersecurity, and national security applied research lab."
+    },
+    "CEWiT": {
+      "pattern": "cewit",
+      "full_name": "Centre of Excellence in Wireless Technology (CEWiT)",
+      "category": "University / Lab",
+      "description": "Indian autonomous wireless research society established at IIT Madras Research Park."
+    },
+    "CANON": {
+      "pattern": "canon",
+      "full_name": "Canon Inc.",
+      "category": "Vendor / OEM",
+      "description": "Japanese multinational imaging, optical, and multimedia networking company."
+    },
+    "Eutelsat": {
+      "pattern": "eutelsat",
+      "full_name": "Eutelsat Group (including Eutelsat OneWeb)",
+      "category": "Operator / SatCom",
+      "description": "European GEO/LEO satellite communications operator active in 3GPP NTN."
+    },
+    "Panasonic": {
+      "pattern": "panasonic",
+      "full_name": "Panasonic Holdings Corporation",
+      "category": "Vendor / OEM",
+      "description": "Japanese multinational electronics and wireless R&D corporation."
+    },
+    "Quectel": {
+      "pattern": "quectel",
+      "full_name": "Quectel Wireless Solutions Co., Ltd.",
+      "category": "Vendor / IoT",
+      "description": "Global supplier of cellular IoT, 5G, RedCap, and GNSS wireless modules."
+    },
+    "SpaceX": {
+      "pattern": "spacex",
+      "full_name": "Space Exploration Technologies Corp. (SpaceX / Starlink)",
+      "category": "Operator / SatCom",
+      "description": "US aerospace manufacturer and Starlink LEO satellite / Direct-to-Cell NTN operator."
+    },
+    "Tejas Networks": {
+      "pattern": "tejas network",
+      "full_name": "Tejas Networks Limited",
+      "category": "Vendor / Infrastructure",
+      "description": "Indian optical, broadband, and wireless RAN/Core telecom equipment manufacturer (Tata Group)."
+    },
+    "ViaSat": {
+      "pattern": "viasat",
+      "full_name": "Viasat, Inc. (including Inmarsat)",
+      "category": "Operator / SatCom",
+      "description": "US global satellite communications and 3GPP NTN provider."
+    },
+    "VIAVI": {
+      "pattern": "\\bviavi\\b",
+      "full_name": "VIAVI Solutions Inc.",
+      "category": "Test & Measurement",
+      "description": "US network test, monitoring, and assurance solutions provider."
+    },
+    "ASUSTeK": {
+      "pattern": "asustek",
+      "full_name": "ASUSTeK Computer Inc. (ASUS)",
+      "category": "Vendor / OEM",
+      "description": "Taiwanese multinational computer, phone, and electronics hardware manufacturer."
+    },
+    "BDBOS": {
+      "pattern": "bdbos",
+      "full_name": "Bundesanstalt für den Digitalfunk der Behörden und Organisationen mit Sicherheitsaufgaben (BDBOS)",
+      "category": "Gov / Public Safety",
+      "description": "German federal agency for public safety digital radio and mission-critical communications."
+    },
+    "Keysight Technologies": {
+      "pattern": "keysight technologies",
+      "full_name": "Keysight Technologies, Inc.",
+      "category": "Test & Measurement",
+      "description": "US electronics test and measurement equipment and 5G/6G protocol validation software company."
+    },
+    "Sateliot": {
+      "pattern": "sateliot",
+      "full_name": "Sateliot",
+      "category": "Operator / SatCom",
+      "description": "Spanish LEO satellite constellation operator specializing in 3GPP 5G NB-IoT NTN connectivity."
+    },
+    "Novamint": {
+      "pattern": "novamint",
+      "full_name": "Novamint",
+      "category": "R&D / IP",
+      "description": "Telecommunications standards consulting and R&D contributor."
+    },
+    "ATIS": {
+      "pattern": "\\batis\\b|ims911",
+      "full_name": "Alliance for Telecommunications Industry Solutions (ATIS)",
+      "category": "SDO / Forum",
+      "description": "North American 3GPP Organizational Partner developing ICT and emergency services (e.g. ATIS IMS911) standards."
+    },
+    "BSI": {
+      "pattern": "\\bbsi\\b",
+      "full_name": "Bundesamt für Sicherheit in der Informationstechnik (BSI)",
+      "category": "Gov / Security",
+      "description": "German Federal Office for Information Security."
+    },
+    "BUPT": {
+      "pattern": "\\bbupt\\b|beijing university of posts",
+      "full_name": "Beijing University of Posts and Telecommunications (BUPT)",
+      "category": "University / Lab",
+      "description": "Major Chinese research university specializing in telecommunications and information engineering."
+    },
+    "CSCN": {
+      "pattern": "\\bcscn\\b|china satcom|china satellite network",
+      "full_name": "China Satellite Network Group Co., Ltd. (China SatNet / CSCN)",
+      "category": "Operator / SatCom",
+      "description": "Chinese state-owned LEO/GEO satellite communications operator active in 3GPP NTN."
+    },
+    "ETSI": {
+      "pattern": "\\betsi\\b",
+      "full_name": "European Telecommunications Standards Institute (ETSI)",
+      "category": "SDO / Forum",
+      "description": "European 3GPP Organizational Partner and standards organization (includes technical committees such as ETSI TC NET)."
+    },
+    "Free Stream Technologies": {
+      "pattern": "free\\s*stream\\s*tech",
+      "full_name": "Free Stream Technologies",
+      "category": "Vendor / Tech",
+      "description": "Indian wireless and broadcast communications technology contributor (TSDSI member)."
+    },
+    "HFCL": {
+      "pattern": "\\bhfcl\\b",
+      "full_name": "HFCL Limited",
+      "category": "Vendor / Infrastructure",
+      "description": "Indian telecommunications equipment, optical fiber, and wireless network manufacturer."
+    },
+    "HIPE IP": {
+      "pattern": "\\bhipe\\s*ip\\b",
+      "full_name": "HIPE IP Inc.",
+      "category": "R&D / IP",
+      "description": "Telecommunications intellectual property and 3GPP standards R&D firm."
+    },
+    "IIT Bombay": {
+      "pattern": "\\biit\\s*bombay\\b|\\biitb\\b",
+      "full_name": "Indian Institute of Technology Bombay (IIT Bombay)",
+      "category": "University / Lab",
+      "description": "Premier Indian public engineering and research university in Mumbai."
+    },
+    "IIT Kharagpur": {
+      "pattern": "\\biit\\s*kharagpur\\b|\\biitkgp\\b",
+      "full_name": "Indian Institute of Technology Kharagpur (IIT Kharagpur)",
+      "category": "University / Lab",
+      "description": "Premier Indian public engineering and research university in Kharagpur."
+    },
+    "NCSC": {
+      "pattern": "\\bncsc\\b",
+      "full_name": "National Cyber Security Centre (UK NCSC)",
+      "category": "Gov / Security",
+      "description": "United Kingdom national technical authority for cyber security."
+    },
+    "NPL": {
+      "pattern": "\\bnpl\\b|national physical laboratory",
+      "full_name": "National Physical Laboratory (UK NPL)",
+      "category": "Gov / Lab",
+      "description": "United Kingdom national metrology standards laboratory active in timing, synchronization, and telecom security."
+    },
+    "NSA": {
+      "pattern": "\\bus\\s+nsa\\b|\\bnsa\\b",
+      "full_name": "National Security Agency (US NSA)",
+      "category": "Gov / Security",
+      "description": "United States government cybersecurity and information assurance agency."
+    },
+    "Pengcheng Laboratory": {
+      "pattern": "\\bpeng\\s*cheng\\s*lab|\\bpcl\\b",
+      "full_name": "Pengcheng Laboratory (PCL)",
+      "category": "University / Lab",
+      "description": "Shenzhen-based national research laboratory focused on network communications, 6G, and AI."
+    },
+    "PML": {
+      "pattern": "\\bpml\\b|purple mountain lab",
+      "full_name": "Purple Mountain Laboratories (PML)",
+      "category": "University / Lab",
+      "description": "Nanjing-based research institute focused on future networks, 6G architecture, and endogenous security."
+    },
+    "Seoul National University": {
+      "pattern": "seoul national university|\\bsnu\\b",
+      "full_name": "Seoul National University (SNU)",
+      "category": "University / Lab",
+      "description": "National research university in Seoul, South Korea."
+    },
+    "SKY Perfect JSAT": {
+      "pattern": "sky\\s*perfect|\\bjsat\\b",
+      "full_name": "SKY Perfect JSAT Corporation",
+      "category": "Operator / SatCom",
+      "description": "Japanese satellite communications and non-terrestrial network (NTN) operator."
+    },
+    "Transsion": {
+      "pattern": "\\btranssion\\b|\\binfinix\\b|\\btecno\\b|\\bitel\\b",
+      "full_name": "Transsion Holdings",
+      "category": "Vendor / OEM",
+      "description": "Mobile phone manufacturer (Tecno, Infinix, and Itel brands)."
+    },
+    "UNISOC": {
+      "pattern": "\\bunisoc\\b|\\bspreadtrum\\b",
+      "full_name": "UNISOC (Shanghai) Technologies Co., Ltd. (formerly Spreadtrum Communications)",
+      "category": "Chipset / Silicon",
+      "description": "Chinese fabless semiconductor company specializing in 4G/5G/6G cellular baseband chipsets (includes legacy Spreadtrum brand)."
+    },
+    "ZGC Institute": {
+      "pattern": "\\bzgc\\b|ubiquitous-x",
+      "full_name": "ZGC Institute of Ubiquitous-X Innovation and Application",
+      "category": "University / Lab",
+      "description": "Zhongguancun research institute focused on 6G and ubiquitous networking innovation."
+    }
+  }
+}

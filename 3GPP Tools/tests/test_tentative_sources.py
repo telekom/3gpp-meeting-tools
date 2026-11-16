@@ -196,5 +196,90 @@ class TestTentativeSources(unittest.TestCase):
         tbl_cell = CompanySanitizer.format_source_markdown_table_cell(all_tent)
         self.assertEqual(tbl_cell, "*(carry-over only: Apple, Intel, MediaTek)*")
 
+    def test_sa2_178_unmatched_sources_and_regex_fixes(self):
+        cases = [
+            ("ATIS IMS911 (IMS911 LS to 3GPP SA1)", {"ATIS"}, set()),
+            ("BUPT", {"BUPT"}, set()),
+            ("CSCN", {"CSCN"}, set()),
+            ("Chinatelecom Cloud", {"China Telecom"}, set()),
+            ("ETSI TC NET", {"ETSI"}, set()),
+            ("HFCL Limited", {"HFCL"}, set()),
+            ("HIPE IP Inc.", {"HIPE IP"}, set()),
+            ("IIT Bombay", {"IIT Bombay"}, set()),
+            ("IIT Kharagpur, Free Stream Technologies", {"IIT Kharagpur", "Free Stream Technologies"}, set()),
+            ("NCSC (UK), BSI (DE), US NSA, NPL", {"NCSC", "BSI", "NSA", "NPL"}, set()),
+            ("PML", {"PML"}, set()),
+            (
+                "Pengcheng Laboratory, BUPT, ZGC Institute of Ubiquitous-X Innovation and Application",
+                {"Pengcheng Laboratory", "BUPT", "ZGC Institute"},
+                set(),
+            ),
+            ("SKY Perfect JSAT Corporation", {"SKY Perfect JSAT"}, set()),
+            ("Seoul National University", {"Seoul National University"}, set()),
+            ("Spreadtrum, UNISOC", {"UNISOC"}, set()),
+            ("Transsion Holdings", {"Transsion"}, set()),
+            ("[BUPT]", set(), {"BUPT"}),
+            ("VIAVI Solutions", {"VIAVI"}, set()),
+        ]
+        for raw_src, expected_conf, expected_tent in cases:
+            with self.subTest(raw_src=raw_src):
+                conf, tent = CompanySanitizer.parse_contributors_detailed(raw_src)
+                self.assertEqual(set(conf), expected_conf)
+                self.assertEqual(set(tent), expected_tent)
+                # Ensure none of these evaluate to ["Other"] in TDocsTableModel
+                all_matched = CompanySanitizer.get_matching_contributors(raw_src, include_tentative=True)
+                self.assertTrue(len(all_matched) > 0)
+
+        # Ensure word boundaries on short acronyms (NEC, TIM, NTT, ZTE) prevent false-positive substring matches
+        self.assertNotIn("NEC", CompanySanitizer.get_matching_contributors("Connected Maritime Optimization"))
+        self.assertNotIn("TIM", CompanySanitizer.get_matching_contributors("Connected Maritime Optimization"))
+        self.assertIn("NEC", CompanySanitizer.get_matching_contributors("NEC Corporation"))
+        self.assertIn("TIM", CompanySanitizer.get_matching_contributors("TIM, Telecom Italia"))
+        self.assertIn("NTT DoCoMo", CompanySanitizer.get_matching_contributors("NTT, DoCoMo"))
+
+    def test_external_json_metadata_and_user_overrides(self):
+        import json
+        import tempfile
+
+        # Every canonical company should have rich descriptive metadata loaded from company_synonyms.json
+        for name in CompanySanitizer.SIGNATURE_SYNONYMS_REGEX:
+            meta = CompanySanitizer.get_company_metadata(name)
+            self.assertIn("pattern", meta)
+            self.assertIn("full_name", meta)
+            self.assertIn("category", meta)
+            self.assertTrue(bool(meta.get("description")), f"Missing description for {name}")
+
+        # Verify user override reload and cleanup
+        with tempfile.TemporaryDirectory() as tmpdir:
+            usr_cfg = Path(tmpdir) / "company_synonyms_user.json"
+            usr_cfg.write_text(
+                json.dumps({
+                    "companies": {
+                        "Acme Telecom": {
+                            "pattern": r"\bacme\s*telecom\b",
+                            "full_name": "Acme Telecommunications Ltd.",
+                            "category": "Operator",
+                            "description": "Test custom user company."
+                        }
+                    }
+                }),
+                encoding="utf-8",
+            )
+            try:
+                CompanySanitizer.reload_rules(user_config_path=usr_cfg)
+                self.assertIn("Acme Telecom", CompanySanitizer.SIGNATURE_SYNONYMS_REGEX)
+                self.assertEqual(
+                    CompanySanitizer.get_matching_contributors("Acme Telecom, Nokia"),
+                    ["Nokia", "Acme Telecom"],
+                )
+                self.assertEqual(
+                    CompanySanitizer.get_company_metadata("Acme Telecom")["full_name"],
+                    "Acme Telecommunications Ltd.",
+                )
+            finally:
+                CompanySanitizer.reload_rules()
+                self.assertNotIn("Acme Telecom", CompanySanitizer.SIGNATURE_SYNONYMS_REGEX)
+
+
 if __name__ == "__main__":
     unittest.main()
