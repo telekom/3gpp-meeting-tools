@@ -671,3 +671,97 @@ def build_slot_ai_bullets_html(
     return bullets
 
 
+_PAREN_CAP_RE = re.compile(r"\s*\([^)]*\)\s*$")
+
+
+def normalize_room_key(room_name: str) -> str:
+    """Normalizes a physical room name for case-insensitive matching (stripping seat counts)."""
+    cleaned = _PAREN_CAP_RE.sub("", (room_name or "").strip())
+    return re.sub(r"\s+", " ", cleaned).strip().lower()
+
+
+def collect_meeting_physical_rooms(
+    snapshot: Optional[SessionPlanSnapshot],
+    existing_room_locations: Optional[Dict[str, str]] = None,
+) -> List[str]:
+    """
+    Collects all unique physical rooms referenced by streams, slot room_overrides,
+    and existing user location notes in deterministic order.
+    """
+    rooms: List[str] = []
+    seen_keys: set = set()
+
+    def _add(name: str):
+        raw = (name or "").strip()
+        if not raw:
+            return
+        display = _PAREN_CAP_RE.sub("", raw).strip() or raw
+        key = normalize_room_key(display)
+        if key and key not in seen_keys:
+            seen_keys.add(key)
+            rooms.append(display)
+
+    if snapshot:
+        for s_num in sorted(snapshot.streams.keys()):
+            _add(snapshot.streams[s_num].room_name)
+        for sl in snapshot.slots:
+            if getattr(sl, "room_override", ""):
+                _add(sl.room_override)
+
+    if existing_room_locations:
+        for r_name in existing_room_locations.keys():
+            _add(r_name)
+
+    return rooms
+
+
+def lookup_room_location_note(
+    physical_room: str,
+    room_locations: Optional[Dict[str, str]],
+) -> str:
+    """Finds a custom location note for a physical room name (exact or normalized match)."""
+    if not physical_room or not room_locations:
+        return ""
+    if physical_room in room_locations and room_locations[physical_room].strip():
+        return room_locations[physical_room].strip()
+    target_key = normalize_room_key(physical_room)
+    if not target_key:
+        return ""
+    for k, val in room_locations.items():
+        if val and val.strip() and normalize_room_key(k) == target_key:
+            return val.strip()
+    return ""
+
+
+def resolve_effective_room_and_location(
+    slot: SessionSlot,
+    streams: Optional[Dict[int, MeetingStreamInfo]] = None,
+    room_locations: Optional[Dict[str, str]] = None,
+    slot_locations: Optional[Dict[str, str]] = None,
+) -> Tuple[str, str, bool]:
+    """
+    Resolves `(physical_room, location_note, is_room_swapped)` for a slot.
+    - Physical room uses `slot.room_override` when set, otherwise `streams[stream_number].room_name`.
+    - Location note checks per-slot override `slot_locations[slot.slot_key]` first,
+      then automatically inherits the note for `physical_room` from `room_locations`.
+    """
+    room_ov = (getattr(slot, "room_override", "") or "").strip()
+    is_swapped = bool(room_ov)
+    if room_ov:
+        physical_room = room_ov
+    elif streams and slot.stream_number in streams:
+        raw_r = streams[slot.stream_number].room_name or ""
+        physical_room = _PAREN_CAP_RE.sub("", raw_r).strip() or raw_r or f"Stream {slot.stream_number}"
+    else:
+        physical_room = f"Stream {slot.stream_number}" if slot.stream_number > 0 else "Plenary / Break"
+
+    loc_note = ""
+    if slot_locations:
+        loc_note = (slot_locations.get(slot.slot_key) or "").strip()
+    if not loc_note:
+        loc_note = lookup_room_location_note(physical_room, room_locations)
+
+    return physical_room, loc_note, is_swapped
+
+
+

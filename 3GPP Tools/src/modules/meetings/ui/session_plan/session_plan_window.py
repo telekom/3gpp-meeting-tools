@@ -30,6 +30,7 @@ from PyQt5.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QTableWidget,
@@ -52,11 +53,14 @@ from modules.meetings.core.session_plan.session_plan_models import (
     UserSessionAnnotation,
     ai_numbers_match,
     build_slot_ai_bullets_html,
+    collect_meeting_physical_rooms,
     compute_unique_initials,
     expand_ai_number,
     format_slot_display_text,
     get_slot_unassigned_ais,
     is_slot_not_followed,
+    lookup_room_location_note,
+    resolve_effective_room_and_location,
     resolve_slot_effective_delegates,
 )
 from modules.meetings.core.session_plan.session_plan_timezone import SessionPlanTimezone
@@ -69,6 +73,7 @@ from modules.meetings.ui.session_plan.session_plan_dialogs import (
     SessionPlanDiffDialog,
     SessionPlanImportDialog,
     SessionPlanNoteDialog,
+    SessionPlanRoomLocationsDialog,
     SessionPlanTimezoneDialog,
     SessionPlanTrackedTopicsDialog,
 )
@@ -165,6 +170,11 @@ class SessionPlanWindow(QWidget):
 
         self.active_snapshot: Optional[SessionPlanSnapshot] = None
         self.annotations: Dict[str, UserSessionAnnotation] = {}
+        self.room_locations: Dict[str, str] = {}
+        self.slot_locations: Dict[str, str] = {}
+        self.now_auto_follow: bool = True
+        self.now_selected_unit_key: Optional[str] = None
+        self._last_now_live_bucket: Optional[Tuple[int, int]] = None
         self.grid_rows: List[GridRowDescriptor] = []
         self.empty_break_periods: Set[str] = set()
 
@@ -414,6 +424,7 @@ class SessionPlanWindow(QWidget):
         # 3. Stacked View Pages
         self.view_stack = QStackedWidget()
         self._setup_overview_view()
+        self._setup_now_view()
         self._setup_agenda_view()
         self._setup_drafting_view()
         self._setup_tracked_view()
@@ -506,6 +517,8 @@ class SessionPlanWindow(QWidget):
 
         self.btn_grid = QPushButton("🗓️ Overview Grid")
         self.btn_grid.setToolTip("Full 5-day spatial overview showing parallel Streams 1, 2, and 3 across all Quarters and Time Units.")
+        self.btn_now = QPushButton("🔴 Now")
+        self.btn_now.setToolTip("See what is happening right now across all streams & physical rooms, plus upcoming periods and custom room directions.")
         self.btn_agenda = QPushButton("📋 Agenda Mode (Gap Check)")
         self.btn_agenda.setToolTip("Cross-references the official meeting agenda against scheduled sessions. Highlights which Agenda Items are scheduled vs unscheduled (missing from plan).")
         self.btn_drafting = QPushButton("🛠️ Drafting Radar (0)")
@@ -515,7 +528,7 @@ class SessionPlanWindow(QWidget):
         self.btn_team = QPushButton("👥 Team Allocations (Clean)")
         self.btn_team.setToolTip("Distribute Agenda Items across team members, detect double-booking clashes, and appoint available delegates on a session-by-session basis.")
 
-        for idx, btn in enumerate([self.btn_grid, self.btn_agenda, self.btn_drafting, self.btn_tracked, self.btn_team]):
+        for idx, btn in enumerate([self.btn_grid, self.btn_now, self.btn_agenda, self.btn_drafting, self.btn_tracked, self.btn_team]):
             btn.setCheckable(True)
             btn.setStyleSheet(f"""
                 QPushButton {{
@@ -628,6 +641,17 @@ class SessionPlanWindow(QWidget):
         self.chk_hide_empty_breaks.toggled.connect(self._update_row_visibility)
         self.room_strip_layout.addWidget(self.chk_hide_empty_breaks)
 
+        self.btn_room_locations = QPushButton("📍 Room Locations...")
+        self.btn_room_locations.setCursor(Qt.PointingHandCursor)
+        self.btn_room_locations.setStyleSheet(
+            f"QPushButton {{ padding: 2px 8px; font-size: 11px; font-weight: 600; border: 1px solid {C.BORDER_STRONG}; "
+            f"border-radius: 5px; background: {C.BG_CARD}; color: {C.TEXT_BODY}; }}"
+            f"QPushButton:hover {{ background: {C.INFO_SOFT}; border-color: {C.INFO_ACCENT}; color: {C.INFO}; }}"
+        )
+        self.btn_room_locations.setToolTip("Add hand-made floor/wing/hall directions for physical rooms (saved locally in meeting_locations.json).")
+        self.btn_room_locations.clicked.connect(lambda: self._open_room_locations_dialog())
+        self.room_strip_layout.addWidget(self.btn_room_locations)
+
         self.room_strip_layout.addStretch()
         page_layout.addWidget(self.room_strip)
 
@@ -692,9 +716,95 @@ class SessionPlanWindow(QWidget):
 
         page_layout.addWidget(QLabel("💡 <i>Double-click any cell to add personal notes / priority. Right-click to track topic or view details.</i>"))
 
+        self.overview_page = page
         self.view_stack.addWidget(page)
 
-    # --- View 2: Agenda Mode ---
+    # --- View 2: Live "Now" & Upcoming Rooms Dashboard ---
+
+    def _setup_now_view(self):
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setSpacing(8)
+
+        # Top Live Status & Manual Time-Travel Stepper Bar
+        ctrl_card = QFrame()
+        ctrl_card.setStyleSheet(
+            f"background: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px; padding: 6px 10px;"
+        )
+        ctrl_lay = QHBoxLayout(ctrl_card)
+        ctrl_lay.setContentsMargins(4, 2, 4, 2)
+        ctrl_lay.setSpacing(8)
+
+        self.now_status_pill = QLabel("⏳ Initializing...")
+        self.now_status_pill.setStyleSheet(
+            f"background: {C.INFO_SOFT}; color: {C.INFO}; border: 1px solid {C.INFO_BORDER}; "
+            f"border-radius: 999px; padding: 3px 10px; font-weight: 700; font-size: 11.5px;"
+        )
+        ctrl_lay.addWidget(self.now_status_pill)
+
+        self.now_banner_lbl = QLabel("")
+        self.now_banner_lbl.setWordWrap(True)
+        self.now_banner_lbl.setStyleSheet(f"color: {C.TEXT_STRONG}; font-size: 12px; font-weight: 600;")
+        ctrl_lay.addWidget(self.now_banner_lbl, 1)
+
+        self.btn_now_prev = QPushButton("◀ Prev")
+        self.btn_now_prev.setCursor(Qt.PointingHandCursor)
+        self.btn_now_prev.setToolTip("Inspect the previous scheduled time unit")
+        self.btn_now_prev.clicked.connect(lambda: self._step_now_unit(-1))
+        ctrl_lay.addWidget(self.btn_now_prev)
+
+        self.now_slot_combo = QComboBox()
+        self.now_slot_combo.setMinimumWidth(240)
+        self.now_slot_combo.setStyleSheet(f"padding: 3px 8px; font-size: 11.5px; border: 1px solid {C.BORDER_STRONG}; border-radius: 5px;")
+        self.now_slot_combo.currentIndexChanged.connect(self._on_now_combo_changed)
+        ctrl_lay.addWidget(self.now_slot_combo)
+
+        self.btn_now_next = QPushButton("Next ▶")
+        self.btn_now_next.setCursor(Qt.PointingHandCursor)
+        self.btn_now_next.setToolTip("Inspect the next scheduled time unit")
+        self.btn_now_next.clicked.connect(lambda: self._step_now_unit(1))
+        ctrl_lay.addWidget(self.btn_now_next)
+
+        self.btn_now_live = QPushButton("🔴 Live Now")
+        self.btn_now_live.setCursor(Qt.PointingHandCursor)
+        self.btn_now_live.setStyleSheet(
+            f"QPushButton {{ padding: 4px 10px; font-size: 11.5px; font-weight: 700; border-radius: 6px; "
+            f"background: {C.SUCCESS_SOFT}; color: {C.SUCCESS}; border: 1px solid {C.SUCCESS_BORDER}; }}"
+            f"QPushButton:hover {{ background: {C.SUCCESS_SOFT_ALT}; }}"
+        )
+        self.btn_now_live.setToolTip("Sync back to the current real-time Venue clock")
+        self.btn_now_live.clicked.connect(self._reset_now_to_live)
+        ctrl_lay.addWidget(self.btn_now_live)
+
+        self.btn_now_locations = QPushButton("📍 Room Locations...")
+        self.btn_now_locations.setCursor(Qt.PointingHandCursor)
+        self.btn_now_locations.setStyleSheet(
+            f"QPushButton {{ padding: 4px 10px; font-size: 11.5px; font-weight: 600; border-radius: 6px; "
+            f"background: {C.BG_SURFACE}; color: {C.TEXT_BODY}; border: 1px solid {C.BORDER_STRONG}; }}"
+            f"QPushButton:hover {{ background: {C.INFO_SOFT}; border-color: {C.INFO_ACCENT}; color: {C.INFO}; }}"
+        )
+        self.btn_now_locations.setToolTip("Edit hand-made floor/wing/hall directions stored locally in meeting_locations.json")
+        self.btn_now_locations.clicked.connect(lambda: self._open_room_locations_dialog())
+        ctrl_lay.addWidget(self.btn_now_locations)
+
+        page_layout.addWidget(ctrl_card)
+
+        # Scrollable Content Container
+        self.now_scroll = QScrollArea()
+        self.now_scroll.setWidgetResizable(True)
+        self.now_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        self.now_content_widget = QWidget()
+        self.now_content_layout = QVBoxLayout(self.now_content_widget)
+        self.now_content_layout.setContentsMargins(0, 0, 4, 8)
+        self.now_content_layout.setSpacing(12)
+        self.now_scroll.setWidget(self.now_content_widget)
+        page_layout.addWidget(self.now_scroll, 1)
+
+        self.now_page = page
+        self.view_stack.addWidget(page)
+
+    # --- View 3: Agenda Mode ---
 
     def _setup_agenda_view(self):
         page = QWidget()
@@ -714,6 +824,7 @@ class SessionPlanWindow(QWidget):
         self.agenda_table.setAlternatingRowColors(True)
         page_layout.addWidget(self.agenda_table)
 
+        self.agenda_page = page
         self.view_stack.addWidget(page)
 
     # --- View 3: Drafting Radar ---
@@ -736,6 +847,7 @@ class SessionPlanWindow(QWidget):
         page_layout.addWidget(self.drafting_table)
         page_layout.addWidget(QLabel("💡 <i>Double-click any drafting session to view and highlight in the 5-day Overview Grid.</i>"))
 
+        self.drafting_page = page
         self.view_stack.addWidget(page)
 
     # --- View 4: Delegate Agenda (formerly My Topics) ---
@@ -773,6 +885,7 @@ class SessionPlanWindow(QWidget):
         page_layout.addWidget(self.tracked_table)
         page_layout.addWidget(QLabel("💡 <i>Double-click any session to jump to the Overview Grid. Right-click to edit notes or copy details.</i>"))
 
+        self.tracked_page = page
         self.view_stack.addWidget(page)
 
     # --- View 5: Team Allocations (HoD Dispatcher & Topic Ownership) ---
@@ -1002,13 +1115,16 @@ class SessionPlanWindow(QWidget):
         self.team_tabs.addTab(tab_clashes, "⚡ Clash && Dispatch Board")
 
         page_layout.addWidget(self.team_tabs, 1)
+        self.team_page = page
         self.view_stack.addWidget(page)
 
     # --- Data Loading & Rendering ---
 
     def _load_data(self):
-        """Loads snapshots, persistent tracked topics, and annotations from the SQLite database."""
+        """Loads snapshots, persistent tracked topics, annotations, and room/slot locations from SQLite/folder."""
         self.annotations = self.db.get_annotations(self.meeting_number)
+        self.room_locations = self.db.get_room_locations(self.meeting_number, meeting_dir=self.meeting_dir)
+        self.slot_locations = self.db.get_slot_locations(self.meeting_number, meeting_dir=self.meeting_dir)
         self.db_tracked = self.db.get_tracked_topics(self.meeting_number)
         self.tracked_tokens = set(self.external_tracked_tokens) | set(self.db_tracked.keys())
 
@@ -1033,7 +1149,7 @@ class SessionPlanWindow(QWidget):
         self._render_current_views()
 
     def _render_current_views(self):
-        """Refreshes all 5 views with the currently active snapshot."""
+        """Refreshes all 6 views with the currently active snapshot."""
         if not self.active_snapshot:
             self._render_empty_views()
             return
@@ -1041,6 +1157,7 @@ class SessionPlanWindow(QWidget):
         self._update_room_guide_strip()
         self._update_overview_delegate_strip()
         self._render_overview_grid()
+        self._render_now_view()
         self._render_agenda_mode()
         self._render_drafting_radar()
         self._render_tracked_topics()
@@ -1059,9 +1176,11 @@ class SessionPlanWindow(QWidget):
             if s_num in streams:
                 s_info = streams[s_num]
                 short_room = s_info.room_name.split("(")[0].strip() or s_info.room_name
+                loc_note = lookup_room_location_note(short_room, self.room_locations)
+                loc_line = f"<br><b>Location Note:</b> {html.escape(loc_note)}" if loc_note else ""
                 chk.setText(f"🏢 Str {s_num}: {short_room}")
                 chk.setToolTip(
-                    f"<b>Stream {s_num}:</b> {html.escape(s_info.room_name)} [{s_info.capacity} seats]<br>"
+                    f"<b>Stream {s_num}:</b> {html.escape(s_info.room_name)} [{s_info.capacity} seats]{loc_line}<br>"
                     f"<b>Chair:</b> {html.escape(s_info.convener or fallback_chair)}<br>"
                     f"<b>TOHRU:</b> {html.escape(s_info.tohru_room)}"
                 )
@@ -1073,6 +1192,13 @@ class SessionPlanWindow(QWidget):
         self.tracked_table.setRowCount(0)
         self.team_topics_table.setRowCount(0)
         self.team_clashes_table.setRowCount(0)
+        if hasattr(self, "now_content_layout"):
+            self._clear_now_layout()
+            empty_lbl = QLabel("📭 Import a Session Plan snapshot to see what is happening now and upcoming.")
+            empty_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 13px; padding: 24px;")
+            empty_lbl.setAlignment(Qt.AlignCenter)
+            self.now_content_layout.addWidget(empty_lbl)
+            self.now_content_layout.addStretch(1)
 
     def _is_slot_tracked(self, s: SessionSlot) -> bool:
         """Determines whether a slot matches any user-tracked topic, WI token, or agenda item."""
@@ -1191,13 +1317,19 @@ class SessionPlanWindow(QWidget):
         else:
             time_display = f"{time_dual} (Venue Time)"
 
-        s_info = self.active_snapshot.streams.get(stream_num) if self.active_snapshot else None
-        r_name = getattr(slot, "room_override", "") or (s_info.room_name if s_info else f"Stream {stream_num}")
-        cap = f" ({s_info.capacity} seats)" if s_info and s_info.capacity else ""
+        streams = self.active_snapshot.streams if self.active_snapshot else None
+        s_info = streams.get(stream_num) if streams else None
+        r_name, loc_note, is_swapped = resolve_effective_room_and_location(
+            slot, streams=streams, room_locations=self.room_locations, slot_locations=self.slot_locations
+        )
+        cap = f" ({s_info.capacity} seats)" if (not is_swapped and s_info and s_info.capacity) else ""
         convener = s_info.convener if s_info else ("SA2 Chair / MCC" if stream_num == 1 else "")
         tohru = s_info.tohru_room if s_info else ""
 
-        meta_parts = [f"🏢 <b>Stream {stream_num}:</b> {html.escape(r_name)}{cap}"]
+        swap_tag = " <i>(Swapped)</i>" if is_swapped else ""
+        meta_parts = [f"🏢 <b>Stream {stream_num}:</b> {html.escape(r_name)}{cap}{swap_tag}"]
+        if loc_note:
+            meta_parts.append(f"🧭 <b>Location:</b> {html.escape(loc_note)}")
         if convener:
             meta_parts.append(f"👤 <b>Chair:</b> {html.escape(convener)}")
         if tohru:
@@ -1789,7 +1921,10 @@ class SessionPlanWindow(QWidget):
         streams = self.active_snapshot.streams
         for row, s in enumerate(drafting_slots):
             s_info = streams.get(s.stream_number)
-            r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
+            r_name, loc_note, _ = resolve_effective_room_and_location(
+                s, streams=streams, room_locations=self.room_locations, slot_locations=self.slot_locations
+            )
+            r_disp = f"{r_name} · {loc_note}" if loc_note else r_name
             convener = s_info.convener if s_info else ""
 
             time_str = SessionPlanTimezone.format_dual_time_range(
@@ -1799,7 +1934,7 @@ class SessionPlanWindow(QWidget):
             self.drafting_table.setItem(row, 0, QTableWidgetItem(s.day_name))
             self.drafting_table.setItem(row, 1, QTableWidgetItem(s.quarter))
             self.drafting_table.setItem(row, 2, QTableWidgetItem(time_str))
-            self.drafting_table.setItem(row, 3, QTableWidgetItem(f"Str {s.stream_number} ({r_name})"))
+            self.drafting_table.setItem(row, 3, QTableWidgetItem(f"Str {s.stream_number} ({r_disp})"))
             self.drafting_table.setItem(row, 4, QTableWidgetItem(convener))
             self.drafting_table.setItem(row, 5, QTableWidgetItem(s.raw_text))
 
@@ -1885,8 +2020,10 @@ class SessionPlanWindow(QWidget):
 
         streams = self.active_snapshot.streams
         for row, s in enumerate(target_slots):
-            s_info = streams.get(s.stream_number)
-            r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
+            r_name, loc_note, _ = resolve_effective_room_and_location(
+                s, streams=streams, room_locations=self.room_locations, slot_locations=self.slot_locations
+            )
+            r_disp = f"{r_name} · {loc_note}" if loc_note else r_name
 
             time_str = SessionPlanTimezone.format_dual_time_range(
                 s.start_time_local, s.end_time_local, self.tz_offset_min
@@ -1922,7 +2059,7 @@ class SessionPlanWindow(QWidget):
             item_day.setData(Qt.UserRole, s)
             item_q = QTableWidgetItem(s.quarter)
             item_time = QTableWidgetItem(time_str)
-            item_str = QTableWidgetItem(f"Str {s.stream_number} ({r_name})")
+            item_str = QTableWidgetItem(f"Str {s.stream_number} ({r_disp})")
             item_del = QTableWidgetItem(del_txt)
 
             if is_all:
@@ -2413,7 +2550,7 @@ class SessionPlanWindow(QWidget):
     def _jump_to_conflicts_board(self):
         """Switches to the Team Allocations view and selects the Clash & Dispatch Board tab."""
         self.btn_team.setChecked(True)
-        self.view_stack.setCurrentIndex(4)
+        self.view_stack.setCurrentWidget(self.team_page)
         if hasattr(self, "team_tabs"):
             self.team_tabs.setCurrentIndex(1)
 
@@ -2435,7 +2572,7 @@ class SessionPlanWindow(QWidget):
                 break
         if target_row is not None:
             self.btn_grid.setChecked(True)
-            self.view_stack.setCurrentIndex(0)
+            self.view_stack.setCurrentWidget(self.overview_page)
             col_idx = day_idx * 2 + (1 if slot_obj.sub_slot == 2 else 0)
             self.grid_table.setCurrentCell(target_row, col_idx)
 
@@ -2856,7 +2993,7 @@ class SessionPlanWindow(QWidget):
     # --- Live Clock & Timezone ---
 
     def _update_live_clock(self):
-        """Updates real-time Venue Time vs Austrian Laptop Time in the header."""
+        """Updates real-time Venue Time vs Austrian Laptop Time in the header and refreshes live Now view."""
         venue_dt = SessionPlanTimezone.get_venue_current_datetime(self.tz_offset_min)
         laptop_offset = SessionPlanTimezone.get_laptop_tz_offset_minutes()
 
@@ -2869,6 +3006,794 @@ class SessionPlanWindow(QWidget):
             self.clock_lbl.setText(f"🕒 <b>{venue_str}</b> (Venue &amp; Austrian Time)")
         else:
             self.clock_lbl.setText(f"🏛️ Venue: <b>{venue_str}</b>  |  💻 Vienna: <b>{laptop_str}</b>")
+
+        bucket = (venue_dt.hour, venue_dt.minute)
+        if self._last_now_live_bucket != bucket:
+            self._last_now_live_bucket = bucket
+            if self.active_snapshot and hasattr(self, "now_page"):
+                self._update_now_tab_badge()
+                if self.now_auto_follow and self.view_stack.currentWidget() == self.now_page:
+                    self._render_now_view()
+
+    # --- Live "Now" & Upcoming Timeline Engine + Room Location Editors ---
+
+    def _clear_now_layout(self):
+        """Safely clears all widgets and sub-layouts from `self.now_content_layout`."""
+        if not hasattr(self, "now_content_layout"):
+            return
+        while self.now_content_layout.count():
+            item = self.now_content_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+            elif item.layout() is not None:
+                self._clear_sub_layout(item.layout())
+
+    @staticmethod
+    def _clear_sub_layout(lay):
+        if lay is None:
+            return
+        while lay.count():
+            child = lay.takeAt(0)
+            cw = child.widget()
+            if cw is not None:
+                cw.setParent(None)
+                cw.deleteLater()
+            else:
+                sub_l = child.layout()
+                if sub_l is not None:
+                    SessionPlanWindow._clear_sub_layout(sub_l)
+
+    def _build_now_timeline_units(self) -> List[dict]:
+        """
+        Builds ordered chronological schedule units (`day_idx|period|tu`) across Mon–Fri
+        for active sessions and non-empty breaks, splitting into TU 1/TU 2 when half-quarters are used.
+        """
+        if not self.active_snapshot:
+            return []
+
+        units: List[dict] = []
+        by_day_period: Dict[Tuple[int, str], List[SessionSlot]] = {}
+        days_with_slots: Set[int] = set()
+
+        for sl in self.active_snapshot.slots:
+            if not sl.raw_text.strip() or sl.raw_text.strip() == "-":
+                continue
+            by_day_period.setdefault((sl.day_index, sl.quarter), []).append(sl)
+            days_with_slots.add(sl.day_index)
+
+        all_periods = list(PERIOD_ORDER)
+        for sl in self.active_snapshot.slots:
+            if sl.quarter and sl.quarter not in all_periods:
+                all_periods.append(sl.quarter)
+
+        for d_idx in sorted(days_with_slots):
+            if d_idx < 0 or d_idx >= len(DAY_NAMES):
+                continue
+            d_name = DAY_NAMES[d_idx]
+            for p in all_periods:
+                p_slots = by_day_period.get((d_idx, p), [])
+                if not p_slots:
+                    continue
+                times = self._get_period_effective_times(p)
+                is_break = any(b in p.lower() for b in ("break", "coffee", "lunch"))
+                has_halves = (not is_break) and any(s.sub_slot in (1, 2) for s in p_slots)
+
+                if has_halves:
+                    units.append({
+                        "key": f"{d_idx}|{p}|1",
+                        "day_idx": d_idx,
+                        "day_name": d_name,
+                        "period": p,
+                        "tu": 1,
+                        "is_break": False,
+                        "start": times[2],
+                        "end": times[3],
+                        "half_label": "1st Half (TU 1)",
+                    })
+                    units.append({
+                        "key": f"{d_idx}|{p}|2",
+                        "day_idx": d_idx,
+                        "day_name": d_name,
+                        "period": p,
+                        "tu": 2,
+                        "is_break": False,
+                        "start": times[4],
+                        "end": times[5],
+                        "half_label": "2nd Half (TU 2)",
+                    })
+                else:
+                    units.append({
+                        "key": f"{d_idx}|{p}|0",
+                        "day_idx": d_idx,
+                        "day_name": d_name,
+                        "period": p,
+                        "tu": 0,
+                        "is_break": is_break,
+                        "start": times[0],
+                        "end": times[1],
+                        "half_label": "Break" if is_break else "Full Quarter",
+                    })
+        return units
+
+    @staticmethod
+    def _hhmm_to_min(hhmm: str) -> int:
+        m = SessionPlanTimezone._time_str_to_minutes(hhmm or "")
+        return m if m is not None else 0
+
+    def _resolve_now_context(self) -> dict:
+        """
+        Determines live vs manual target timeline unit, status banner, remaining/countdown minutes,
+        immediate next 1–2 upcoming periods today, and remaining periods for that day.
+        """
+        units = self._build_now_timeline_units()
+        if not units:
+            return {"units": [], "target": None, "mode": "empty", "status_pill": "📭 Empty", "banner": "No scheduled slots."}
+
+        venue_dt = SessionPlanTimezone.get_venue_current_datetime(self.tz_offset_min)
+        cur_hhmm = venue_dt.strftime("%H:%M")
+        cur_min = venue_dt.hour * 60 + venue_dt.minute
+
+        day_diff: Optional[int] = None
+        base_date = None
+        try:
+            base_date = datetime.strptime(self.start_date_str, "%Y-%m-%d").date()
+            day_diff = (venue_dt.date() - base_date).days
+        except Exception:
+            pass
+
+        live_unit = None
+        next_live_unit = None
+        live_mode = "outside"
+
+        if day_diff is not None and 0 <= day_diff <= 4:
+            today_units = [u for u in units if u["day_idx"] == day_diff]
+            for u in today_units:
+                if u["start"] <= cur_hhmm < u["end"]:
+                    live_unit = u
+                    live_mode = "live"
+                    break
+            if live_unit is None:
+                for u in today_units:
+                    if u["start"] > cur_hhmm:
+                        next_live_unit = u
+                        live_mode = "upcoming_today"
+                        break
+                if next_live_unit is None:
+                    after_units = [u for u in units if u["day_idx"] > day_diff]
+                    if after_units:
+                        next_live_unit = after_units[0]
+                        live_mode = "next_day"
+                    else:
+                        live_mode = "after_meeting"
+        elif day_diff is not None and day_diff < 0:
+            live_mode = "before_meeting"
+        elif day_diff is not None and day_diff > 4:
+            live_mode = "after_meeting"
+
+        auto_target = live_unit or next_live_unit or units[0]
+        target = auto_target
+        effective_mode = live_mode
+
+        if not self.now_auto_follow and self.now_selected_unit_key:
+            manual = next((u for u in units if u["key"] == self.now_selected_unit_key), None)
+            if manual is not None:
+                target = manual
+                if live_unit and manual["key"] == live_unit["key"]:
+                    effective_mode = "live"
+                else:
+                    effective_mode = "manual"
+        else:
+            self.now_selected_unit_key = target["key"]
+
+        date_lbl = ""
+        if base_date:
+            d_obj = base_date + timedelta(days=target["day_idx"])
+            date_lbl = f" ({d_obj.strftime('%d %b')})"
+
+        dual_time = SessionPlanTimezone.format_dual_time_range(target["start"], target["end"], self.tz_offset_min)
+
+        if effective_mode == "live":
+            rem_min = max(0, self._hhmm_to_min(target["end"]) - cur_min)
+            status_pill = "🟢 HAPPENING NOW"
+            banner = f"{target['day_name']}{date_lbl} · {target['period']} · {target['half_label']} — {dual_time} ({rem_min} min remaining)"
+        elif effective_mode == "upcoming_today":
+            wait_min = max(0, self._hhmm_to_min(target["start"]) - cur_min)
+            status_pill = f"⏳ UP NEXT IN {wait_min} MIN"
+            banner = f"Currently between sessions ({cur_hhmm} Venue) — Next: {target['day_name']}{date_lbl} · {target['period']} · {target['half_label']} ({dual_time})"
+        elif effective_mode == "next_day":
+            status_pill = "🌙 NEXT DAY PREVIEW"
+            banner = f"Today's sessions concluded ({cur_hhmm} Venue) — Next: {target['day_name']}{date_lbl} · {target['period']} ({dual_time})"
+        elif effective_mode == "before_meeting":
+            days_until = max(1, -(day_diff or 0))
+            status_pill = f"📅 STARTS IN {days_until}D"
+            banner = f"Before meeting week — Previewing {target['day_name']}{date_lbl} · {target['period']} ({dual_time})"
+        elif effective_mode == "after_meeting":
+            status_pill = "🏁 MEETING CONCLUDED"
+            banner = f"Meeting week concluded — Previewing {target['day_name']}{date_lbl} · {target['period']} ({dual_time})"
+        elif effective_mode == "manual":
+            status_pill = "🔎 MANUAL PREVIEW"
+            banner = f"Inspecting {target['day_name']}{date_lbl} · {target['period']} · {target['half_label']} — {dual_time}"
+        else:
+            status_pill = "📅 SCHEDULE PREVIEW"
+            banner = f"{target['day_name']}{date_lbl} · {target['period']} · {target['half_label']} — {dual_time}"
+
+        # Collect distinct periods on target day after target period for "Up Next" (1-2) and "Rest of Today"
+        all_periods = list(PERIOD_ORDER)
+        for sl in self.active_snapshot.slots:
+            if sl.quarter and sl.quarter not in all_periods:
+                all_periods.append(sl.quarter)
+
+        try:
+            cur_p_idx = all_periods.index(target["period"])
+        except ValueError:
+            cur_p_idx = -1
+
+        later_periods: List[dict] = []
+        for p_idx in range(cur_p_idx + 1, len(all_periods)):
+            p_name = all_periods[p_idx]
+            p_slots = [
+                sl for sl in self.active_snapshot.slots
+                if sl.day_index == target["day_idx"]
+                and sl.quarter == p_name
+                and sl.raw_text.strip()
+                and sl.raw_text.strip() != "-"
+            ]
+            if p_slots:
+                t_rng = self._get_period_effective_times(p_name)
+                later_periods.append({
+                    "period": p_name,
+                    "start": t_rng[0],
+                    "end": t_rng[1],
+                    "is_break": any(b in p_name.lower() for b in ("break", "coffee", "lunch")),
+                    "slots": sorted(p_slots, key=lambda s: (s.stream_number, s.sub_slot)),
+                })
+
+        return {
+            "units": units,
+            "target": target,
+            "live_unit": live_unit,
+            "mode": effective_mode,
+            "status_pill": status_pill,
+            "banner": banner,
+            "up_next_periods": later_periods[:2],
+            "rest_of_day_periods": later_periods[2:],
+        }
+
+    def _update_now_tab_badge(self):
+        """Updates the 🔴 Now tab label with active quarter indicator when live."""
+        if not hasattr(self, "btn_now"):
+            return
+        ctx = self._resolve_now_context()
+        live_u = ctx.get("live_unit")
+        if live_u:
+            self.btn_now.setText(f"🟢 Now ({live_u['period']})")
+        else:
+            self.btn_now.setText("🔴 Now")
+
+    def _slots_for_now_unit(self, unit: dict) -> List[SessionSlot]:
+        """Returns active slots in the snapshot matching `(day_idx, period, tu)` sorted by stream."""
+        if not self.active_snapshot or not unit:
+            return []
+        d_idx = unit["day_idx"]
+        p = unit["period"]
+        tu = unit["tu"]
+        matched = []
+        for sl in self.active_snapshot.slots:
+            if not sl.raw_text.strip() or sl.raw_text.strip() == "-":
+                continue
+            if sl.day_index != d_idx or sl.quarter != p:
+                continue
+            if tu in (1, 2) and sl.sub_slot not in (0, tu):
+                continue
+            matched.append(sl)
+        return sorted(matched, key=lambda s: (s.stream_number, s.sub_slot))
+
+    def _render_now_view(self):
+        """Renders the room-centric 'Happening Now', 'Up Next', and 'Rest of Today' dashboard."""
+        if not hasattr(self, "now_content_layout"):
+            return
+
+        self._update_now_tab_badge()
+        self._clear_now_layout()
+
+        ctx = self._resolve_now_context()
+        units = ctx["units"]
+        target = ctx["target"]
+
+        # Update stepper dropdown cleanly
+        if hasattr(self, "now_slot_combo"):
+            self.now_slot_combo.blockSignals(True)
+            self.now_slot_combo.clear()
+            for u in units:
+                lbl = f"{u['day_name'][:3]} · {u['period']} · {u['half_label']} ({u['start']}–{u['end']})"
+                self.now_slot_combo.addItem(lbl, u["key"])
+            if target:
+                idx = self.now_slot_combo.findData(target["key"])
+                if idx >= 0:
+                    self.now_slot_combo.setCurrentIndex(idx)
+            self.now_slot_combo.blockSignals(False)
+
+        mode = ctx["mode"]
+        if mode == "live":
+            self.now_status_pill.setStyleSheet(
+                f"background: {C.SUCCESS_SOFT}; color: {C.SUCCESS}; border: 1px solid {C.SUCCESS_BORDER}; "
+                f"border-radius: 999px; padding: 3px 10px; font-weight: 700; font-size: 11.5px;"
+            )
+        elif mode == "manual":
+            self.now_status_pill.setStyleSheet(
+                f"background: {C.WARNING_SOFT}; color: {C.WARNING_DARK}; border: 1px solid {C.WARNING_BORDER}; "
+                f"border-radius: 999px; padding: 3px 10px; font-weight: 700; font-size: 11.5px;"
+            )
+        else:
+            self.now_status_pill.setStyleSheet(
+                f"background: {C.INFO_SOFT}; color: {C.INFO}; border: 1px solid {C.INFO_BORDER}; "
+                f"border-radius: 999px; padding: 3px 10px; font-weight: 700; font-size: 11.5px;"
+            )
+        self.now_status_pill.setText(ctx["status_pill"])
+        self.now_banner_lbl.setText(ctx["banner"])
+
+        if not target:
+            empty = QLabel("📭 No scheduled sessions available in this snapshot.")
+            empty.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 13px; padding: 24px;")
+            self.now_content_layout.addWidget(empty)
+            self.now_content_layout.addStretch(1)
+            return
+
+        # --- Section 1: Happening Right Now (Side-by-Side Streams / Rooms) ---
+        sec1_title = "🔴 Happening Now — Rooms & Active Streams" if mode == "live" else f"📍 Active Window — {target['day_name']} · {target['period']} ({target['half_label']})"
+        s1_lbl = QLabel(f"<b>{sec1_title}</b>")
+        s1_lbl.setStyleSheet(f"font-size: 13px; color: {C.TEXT_PRIMARY};")
+        self.now_content_layout.addWidget(s1_lbl)
+
+        active_slots = self._slots_for_now_unit(target)
+        # Look ahead for TU 2 changes when viewing TU 1
+        tu2_by_stream: Dict[int, SessionSlot] = {}
+        if target["tu"] == 1:
+            for sl in self.active_snapshot.slots:
+                if sl.day_index == target["day_idx"] and sl.quarter == target["period"] and sl.sub_slot == 2:
+                    tu2_by_stream[sl.stream_number] = sl
+
+        if target["is_break"] or (len(active_slots) == 1 and active_slots[0].stream_number == 0):
+            # Single wide break/plenary row
+            cards_row = QHBoxLayout()
+            cards_row.setSpacing(10)
+            for sl in active_slots:
+                cards_row.addWidget(self._make_now_stream_card(sl.stream_number, sl, target, tu2_slot=None), 1)
+            self.now_content_layout.addLayout(cards_row)
+        else:
+            # Side-by-side cards for Streams 1, 2, 3
+            cards_row = QHBoxLayout()
+            cards_row.setSpacing(10)
+            by_str = {sl.stream_number: sl for sl in active_slots}
+            for s_num in (1, 2, 3):
+                sl = by_str.get(s_num)
+                tu2_sl = tu2_by_stream.get(s_num)
+                if sl and tu2_sl and tu2_sl.slot_key == sl.slot_key:
+                    tu2_sl = None
+                cards_row.addWidget(self._make_now_stream_card(s_num, sl, target, tu2_slot=tu2_sl), 1)
+            self.now_content_layout.addLayout(cards_row)
+
+        # --- Section 2: Up Next Today (Next 1-2 Periods) ---
+        up_next = ctx["up_next_periods"]
+        s2_lbl = QLabel(f"<b>⏭️ Up Next Today ({target['day_name']})</b>")
+        s2_lbl.setStyleSheet(f"font-size: 13px; color: {C.TEXT_PRIMARY}; margin-top: 4px;")
+        self.now_content_layout.addWidget(s2_lbl)
+
+        if not up_next:
+            no_next = QLabel(f"✅ No further sessions scheduled later on {target['day_name']}.")
+            no_next.setStyleSheet(
+                f"background: {C.BG_SURFACE}; border: 1px dashed {C.BORDER_STRONG}; border-radius: 8px; "
+                f"padding: 12px; color: {C.TEXT_MUTED}; font-size: 12px;"
+            )
+            self.now_content_layout.addWidget(no_next)
+        else:
+            for p_info in up_next:
+                self.now_content_layout.addWidget(self._make_upcoming_period_card(target["day_idx"], p_info))
+
+        # --- Section 3: Rest of Today's Schedule ---
+        rest = ctx["rest_of_day_periods"]
+        if rest:
+            s3_lbl = QLabel(f"<b>📅 Rest of {target['day_name']} Timeline</b>")
+            s3_lbl.setStyleSheet(f"font-size: 13px; color: {C.TEXT_PRIMARY}; margin-top: 4px;")
+            self.now_content_layout.addWidget(s3_lbl)
+            for p_info in rest:
+                self.now_content_layout.addWidget(self._make_compact_timeline_row(target["day_idx"], p_info))
+
+        self.now_content_layout.addStretch(1)
+
+    def _make_now_stream_card(
+        self,
+        stream_num: int,
+        slot: Optional[SessionSlot],
+        unit: dict,
+        tu2_slot: Optional[SessionSlot] = None,
+    ) -> QFrame:
+        """Creates a rich, room-centric card for a stream in the 'Happening Now' section."""
+        streams = self.active_snapshot.streams if self.active_snapshot else {}
+        s_info = streams.get(stream_num)
+
+        stream_accents = {
+            1: (C.INDIGO_DARK, C.WG_SA_BG, C.WG_SA_BORDER, "Stream 1"),
+            2: (C.EMERALD_DARK, C.WG_RAN_BG, C.WG_RAN_BORDER, "Stream 2"),
+            3: (C.WARNING, C.WARNING_SOFT, C.WARNING_BORDER, "Stream 3"),
+        }
+        accent_col, accent_bg, accent_bdr, stream_title = stream_accents.get(
+            stream_num, (C.TEXT_SECONDARY, C.BG_SURFACE, C.BORDER_STRONG, "Break / Plenary" if stream_num == 0 else f"Stream {stream_num}")
+        )
+
+        card = QFrame()
+        card.setFrameShape(QFrame.StyledPanel)
+        if slot is None:
+            card.setStyleSheet(
+                f"QFrame {{ background: {C.BG_SURFACE}; border: 1px dashed {C.BORDER_STRONG}; "
+                f"border-radius: 8px; }}"
+            )
+            lay = QVBoxLayout(card)
+            lay.setContentsMargins(12, 10, 12, 10)
+            lay.setSpacing(6)
+            hdr = QLabel(f"<b style='color:{accent_col};'>🏢 {stream_title}</b>")
+            hdr.setStyleSheet("border: none; background: transparent;")
+            lay.addWidget(hdr)
+            default_room = s_info.room_name.split("(")[0].strip() if s_info else f"Stream {stream_num}"
+            loc_note = lookup_room_location_note(default_room, self.room_locations)
+            room_txt = f"📍 {default_room}" + (f" · 🧭 {loc_note}" if loc_note else "")
+            rm_lbl = QLabel(room_txt)
+            rm_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px; border: none; background: transparent;")
+            lay.addWidget(rm_lbl)
+            idle_lbl = QLabel("— No active session scheduled in this stream —")
+            idle_lbl.setStyleSheet(f"color: {C.TEXT_FAINT}; font-style: italic; font-size: 12px; padding: 12px 0; border: none; background: transparent;")
+            lay.addWidget(idle_lbl)
+            lay.addStretch(1)
+            return card
+
+        card.setStyleSheet(
+            f"QFrame {{ background: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; "
+            f"border-top: 4px solid {accent_col}; border-radius: 8px; }}"
+        )
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(6)
+
+        # Row 1: Stream pill + subtle delegate awareness badges
+        top_row = QHBoxLayout()
+        top_row.setSpacing(6)
+        str_pill = QLabel(f"🏢 {stream_title}" + (" · Drafting" if slot.is_drafting else ""))
+        str_pill.setStyleSheet(
+            f"background: {accent_bg}; color: {accent_col}; border: 1px solid {accent_bdr}; "
+            f"border-radius: 5px; padding: 2px 8px; font-weight: 700; font-size: 11px;"
+        )
+        top_row.addWidget(str_pill)
+        top_row.addStretch(1)
+
+        del_names, is_cov, is_all = self._get_slot_effective_delegates(slot)
+        if is_all:
+            p_lbl = QLabel("👥 ALL")
+            p_lbl.setStyleSheet(
+                f"background: {C.WG_SA_BG}; color: {C.INDIGO_DARK}; border: 1px solid #6366F1; "
+                f"border-radius: 7px; padding: 1px 6px; font-weight: 700; font-size: 9.5px;"
+            )
+            top_row.addWidget(p_lbl)
+        elif del_names:
+            initials = self._delegate_initials_map()
+            for dn in del_names[:3]:
+                m = self.delegation_plan.members.get(dn) if self.delegation_plan else None
+                if m:
+                    top_row.addWidget(self._make_delegate_badge(m, initials.get(dn, m.initials), is_cov=is_cov))
+        elif is_slot_not_followed(slot, self.delegation_plan, agenda_map=self.agenda_map):
+            nf = QLabel("⛔ Out of Scope")
+            nf.setStyleSheet(
+                f"background: {C.BG_SURFACE}; color: {C.TEXT_MUTED}; border: 1px solid {C.BORDER_STRONG}; "
+                f"border-radius: 7px; padding: 1px 6px; font-size: 9.5px; font-weight: 600;"
+            )
+            top_row.addWidget(nf)
+        lay.addLayout(top_row)
+
+        # Row 2: Prominent Physical Room + Hand-Made Location Note + Edit Pencil
+        phys_room, loc_note, is_swapped = resolve_effective_room_and_location(
+            slot, streams=streams, room_locations=self.room_locations, slot_locations=self.slot_locations
+        )
+        room_box = QFrame()
+        room_box.setStyleSheet(
+            f"QFrame {{ background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; padding: 4px 6px; }}"
+        )
+        rb_lay = QVBoxLayout(room_box)
+        rb_lay.setContentsMargins(6, 4, 6, 4)
+        rb_lay.setSpacing(3)
+
+        rm_top = QHBoxLayout()
+        rm_top.setSpacing(6)
+        rm_lbl = QLabel(f"<b>📍 {html.escape(phys_room)}</b>")
+        rm_lbl.setStyleSheet(f"color: {C.TEXT_PRIMARY}; font-size: 12.5px; border: none; background: transparent;")
+        rm_top.addWidget(rm_lbl)
+
+        if is_swapped:
+            def_r = s_info.room_name.split("(")[0].strip() if s_info else ""
+            sw = QLabel(f"⇄ Moved from {def_r}" if def_r else "⇄ Room Override")
+            sw.setStyleSheet(
+                f"background: {C.WARNING_SOFT}; color: {C.WARNING_DARK}; border: 1px solid {C.WARNING_BORDER}; "
+                f"border-radius: 4px; padding: 1px 5px; font-size: 10px; font-weight: 700;"
+            )
+            rm_top.addWidget(sw)
+
+        rm_top.addStretch(1)
+
+        btn_edit_loc = QPushButton("✏️")
+        btn_edit_loc.setFixedSize(24, 22)
+        btn_edit_loc.setCursor(Qt.PointingHandCursor)
+        btn_edit_loc.setToolTip(f"Edit floor / location note for '{phys_room}' or this slot")
+        btn_edit_loc.setStyleSheet(
+            f"QPushButton {{ border: 1px solid {C.BORDER_STRONG}; border-radius: 4px; background: {C.BG_CARD}; font-size: 11px; }}"
+            f"QPushButton:hover {{ background: {C.INFO_SOFT}; border-color: {C.INFO_ACCENT}; }}"
+        )
+        btn_edit_loc.clicked.connect(lambda _, pr=phys_room, sl=slot: self._edit_slot_or_room_location(pr, sl))
+        rm_top.addWidget(btn_edit_loc)
+        rb_lay.addLayout(rm_top)
+
+        if loc_note:
+            loc_lbl = QLabel(f"🧭 <b>{html.escape(loc_note)}</b>")
+            loc_lbl.setWordWrap(True)
+            loc_lbl.setStyleSheet(
+                f"color: {C.INFO_DARK}; background: {C.INFO_SOFT}; border: 1px solid {C.INFO_BORDER}; "
+                f"border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+            )
+            rb_lay.addWidget(loc_lbl)
+        else:
+            btn_add_hint = QPushButton("+ Add floor / room directions...")
+            btn_add_hint.setCursor(Qt.PointingHandCursor)
+            btn_add_hint.setStyleSheet(
+                f"QPushButton {{ text-align: left; border: none; background: transparent; color: {C.TEXT_MUTED}; font-size: 10.5px; padding: 0; }}"
+                f"QPushButton:hover {{ color: {C.INFO}; text-decoration: underline; }}"
+            )
+            btn_add_hint.clicked.connect(lambda _, pr=phys_room, sl=slot: self._edit_slot_or_room_location(pr, sl))
+            rb_lay.addWidget(btn_add_hint)
+
+        meta_bits = []
+        if s_info and s_info.convener and not is_swapped:
+            meta_bits.append(f"👤 {s_info.convener}")
+        elif s_info and s_info.convener:
+            meta_bits.append(f"👤 {s_info.convener}")
+        if s_info and s_info.tohru_room:
+            meta_bits.append(f"📡 {s_info.tohru_room}")
+        if meta_bits:
+            meta_lbl = QLabel(" · ".join(meta_bits))
+            meta_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 10.5px; border: none; background: transparent;")
+            rb_lay.addWidget(meta_lbl)
+
+        lay.addWidget(room_box)
+
+        # Row 3: Topic Title & Resolved Agenda Items
+        clean_txt, _ = format_slot_display_text(slot.raw_text, getattr(slot, "room_override", "") or "")
+        topic_lbl = QLabel(clean_txt or slot.raw_text)
+        topic_lbl.setWordWrap(True)
+        topic_lbl.setStyleSheet(f"color: {C.TEXT_PRIMARY}; font-weight: 600; font-size: 12.5px; border: none; background: transparent;")
+        lay.addWidget(topic_lbl)
+
+        ai_bullets = build_slot_ai_bullets_html(slot, agenda_map=self.agenda_map, plan=self.delegation_plan, max_expanded=6)
+        if ai_bullets:
+            ai_lbl = QLabel("<br>".join(ai_bullets))
+            ai_lbl.setWordWrap(True)
+            ai_lbl.setTextFormat(Qt.RichText)
+            ai_lbl.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 11px; line-height: 1.35; border: none; background: transparent;")
+            lay.addWidget(ai_lbl)
+
+        ann = self.annotations.get(slot.slot_key)
+        if ann and ann.comment:
+            note_lbl = QLabel(f"📝 {ann.comment}")
+            note_lbl.setWordWrap(True)
+            note_lbl.setStyleSheet(
+                f"background: {C.WARNING_SOFT_ALT}; color: {C.WARNING_DARK}; border-radius: 4px; padding: 3px 6px; font-size: 11px;"
+            )
+            lay.addWidget(note_lbl)
+
+        lay.addStretch(1)
+
+        # Optional Footer: Half-Quarter TU 2 preview + Show in Grid button
+        if tu2_slot:
+            tu2_room, tu2_loc, _ = resolve_effective_room_and_location(
+                tu2_slot, streams=streams, room_locations=self.room_locations, slot_locations=self.slot_locations
+            )
+            tu2_clean, _ = format_slot_display_text(tu2_slot.raw_text, getattr(tu2_slot, "room_override", "") or "")
+            tu2_loc_s = f" ({tu2_loc})" if tu2_loc else ""
+            tu2_bar = QLabel(
+                f"⏭️ <b>2nd Half ({tu2_slot.start_time_local}–{tu2_slot.end_time_local}):</b> "
+                f"📍 {html.escape(tu2_room)}{html.escape(tu2_loc_s)} — {html.escape(tu2_clean[:85])}"
+            )
+            tu2_bar.setWordWrap(True)
+            tu2_bar.setStyleSheet(
+                f"background: {C.BG_SURFACE}; color: {C.TEXT_SECONDARY}; border-top: 1px dashed {C.BORDER_STRONG}; "
+                f"padding-top: 4px; font-size: 10.5px;"
+            )
+            lay.addWidget(tu2_bar)
+
+        foot_row = QHBoxLayout()
+        foot_row.addStretch(1)
+        btn_grid_jump = QPushButton("🔍 Show in Grid")
+        btn_grid_jump.setCursor(Qt.PointingHandCursor)
+        btn_grid_jump.setStyleSheet(
+            f"QPushButton {{ padding: 2px 8px; font-size: 10.5px; font-weight: 600; border-radius: 4px; "
+            f"background: {C.INFO_SOFT}; color: {C.INFO}; border: 1px solid {C.INFO_BORDER}; }}"
+            f"QPushButton:hover {{ background: #DBEAFE; }}"
+        )
+        btn_grid_jump.clicked.connect(lambda _, sl=slot: self._jump_to_slot_in_grid(sl.day_index, sl.quarter, sl.stream_number, sl.sub_slot))
+        foot_row.addWidget(btn_grid_jump)
+        lay.addLayout(foot_row)
+
+        return card
+
+    def _make_upcoming_period_card(self, day_idx: int, period_info: dict) -> QFrame:
+        """Creates an upcoming period summary card showing rooms, custom locations, and topics across streams."""
+        p_name = period_info["period"]
+        dual_t = SessionPlanTimezone.format_dual_time_range(period_info["start"], period_info["end"], self.tz_offset_min)
+        streams = self.active_snapshot.streams if self.active_snapshot else {}
+
+        frame = QFrame()
+        frame.setStyleSheet(
+            f"QFrame {{ background: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px; }}"
+        )
+        lay = QVBoxLayout(frame)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(6)
+
+        hdr = QHBoxLayout()
+        p_icon = "☕" if period_info["is_break"] else "⏭️"
+        hdr_lbl = QLabel(f"<b>{p_icon} {html.escape(p_name)}</b> &nbsp;·&nbsp; <span style='color:{C.TEXT_SECONDARY};'>🕒 {html.escape(dual_t)}</span>")
+        hdr_lbl.setStyleSheet(f"color: {C.TEXT_PRIMARY}; font-size: 12px; border: none; background: transparent;")
+        hdr.addWidget(hdr_lbl)
+        hdr.addStretch(1)
+        lay.addLayout(hdr)
+
+        slots_row = QHBoxLayout()
+        slots_row.setSpacing(8)
+        for sl in period_info["slots"]:
+            phys_room, loc_note, is_swapped = resolve_effective_room_and_location(
+                sl, streams=streams, room_locations=self.room_locations, slot_locations=self.slot_locations
+            )
+            clean_txt, _ = format_slot_display_text(sl.raw_text, getattr(sl, "room_override", "") or "")
+            tu_tag = f" [TU {sl.sub_slot}]" if sl.sub_slot in (1, 2) else ""
+            sub_card = QFrame()
+            sub_card.setStyleSheet(
+                f"QFrame {{ background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; padding: 5px 7px; }}"
+            )
+            sc_lay = QVBoxLayout(sub_card)
+            sc_lay.setContentsMargins(4, 3, 4, 3)
+            sc_lay.setSpacing(2)
+
+            loc_s = f" · 🧭 {html.escape(loc_note)}" if loc_note else ""
+            sw_s = " ⇄" if is_swapped else ""
+            rm_lbl = QLabel(f"<b>Str {sl.stream_number}{tu_tag} · 📍 {html.escape(phys_room)}{sw_s}</b>{loc_s}")
+            rm_lbl.setWordWrap(True)
+            rm_lbl.setStyleSheet(f"color: {C.INFO_DARK}; font-size: 11px; border: none; background: transparent;")
+            sc_lay.addWidget(rm_lbl)
+
+            tp_lbl = QLabel(clean_txt or sl.raw_text)
+            tp_lbl.setWordWrap(True)
+            tp_lbl.setStyleSheet(f"color: {C.TEXT_PRIMARY}; font-size: 11px; font-weight: 500; border: none; background: transparent;")
+            sc_lay.addWidget(tp_lbl)
+            slots_row.addWidget(sub_card, 1)
+
+        lay.addLayout(slots_row)
+        return frame
+
+    def _make_compact_timeline_row(self, day_idx: int, period_info: dict) -> QFrame:
+        """Creates a compact rest-of-day chronological strip row."""
+        streams = self.active_snapshot.streams if self.active_snapshot else {}
+        p_name = period_info["period"]
+        dual_t = SessionPlanTimezone.format_dual_time_range(period_info["start"], period_info["end"], self.tz_offset_min)
+
+        row_frame = QFrame()
+        row_frame.setStyleSheet(
+            f"QFrame {{ background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; }}"
+        )
+        r_lay = QHBoxLayout(row_frame)
+        r_lay.setContentsMargins(10, 6, 10, 6)
+        r_lay.setSpacing(10)
+
+        left_lbl = QLabel(f"<b>{html.escape(p_name)}</b><br><span style='color:{C.TEXT_MUTED}; font-size:10.5px;'>{html.escape(dual_t)}</span>")
+        left_lbl.setFixedWidth(185)
+        left_lbl.setStyleSheet("border: none; background: transparent;")
+        r_lay.addWidget(left_lbl)
+
+        parts = []
+        for sl in period_info["slots"]:
+            phys_room, loc_note, _ = resolve_effective_room_and_location(
+                sl, streams=streams, room_locations=self.room_locations, slot_locations=self.slot_locations
+            )
+            clean_txt, _ = format_slot_display_text(sl.raw_text, getattr(sl, "room_override", "") or "")
+            loc_s = f" ({html.escape(loc_note)})" if loc_note else ""
+            tu_s = f" TU{sl.sub_slot}" if sl.sub_slot in (1, 2) else ""
+            parts.append(f"<b>Str {sl.stream_number}{tu_s} [📍 {html.escape(phys_room)}{loc_s}]:</b> {html.escape(clean_txt[:75])}")
+
+        summary_lbl = QLabel(" &nbsp;|&nbsp; ".join(parts))
+        summary_lbl.setWordWrap(True)
+        summary_lbl.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 11px; border: none; background: transparent;")
+        r_lay.addWidget(summary_lbl, 1)
+
+        first_sl = period_info["slots"][0] if period_info["slots"] else None
+        if first_sl:
+            btn = QPushButton("🔍 Grid")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda _, sl=first_sl: self._jump_to_slot_in_grid(sl.day_index, sl.quarter, sl.stream_number, sl.sub_slot))
+            r_lay.addWidget(btn)
+
+        return row_frame
+
+    def _step_now_unit(self, delta: int):
+        units = self._build_now_timeline_units()
+        if not units:
+            return
+        cur_key = self.now_selected_unit_key
+        idx = next((i for i, u in enumerate(units) if u["key"] == cur_key), 0)
+        new_idx = (idx + delta) % len(units)
+        self.now_auto_follow = False
+        self.now_selected_unit_key = units[new_idx]["key"]
+        self._render_now_view()
+
+    def _on_now_combo_changed(self, idx: int):
+        if idx < 0 or not hasattr(self, "now_slot_combo"):
+            return
+        key = self.now_slot_combo.currentData()
+        if key:
+            self.now_auto_follow = False
+            self.now_selected_unit_key = key
+            self._render_now_view()
+
+    def _reset_now_to_live(self):
+        self.now_auto_follow = True
+        self.now_selected_unit_key = None
+        self._render_now_view()
+
+    def _jump_to_slot_in_grid(self, day_idx: int, period: str, stream_num: int = 1, sub_slot: int = 0):
+        target_row = None
+        for r_i, r_d in enumerate(self.grid_rows):
+            if r_d.period == period and (r_d.stream_number == stream_num or r_d.row_type == "break"):
+                target_row = r_i
+                break
+        if target_row is not None:
+            self.btn_grid.setChecked(True)
+            self.view_stack.setCurrentWidget(self.overview_page)
+            col_idx = day_idx * 2 + (1 if sub_slot == 2 else 0)
+            self.grid_table.setCurrentCell(target_row, col_idx)
+
+    def _open_room_locations_dialog(self, focus_room: str = ""):
+        """Opens the dialog for editing hand-made floor/wing notes per physical room."""
+        streams = self.active_snapshot.streams if self.active_snapshot else {}
+        room_names = collect_meeting_physical_rooms(self.active_snapshot, self.room_locations)
+        room_infos: List[Tuple[str, str]] = []
+        for rn in room_names:
+            sub = "Custom / Ad-hoc Room"
+            for s_num, s_info in sorted(streams.items()):
+                base_r = s_info.room_name.split("(")[0].strip() or s_info.room_name
+                if base_r.lower() == rn.lower():
+                    cap_s = f" · {s_info.capacity} seats" if s_info.capacity else ""
+                    ch_s = f" · {s_info.convener}" if s_info.convener else ""
+                    sub = f"Stream {s_num}{cap_s}{ch_s}"
+                    break
+            room_infos.append((rn, sub))
+
+        current_prefill = {
+            rn: lookup_room_location_note(rn, self.room_locations) or self.room_locations.get(rn, "")
+            for rn in room_names
+        }
+        dlg = SessionPlanRoomLocationsDialog(
+            meeting_number=self.meeting_number,
+            room_infos=room_infos,
+            current_locations=current_prefill,
+            focus_room=focus_room,
+            parent=self,
+        )
+        if dlg.exec_() == QDialog.Accepted:
+            updated = dlg.get_locations()
+            self.db.set_all_room_locations(
+                self.meeting_number, updated, meeting_dir=self.meeting_dir
+            )
+            self.room_locations = self.db.get_room_locations(self.meeting_number, meeting_dir=self.meeting_dir)
+            self._render_current_views()
+
+    def _edit_slot_or_room_location(self, physical_room: str, slot: Optional[SessionSlot] = None):
+        """Quickly edits the physical room's location note from a card in the Now tab."""
+        self._open_room_locations_dialog(focus_room=physical_room)
 
     def _open_timezone_dialog(self):
         dlg = SessionPlanTimezoneDialog(
@@ -2934,6 +3859,8 @@ class SessionPlanWindow(QWidget):
 
     def _on_view_mode_changed(self, idx: int):
         self.view_stack.setCurrentIndex(idx)
+        if hasattr(self, "now_page") and self.view_stack.currentWidget() == self.now_page and self.active_snapshot:
+            self._render_now_view()
 
     def _apply_search_filter(self, text: str):
         q = text.lower().strip()
@@ -2945,7 +3872,7 @@ class SessionPlanWindow(QWidget):
 
     def _filter_by_ai(self, ai_num: str):
         self.btn_grid.setChecked(True)
-        self.view_stack.setCurrentIndex(0)
+        self.view_stack.setCurrentWidget(self.overview_page)
         self.search_input.setText(ai_num)
 
     def _on_grid_cell_double_clicked(self, row: int, col: int):
@@ -2962,8 +3889,14 @@ class SessionPlanWindow(QWidget):
 
         slot_key = f"{day}|{r_desc.period}|{sub_slot}|{r_desc.stream_number}"
         ann = self.annotations.get(slot_key)
+        cur_slot_loc = self.slot_locations.get(slot_key, "")
         label = f"{day} {r_desc.period} (Str {r_desc.stream_number})" if r_desc.stream_number > 0 else f"{day} {r_desc.period}"
-        dlg = SessionPlanNoteDialog(label, ann, self)
+        dlg = SessionPlanNoteDialog(
+            label,
+            ann,
+            current_slot_location=cur_slot_loc,
+            parent=self,
+        )
         if dlg.exec_() == QDialog.Accepted:
             badge, colleague, comment = dlg.get_data()
             self.db.set_annotation(
@@ -2974,7 +3907,14 @@ class SessionPlanWindow(QWidget):
                 assigned_colleague=colleague,
                 comment=comment,
             )
+            self.db.set_slot_location(
+                meeting_number=self.meeting_number,
+                slot_key=slot_key,
+                location_note=dlg.get_slot_location(),
+                meeting_dir=self.meeting_dir,
+            )
             self.annotations = self.db.get_annotations(self.meeting_number)
+            self.slot_locations = self.db.get_slot_locations(self.meeting_number, meeting_dir=self.meeting_dir)
             self._render_current_views()
 
     def _on_drafting_cell_double_clicked(self, row: int, col: int):
@@ -2990,16 +3930,7 @@ class SessionPlanWindow(QWidget):
 
         if d_name in DAY_NAMES:
             day_idx = DAY_NAMES.index(d_name)
-            target_row = None
-            for r_i, r_d in enumerate(self.grid_rows):
-                if r_d.period == q_name and (r_d.stream_number == stream_num or r_d.row_type == "break"):
-                    target_row = r_i
-                    break
-
-            if target_row is not None:
-                self.btn_grid.setChecked(True)
-                self.view_stack.setCurrentIndex(0)
-                self.grid_table.setCurrentCell(target_row, day_idx * 2)
+            self._jump_to_slot_in_grid(day_idx, q_name, stream_num)
 
     def _on_tracked_cell_double_clicked(self, row: int, col: int):
         d_item = self.tracked_table.item(row, 0)
@@ -3014,16 +3945,7 @@ class SessionPlanWindow(QWidget):
 
         if d_name in DAY_NAMES:
             day_idx = DAY_NAMES.index(d_name)
-            target_row = None
-            for r_i, r_d in enumerate(self.grid_rows):
-                if r_d.period == q_name and (r_d.stream_number == stream_num or r_d.row_type == "break"):
-                    target_row = r_i
-                    break
-
-            if target_row is not None:
-                self.btn_grid.setChecked(True)
-                self.view_stack.setCurrentIndex(0)
-                self.grid_table.setCurrentCell(target_row, day_idx * 2)
+            self._jump_to_slot_in_grid(day_idx, q_name, stream_num)
 
     def _on_tracked_context_menu(self, pos: QPoint):
         r = self.tracked_table.rowAt(pos.y())
@@ -3372,11 +4294,13 @@ class SessionPlanWindow(QWidget):
             tracked_tokens=self.tracked_tokens,
             delegation_plan=self.delegation_plan,
             agenda_map=self.agenda_map,
+            room_locations=self.room_locations,
+            slot_locations=self.slot_locations,
         )
         QMessageBox.information(
             self,
             "Interactive HTML Exported",
-            f"Saved interactive Session Plan (5-Day Overview Grid + Mobile Day Cards) to:\n{out_path}\n\nFeatures interactive delegate toggling and spatial overview for easy sharing with colleagues.",
+            f"Saved interactive Session Plan (Overview Grid + 🔴 Now + Mobile Day Cards) to:\n{out_path}\n\nFeatures live stream/room lookup, delegate toggling, and custom room location notes.",
         )
         return out_path
 
@@ -3402,6 +4326,8 @@ class SessionPlanWindow(QWidget):
             annotations=self.annotations,
             delegation_plan=self.delegation_plan,
             agenda_map=self.agenda_map,
+            room_locations=self.room_locations,
+            slot_locations=self.slot_locations,
         )
         QMessageBox.information(
             self,
@@ -3457,6 +4383,8 @@ class SessionPlanWindow(QWidget):
             delegation_plan=self.delegation_plan,
             target_delegate=target,
             agenda_map=self.agenda_map,
+            room_locations=self.room_locations,
+            slot_locations=self.slot_locations,
         )
         QMessageBox.information(
             self,

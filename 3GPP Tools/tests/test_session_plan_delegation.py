@@ -304,7 +304,8 @@ class TestSessionPlanWindowDelegationIntegration(unittest.TestCase):
             tracked_tokens=set(),
         )
         try:
-            self.assertEqual(win.view_stack.count(), 5)
+            self.assertEqual(win.view_stack.count(), 6)
+            self.assertIn("Now", win.btn_now.text())
             self.assertEqual(win.btn_team.text(), "👥 Team Allocations (Clean)")
             self.assertIn("Delegate Agenda", win.btn_tracked.text())
         finally:

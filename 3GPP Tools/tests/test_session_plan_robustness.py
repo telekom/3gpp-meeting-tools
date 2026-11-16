@@ -793,6 +793,204 @@ class TestSessionPlanRobustness(unittest.TestCase):
             finally:
                 win.close()
 
+    def test_room_locations_persistence_swap_inheritance_and_exports(self):
+        """
+        Verifies persistent <meeting_dir>/meeting_locations.json + SQLite storage,
+        survival across new snapshots, automatic room-swap inheritance, slot override priority,
+        and propagation into tooltips, Drafting Radar, Delegate Agenda, HTML, and .ics exports.
+        """
+        from modules.meetings.core.session_plan.session_plan_models import (
+            MeetingStreamInfo,
+            SessionPlanSnapshot,
+            resolve_effective_room_and_location,
+        )
+        from modules.meetings.core.session_plan.session_plan_exporter import SessionPlanExporter
+        from modules.meetings.ui.session_plan.session_plan_window import SessionPlanWindow
+
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            snap1 = SessionPlanSnapshot(
+                meeting_number="178",
+                tdoc_id="S2-2611600",
+                snapshot_label="r7",
+                content_hash="hash_r7",
+                streams={
+                    1: MeetingStreamInfo(1, "Stream 1", "Main Room (300)", 300, "MCC", "SA2_Main"),
+                    2: MeetingStreamInfo(2, "Stream 2", "Breakout 1 (100)", 100, "Mike", "SA2_Brk1"),
+                },
+                slots=[
+                    SessionSlot(
+                        day_index=0, day_name="Monday", quarter="Q1", sub_slot=0,
+                        start_time_local="09:00", end_time_local="10:30",
+                        stream_number=2, room_override="Main Room",
+                        raw_text="In Main Room\nKI#23 (NTN) (20.6.23)", is_drafting=True,
+                    ),
+                    SessionSlot(
+                        day_index=0, day_name="Monday", quarter="Q2", sub_slot=0,
+                        start_time_local="11:00", end_time_local="12:30",
+                        stream_number=1, room_override="",
+                        raw_text="KI#1 (NAS) (20.6.1)", is_drafting=False,
+                    ),
+                ],
+            )
+
+            win = SessionPlanWindow(
+                meeting_dir=td_path,
+                mtg_info={"meeting_number": "178", "location": "Calgary", "start_date": "2026-11-16"},
+                agenda_map={},
+                tracked_tokens={"20.6.1"},
+            )
+            try:
+                win.db.save_snapshot(snap1)
+                win.db.set_all_room_locations(
+                    "178",
+                    {"Main Room": "3rd floor, Ballroom A", "Breakout 1": "2nd floor, Macleod B"},
+                    slot_map={"Monday|Q2|0|1": "Special Foyer Table"},
+                    meeting_dir=td_path,
+                )
+
+                # Local JSON file created inside meeting folder
+                loc_json = td_path / "meeting_locations.json"
+                self.assertTrue(loc_json.is_file())
+                self.assertIn("3rd floor, Ballroom A", loc_json.read_text(encoding="utf-8"))
+
+                # Save a newer revision snapshot -> locations must survive
+                snap2 = SessionPlanSnapshot(
+                    meeting_number="178",
+                    tdoc_id="S2-2611637",
+                    snapshot_label="r8",
+                    content_hash="hash_r8",
+                    streams=snap1.streams,
+                    slots=snap1.slots,
+                )
+                win.db.save_snapshot(snap2)
+                win._load_data()
+
+                self.assertEqual(win.room_locations.get("Main Room"), "3rd floor, Ballroom A")
+                self.assertEqual(win.slot_locations.get("Monday|Q2|0|1"), "Special Foyer Table")
+
+                # Swap inheritance & slot override resolution
+                swapped_slot = win.active_snapshot.slots[0]
+                phys_r, loc_note, is_sw = resolve_effective_room_and_location(
+                    swapped_slot,
+                    streams=win.active_snapshot.streams,
+                    room_locations=win.room_locations,
+                    slot_locations=win.slot_locations,
+                )
+                self.assertTrue(is_sw)
+                self.assertEqual(phys_r, "Main Room")
+                self.assertEqual(loc_note, "3rd floor, Ballroom A")
+
+                overridden_slot = win.active_snapshot.slots[1]
+                _, ov_note, is_sw2 = resolve_effective_room_and_location(
+                    overridden_slot,
+                    streams=win.active_snapshot.streams,
+                    room_locations=win.room_locations,
+                    slot_locations=win.slot_locations,
+                )
+                self.assertFalse(is_sw2)
+                self.assertEqual(ov_note, "Special Foyer Table")
+
+                # Propagated to Tooltip, Drafting Radar, Delegate Agenda
+                tt = win._build_rich_slot_tooltip(swapped_slot, 0, "Q1", 2, 0)
+                self.assertIn("3rd floor, Ballroom A", tt)
+                self.assertIn("3rd floor, Ballroom A", win.drafting_table.item(0, 3).text())
+                self.assertIn("Special Foyer Table", win.tracked_table.item(0, 3).text())
+
+                # Propagated to HTML Export & .ics Export
+                out_html = td_path / "Export" / "now_locations.html"
+                SessionPlanExporter.export_mobile_html(
+                    snapshot=win.active_snapshot,
+                    output_path=out_html,
+                    meeting_tz_offset_min=-420,
+                    meeting_dates_str="2026-11-16",
+                    delegation_plan=win.delegation_plan,
+                    room_locations=win.room_locations,
+                    slot_locations=win.slot_locations,
+                )
+                html_txt = out_html.read_text(encoding="utf-8")
+                self.assertIn('id="btnViewNow"', html_txt)
+                self.assertIn('id="nowView"', html_txt)
+                self.assertIn("const ROOM_LOCATIONS =", html_txt)
+                self.assertIn("3rd floor, Ballroom A", html_txt)
+
+                out_ics = td_path / "Export" / "loc_schedule.ics"
+                SessionPlanExporter.export_ics(
+                    snapshot=win.active_snapshot,
+                    output_path=out_ics,
+                    meeting_start_date_str="2026-11-16",
+                    meeting_tz_offset_min=-420,
+                    room_locations=win.room_locations,
+                    slot_locations=win.slot_locations,
+                )
+                ics_txt = out_ics.read_text(encoding="utf-8")
+                self.assertIn("LOCATION:Main Room (3rd floor, Ballroom A)", ics_txt)
+                self.assertIn("LOCATION:Main Room (Special Foyer Table)", ics_txt)
+            finally:
+                win.close()
+
+    def test_now_tab_live_detection_and_stepper(self):
+        """
+        Verifies SessionPlanWindow 'Now' tab timeline building, live vs upcoming resolution,
+        Next/Prev manual stepping, and Live Now reset.
+        """
+        from modules.meetings.core.session_plan.session_plan_models import (
+            MeetingStreamInfo,
+            SessionPlanSnapshot,
+        )
+        from modules.meetings.ui.session_plan.session_plan_window import SessionPlanWindow
+
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            snap = SessionPlanSnapshot(
+                meeting_number="178",
+                tdoc_id="S2-2611637",
+                snapshot_label="r7",
+                content_hash="hash_now",
+                streams={
+                    1: MeetingStreamInfo(1, "Stream 1", "Main Room", 300, "MCC", "SA2_Main"),
+                    2: MeetingStreamInfo(2, "Stream 2", "Breakout 1", 100, "Mike", "SA2_Brk1"),
+                },
+                slots=[
+                    SessionSlot(day_index=0, day_name="Monday", quarter="Q1", sub_slot=1, start_time_local="09:00", end_time_local="09:45", stream_number=1, raw_text="Opening (1)"),
+                    SessionSlot(day_index=0, day_name="Monday", quarter="Q1", sub_slot=2, start_time_local="09:45", end_time_local="10:30", stream_number=1, raw_text="Agenda (2)"),
+                    SessionSlot(day_index=0, day_name="Monday", quarter="Q2", sub_slot=0, start_time_local="11:00", end_time_local="12:30", stream_number=2, raw_text="KI#12 (20.6.12)"),
+                    SessionSlot(day_index=0, day_name="Monday", quarter="Q3", sub_slot=0, start_time_local="14:00", end_time_local="15:30", stream_number=1, raw_text="KI#21 (20.6.21)"),
+                    SessionSlot(day_index=0, day_name="Monday", quarter="Q4", sub_slot=0, start_time_local="16:00", end_time_local="17:30", stream_number=1, raw_text="KI#24 (20.6.24)"),
+                ],
+            )
+            win = SessionPlanWindow(
+                meeting_dir=td_path,
+                mtg_info={"meeting_number": "178", "location": "Calgary", "start_date": "2099-01-05"},
+                agenda_map={},
+                tracked_tokens=set(),
+            )
+            try:
+                win.db.save_snapshot(snap)
+                win._load_data()
+                win.btn_now.click()
+                self.assertIs(win.view_stack.currentWidget(), win.now_page)
+
+                ctx = win._resolve_now_context()
+                self.assertEqual(len(ctx["units"]), 5)  # Q1 TU1, Q1 TU2, Q2, Q3, Q4
+                self.assertEqual(len(ctx["up_next_periods"]), 2)
+                self.assertTrue(len(ctx["rest_of_day_periods"]) >= 1)
+
+                first_key = ctx["units"][0]["key"]
+                win.now_auto_follow = False
+                win.now_selected_unit_key = first_key
+                win._step_now_unit(1)
+                self.assertFalse(win.now_auto_follow)
+                self.assertEqual(win.now_selected_unit_key, ctx["units"][1]["key"])
+
+                win._step_now_unit(-1)
+                self.assertEqual(win.now_selected_unit_key, first_key)
+
+                win._reset_now_to_live()
+                self.assertTrue(win.now_auto_follow)
+            finally:
+                win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

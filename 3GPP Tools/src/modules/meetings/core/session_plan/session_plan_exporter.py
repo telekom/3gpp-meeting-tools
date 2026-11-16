@@ -30,6 +30,8 @@ from modules.meetings.core.session_plan.session_plan_models import (
     format_slot_display_text,
     get_slot_unassigned_ais,
     is_slot_not_followed,
+    lookup_room_location_note,
+    resolve_effective_room_and_location,
     resolve_slot_effective_delegates,
 )
 from modules.meetings.core.session_plan.session_plan_parser import (
@@ -88,6 +90,24 @@ class SessionPlanExporter:
             return "ALL", is_cov
         return ", ".join(dels), is_cov
 
+    @staticmethod
+    def _load_folder_locations_fallback(output_path: Path) -> Tuple[Dict[str, str], Dict[str, str]]:
+        """Loads `<meeting_dir>/meeting_locations.json` when exporting without explicit location maps."""
+        candidates = [
+            output_path.parent / "meeting_locations.json",
+            output_path.parent.parent / "meeting_locations.json",
+        ]
+        for cand in candidates:
+            if cand.is_file():
+                try:
+                    raw = json.loads(cand.read_text(encoding="utf-8"))
+                    r_map = {str(k).strip(): str(v).strip() for k, v in (raw.get("room_locations") or {}).items() if str(k).strip() and str(v).strip()}
+                    s_map = {str(k).strip(): str(v).strip() for k, v in (raw.get("slot_locations") or {}).items() if str(k).strip() and str(v).strip()}
+                    return r_map, s_map
+                except Exception:
+                    pass
+        return {}, {}
+
     @classmethod
     def export_mobile_html(
         cls,
@@ -100,12 +120,15 @@ class SessionPlanExporter:
         tracked_tokens: Optional[Set[str]] = None,
         delegation_plan: Optional[DelegationPlan] = None,
         agenda_map: Optional[dict] = None,
+        room_locations: Optional[Dict[str, str]] = None,
+        slot_locations: Optional[Dict[str, str]] = None,
     ) -> Path:
         """
-        Exports a self-contained, responsive, 100% offline HTML view featuring both:
-        1. 🗓️ 5-Day Spatial Overview Grid (identical format to the desktop Overview Grid)
-        2. 📱 Mobile Day Cards (day-by-day touch-friendly quarter view)
-        With interactive delegate toggling, text filtering, stream toggles, and rich hover tooltips.
+        Exports a self-contained, responsive, 100% offline HTML view featuring:
+        1. 🗓️ 5-Day Spatial Overview Grid (desktop-aligned rounded cards)
+        2. 🔴 Now View (live/upcoming parallel streams, rooms & hand-made locations)
+        3. 📱 Mobile Day Cards (day-by-day touch-friendly quarter view)
+        4. ⚠️ Conflicts & ❓ Unassigned AIs views
         No external CDN dependencies (fonts and CSS are purely embedded).
         """
         annotations = annotations or {}
@@ -113,6 +136,14 @@ class SessionPlanExporter:
         agenda_map = agenda_map or {}
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        if room_locations is None or slot_locations is None:
+            fb_r, fb_s = cls._load_folder_locations_fallback(output_path)
+            if room_locations is None:
+                room_locations = fb_r
+            if slot_locations is None:
+                slot_locations = fb_s
+        room_locations = dict(room_locations or {})
+        slot_locations = dict(slot_locations or {})
 
         laptop_offset_min = SessionPlanTimezone.get_laptop_tz_offset_minutes()
         is_tz_different = (laptop_offset_min != meeting_tz_offset_min)
@@ -183,12 +214,17 @@ class SessionPlanExporter:
             time_dual = SessionPlanTimezone.format_dual_time_range(s_t, e_t, meeting_tz_offset_min)
 
             s_info = snapshot.streams.get(slot.stream_number)
-            r_name = getattr(slot, "room_override", "") or (s_info.room_name if s_info else f"Stream {slot.stream_number}")
-            cap = f" ({s_info.capacity} seats)" if s_info and s_info.capacity else ""
+            r_name, loc_note, is_swapped = resolve_effective_room_and_location(
+                slot, streams=snapshot.streams, room_locations=room_locations, slot_locations=slot_locations
+            )
+            cap = f" ({s_info.capacity} seats)" if (not is_swapped and s_info and s_info.capacity) else ""
             convener = s_info.convener if s_info else ("SA2 Chair / MCC" if slot.stream_number == 1 else "")
             tohru = s_info.tohru_room if s_info else ""
 
-            meta_parts = [f"🏢 <b>Stream {slot.stream_number}:</b> {html.escape(r_name)}{cap}"]
+            swap_tag = " <i>(Swapped)</i>" if is_swapped else ""
+            meta_parts = [f"🏢 <b>Stream {slot.stream_number}:</b> {html.escape(r_name)}{cap}{swap_tag}"]
+            if loc_note:
+                meta_parts.append(f"🧭 <b>Location:</b> {html.escape(loc_note)}")
             if convener:
                 meta_parts.append(f"👤 <b>Chair:</b> {html.escape(convener)}")
             if tohru:
@@ -292,8 +328,11 @@ class SessionPlanExporter:
             is_unassigned_slot = _is_slot_unassigned(s, eff_dels, is_all)
 
             s_info = snapshot.streams.get(s.stream_number)
-            r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
+            r_name, loc_note, is_swapped = resolve_effective_room_and_location(
+                s, streams=snapshot.streams, room_locations=room_locations, slot_locations=slot_locations
+            )
             convener = s_info.convener if s_info else ""
+            tohru = s_info.tohru_room if s_info else ""
             ann = annotations.get(s.slot_key)
             note_str = ann.comment if ann else ""
             ai_nums = list(dict.fromkeys([it.ai_number for it in s.items if it.ai_number] + expand_slot_ai_numbers(s, agenda_map)))
@@ -307,7 +346,11 @@ class SessionPlanExporter:
                 "end_local": s.end_time_local,
                 "stream_num": s.stream_number,
                 "room": r_name,
+                "location_note": loc_note,
+                "room_swapped": is_swapped,
                 "convener": convener,
+                "tohru": tohru,
+                "is_break": bool(any(b in (s.quarter or "").lower() for b in ("break", "coffee", "lunch"))),
                 "title": s.raw_text,
                 "is_drafting": s.is_drafting,
                 "is_all": is_all,
@@ -400,6 +443,18 @@ class SessionPlanExporter:
 
         cal_events_json = json.dumps(cal_events_data, ensure_ascii=False)
         roster_members_json = json.dumps(roster_members_data, ensure_ascii=False)
+        room_locations_json = json.dumps(room_locations, ensure_ascii=False)
+        streams_meta_data = {
+            str(sn): {
+                "stream_num": sn,
+                "room_name": si.room_name.split("(")[0].strip() or si.room_name,
+                "location_note": lookup_room_location_note(si.room_name.split("(")[0].strip() or si.room_name, room_locations),
+                "convener": si.convener,
+                "tohru": si.tohru_room,
+            }
+            for sn, si in sorted(snapshot.streams.items())
+        }
+        streams_meta_json = json.dumps(streams_meta_data, ensure_ascii=False)
         unassigned_ais_json = json.dumps(unassigned_ais_catalog, ensure_ascii=False)
         unassigned_slots_json = json.dumps(unassigned_slots_data, ensure_ascii=False)
         base_date_js = base_date.strftime("%Y-%m-%d") if base_date else ""
@@ -666,8 +721,11 @@ class SessionPlanExporter:
                     tt_html = build_tooltip_html(s, d_idx, q, s.sub_slot)
 
                     s_info = streams.get(s.stream_number)
-                    r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
+                    r_name, loc_note, _ = resolve_effective_room_and_location(
+                        s, streams=streams, room_locations=room_locations, slot_locations=slot_locations
+                    )
                     convener = s_info.convener if s_info else ""
+                    loc_suffix = f" · 🧭 {html.escape(loc_note)}" if loc_note else ""
 
                     sub_tag = ""
                     if s.sub_slot == 1:
@@ -735,7 +793,7 @@ class SessionPlanExporter:
                     cards_html.append(f"""    <div class="{' '.join(row_classes)}" data-stream="{s.stream_number}" data-period="{q}" data-tu="{s.sub_slot}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-unassigned="{1 if is_unassigned else 0}" data-not-followed="{1 if is_not_followed else 0}" data-drafting="{1 if s.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
       <div class="slot-header-line">
         <span class="stream-badge str-{s.stream_number}">Stream {s.stream_number}</span>
-        <span class="room-pill">📍 {html.escape(r_name)}{" · " + html.escape(convener) if convener else ""}</span>
+        <span class="room-pill">📍 {html.escape(r_name)}{loc_suffix}{" · " + html.escape(convener) if convener else ""}</span>
         {sub_tag}
         {del_badge}
       </div>
@@ -1214,7 +1272,65 @@ class SessionPlanExporter:
   }
   .hidden { display: none !important; }
 
-  /* Conflicts View & Unassigned AIs View Styles */
+  /* Conflicts View & Unassigned AIs View & Full "Now" View Styles */
+  .now-view-shell { padding: 14px 16px 60px 16px; max-width: 1380px; margin: 0 auto; }
+  .now-section-title {
+    font-size: 13.5px; font-weight: 700; color: #0F172A; margin: 14px 0 8px 0;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .now-streams-row {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
+  }
+  @media (max-width: 960px) {
+    .now-streams-row { grid-template-columns: 1fr; }
+  }
+  .now-stream-card {
+    background: #FFFFFF; border: 1px solid var(--grid-border); border-radius: 8px;
+    padding: 11px 12px; display: flex; flex-direction: column; gap: 7px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  }
+  .now-stream-card.str-1 { border-top: 4px solid var(--stream1); }
+  .now-stream-card.str-2 { border-top: 4px solid var(--stream2); }
+  .now-stream-card.str-3 { border-top: 4px solid var(--stream3); }
+  .now-stream-card.is-idle { background: #F8FAFC; border-style: dashed; border-top-width: 1px; }
+  .now-card-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .now-room-box {
+    background: #F8FAFC; border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 8px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .now-room-title { font-size: 12.5px; font-weight: 700; color: #0F172A; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .now-loc-badge {
+    display: inline-block; background: #EFF6FF; color: #1E40AF; border: 1px solid #BFDBFE;
+    border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: 600;
+  }
+  .now-swap-badge {
+    display: inline-block; background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A;
+    border-radius: 4px; padding: 1px 5px; font-size: 10px; font-weight: 700;
+  }
+  .now-room-meta { font-size: 10.5px; color: #64748B; }
+  .now-topic-text { font-size: 12.5px; font-weight: 600; color: #0F172A; line-height: 1.38; }
+  .now-tu2-hint {
+    margin-top: auto; padding-top: 5px; border-top: 1px dashed var(--grid-border);
+    font-size: 11px; color: #475569;
+  }
+  .now-upcoming-card {
+    background: #FFFFFF; border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  }
+  .now-upcoming-hdr {
+    font-size: 12px; font-weight: 700; color: #1E293B; margin-bottom: 7px;
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;
+  }
+  .now-upcoming-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px;
+  }
+  .now-upcoming-sub {
+    background: #F8FAFC; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
+  }
+  .now-timeline-row {
+    background: #F8FAFC; border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 10px; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
   .aux-view-container {
     padding: 14px 16px 60px 16px; max-width: 1360px; margin: 0 auto;
   }
@@ -1276,7 +1392,7 @@ class SessionPlanExporter:
   /* Print Stylesheet */
   @media print {
     header, .del-strip, .filter-controls-row, .controls-bar, .view-switcher, .day-tabs, .now-dispatch-panel { display: none !important; }
-    #cardsView, #conflictsView, #unassignedView { display: none !important; }
+    #nowView, #cardsView, #conflictsView, #unassignedView { display: none !important; }
     #overviewView { display: block !important; padding: 0 !important; }
     .overview-grid-container { max-height: none !important; overflow: visible !important; border: none !important; margin: 0 !important; }
     .overview-table { width: 100% !important; min-width: 0 !important; font-size: 8.5px !important; box-shadow: none !important; }
@@ -1292,10 +1408,11 @@ class SessionPlanExporter:
   let onlyUnassigned = false;
   let onlyDrafting = false;
   let unassignedScheduledOnly = true;
+  let nowAutoFollow = true;
   let nowPanelOpen = false;
   let nowTargetSlot = null; // { day_idx, quarter, tu, label, is_live }
 
-  const PERIOD_LIST = ['Q1', 'Coffee 1', 'Q2', 'Lunch', 'Q3', 'Coffee 2', 'Q4'];
+  const PERIOD_LIST = ['Q0', 'Break 1', 'Q1', 'Coffee 1', 'Q2', 'Lunch', 'Q3', 'Coffee 2', 'Q4', 'Q5'];
   const DAY_NAMES_LIST = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
   function escHtml(str) {
@@ -1321,15 +1438,17 @@ class SessionPlanExporter:
 
   function switchView(viewName) {
     currentView = viewName;
-    const views = ['grid', 'cards', 'conflicts', 'unassigned'];
+    const views = ['grid', 'now', 'cards', 'conflicts', 'unassigned'];
     const btnIds = {
       grid: 'btnViewGrid',
+      now: 'btnViewNow',
       cards: 'btnViewCards',
       conflicts: 'btnViewConflicts',
       unassigned: 'btnViewUnassigned'
     };
     const divIds = {
       grid: 'overviewView',
+      now: 'nowView',
       cards: 'cardsView',
       conflicts: 'conflictsView',
       unassigned: 'unassignedView'
@@ -1345,7 +1464,12 @@ class SessionPlanExporter:
     const gc = document.getElementById('gridControls');
     if (gc) gc.style.display = (viewName === 'grid') ? 'flex' : 'none';
 
-    if (viewName === 'conflicts') {
+    const hNowBtn = document.getElementById('btnHighlightNow');
+    if (hNowBtn) hNowBtn.classList.toggle('active', viewName === 'now');
+
+    if (viewName === 'now') {
+      renderNowView();
+    } else if (viewName === 'conflicts') {
       renderConflictsView();
     } else if (viewName === 'unassigned') {
       renderUnassignedView();
@@ -1609,9 +1733,10 @@ class SessionPlanExporter:
       const summaryPrefix = ev.is_drafting ? '🛠️ [Drafting] ' + delTag : '[Str ' + ev.stream_num + '] ' + delTag;
       const summary = summaryPrefix + (ev.title || '').substring(0, 60);
 
+      const fullLocation = ev.location_note ? (ev.room + ' (' + ev.location_note + ')') : (ev.room || '');
       const descParts = [
         'Session: SA2 #' + MEETING_NUMBER + ' (' + TDOC_ID + ')',
-        'Room: ' + ev.room,
+        'Room: ' + fullLocation,
         'Convener: ' + (ev.convener || 'N/A'),
         'Scheduled: ' + ev.title
       ];
@@ -1623,7 +1748,7 @@ class SessionPlanExporter:
       calLines.push('DTSTART:' + dtStart);
       calLines.push('DTEND:' + dtEnd);
       calLines.push('SUMMARY:' + summary.replace(/[\\r\\n]+/g, ' '));
-      calLines.push('LOCATION:' + (ev.room || ''));
+      calLines.push('LOCATION:' + fullLocation.replace(/[\\r\\n]+/g, ' '));
       calLines.push('DESCRIPTION:' + descParts.join('\\\\n').replace(/[\\r\\n]+/g, ' '));
       calLines.push('END:VEVENT');
       count++;
@@ -2051,6 +2176,12 @@ class SessionPlanExporter:
     return list;
   }
 
+  function hhmmToMinutes(hhmm) {
+    const m = String(hhmm || '').match(/(\\d{1,2}):(\\d{2})/);
+    if (!m) return 0;
+    return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+  }
+
   function detectLiveOrNextSlot() {
     const allSlots = getDistinctScheduledSlots();
     if (allSlots.length === 0) return null;
@@ -2064,6 +2195,7 @@ class SessionPlanExporter:
     const vDate = new Date(venueMs);
     const pad = n => String(n).padStart(2, '0');
     const curTime = pad(vDate.getUTCHours()) + ':' + pad(vDate.getUTCMinutes());
+    const curMin = vDate.getUTCHours() * 60 + vDate.getUTCMinutes();
 
     const parts = MEETING_BASE_DATE.split('-');
     const baseMs = Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
@@ -2076,72 +2208,75 @@ class SessionPlanExporter:
       if (liveEvs.length > 0) {
         const sample = liveEvs.find(e => e.sub_slot === 1 || e.sub_slot === 2) || liveEvs[0];
         const tu = sample.sub_slot || 1;
+        const rem = Math.max(0, hhmmToMinutes(sample.end_local) - curMin);
         return {
           key: dayDiff + '|' + sample.quarter + '|' + tu,
           day_idx: dayDiff,
           day_name: DAY_NAMES_LIST[dayDiff] || 'Today',
           quarter: sample.quarter,
           tu: tu,
+          start_local: sample.start_local,
+          end_local: sample.end_local,
           is_live: true,
-          status_note: '🟢 LIVE NOW (Venue ' + curTime + ')'
+          status_note: '🟢 LIVE NOW (Venue ' + curTime + ' · ' + rem + 'm left)'
         };
       }
       const nextEvs = todayEvents.filter(e => e.start_local > curTime).sort((a, b) => a.start_local.localeCompare(b.start_local));
       if (nextEvs.length > 0) {
         const n = nextEvs[0];
         const tu = n.sub_slot || 1;
+        const wait = Math.max(0, hhmmToMinutes(n.start_local) - curMin);
         return {
           key: dayDiff + '|' + n.quarter + '|' + tu,
           day_idx: dayDiff,
           day_name: DAY_NAMES_LIST[dayDiff] || 'Today',
           quarter: n.quarter,
           tu: tu,
+          start_local: n.start_local,
+          end_local: n.end_local,
           is_live: false,
-          status_note: '⏳ Up Next Today at ' + n.start_local + ' (Venue ' + curTime + ')'
+          status_note: '⏳ Up Next in ' + wait + 'm at ' + n.start_local + ' (Venue ' + curTime + ')'
         };
+      }
+      const tomorrowSlot = allSlots.find(s => s.day_idx > dayDiff);
+      if (tomorrowSlot) {
+        return Object.assign({}, tomorrowSlot, {
+          is_live: false,
+          status_note: '🌙 Today concluded — Previewing next day (' + tomorrowSlot.day_name + ')'
+        });
       }
     }
     return Object.assign({}, allSlots[0], {
       is_live: false,
-      status_note: (dayDiff < 0) ? '📅 Before meeting start — previewing Day 1 Q1' : '🏁 Outside live hours — interactive slot dispatch preview'
+      status_note: (dayDiff < 0) ? '📅 Before meeting start — previewing Day 1' : '🏁 Outside live hours — schedule preview'
     });
   }
 
   function highlightNow(forceOpen) {
-    const panel = document.getElementById('nowDispatchPanel');
-    const btn = document.getElementById('btnHighlightNow');
-    if (!panel) return;
-
-    if (typeof forceOpen === 'boolean') {
-      nowPanelOpen = forceOpen;
-    } else {
-      nowPanelOpen = !nowPanelOpen;
-    }
-
-    panel.style.display = nowPanelOpen ? 'block' : 'none';
-    if (btn) btn.classList.toggle('active', nowPanelOpen);
-
-    if (!nowPanelOpen) {
+    if (forceOpen === false) {
+      nowPanelOpen = false;
+      const p = document.getElementById('nowDispatchPanel');
+      if (p) p.style.display = 'none';
       document.querySelectorAll('.is-now-focused').forEach(el => el.classList.remove('is-now-focused'));
-      updateStickyHeaderOffsets();
+      if (currentView === 'now') switchView('grid');
       return;
     }
-
+    nowPanelOpen = true;
     if (!nowTargetSlot) {
       nowTargetSlot = detectLiveOrNextSlot();
     }
-    renderNowDispatchPanel();
-    focusSlotCellsInDOM(nowTargetSlot, true);
-    updateStickyHeaderOffsets();
+    focusSlotCellsInDOM(nowTargetSlot, false);
+    switchView('now');
   }
 
   function selectNowSlotByKey(slotKey) {
     const allSlots = getDistinctScheduledSlots();
     const found = allSlots.find(s => s.key === slotKey);
     if (found) {
+      nowAutoFollow = false;
       nowTargetSlot = Object.assign({}, found, { is_live: false, status_note: '🔎 Manual Slot Inspection' });
-      renderNowDispatchPanel();
-      focusSlotCellsInDOM(nowTargetSlot, true);
+      renderNowView();
+      focusSlotCellsInDOM(nowTargetSlot, false);
     }
   }
 
@@ -2152,15 +2287,17 @@ class SessionPlanExporter:
     let idx = allSlots.findIndex(s => s.key === (nowTargetSlot && nowTargetSlot.key));
     if (idx < 0) idx = 0;
     idx = (idx + delta + allSlots.length) % allSlots.length;
+    nowAutoFollow = false;
     nowTargetSlot = Object.assign({}, allSlots[idx], { is_live: false, status_note: '🔎 Manual Slot Inspection' });
-    renderNowDispatchPanel();
-    focusSlotCellsInDOM(nowTargetSlot, true);
+    renderNowView();
+    focusSlotCellsInDOM(nowTargetSlot, false);
   }
 
   function resetNowToLiveClock() {
+    nowAutoFollow = true;
     nowTargetSlot = detectLiveOrNextSlot();
-    renderNowDispatchPanel();
-    focusSlotCellsInDOM(nowTargetSlot, true);
+    renderNowView();
+    focusSlotCellsInDOM(nowTargetSlot, false);
   }
 
   function focusSlotCellsInDOM(slotObj, shouldScroll) {
@@ -2198,23 +2335,34 @@ class SessionPlanExporter:
     }
   }
 
-  function renderNowDispatchPanel() {
-    const panel = document.getElementById('nowDispatchPanel');
-    if (!panel) return;
+  function buildNowDelBadges(ev) {
+    if (ev.is_all) {
+      return '<span class="del-pill-badge is-all">👥 ALL</span>';
+    }
+    const dels = ev.delegates || [];
+    if (dels.length > 0) {
+      return dels.map(dn => {
+        const meta = getRosterMemberMeta(dn);
+        return '<span class="del-pill-badge" style="background:' + meta.bg_tint + ';color:' + meta.color + ';border:1px solid ' + meta.border_tint + ';">' + escHtml(meta.initials || dn.substring(0, 2).toUpperCase()) + '</span>';
+      }).join(' ');
+    }
+    if (ev.not_followed) {
+      return '<span class="del-pill-badge is-not-followed-pill" title="Out of scope">⛔</span>';
+    }
+    return '';
+  }
+
+  function renderNowView() {
+    const container = document.getElementById('nowViewContent');
+    if (!container) return;
     const allSlots = getDistinctScheduledSlots();
     if (!nowTargetSlot && allSlots.length > 0) {
       nowTargetSlot = detectLiveOrNextSlot();
     }
     if (!nowTargetSlot) {
-      panel.innerHTML = '<div style="font-weight:600;">No scheduled sessions in this snapshot.</div>';
+      container.innerHTML = '<div class="empty-state-box">📭 No scheduled sessions available in this snapshot.</div>';
       return;
     }
-
-    const activeEvs = CAL_EVENTS.filter(e =>
-      e.day_idx === nowTargetSlot.day_idx &&
-      e.quarter === nowTargetSlot.quarter &&
-      (e.sub_slot === 0 || e.sub_slot === nowTargetSlot.tu)
-    ).sort((a, b) => a.stream_num - b.stream_num);
 
     let optionsHtml = '';
     for (const s of allSlots) {
@@ -2223,6 +2371,186 @@ class SessionPlanExporter:
         escHtml(s.day_name) + ' · ' + escHtml(s.quarter) + ' (TU ' + s.tu + ') — ' + escHtml(s.start_local) + '–' + escHtml(s.end_local) +
         '</option>';
     }
+
+    const activeEvs = CAL_EVENTS.filter(e =>
+      e.day_idx === nowTargetSlot.day_idx &&
+      e.quarter === nowTargetSlot.quarter &&
+      (e.sub_slot === 0 || e.sub_slot === nowTargetSlot.tu)
+    ).sort((a, b) => a.stream_num - b.stream_num);
+
+    const tu2ByStream = {};
+    if (nowTargetSlot.tu === 1) {
+      CAL_EVENTS.filter(e => e.day_idx === nowTargetSlot.day_idx && e.quarter === nowTargetSlot.quarter && e.sub_slot === 2)
+        .forEach(e => { tu2ByStream[e.stream_num] = e; });
+    }
+
+    const headerBar = '<div class="aux-header-card" style="margin-bottom:10px;">' +
+      '<div>' +
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+          '<span style="font-size:11.5px;font-weight:700;padding:3px 10px;border-radius:999px;background:' + (nowTargetSlot.is_live ? '#DCFCE7;color:#15803D;border:1px solid #86EFAC;' : '#EFF6FF;color:#1D4ED8;border:1px solid #BFDBFE;') + '">' + escHtml(nowTargetSlot.status_note || 'Schedule Preview') + '</span>' +
+          '<h2 class="aux-title" style="margin:0;">' + escHtml(nowTargetSlot.day_name) + ' · ' + escHtml(nowTargetSlot.quarter) + ' (TU ' + nowTargetSlot.tu + ')</h2>' +
+          '<span style="font-size:12px;color:#475569;font-weight:600;">🕒 ' + escHtml(nowTargetSlot.start_local || '') + '–' + escHtml(nowTargetSlot.end_local || '') + ' Venue</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="now-slot-controls">' +
+        '<button class="now-step-btn" onclick="stepNowSlot(-1)" title="Previous Time Unit">◀ Prev</button>' +
+        '<select class="now-select" onchange="selectNowSlotByKey(this.value)">' + optionsHtml + '</select>' +
+        '<button class="now-step-btn" onclick="stepNowSlot(1)" title="Next Time Unit">Next ▶</button>' +
+        '<button class="now-step-btn" onclick="resetNowToLiveClock()" title="Sync to Live Venue Clock" style="background:#ECFDF5;color:#047857;border-color:#6EE7B7;">🔴 Live Now</button>' +
+      '</div>' +
+    '</div>';
+
+    // Section 1: Happening Now — Rooms & Active Streams
+    let sec1Html = '<div class="now-section-title">' + (nowTargetSlot.is_live ? '🔴 Happening Now — Rooms &amp; Active Streams' : '📍 Active Window — Rooms &amp; Streams') + '</div>';
+    const isBreakOnly = activeEvs.length > 0 && activeEvs.every(e => e.is_break || e.stream_num === 0);
+    if (isBreakOnly) {
+      sec1Html += '<div class="now-streams-row" style="grid-template-columns:1fr;">';
+      for (const ev of activeEvs) {
+        sec1Html += renderNowStreamCardHtml(ev.stream_num, ev, null);
+      }
+      sec1Html += '</div>';
+    } else {
+      sec1Html += '<div class="now-streams-row">';
+      for (const sNum of [1, 2, 3]) {
+        const ev = activeEvs.find(e => e.stream_num === sNum) || null;
+        const tu2Ev = tu2ByStream[sNum] || null;
+        sec1Html += renderNowStreamCardHtml(sNum, ev, tu2Ev);
+      }
+      sec1Html += '</div>';
+    }
+
+    // Section 2 & 3: Later Periods Today (Up Next 1-2 + Rest of Today)
+    const curPIdx = PERIOD_LIST.indexOf(nowTargetSlot.quarter);
+    const laterPeriods = [];
+    for (let i = curPIdx + 1; i < PERIOD_LIST.length; i++) {
+      const pName = PERIOD_LIST[i];
+      const pEvs = CAL_EVENTS.filter(e => e.day_idx === nowTargetSlot.day_idx && e.quarter === pName)
+        .sort((a, b) => (a.stream_num - b.stream_num) || (a.sub_slot - b.sub_slot));
+      if (pEvs.length > 0) {
+        const sTimes = pEvs.map(e => e.start_local).filter(Boolean).sort();
+        const eTimes = pEvs.map(e => e.end_local).filter(Boolean).sort();
+        laterPeriods.push({
+          period: pName,
+          start_local: sTimes[0] || '',
+          end_local: eTimes[eTimes.length - 1] || '',
+          is_break: pEvs.every(e => e.is_break),
+          events: pEvs
+        });
+      }
+    }
+
+    const upNext = laterPeriods.slice(0, 2);
+    const restDay = laterPeriods.slice(2);
+
+    let sec2Html = '<div class="now-section-title">⏭️ Up Next Today (' + escHtml(nowTargetSlot.day_name) + ')</div>';
+    if (upNext.length === 0) {
+      sec2Html += '<div class="empty-state-box" style="padding:14px;">✅ No further sessions scheduled later on ' + escHtml(nowTargetSlot.day_name) + '.</div>';
+    } else {
+      for (const lp of upNext) {
+        const pIcon = lp.is_break ? '☕' : '⏭️';
+        let subCards = '';
+        for (const ev of lp.events) {
+          const tuTag = (ev.sub_slot === 1) ? ' [TU 1]' : (ev.sub_slot === 2) ? ' [TU 2]' : '';
+          const locPill = ev.location_note ? (' <span class="now-loc-badge" style="font-size:10px;padding:1px 5px;">🧭 ' + escHtml(ev.location_note) + '</span>') : '';
+          const swTag = ev.room_swapped ? ' <span class="now-swap-badge">⇄</span>' : '';
+          subCards += '<div class="now-upcoming-sub" style="cursor:pointer;" onclick="jumpToSlotInGrid(' + ev.day_idx + ', \\'' + escHtml(ev.quarter) + '\\', ' + ev.stream_num + ')">' +
+            '<div style="font-size:11px;font-weight:700;color:#1E40AF;margin-bottom:2px;">Str ' + ev.stream_num + tuTag + ' · 📍 ' + escHtml(ev.room) + swTag + ' ' + locPill + '</div>' +
+            '<div style="font-size:11.5px;font-weight:500;color:#0F172A;">' + escHtml(ev.title) + '</div>' +
+          '</div>';
+        }
+        sec2Html += '<div class="now-upcoming-card">' +
+          '<div class="now-upcoming-hdr"><span>' + pIcon + ' ' + escHtml(lp.period) + ' · 🕒 ' + escHtml(lp.start_local) + '–' + escHtml(lp.end_local) + '</span></div>' +
+          '<div class="now-upcoming-grid">' + subCards + '</div>' +
+        '</div>';
+      }
+    }
+
+    let sec3Html = '';
+    if (restDay.length > 0) {
+      sec3Html += '<div class="now-section-title">📅 Rest of ' + escHtml(nowTargetSlot.day_name) + ' Timeline</div>';
+      for (const rp of restDay) {
+        const lineParts = rp.events.map(ev => {
+          const locS = ev.location_note ? (' (' + escHtml(ev.location_note) + ')') : '';
+          const tuS = (ev.sub_slot === 1 || ev.sub_slot === 2) ? (' TU' + ev.sub_slot) : '';
+          return '<strong>Str ' + ev.stream_num + tuS + ' [📍 ' + escHtml(ev.room) + locS + ']:</strong> ' + escHtml((ev.title || '').substring(0, 75));
+        }).join(' &nbsp;|&nbsp; ');
+        const fEv = rp.events[0];
+        sec3Html += '<div class="now-timeline-row">' +
+          '<div style="min-width:140px;font-size:11.5px;"><strong>' + escHtml(rp.period) + '</strong><br><span style="color:#64748B;font-size:10.5px;">' + escHtml(rp.start_local) + '–' + escHtml(rp.end_local) + '</span></div>' +
+          '<div style="flex:1;font-size:11.5px;color:#334155;">' + lineParts + '</div>' +
+          (fEv ? '<button class="btn-jump-grid" onclick="jumpToSlotInGrid(' + fEv.day_idx + ', \\'' + escHtml(fEv.quarter) + '\\', ' + fEv.stream_num + ')">🔍 Grid</button>' : '') +
+        '</div>';
+      }
+    }
+
+    container.innerHTML = headerBar + sec1Html + sec2Html + sec3Html;
+    renderNowDispatchPanel();
+  }
+
+  function renderNowStreamCardHtml(sNum, ev, tu2Ev) {
+    const sMeta = (typeof STREAMS_META !== 'undefined' && STREAMS_META[String(sNum)]) ? STREAMS_META[String(sNum)] : null;
+    const strLabel = sNum > 0 ? ('🏢 Stream ' + sNum) : '🏢 Plenary / Break';
+    if (!ev) {
+      const defRoom = sMeta ? sMeta.room_name : ('Stream ' + sNum);
+      const defLoc = sMeta && sMeta.location_note ? (' · 🧭 ' + escHtml(sMeta.location_note)) : '';
+      return '<div class="now-stream-card is-idle">' +
+        '<div class="now-card-head"><span class="stream-badge str-' + sNum + '">' + strLabel + '</span></div>' +
+        '<div style="font-size:11.5px;color:#64748B;">📍 ' + escHtml(defRoom) + defLoc + '</div>' +
+        '<div style="color:#94A3B8;font-style:italic;font-size:12px;padding:12px 0;">— No active session scheduled in this stream —</div>' +
+      '</div>';
+    }
+
+    const delHtml = buildNowDelBadges(ev);
+    const swapBadge = ev.room_swapped ? '<span class="now-swap-badge">⇄ Moved Room</span>' : '';
+    const locBadge = ev.location_note ? '<span class="now-loc-badge">🧭 ' + escHtml(ev.location_note) + '</span>' : '';
+    const metaParts = [];
+    if (ev.convener) metaParts.push('👤 ' + escHtml(ev.convener));
+    if (ev.tohru) metaParts.push('📡 ' + escHtml(ev.tohru));
+
+    let tu2Html = '';
+    if (tu2Ev && tu2Ev.slot_key !== ev.slot_key) {
+      const tu2Loc = tu2Ev.location_note ? (' (' + escHtml(tu2Ev.location_note) + ')') : '';
+      tu2Html = '<div class="now-tu2-hint">⏭️ <strong>2nd Half (' + escHtml(tu2Ev.start_local) + '–' + escHtml(tu2Ev.end_local) + '):</strong> 📍 ' + escHtml(tu2Ev.room) + tu2Loc + ' — ' + escHtml((tu2Ev.title || '').substring(0, 80)) + '</div>';
+    }
+
+    const noteHtml = ev.note ? ('<div class="note-chip">📝 ' + escHtml(ev.note) + '</div>') : '';
+
+    return '<div class="now-stream-card str-' + sNum + '">' +
+      '<div class="now-card-head">' +
+        '<span class="stream-badge str-' + sNum + '">' + strLabel + (ev.is_drafting ? ' · Drafting' : '') + '</span>' +
+        '<div style="display:flex;gap:3px;flex-wrap:wrap;">' + delHtml + '</div>' +
+      '</div>' +
+      '<div class="now-room-box">' +
+        '<div class="now-room-title"><span>📍 ' + escHtml(ev.room) + '</span>' + swapBadge + '</div>' +
+        (locBadge ? '<div>' + locBadge + '</div>' : '') +
+        (metaParts.length ? '<div class="now-room-meta">' + metaParts.join(' · ') + '</div>' : '') +
+      '</div>' +
+      '<div class="now-topic-text">' + escHtml(ev.title) + '</div>' +
+      noteHtml +
+      tu2Html +
+      '<div style="display:flex;justify-content:flex-end;margin-top:4px;">' +
+        '<button class="btn-jump-grid" onclick="jumpToSlotInGrid(' + ev.day_idx + ', \\'' + escHtml(ev.quarter) + '\\', ' + ev.stream_num + ')">🔍 Show in Grid</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function renderNowDispatchPanel() {
+    const panel = document.getElementById('nowDispatchPanel');
+    if (!panel) return;
+    const allSlots = getDistinctScheduledSlots();
+    if (!nowTargetSlot && allSlots.length > 0) {
+      nowTargetSlot = detectLiveOrNextSlot();
+    }
+    if (!nowTargetSlot) {
+      panel.style.display = 'none';
+      return;
+    }
+
+    const activeEvs = CAL_EVENTS.filter(e =>
+      e.day_idx === nowTargetSlot.day_idx &&
+      e.quarter === nowTargetSlot.quarter &&
+      (e.sub_slot === 0 || e.sub_slot === nowTargetSlot.tu)
+    ).sort((a, b) => a.stream_num - b.stream_num);
 
     const allMembers = getAllRosterNames();
     let cardsHtml = '';
@@ -2236,19 +2564,20 @@ class SessionPlanExporter:
         cardsHtml += '<div class="now-del-card status-free" onclick="selectDelegate(\\'' + escHtml(member) + '\\')">' +
           '<div class="now-del-top">' +
             '<span class="now-del-name" style="color:' + mMeta.color + ';">● ' + escHtml(member) + '</span>' +
-            '<span class="now-del-status-tag" style="background:#DCFCE7;color:#15803D;">🟢 Free / Available</span>' +
+            '<span class="now-del-status-tag" style="background:#DCFCE7;color:#15803D;">🟢 Free</span>' +
           '</div>' +
-          '<div class="now-del-dest" style="color:#64748B;">No assigned stream in this time unit</div>' +
+          '<div class="now-del-dest" style="color:#64748B;">No assigned stream</div>' +
         '</div>';
       } else if (myEvs.length === 1) {
         const ev = myEvs[0];
         const roleBadge = ev.is_all ? '👥 All Team' : (ev.is_cov ? '⚡ Override' : '📌 Owner');
+        const locS = ev.location_note ? (' (' + ev.location_note + ')') : '';
         cardsHtml += '<div class="now-del-card status-busy" onclick="jumpToSlotInGrid(' + ev.day_idx + ', \\'' + escHtml(ev.quarter) + '\\', ' + ev.stream_num + ')">' +
           '<div class="now-del-top">' +
             '<span class="now-del-name" style="color:' + mMeta.color + ';">● ' + escHtml(member) + '</span>' +
             '<span class="now-del-status-tag" style="background:#DBEAFE;color:#1D4ED8;">➡️ Str ' + ev.stream_num + ' (' + roleBadge + ')</span>' +
           '</div>' +
-          '<div class="now-del-dest">📍 ' + escHtml(ev.room) + '</div>' +
+          '<div class="now-del-dest">📍 ' + escHtml(ev.room + locS) + '</div>' +
           '<div class="now-del-topic" title="' + escHtml(ev.title) + '">' + escHtml(ev.title) + '</div>' +
         '</div>';
       } else {
@@ -2257,7 +2586,7 @@ class SessionPlanExporter:
         cardsHtml += '<div class="now-del-card status-clash" onclick="switchView(\\'conflicts\\')">' +
           '<div class="now-del-top">' +
             '<span class="now-del-name" style="color:' + mMeta.color + ';">● ' + escHtml(member) + '</span>' +
-            '<span class="now-del-status-tag" style="background:#FEE2E2;color:#B91C1C;">⚠️ CLASH (' + myEvs.length + ' Streams)</span>' +
+            '<span class="now-del-status-tag" style="background:#FEE2E2;color:#B91C1C;">⚠️ CLASH (' + myEvs.length + ')</span>' +
           '</div>' +
           '<div class="now-del-dest" style="color:#B91C1C;">📍 ' + escHtml(rooms) + '</div>' +
           '<div class="now-del-topic" title="' + escHtml(titles) + '">' + escHtml(titles) + '</div>' +
@@ -2265,42 +2594,23 @@ class SessionPlanExporter:
       }
     }
 
-    let uncoveredHtml = '';
-    const uncoveredStreams = activeEvs.filter(e => !e.is_all && !e.not_followed && (!e.delegates || e.delegates.length === 0));
-    if (uncoveredStreams.length > 0) {
-      const uStr = uncoveredStreams.map(e => '<strong>Stream ' + e.stream_num + ' (' + escHtml(e.room) + '):</strong> ' + escHtml(e.title.substring(0, 45))).join(' &bull; ');
-      uncoveredHtml = '<div class="now-streams-summary" style="color:#B45309;">❓ <strong>Unassigned Active Stream(s):</strong> ' + uStr + '</div>';
-    } else if (activeEvs.length > 0) {
-      const cStr = activeEvs.map(e => {
-        let cov = e.is_all ? 'All Team' : (e.delegates || []).join(', ');
-        if (!cov && e.not_followed) cov = '<em>(Not Followed)</em>';
-        return '<strong>Str ' + e.stream_num + ' (' + escHtml(e.room) + '):</strong> ' + cov;
-      }).join(' &nbsp;|&nbsp; ');
-      uncoveredHtml = '<div class="now-streams-summary">🏢 <strong>Active Rooms Summary:</strong> ' + cStr + '</div>';
+    if (allMembers.length === 0) {
+      panel.style.display = 'none';
+      return;
     }
-
+    panel.style.display = 'block';
     panel.innerHTML =
-      '<div class="now-panel-header">' +
-        '<div class="now-panel-title">' +
-          '<span>📍 Where Each Delegate Should Go</span>' +
-          '<span style="font-size:11px;font-weight:600;background:#DCFCE7;color:#065F46;padding:2px 8px;border-radius:999px;">' + escHtml(nowTargetSlot.status_note || '') + '</span>' +
-        '</div>' +
-        '<div class="now-slot-controls">' +
-          '<button class="now-step-btn" onclick="stepNowSlot(-1)" title="Previous Time Unit">◀ Prev</button>' +
-          '<select class="now-select" onchange="selectNowSlotByKey(this.value)">' + optionsHtml + '</select>' +
-          '<button class="now-step-btn" onclick="stepNowSlot(1)" title="Next Time Unit">Next ▶</button>' +
-          '<button class="now-step-btn" onclick="resetNowToLiveClock()" title="Sync to Live Venue Clock">🕒 Live Now</button>' +
-          '<button class="now-step-btn" onclick="highlightNow(false)" title="Close Panel">✕</button>' +
-        '</div>' +
+      '<div class="now-panel-header" style="margin-bottom:6px;padding-bottom:5px;">' +
+        '<div class="now-panel-title"><span>👥 Where Each Delegate Should Go</span></div>' +
       '</div>' +
-      '<div class="now-dispatch-grid">' + cardsHtml + '</div>' +
-      uncoveredHtml;
+      '<div class="now-dispatch-grid">' + cardsHtml + '</div>';
   }
 
   // Live Venue Status Monitor ("Now / Up Next")
   function checkLiveVenueStatus() {
     const banner = document.getElementById('liveVenueBanner');
-    if (!banner || !MEETING_BASE_DATE) return;
+    const nowTabBtn = document.getElementById('btnViewNow');
+    if (!MEETING_BASE_DATE) return;
 
     document.querySelectorAll('.is-live-now').forEach(el => el.classList.remove('is-live-now'));
 
@@ -2316,46 +2626,52 @@ class SessionPlanExporter:
     const vDayMs = Date.UTC(vDate.getUTCFullYear(), vDate.getUTCMonth(), vDate.getUTCDate());
     const dayDiff = Math.floor((vDayMs - baseMs) / 86400000);
 
-    if (dayDiff < 0) {
-      const daysUntil = -dayDiff;
-      banner.innerHTML = '<span>📅 Meeting starts in ' + daysUntil + ' day' + (daysUntil > 1 ? 's' : '') + ' (' + MEETING_BASE_DATE + ')</span> <span style="font-size:11px;text-decoration:underline;">📍 Preview Dispatch Guide</span>';
-      banner.style.display = 'flex';
-      return;
-    }
-    if (dayDiff > 4) {
-      banner.innerHTML = '<span>🏁 Meeting concluded on Friday (' + MEETING_BASE_DATE + ')</span> <span style="font-size:11px;text-decoration:underline;">📍 Open Dispatch Guide</span>';
-      banner.style.display = 'flex';
-      return;
-    }
+    if (dayDiff >= 0 && dayDiff <= 4) {
+      const todayEvents = CAL_EVENTS.filter(e => e.day_idx === dayDiff);
+      const liveNow = todayEvents.filter(e => e.start_local <= curTime && curTime < e.end_local);
+      const upcoming = todayEvents.filter(e => e.start_local > curTime).sort((a, b) => a.start_local.localeCompare(b.start_local));
 
-    const todayEvents = CAL_EVENTS.filter(e => e.day_idx === dayDiff);
-    const liveNow = todayEvents.filter(e => e.start_local <= curTime && curTime < e.end_local);
-    const upcoming = todayEvents.filter(e => e.start_local > curTime).sort((a, b) => a.start_local.localeCompare(b.start_local));
-
-    if (liveNow.length > 0) {
-      liveNow.forEach(ev => {
-        const sDay = String(ev.day_idx);
-        const sPeriod = String(ev.quarter);
-        const sStr = String(ev.stream_num);
-        document.querySelectorAll('.grid-cell[data-day="' + sDay + '"][data-period="' + sPeriod + '"][data-stream="' + sStr + '"]').forEach(el => el.classList.add('is-live-now'));
-        document.querySelectorAll('.cards-slot-row[data-day="' + sDay + '"][data-period="' + sPeriod + '"][data-stream="' + sStr + '"]').forEach(el => el.classList.add('is-live-now'));
-      });
-
-      const liveTitles = liveNow.map(e => (e.is_drafting ? '🛠️ Draft: ' : ('Str ' + e.stream_num + ': ')) + (e.title || '').substring(0, 40)).join(' | ');
-      let nextMsg = '';
-      if (upcoming.length > 0) {
-        const n = upcoming[0];
-        nextMsg = ' &bull; Next: ' + n.start_local + ' (' + (n.title || '').substring(0, 30) + ')';
+      if (liveNow.length > 0) {
+        liveNow.forEach(ev => {
+          const sDay = String(ev.day_idx);
+          const sPeriod = String(ev.quarter);
+          const sStr = String(ev.stream_num);
+          document.querySelectorAll('.grid-cell[data-day="' + sDay + '"][data-period="' + sPeriod + '"][data-stream="' + sStr + '"]').forEach(el => el.classList.add('is-live-now'));
+          document.querySelectorAll('.cards-slot-row[data-day="' + sDay + '"][data-period="' + sPeriod + '"][data-stream="' + sStr + '"]').forEach(el => el.classList.add('is-live-now'));
+        });
+        if (nowTabBtn) nowTabBtn.textContent = '🟢 Now (' + liveNow[0].quarter + ')';
+        if (banner) {
+          const liveTitles = liveNow.map(e => (e.is_drafting ? '🛠️ Draft: ' : ('Str ' + e.stream_num + ' [' + e.room + ']: ')) + (e.title || '').substring(0, 36)).join(' | ');
+          const nextMsg = upcoming.length > 0 ? (' &bull; Next: ' + upcoming[0].start_local + ' (' + (upcoming[0].title || '').substring(0, 28) + ')') : '';
+          banner.innerHTML = '<span><span class="pulse-dot"></span> <strong>LIVE NOW</strong> (Venue ' + curTime + '): ' + escHtml(liveTitles) + nextMsg + '</span> <span style="font-size:11px;text-decoration:underline;">🔴 Open Now Tab</span>';
+          banner.style.display = 'flex';
+        }
+      } else {
+        if (nowTabBtn) nowTabBtn.textContent = '🔴 Now';
+        if (banner) {
+          if (upcoming.length > 0) {
+            const n = upcoming[0];
+            banner.innerHTML = '<span>⏳ <strong>Venue Time ' + curTime + '</strong> &bull; Next session at ' + n.start_local + ' in 📍 ' + escHtml(n.room) + ': ' + escHtml((n.title || '').substring(0, 42)) + '</span> <span style="font-size:11px;text-decoration:underline;">🔴 Open Now Tab</span>';
+          } else {
+            banner.innerHTML = '<span>🌙 <strong>Venue Time ' + curTime + '</strong> &bull; Sessions concluded for today.</span> <span style="font-size:11px;text-decoration:underline;">🔴 Open Now Tab</span>';
+          }
+          banner.style.display = 'flex';
+        }
       }
-      banner.innerHTML = '<span><span class="pulse-dot"></span> <strong>LIVE NOW</strong> (Venue ' + curTime + '): ' + liveTitles + nextMsg + '</span> <span style="font-size:11px;text-decoration:underline;">📍 Where should each delegate go?</span>';
+    } else if (banner) {
+      if (nowTabBtn) nowTabBtn.textContent = '🔴 Now';
+      if (dayDiff < 0) {
+        const daysUntil = -dayDiff;
+        banner.innerHTML = '<span>📅 Meeting starts in ' + daysUntil + ' day' + (daysUntil > 1 ? 's' : '') + ' (' + MEETING_BASE_DATE + ')</span> <span style="font-size:11px;text-decoration:underline;">🔴 Preview Now Tab</span>';
+      } else {
+        banner.innerHTML = '<span>🏁 Meeting concluded (' + MEETING_BASE_DATE + ')</span> <span style="font-size:11px;text-decoration:underline;">🔴 Preview Now Tab</span>';
+      }
       banner.style.display = 'flex';
-    } else if (upcoming.length > 0) {
-      const n = upcoming[0];
-      banner.innerHTML = '<span>⏳ <strong>Venue Time ' + curTime + '</strong> &bull; Next session at ' + n.start_local + ': ' + (n.title || '').substring(0, 45) + '</span> <span style="font-size:11px;text-decoration:underline;">📍 Where to go next?</span>';
-      banner.style.display = 'flex';
-    } else {
-      banner.innerHTML = '<span>🌙 <strong>Venue Time ' + curTime + '</strong> &bull; Sessions concluded for today. Resumes tomorrow at 09:00.</span> <span style="font-size:11px;text-decoration:underline;">📍 Open Dispatch Guide</span>';
-      banner.style.display = 'flex';
+    }
+
+    if (nowAutoFollow && currentView === 'now') {
+      nowTargetSlot = detectLiveOrNextSlot();
+      renderNowView();
     }
   }
 
@@ -2399,10 +2715,11 @@ class SessionPlanExporter:
     </div>
     <div class="header-actions">
       <span id="clashWarningBadge" class="badge-clash" style="display:none;" onclick="switchView('conflicts')" title="Click to open the Parallel Stream Conflicts & Coverage Board"></span>
-      <button id="btnHighlightNow" class="btn-highlight-now" onclick="highlightNow()" title="Highlight where we are now and show where each delegate should go">📍 Highlight Now</button>
+      <button id="btnHighlightNow" class="btn-highlight-now" onclick="highlightNow()" title="Open the 🔴 Now tab showing current &amp; upcoming rooms and delegate destinations">🔴 Now &amp; Next</button>
       <button id="btnDownloadIcs" class="btn-cal-download" onclick="downloadSelectedCalendar()" title="Download RFC 5545 calendar for selected delegate or whole team">📅 Download Team .ics</button>
       <div class="view-switcher">
         <button id="btnViewGrid" class="view-btn active" onclick="switchView('grid')">🗓️ Overview Grid</button>
+        <button id="btnViewNow" class="view-btn" onclick="switchView('now')">🔴 Now</button>
         <button id="btnViewCards" class="view-btn" onclick="switchView('cards')">📱 Day Cards</button>
         <button id="btnViewConflicts" class="view-btn" onclick="switchView('conflicts')">⚠️ Conflicts (0)</button>
         <button id="btnViewUnassigned" class="view-btn" onclick="switchView('unassigned')">❓ Unassigned AIs ({unassigned_ai_count})</button>
@@ -2410,9 +2727,7 @@ class SessionPlanExporter:
     </div>
   </div>
 
-  <div id="liveVenueBanner" class="live-banner" style="display:none;" onclick="highlightNow()"></div>
-
-  <div id="nowDispatchPanel" class="now-dispatch-panel" style="display:none;"></div>
+  <div id="liveVenueBanner" class="live-banner" style="display:none;" onclick="switchView('now')"></div>
 
   <div class="controls-bar">
     <div class="del-strip">
@@ -2442,7 +2757,15 @@ class SessionPlanExporter:
   {''.join(overview_html)}
 </div>
 
-<!-- Main View 2: Responsive Mobile Day Cards -->
+<!-- Main View 2: Live "Now" & Upcoming Rooms Dashboard -->
+<div id="nowView" style="display:none;">
+  <div class="now-view-shell">
+    <div id="nowViewContent"></div>
+    <div id="nowDispatchPanel" class="now-dispatch-panel" style="display:none;margin-top:12px;"></div>
+  </div>
+</div>
+
+<!-- Main View 3: Responsive Mobile Day Cards -->
 <div id="cardsView" style="display:none;">
   {''.join(cards_html)}
 </div>
@@ -2479,6 +2802,8 @@ class SessionPlanExporter:
 <script>
   const CAL_EVENTS = {cal_events_json};
   const ROSTER_MEMBERS = {roster_members_json};
+  const ROOM_LOCATIONS = {room_locations_json};
+  const STREAMS_META = {streams_meta_json};
   const UNASSIGNED_AIS = {unassigned_ais_json};
   const UNASSIGNED_SLOTS = {unassigned_slots_json};
   const MEETING_BASE_DATE = {json.dumps(base_date_js)};
@@ -2511,6 +2836,8 @@ class SessionPlanExporter:
         delegation_plan: Optional[DelegationPlan] = None,
         target_delegate: Optional[str] = None,
         agenda_map: Optional[dict] = None,
+        room_locations: Optional[Dict[str, str]] = None,
+        slot_locations: Optional[Dict[str, str]] = None,
     ) -> Path:
         """
         Exports an RFC 5545 .ics Calendar file strictly anchored in UTC.
@@ -2521,6 +2848,12 @@ class SessionPlanExporter:
         annotations = annotations or {}
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        if room_locations is None or slot_locations is None:
+            fb_r, fb_s = cls._load_folder_locations_fallback(output_path)
+            if room_locations is None:
+                room_locations = fb_r
+            if slot_locations is None:
+                slot_locations = fb_s
 
         base_date = datetime.strptime(meeting_start_date_str, "%Y-%m-%d").date()
 
@@ -2585,7 +2918,9 @@ class SessionPlanExporter:
             uid = f"sa2-{snapshot.meeting_number}{safe_target}-{s.slot_key}-{dt_start}@3gpp.tools"
 
             s_info = streams.get(s.stream_number)
-            r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
+            r_name, loc_note, _ = resolve_effective_room_and_location(
+                s, streams=streams, room_locations=room_locations, slot_locations=slot_locations
+            )
             convener = s_info.convener if s_info else ""
             tohru = s_info.tohru_room if s_info else ""
 
@@ -2598,11 +2933,11 @@ class SessionPlanExporter:
 
             summary_prefix = f"🛠️ [Drafting] {del_tag}" if s.is_drafting else f"[Str {s.stream_number}] {del_tag}"
             summary = f"{summary_prefix}{s.raw_text[:50]}"
-            location = f"{r_name}"
+            location = f"{r_name} ({loc_note})" if loc_note else f"{r_name}"
 
             desc_lines = [
                 f"Session: SA2 #{snapshot.meeting_number} ({snapshot.tdoc_id})",
-                f"Room: {r_name}",
+                f"Room: {location}",
                 f"Convener: {convener}",
                 f"TOHRU: https://tohru.3gpp.org/ (Room: {tohru})",
                 f"Scheduled: {s.raw_text}",
