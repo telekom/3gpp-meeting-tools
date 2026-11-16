@@ -44,12 +44,16 @@ from core.network.session import (
 )
 from core.updater.apply_worker import (
     APP_VERSION_FILENAME,
+    SEED_IF_MISSING_PATHS,
     UPDATE_STATE_FILENAME,
+    _copy_with_retry,
     is_ignored_cache_path,
     is_protected_relative_path,
+    is_seed_only_relative_path,
     normalize_rel_path,
+    rmtree_extended,
 )
-from core.utils.paths import get_app_data_root, get_project_root, get_temp_root
+from core.utils.paths import get_app_data_root, get_project_root, get_temp_root, to_extended_path
 
 logger = logging.getLogger(__name__)
 
@@ -232,8 +236,63 @@ def _find_git_root(app_root: Path) -> Optional[Path]:
     return None
 
 
+def _parse_porcelain_rel_paths(raw_output: str, rel_scope: str) -> List[str]:
+    """
+    Parse `git status --porcelain` output into paths relative to `app_root`.
+
+    Supports both NUL-delimited (`-z`) and newline-delimited porcelain output.
+    """
+    if not raw_output:
+        return []
+
+    scope_norm = normalize_rel_path(rel_scope).rstrip("/")
+    scope_prefix = (scope_norm + "/") if scope_norm and scope_norm != "." else ""
+
+    rel_paths: List[str] = []
+    if "\x00" in raw_output:
+        tokens = [t for t in raw_output.split("\x00") if t]
+        i = 0
+        while i < len(tokens):
+            entry = tokens[i]
+            if len(entry) < 4:
+                i += 1
+                continue
+            status_xy = entry[:2]
+            raw_path = entry[3:]
+            # In -z mode, rename/copy entries have an extra NUL-terminated source path token
+            if ("R" in status_xy or "C" in status_xy) and (i + 1) < len(tokens):
+                i += 2
+            else:
+                i += 1
+            norm_p = normalize_rel_path(raw_path.strip('"'))
+            if scope_prefix and norm_p.lower().startswith(scope_prefix.lower()):
+                norm_p = norm_p[len(scope_prefix) :]
+            if norm_p:
+                rel_paths.append(norm_p)
+    else:
+        for line in raw_output.splitlines():
+            if len(line) < 4:
+                continue
+            raw_path = line[3:].strip()
+            if " -> " in raw_path and line[0] in ("R", "C"):
+                raw_path = raw_path.split(" -> ", 1)[1].strip()
+            norm_p = normalize_rel_path(raw_path.strip('"'))
+            if scope_prefix and norm_p.lower().startswith(scope_prefix.lower()):
+                norm_p = norm_p[len(scope_prefix) :]
+            if norm_p:
+                rel_paths.append(norm_p)
+    return rel_paths
+
+
 def _inspect_git_state(git_root: Path, app_root: Path) -> Tuple[str, bool]:
-    """Return `(head_sha, is_dirty)` for a Git workspace."""
+    """
+    Return `(head_sha, is_dirty)` for a Git workspace.
+
+    Runtime-owned and seed-only files (such as `src/db/3gpp_data.db`,
+    `src/config/export_config.json`, `src/config/useful_links.json`, and
+    `src/config/*_config.json`) are ignored when determining whether the source
+    tree is dirty so normal application usage does not block updates.
+    """
     git_dir = git_root / ".git"
     sha = _read_git_head_sha_from_files(git_dir) if git_dir.is_dir() else ""
     is_dirty = False
@@ -256,17 +315,26 @@ def _inspect_git_state(git_root: Path, app_root: Path) -> Tuple[str, bool]:
 
         rel_scope = "."
         try:
-            rel = app_root.resolve().relative_to(git_root.resolve())
+            rel = Path(os.path.abspath(str(app_root))).relative_to(
+                Path(os.path.abspath(str(git_root)))
+            )
             rel_scope = str(rel) if str(rel) != "." else "."
         except ValueError:
             rel_scope = "."
 
         res_status = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=no", "--", rel_scope],
+            ["git", "status", "--porcelain", "--untracked-files=no", "-z", "--", rel_scope],
             **kwargs,
         )
         if res_status.returncode == 0:
-            is_dirty = bool(res_status.stdout.decode("utf-8", errors="replace").strip())
+            raw_status = res_status.stdout.decode("utf-8", errors="replace")
+            changed_paths = _parse_porcelain_rel_paths(raw_status, rel_scope)
+            meaningful_changes = [
+                p
+                for p in changed_paths
+                if not (is_protected_relative_path(p) or is_seed_only_relative_path(p))
+            ]
+            is_dirty = bool(meaningful_changes)
     except Exception:
         pass
     return sha, is_dirty
@@ -324,27 +392,19 @@ def _estimate_source_mtime(app_root: Path) -> float:
 
 def inspect_local_install(app_root: Optional[Path] = None) -> LocalInstallInfo:
     """Inspect whether ``app_root`` is a Git checkout, tracked ZIP, or manual ZIP."""
-    root = Path(app_root).resolve() if app_root is not None else get_app_root()
-
-    git_root = _find_git_root(root)
-    if git_root is not None:
-        sha, dirty = _inspect_git_state(git_root, root)
-        return LocalInstallInfo(
-            install_mode="git",
-            app_root=root,
-            installed_sha=sha,
-            short_sha=sha[:7] if sha else "",
-            is_git_dirty=dirty,
-            git_root=git_root,
-        )
+    root = Path(os.path.abspath(str(app_root))) if app_root is not None else get_app_root()
 
     version_file = root / APP_VERSION_FILENAME
-    if version_file.is_file():
+    tracked_info: Optional[LocalInstallInfo] = None
+    zip_override = False
+    if os.path.isfile(to_extended_path(version_file)):
         try:
-            data = json.loads(version_file.read_text(encoding="utf-8")) or {}
+            with open(to_extended_path(version_file), "r", encoding="utf-8") as vf:
+                data = json.loads(vf.read()) or {}
             sha = str(data.get("installed_sha") or "").strip().lower()
+            zip_override = bool(data.get("zip_override", False))
             if sha:
-                return LocalInstallInfo(
+                tracked_info = LocalInstallInfo(
                     install_mode="zip_tracked",
                     app_root=root,
                     installed_sha=sha,
@@ -355,6 +415,26 @@ def inspect_local_install(app_root: Optional[Path] = None) -> LocalInstallInfo:
                 )
         except Exception as exc:
             logger.warning("[Updater] Could not read %s: %s", version_file, exc)
+
+    if tracked_info is not None and zip_override:
+        return tracked_info
+
+    git_root = _find_git_root(root)
+    if git_root is not None:
+        sha, dirty = _inspect_git_state(git_root, root)
+        if sha:
+            return LocalInstallInfo(
+                install_mode="git",
+                app_root=root,
+                installed_sha=sha,
+                short_sha=sha[:7],
+                is_git_dirty=dirty,
+                git_root=git_root,
+                managed_files=tracked_info.managed_files if tracked_info is not None else [],
+            )
+
+    if tracked_info is not None:
+        return tracked_info
 
     estimated_ts = _estimate_source_mtime(root)
     return LocalInstallInfo(
@@ -525,44 +605,112 @@ def check_for_updates(
     return evaluate_update_status(local_info, commits)
 
 
-def _safe_extract_zip(zip_path: Path, dest_dir: Path) -> None:
-    """Extract ``zip_path`` into ``dest_dir`` with ZipSlip path traversal protection."""
-    dest_root = dest_dir.resolve()
-    with zipfile.ZipFile(str(zip_path), "r") as zf:
-        for member in zf.infolist():
+def _safe_extract_zip(
+    zip_path: Path,
+    dest_dir: Path,
+    subdir_filter: Optional[str] = GITHUB_SUBDIR,
+) -> None:
+    """
+    Extract ``zip_path`` into ``dest_dir`` with ZipSlip path traversal protection,
+    optional `3GPP Tools/` subtree filtering, top-level `<repo>-<sha>/` prefix
+    stripping, and Windows extended-length (`\\\\?\\`) path support.
+    """
+    dest_root = Path(os.path.abspath(str(dest_dir)))
+    os.makedirs(to_extended_path(dest_root), exist_ok=True)
+
+    with zipfile.ZipFile(to_extended_path(zip_path), "r") as zf:
+        members = zf.infolist()
+
+        # Pass 1: Validate every entry in the archive against ZipSlip traversal
+        for member in members:
             member_name = member.filename.replace("\\", "/")
-            if not member_name or member_name.startswith("/"):
+            parts = [p for p in member_name.split("/") if p]
+            if (
+                not member_name
+                or member_name.startswith("/")
+                or ":" in member_name
+                or ".." in parts
+            ):
                 raise ValueError(f"Unsafe archive entry path: {member.filename}")
-            target = (dest_root / member_name).resolve()
+            target = Path(os.path.abspath(str(dest_root / member_name)))
             try:
                 target.relative_to(dest_root)
             except ValueError as exc:
-                raise ValueError(f"Archive entry escapes target directory: {member.filename}") from exc
-        zf.extractall(str(dest_root))
+                raise ValueError(
+                    f"Archive entry escapes target directory: {member.filename}"
+                ) from exc
+
+        # Pass 2: Check whether the archive contains `subdir_filter` ("3GPP Tools")
+        # so we can skip sibling projects (e.g. `3GPP Meeting Helper`) and strip the
+        # redundant 60-character `<repo>-<40-char-sha>/` wrapper folder.
+        filter_norm = (subdir_filter or "").strip().strip("/")
+        has_subdir = False
+        if filter_norm:
+            for member in members:
+                parts = [p for p in member.filename.replace("\\", "/").split("/") if p]
+                if (parts and parts[0] == filter_norm) or (
+                    len(parts) >= 2 and parts[1] == filter_norm
+                ):
+                    has_subdir = True
+                    break
+
+        # Pass 3: Stream-extract using Windows extended-length paths
+        for member in members:
+            member_name = member.filename.replace("\\", "/")
+            is_dir = member.is_dir() or member_name.endswith("/")
+            parts = [p for p in member_name.split("/") if p]
+            if not parts:
+                continue
+
+            if has_subdir and filter_norm:
+                if parts[0] == filter_norm:
+                    rel_parts = parts
+                elif len(parts) >= 2 and parts[1] == filter_norm:
+                    # Strip top-level `<repo>-<sha>/` wrapper directory
+                    rel_parts = parts[1:]
+                else:
+                    continue
+            else:
+                rel_parts = parts
+
+            target_path = dest_root.joinpath(*rel_parts)
+            ext_target = to_extended_path(target_path)
+            if is_dir:
+                os.makedirs(ext_target, exist_ok=True)
+                continue
+
+            os.makedirs(to_extended_path(target_path.parent), exist_ok=True)
+            with zf.open(member, "r") as src_f, open(ext_target, "wb") as dst_f:
+                shutil.copyfileobj(src_f, dst_f, length=65536)
 
 
 def _locate_staged_app_dir(extract_root: Path) -> Path:
     """Locate `3GPP Tools/` (containing `src/main_tools.py`) inside an extracted archive."""
+    direct_subdir = extract_root / GITHUB_SUBDIR
+    if os.path.isfile(to_extended_path(direct_subdir / "src" / "main_tools.py")):
+        return Path(os.path.abspath(str(direct_subdir)))
+
     for child in extract_root.iterdir():
-        if not child.is_dir():
+        if not os.path.isdir(to_extended_path(child)):
             continue
         candidate = child / GITHUB_SUBDIR
-        if (candidate / "src" / "main_tools.py").is_file():
-            return candidate.resolve()
-        if (child / "src" / "main_tools.py").is_file():
-            return child.resolve()
-    if (extract_root / "src" / "main_tools.py").is_file():
-        return extract_root.resolve()
+        if os.path.isfile(to_extended_path(candidate / "src" / "main_tools.py")):
+            return Path(os.path.abspath(str(candidate)))
+        if os.path.isfile(to_extended_path(child / "src" / "main_tools.py")):
+            return Path(os.path.abspath(str(child)))
+    if os.path.isfile(to_extended_path(extract_root / "src" / "main_tools.py")):
+        return Path(os.path.abspath(str(extract_root)))
     raise FileNotFoundError(
         "Downloaded archive does not contain the expected '3GPP Tools/src/main_tools.py' structure."
     )
 
 
 def _sha256_file(path: Path) -> str:
-    if not path.is_file():
+    ext_p = to_extended_path(path)
+    if not os.path.isfile(ext_p):
         return ""
     h = hashlib.sha256()
-    with open(path, "rb") as f:
+    with open(ext_p, "rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
@@ -578,13 +726,13 @@ def stage_zip_update(
     """Download commit-pinned ZIP archive and extract/validate into temp staging."""
     info = local_info or inspect_local_install()
     work_root = get_temp_root() / "app_update"
-    work_root.mkdir(parents=True, exist_ok=True)
+    os.makedirs(to_extended_path(work_root), exist_ok=True)
 
     zip_path = work_root / f"{target_commit.short_sha}.zip"
     extract_root = work_root / f"extract_{target_commit.short_sha}"
-    if extract_root.exists():
-        shutil.rmtree(str(extract_root), ignore_errors=True)
-    extract_root.mkdir(parents=True, exist_ok=True)
+    if os.path.exists(to_extended_path(extract_root)):
+        rmtree_extended(extract_root)
+    os.makedirs(to_extended_path(extract_root), exist_ok=True)
 
     archive_url = GITHUB_ARCHIVE_URL_TEMPLATE.format(ref=target_commit.sha)
     logger.info("[Updater] Downloading update archive: %s", archive_url)
@@ -628,11 +776,11 @@ def launch_staged_update_and_relaunch(
     and spawn the detached applier process.
     """
     work_root = get_temp_root() / "app_update"
-    work_root.mkdir(parents=True, exist_ok=True)
+    os.makedirs(to_extended_path(work_root), exist_ok=True)
 
     worker_src = Path(__file__).resolve().parent / "apply_worker.py"
     worker_dst = work_root / "apply_worker_runner.py"
-    shutil.copy2(str(worker_src), str(worker_dst))
+    shutil.copy2(to_extended_path(worker_src), to_extended_path(worker_dst))
 
     manifest_path = work_root / "update_manifest.json"
     manifest = {
@@ -644,6 +792,7 @@ def launch_staged_update_and_relaunch(
         "requirements_changed": bool(staged.requirements_changed),
         "prev_managed_files": list(staged.prev_managed_files),
         "cleanup_dir": str(staged.extract_root),
+        "cleanup_zip": str(staged.zip_path),
         "relaunch": bool(relaunch),
         "commit_meta": {
             "sha": staged.target_commit.sha,
@@ -667,7 +816,8 @@ def launch_staged_update_and_relaunch(
 
 def apply_git_update(app_root: Optional[Path] = None) -> Tuple[bool, str, bool]:
     """
-    Fast-forward pull for clean developer Git checkouts.
+    Fast-forward pull for clean developer Git checkouts while preserving local
+    runtime seed files (`3gpp_data.db`, `export_config.json`, `useful_links.json`).
 
     Returns `(success, message, requirements_changed)`.
     """
@@ -694,19 +844,83 @@ def apply_git_update(app_root: Optional[Path] = None) -> Tuple[bool, str, bool]:
     if os.name == "nt":
         kwargs["creationflags"] = 0x08000000
 
-    res = subprocess.run(["git", "pull", "--ff-only", "origin", GITHUB_BRANCH], **kwargs)
-    out = res.stdout.decode("utf-8", errors="replace").strip()
-    err = res.stderr.decode("utf-8", errors="replace").strip()
-    if res.returncode != 0:
-        return False, (err or out or f"git pull failed with exit code {res.returncode}"), False
+    # Back up tracked seed files (`3gpp_data.db`, `export_config.json`, `useful_links.json`)
+    # and reset any working-tree edits on them so `git pull --ff-only` never aborts or
+    # overwrites the user's synced database and preferences.
+    backup_root = get_temp_root() / "app_update" / "git_seed_backup"
+    if os.path.exists(to_extended_path(backup_root)):
+        rmtree_extended(backup_root)
+    os.makedirs(to_extended_path(backup_root), exist_ok=True)
+
+    backed_up_seeds: List[Tuple[Path, Path]] = []
+    try:
+        rel_app_to_git = "."
+        try:
+            rel_app = Path(os.path.abspath(str(info.app_root))).relative_to(
+                Path(os.path.abspath(str(info.git_root)))
+            )
+            rel_app_to_git = normalize_rel_path(str(rel_app))
+        except ValueError:
+            rel_app_to_git = "."
+
+        git_seed_paths: List[str] = []
+        for seed_rel in sorted(SEED_IF_MISSING_PATHS):
+            src_seed = info.app_root / seed_rel
+            if os.path.isfile(to_extended_path(src_seed)):
+                bak_seed = backup_root / seed_rel
+                _copy_with_retry(src_seed, bak_seed)
+                backed_up_seeds.append((bak_seed, src_seed))
+                git_rel = (
+                    f"{rel_app_to_git}/{seed_rel}"
+                    if rel_app_to_git and rel_app_to_git != "."
+                    else seed_rel
+                )
+                git_seed_paths.append(git_rel)
+
+        if git_seed_paths:
+            try:
+                subprocess.run(
+                    ["git", "checkout", "--", *git_seed_paths],
+                    **kwargs,
+                )
+            except Exception:
+                pass
+
+        try:
+            res = subprocess.run(
+                ["git", "pull", "--ff-only", "origin", GITHUB_BRANCH],
+                **kwargs,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return False, f"Could not run git pull: {exc}", False
+
+        out = res.stdout.decode("utf-8", errors="replace").strip()
+        err = res.stderr.decode("utf-8", errors="replace").strip()
+        if res.returncode != 0:
+            return (
+                False,
+                (err or out or f"git pull failed with exit code {res.returncode}"),
+                False,
+            )
+    finally:
+        for bak_seed, dst_seed in backed_up_seeds:
+            try:
+                if os.path.isfile(to_extended_path(bak_seed)):
+                    _copy_with_retry(bak_seed, dst_seed)
+            except Exception as exc:
+                logger.warning("[Updater] Could not restore seed file %s: %s", dst_seed, exc)
+        rmtree_extended(backup_root)
 
     after_req_hash = _sha256_file(req_path)
     req_changed = before_req_hash != after_req_hash
-    if req_changed and req_path.is_file():
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-r", str(req_path)],
-            cwd=str(info.app_root),
-            timeout=180.0,
-        )
+    if req_changed and os.path.isfile(to_extended_path(req_path)):
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-r", str(req_path)],
+                cwd=str(info.app_root),
+                timeout=180.0,
+            )
+        except Exception as exc:
+            logger.warning("[Updater] pip install after git pull failed: %s", exc)
 
     return True, (out or "Updated via git pull --ff-only."), req_changed

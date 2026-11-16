@@ -25,6 +25,8 @@ from core.updater.app_updater import (
     CommitInfo,
     LocalInstallInfo,
     UpdateCheckResult,
+    _inspect_git_state,
+    _parse_porcelain_rel_paths,
     _safe_extract_zip,
     evaluate_update_status,
     inspect_local_install,
@@ -37,7 +39,9 @@ from core.updater.apply_worker import (
     apply_staged_tree,
     is_protected_relative_path,
     is_seed_only_relative_path,
+    rmtree_extended,
 )
+from core.utils.paths import to_extended_path
 
 SAMPLE_ATOM = b"""<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -297,9 +301,15 @@ class TestAppUpdater(unittest.TestCase):
             (app_root / "requirements.txt").write_text("PyQt5>=5.15.0\n", encoding="utf-8")
 
             good_zip = tmp_path / "good.zip"
+            long_sibling_entry = (
+                "3gpp-meeting-tools-" + ("9" * 40) + "/3GPP Meeting Helper/tests/tdocs/"
+                "S2-2210570_R18_AIMLsys_Support of QoS request for a list of UEs and reusing "
+                "URLLC QoS monitoring for AIML-based services_23.502_v3.docx"
+            )
             with zipfile.ZipFile(good_zip, "w") as zf:
                 zf.writestr("3gpp-meeting-tools-aaa/3GPP Tools/src/main_tools.py", "print('ok')\n")
                 zf.writestr("3gpp-meeting-tools-aaa/3GPP Tools/requirements.txt", "PyQt5>=5.15.0\nrequests>=2.25.1\n")
+                zf.writestr(long_sibling_entry, b"DOCX_BYTES")
 
             def _fake_download(url, dest_path, **_kwargs):
                 Path(dest_path).write_bytes(good_zip.read_bytes())
@@ -314,6 +324,100 @@ class TestAppUpdater(unittest.TestCase):
                 staged = stage_zip_update(commit, local_info=local_info)
                 self.assertTrue((staged.staged_app_dir / "src" / "main_tools.py").is_file())
                 self.assertTrue(staged.requirements_changed)
+                # Sibling `3GPP Meeting Helper` subtree is excluded during extraction
+                self.assertFalse((staged.extract_root / "3GPP Meeting Helper").exists())
+
+    def test_long_path_extraction_and_git_override_recovery(self) -> None:
+        tmp_base = Path(tempfile.mkdtemp())
+        try:
+            # 1. Long >260 char path inside `3GPP Tools/` extracts and applies cleanly
+            deep_rel = (
+                "src/modules/"
+                + ("deep_subpackage_" * 12)
+                + "/very_long_module_filename_exceeding_win32_max_path_limit.py"
+            )
+            zip_file = tmp_base / "long_path.zip"
+            with zipfile.ZipFile(zip_file, "w") as zf:
+                zf.writestr("3gpp-meeting-tools-" + ("a" * 40) + "/3GPP Tools/src/main_tools.py", "MAIN=1\n")
+                zf.writestr("3gpp-meeting-tools-" + ("a" * 40) + "/3GPP Tools/" + deep_rel, "DEEP=1\n")
+
+            extract_dir = tmp_base / "extract_aaaaaaa"
+            _safe_extract_zip(zip_file, extract_dir)
+            staged_dir = extract_dir / "3GPP Tools"
+            self.assertTrue(os.path.isfile(to_extended_path(staged_dir / deep_rel)))
+
+            # 2. Applying staged ZIP update over a folder that also has a stale `.git`
+            # sets `zip_override=True` so subsequent checks use the new ZIP commit SHA.
+            repo_root = tmp_base / "repo"
+            app_root = repo_root / "3GPP Tools"
+            (app_root / "src").mkdir(parents=True)
+            (repo_root / ".git" / "refs" / "heads").mkdir(parents=True)
+            (repo_root / ".git" / "HEAD").write_text("ref: refs/heads/master\n", encoding="utf-8")
+            (repo_root / ".git" / "refs" / "heads" / "master").write_text("c" * 40 + "\n", encoding="utf-8")
+
+            apply_staged_tree(
+                staged_app_dir=staged_dir,
+                app_root=app_root,
+                commit_meta={"sha": "a" * 40, "short_sha": "aaaaaaa", "title": "updated via zip"},
+                log_fn=lambda _m: None,
+            )
+            self.assertTrue(os.path.isfile(to_extended_path(app_root / deep_rel)))
+            info_after = inspect_local_install(app_root)
+            self.assertEqual(info_after.install_mode, "zip_tracked")
+            self.assertEqual(info_after.installed_sha, "a" * 40)
+        finally:
+            rmtree_extended(tmp_base)
+
+    def test_git_dirty_ignores_runtime_seed_and_config_files(self) -> None:
+        # NUL-delimited (-z) porcelain output with only runtime seed/config edits
+        raw_z = (
+            " M 3GPP Tools/src/db/3gpp_data.db\x00"
+            " M 3GPP Tools/src/config/export_config.json\x00"
+            " M 3GPP Tools/src/config/useful_links.json\x00"
+            " M 3GPP Tools/src/config/network_config.json\x00"
+        )
+        parsed = _parse_porcelain_rel_paths(raw_z, "3GPP Tools")
+        self.assertEqual(
+            parsed,
+            [
+                "src/db/3gpp_data.db",
+                "src/config/export_config.json",
+                "src/config/useful_links.json",
+                "src/config/network_config.json",
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            app_root = repo_root / "3GPP Tools"
+            app_root.mkdir(parents=True)
+            git_dir = repo_root / ".git"
+            (git_dir / "refs" / "heads").mkdir(parents=True)
+            (git_dir / "HEAD").write_text("ref: refs/heads/master\n", encoding="utf-8")
+            (git_dir / "refs" / "heads" / "master").write_text("a" * 40 + "\n", encoding="utf-8")
+
+            class _FakeProc:
+                def __init__(self, stdout: bytes, returncode: int = 0) -> None:
+                    self.stdout = stdout
+                    self.stderr = b""
+                    self.returncode = returncode
+
+            with patch(
+                "core.updater.app_updater.subprocess.run",
+                return_value=_FakeProc(raw_z.encode("utf-8")),
+            ):
+                sha, dirty = _inspect_git_state(repo_root, app_root)
+                self.assertEqual(sha, "a" * 40)
+                self.assertFalse(dirty)
+
+            # Real source file edit IS detected as dirty
+            raw_dirty = raw_z + " M 3GPP Tools/src/main_tools.py\x00"
+            with patch(
+                "core.updater.app_updater.subprocess.run",
+                return_value=_FakeProc(raw_dirty.encode("utf-8")),
+            ):
+                _sha2, dirty2 = _inspect_git_state(repo_root, app_root)
+                self.assertTrue(dirty2)
 
     def test_update_dialog_renders_states(self) -> None:
         commits = parse_commits_atom(SAMPLE_ATOM)
@@ -323,16 +427,19 @@ class TestAppUpdater(unittest.TestCase):
         dlg = AppUpdateDialog(initial_result=res)
         self.assertIn("2 new changes", dlg.status_title_lbl.text())
         self.assertTrue(dlg.apply_btn.isEnabled())
+        self.assertTrue(dlg.force_zip_btn.isHidden())
         self.assertIn("aaaaaaa", dlg.changes_browser.toHtml())
         self.assertIn("Preserve local DBs and configs", dlg.changes_browser.toHtml())
         self.assertFalse(hasattr(dlg, "auto_check_cb"))
         dlg.close()
 
-        # Dirty git workspace disables overwrite
+        # Dirty git workspace disables git pull button but exposes ZIP override fallback
         dirty_local = LocalInstallInfo("git", Path("."), installed_sha="c" * 40, short_sha="ccccccc", is_git_dirty=True)
         res_dirty = evaluate_update_status(dirty_local, commits)
         dlg2 = AppUpdateDialog(initial_result=res_dirty)
         self.assertFalse(dlg2.apply_btn.isEnabled())
+        self.assertFalse(dlg2.force_zip_btn.isHidden())
+        self.assertTrue(dlg2.force_zip_btn.isEnabled())
         self.assertFalse(dlg2.notice_lbl.isHidden())
         dlg2.close()
 
@@ -354,6 +461,58 @@ class TestAppUpdater(unittest.TestCase):
         finally:
             bar.stop_monitors()
             bar.mcp_timer.stop()
+
+    @unittest.skipUnless(os.name == "nt", "Windows batch script test")
+    def test_standalone_update_cmd_script(self) -> None:
+        import shutil
+        import subprocess
+
+        update_cmd_src = SRC_DIR / "Update.cmd"
+        self.assertTrue(update_cmd_src.is_file())
+
+        tmp_base = Path(tempfile.mkdtemp())
+        try:
+            app_root = tmp_base / "3GPP Tools"
+            (app_root / "src" / "db").mkdir(parents=True)
+            (app_root / "src" / "config").mkdir(parents=True)
+            (app_root / "src" / "main_tools.py").write_text("OLD_VERSION\n", encoding="utf-8")
+            (app_root / "src" / "db" / "3gpp_data.db").write_bytes(b"COLLEAGUE_DB_DATA")
+            (app_root / "src" / "config" / "network_config.json").write_text('{"proxy":"corp"}', encoding="utf-8")
+
+            # Place Update.cmd inside `3GPP Tools/src/Update.cmd` AND test self-overwrite
+            cmd_copy = app_root / "src" / "Update.cmd"
+            shutil.copy2(str(update_cmd_src), str(cmd_copy))
+
+            zip_path = tmp_base / "release.zip"
+            long_sibling = (
+                "3gpp-meeting-tools-" + ("9" * 40) + "/3GPP Meeting Helper/tests/tdocs/"
+                "S2-2210570_R18_AIMLsys_Support of QoS request for a list of UEs and reusing "
+                "URLLC QoS monitoring for AIML-based services_23.502_v3.docx"
+            )
+            with zipfile.ZipFile(zip_path, "w") as zf:
+                zf.writestr("3gpp-meeting-tools-" + ("9" * 40) + "/3GPP Tools/src/main_tools.py", "UPDATED_VERSION\n")
+                zf.writestr("3gpp-meeting-tools-" + ("9" * 40) + "/3GPP Tools/src/Update.cmd", update_cmd_src.read_text(encoding="utf-8"))
+                zf.writestr("3gpp-meeting-tools-" + ("9" * 40) + "/3GPP Tools/src/db/3gpp_data.db", b"SEED_DB")
+                zf.writestr(long_sibling, b"DOCX_BYTES")
+
+            res = subprocess.run(
+                ["cmd.exe", "/c", str(cmd_copy), "--no-pause", "--zip-file", str(zip_path)],
+                cwd=str(app_root),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30.0,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                msg=res.stdout.decode("utf-8", errors="replace") + "\n" + res.stderr.decode("utf-8", errors="replace"),
+            )
+            self.assertEqual((app_root / "src" / "main_tools.py").read_text(encoding="utf-8"), "UPDATED_VERSION\n")
+            self.assertEqual((app_root / "src" / "db" / "3gpp_data.db").read_bytes(), b"COLLEAGUE_DB_DATA")
+            self.assertEqual((app_root / "src" / "config" / "network_config.json").read_text(encoding="utf-8"), '{"proxy":"corp"}')
+            self.assertTrue((app_root / APP_VERSION_FILENAME).is_file())
+        finally:
+            rmtree_extended(tmp_base)
 
 
 if __name__ == "__main__":

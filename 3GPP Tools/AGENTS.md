@@ -38,17 +38,20 @@ To prevent cryptic `ModuleNotFoundError` crashes at launch, all entry points (`m
 - **Clipboard & 1-Click Repair:** On Windows desktop launches, copies the repair command to the clipboard and presents an interactive `MessageBoxW` dialog offering 1-click automatic installation via pip.
 - **Safe Headless/CLI Operation:** Headless environments (MCP stdio, CLI, CI) bypass modal dialogs and log clean diagnostic error messages to `sys.stderr` without corrupting stdout streams.
 
-#### Manual Continuous GitHub `master` Updater (`src/core/updater/`, `src/core/ui/update_dialog.py`)
+#### Manual Continuous GitHub `master` Updater (`src/core/updater/`, `src/core/ui/update_dialog.py`, `src/Update.cmd`)
 End-user colleagues typically install from GitHub ZIP downloads rather than `git clone`, and changes are pushed continuously to `master` without formal version tags.
-- **Manual Trigger Only:** Never polls GitHub automatically at startup. Invoked explicitly via **Settings → 🔄 Check for Updates...**, **Help & Docs → 🔄 Check for Updates...**, or `Ctrl+K` (`Check for App Updates`).
-- **Rate-Limit-Free Feed & Commit-Pinned Archives:** Fetches `https://github.com/telekom/3gpp-meeting-tools/commits/master/3GPP%20Tools.atom` through `NetworkSession` (respecting corporate proxies/DPAPI credentials without hitting GitHub REST API NAT limits) and stages `https://github.com/telekom/3gpp-meeting-tools/archive/<sha>.zip` with ZipSlip path-traversal validation.
-- **Install Modes & Baseline Tracking:** Supports `zip_tracked` (`.app_version.json` recording `installed_sha` and `managed_files`), `zip_manual` (estimates baseline from newest source file mtime until the first in-app update locks the commit SHA), and `git` (recognizes unpushed local commits via `git merge-base --is-ancestor`, blocks overwrite on dirty trees, and uses `git pull --ff-only` when clean).
-- **Detached Applier & User Data Preservation (`apply_worker.py`):** Copies a pure-stdlib worker outside the install directory, waits for the GUI PID to exit, retries file copies for OneDrive/AV locks, removes obsolete previously-managed files, preserves existing `src/db/*.db*`, `src/config/*_config.json`, `*_user.json`, `useful_links.json`, `export_config.json`, `plantuml.jar`, templates, and `output/`, runs `pip install -r requirements.txt` if changed, and relaunches `Launch.cmd`.
+- **Manual Trigger Only:** Never polls GitHub automatically at startup. Invoked explicitly via **Settings → 🔄 Check for Updates...**, **Help & Docs → 🔄 Check for Updates...**, `Ctrl+K` (`Check for App Updates`), or by running `.\src\Update.cmd` outside the GUI.
+- **Rate-Limit-Free Feed & Subtree-Filtered Extended-Path Staging:** Fetches `https://github.com/telekom/3gpp-meeting-tools/commits/master/3GPP%20Tools.atom` through `NetworkSession` (respecting corporate proxies/DPAPI credentials without hitting GitHub REST API NAT limits) and stages `https://github.com/telekom/3gpp-meeting-tools/archive/<sha>.zip` with ZipSlip path-traversal validation, `3GPP Tools/` subtree filtering (skipping legacy `3GPP Meeting Helper` files), top-level `<repo>-<sha>/` prefix stripping, and Windows extended-length (`\\?\`) paths to avoid 260-character `MAX_PATH` limits.
+- **Install Modes, Seed File Ignorance & ZIP Override Recovery:** Supports `zip_tracked` (`.app_version.json` recording `installed_sha` and `managed_files`), `zip_manual` (estimates baseline from newest source file mtime until the first update locks the commit SHA), and `git` (recognizes unpushed local commits via `git merge-base --is-ancestor`, ignores runtime-modified seed/config files such as `src/db/3gpp_data.db`, `src/config/export_config.json`, `src/config/useful_links.json`, and `src/config/*_config.json` in `git status --porcelain`, preserves those seed files across `git pull --ff-only`, and offers an in-app **Overwrite via ZIP Update...** fallback with `"zip_override": true` when a Git checkout is dirty or `git pull` cannot run).
+- **Detached Applier & Standalone CLI Recovery (`apply_worker.py`, `src/Update.cmd`):** Copies a pure-stdlib worker outside the install directory, waits for the 64-bit GUI PID to exit, walks and copies files using `\\?\` extended paths with read-only attribute clearing and retries for OneDrive/AV locks, removes obsolete previously-managed files, preserves existing `src/db/*.db*`, `src/config/*_config.json`, `*_user.json`, `useful_links.json`, `export_config.json`, `plantuml.jar`, templates, and `output/`, runs `pip install -r requirements.txt` if changed, and relaunches `Launch.cmd`. `src/Update.cmd` provides a self-contained single-file batch+Python updater that can also be dropped into any existing installation (`3GPP Tools\` or `3GPP Tools\src\`) to update offline/outside the GUI.
 
 Launch the application:
 ```powershell
 # Using the Windows batch launcher (auto-detects Python 3.14, 3.x, or system python):
 .\src\Launch.cmd
+
+# Or run the standalone self-contained updater outside the GUI:
+.\src\Update.cmd
 
 # Or directly via Python with proper PYTHONPATH:
 $env:PYTHONPATH = ".;.\src;$env:PYTHONPATH"
@@ -70,6 +73,7 @@ python -m main_tools
 ├── src/
 │   ├── Launch.cmd                 # Startup script with PYTHONPATH configuration
 │   ├── Launch_MCP.cmd             # Zero-config launcher for Claude CLI / Codex CLI MCP stdio server
+│   ├── Update.cmd                 # Self-contained standalone GitHub master updater script
 │   ├── main_tools.py              # Application entry point, logging, faulthandler setup
 │   ├── main_window.py             # DragDropUI main window, tab instantiation, system bar
 │   ├── mcp_server.py              # JSON-RPC 2.0 stdio MCP server exposing 12 multi-action domain tools

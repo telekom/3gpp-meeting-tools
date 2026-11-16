@@ -383,6 +383,12 @@ class AppUpdateDialog(QDialog):
         self.cancel_dl_btn.setVisible(False)
         btn_row.addWidget(self.cancel_dl_btn)
 
+        self.force_zip_btn = QPushButton("Overwrite via ZIP Update...")
+        self.force_zip_btn.setCursor(Qt.PointingHandCursor)
+        self.force_zip_btn.clicked.connect(self._confirm_and_force_zip_update)
+        self.force_zip_btn.setVisible(False)
+        btn_row.addWidget(self.force_zip_btn)
+
         self.apply_btn = QPushButton("Update && Restart")
         self.apply_btn.setObjectName("updatePrimaryBtn")
         self.apply_btn.setCursor(Qt.PointingHandCursor)
@@ -510,6 +516,7 @@ class AppUpdateDialog(QDialog):
 
         self.notice_lbl.setVisible(False)
         self.skip_btn.setVisible(False)
+        self.force_zip_btn.setVisible(False)
 
         if result.status == "error":
             self.status_title_lbl.setText("Could not check for updates")
@@ -530,12 +537,15 @@ class AppUpdateDialog(QDialog):
             if local.install_mode == "git":
                 if local.is_git_dirty:
                     self.notice_lbl.setText(
-                        "Developer Git workspace has uncommitted local changes. "
-                        "Commit or stash your edits and run 'git pull' manually to avoid losing work."
+                        "Developer Git workspace has uncommitted local code changes. "
+                        "Commit or stash your edits and run 'git pull', or click 'Overwrite via ZIP Update...' "
+                        "to replace application code while preserving your databases and settings."
                     )
                     self.notice_lbl.setVisible(True)
                     self.apply_btn.setText("Git Workspace Dirty")
                     self.apply_btn.setEnabled(False)
+                    self.force_zip_btn.setVisible(True)
+                    self.force_zip_btn.setEnabled(True)
                 else:
                     self.apply_btn.setText("Git Pull && Restart")
                     self.apply_btn.setEnabled(True)
@@ -571,6 +581,23 @@ class AppUpdateDialog(QDialog):
             self.update_status_cleared.emit()
             self.close()
 
+    def _confirm_and_force_zip_update(self) -> None:
+        if not self._result or not self._result.latest_commit:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Overwrite Local Git Changes?",
+            "This will download the latest GitHub snapshot and overwrite modified application "
+            "source files in '3GPP Tools'.\n\n"
+            "Your local databases (3gpp_data.db), proxy/AI settings, user presets, PlantUML JAR, "
+            "and output/ files will be preserved.\n\n"
+            "Proceed with ZIP update?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            self._start_zip_download()
+
     def _start_apply_update(self) -> None:
         if not self._result or not self._result.latest_commit:
             return
@@ -580,11 +607,17 @@ class AppUpdateDialog(QDialog):
             self._apply_git_and_restart()
             return
 
+        self._start_zip_download()
+
+    def _start_zip_download(self) -> None:
+        if not self._result or not self._result.latest_commit:
+            return
         if self._download_thread and self._download_thread.isRunning():
             return
 
         self.check_btn.setEnabled(False)
         self.apply_btn.setEnabled(False)
+        self.force_zip_btn.setEnabled(False)
         self.skip_btn.setEnabled(False)
         self.close_btn.setEnabled(False)
         self.progress_widget.setVisible(True)
@@ -594,7 +627,7 @@ class AppUpdateDialog(QDialog):
 
         self._download_thread = AppUpdateDownloadThread(
             target_commit=self._result.latest_commit,
-            local_info=local,
+            local_info=self._result.local_info,
             parent=self,
         )
         self._download_thread.progress_changed.connect(self._on_download_progress)
@@ -617,7 +650,17 @@ class AppUpdateDialog(QDialog):
             self.progress_widget.setVisible(False)
             self.check_btn.setEnabled(True)
             self.apply_btn.setEnabled(True)
-            QMessageBox.warning(self, "Git Update Failed", msg)
+            reply = QMessageBox.question(
+                self,
+                "Git Update Failed",
+                f"Git pull could not complete automatically:\n\n{msg}\n\n"
+                "Would you like to apply the update using the GitHub ZIP updater instead "
+                "(preserving your databases, settings, user presets, and output/ files)?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            if reply == QMessageBox.Yes:
+                self._start_zip_download()
             return
 
         self.progress_bar.setValue(100)
@@ -673,6 +716,7 @@ class AppUpdateDialog(QDialog):
         main_win = self.parentWidget()
         if main_win is not None:
             QTimer.singleShot(0, main_win.close)
+            QTimer.singleShot(150, QApplication.quit)
         else:
             QTimer.singleShot(0, QApplication.quit)
 
@@ -681,11 +725,23 @@ class AppUpdateDialog(QDialog):
         work_root = get_temp_root() / "app_update"
         work_root.mkdir(parents=True, exist_ok=True)
         helper_code = (
-            "import os, subprocess, sys, time\n"
+            "import ctypes, os, subprocess, sys, time\n"
             f"pid = {os.getpid()}\n"
             f"app_root = r'''{str(app_root)}'''\n"
             f"py_exe = r'''{sys.executable}'''\n"
-            "time.sleep(1.2)\n"
+            "if os.name == 'nt' and pid > 0:\n"
+            "    k32 = ctypes.windll.kernel32\n"
+            "    k32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]\n"
+            "    k32.OpenProcess.restype = ctypes.c_void_p\n"
+            "    k32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]\n"
+            "    k32.CloseHandle.argtypes = [ctypes.c_void_p]\n"
+            "    h = k32.OpenProcess(0x00100000, 0, pid)\n"
+            "    if h:\n"
+            "        k32.WaitForSingleObject(h, 20000)\n"
+            "        k32.CloseHandle(h)\n"
+            "    time.sleep(0.4)\n"
+            "else:\n"
+            "    time.sleep(1.2)\n"
             "launch_cmd = os.path.join(app_root, 'src', 'Launch.cmd')\n"
             "if os.name == 'nt' and os.path.isfile(launch_cmd):\n"
             "    subprocess.Popen(['cmd.exe', '/c', launch_cmd], cwd=app_root, creationflags=subprocess.CREATE_NEW_CONSOLE)\n"
@@ -705,6 +761,7 @@ class AppUpdateDialog(QDialog):
         main_win = self.parentWidget()
         if main_win is not None:
             QTimer.singleShot(0, main_win.close)
+            QTimer.singleShot(150, QApplication.quit)
         else:
             QTimer.singleShot(0, QApplication.quit)
 

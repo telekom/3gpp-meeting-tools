@@ -1414,9 +1414,23 @@ class DragDropUI(QMainWindow):
     def open_app_updater(self):
         """Opens the Application Updates dialog and checks GitHub master manually."""
         from core.ui.update_dialog import AppUpdateDialog
-        from core.updater.app_updater import load_update_state
+        from core.updater.app_updater import (
+            evaluate_update_status,
+            inspect_local_install,
+            load_update_state,
+        )
 
-        dlg = AppUpdateDialog(initial_result=self._last_update_check_result, parent=self)
+        initial_result = self._last_update_check_result
+        if initial_result is not None:
+            if initial_result.status == "error" or not initial_result.all_commits:
+                initial_result = None
+            else:
+                initial_result = evaluate_update_status(
+                    inspect_local_install(),
+                    initial_result.all_commits,
+                )
+
+        dlg = AppUpdateDialog(initial_result=initial_result, parent=self)
         dlg.update_status_cleared.connect(self.status_bar.clear_update_available)
         dlg.exec_()
         if dlg._result is not None:

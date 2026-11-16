@@ -17,6 +17,7 @@ import fnmatch
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -110,6 +111,43 @@ def is_seed_only_relative_path(rel_posix: str) -> bool:
     return low in SEED_IF_MISSING_PATHS
 
 
+def _to_extended_path(p) -> str:
+    """Convert a path to Windows extended-length format (\\\\?\\) for >260 char safety."""
+    p_str = os.path.abspath(str(p))
+    if os.name == "nt" and not p_str.startswith("\\\\?\\"):
+        if p_str.startswith("\\\\"):
+            return "\\\\?\\UNC\\" + p_str[2:]
+        return "\\\\?\\" + p_str
+    return p_str
+
+
+def _clear_readonly(path_str: str) -> None:
+    """Clear read-only attributes so files on OneDrive/Git packdirs can be replaced or removed."""
+    try:
+        os.chmod(path_str, stat.S_IWRITE | stat.S_IREAD)
+    except OSError:
+        pass
+
+
+def rmtree_extended(target: Path) -> None:
+    """Remove a directory tree safely using Windows extended paths and read-only clearing."""
+    ext_target = _to_extended_path(target)
+    if not os.path.exists(ext_target):
+        return
+
+    def _on_rm_error(func, path, _exc_info):
+        _clear_readonly(path)
+        try:
+            func(path)
+        except OSError:
+            pass
+
+    try:
+        shutil.rmtree(ext_target, onerror=_on_rm_error)
+    except OSError:
+        pass
+
+
 def wait_for_pid_exit(pid: int, timeout_seconds: float = 20.0) -> bool:
     """Wait until process ``pid`` exits, returning True if gone before timeout."""
     if not pid or pid <= 0:
@@ -119,15 +157,23 @@ def wait_for_pid_exit(pid: int, timeout_seconds: float = 20.0) -> bool:
     if os.name == "nt":
         SYNCHRONIZE = 0x00100000
         WAIT_OBJECT_0 = 0x00000000
-        handle = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE, False, int(pid))
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        kernel32.WaitForSingleObject.restype = ctypes.c_uint32
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.restype = ctypes.c_int
+
+        handle = kernel32.OpenProcess(SYNCHRONIZE, 0, int(pid))
         if not handle:
             return True
         try:
             remaining_ms = int(max(100, (deadline - time.monotonic()) * 1000))
-            res = ctypes.windll.kernel32.WaitForSingleObject(handle, remaining_ms)
+            res = kernel32.WaitForSingleObject(handle, remaining_ms)
             return res == WAIT_OBJECT_0
         finally:
-            ctypes.windll.kernel32.CloseHandle(handle)
+            kernel32.CloseHandle(handle)
 
     while time.monotonic() < deadline:
         try:
@@ -139,15 +185,20 @@ def wait_for_pid_exit(pid: int, timeout_seconds: float = 20.0) -> bool:
 
 
 def _copy_with_retry(src: Path, dst: Path, attempts: int = 10, delay_s: float = 0.35) -> None:
-    """Copy ``src`` to ``dst`` with retries for transient OneDrive/AV file locks."""
-    dst.parent.mkdir(parents=True, exist_ok=True)
+    """Copy ``src`` to ``dst`` with retries for transient OneDrive/AV file locks and >260 char paths."""
+    ext_src = _to_extended_path(src)
+    ext_dst = _to_extended_path(dst)
+    os.makedirs(_to_extended_path(dst.parent), exist_ok=True)
     last_err: Optional[Exception] = None
     for i in range(max(1, attempts)):
         try:
-            shutil.copy2(str(src), str(dst))
+            if os.path.exists(ext_dst):
+                _clear_readonly(ext_dst)
+            shutil.copy2(ext_src, ext_dst)
             return
         except (PermissionError, OSError) as exc:
             last_err = exc
+            _clear_readonly(ext_dst)
             if i < attempts - 1:
                 time.sleep(delay_s)
     if last_err is not None:
@@ -156,15 +207,39 @@ def _copy_with_retry(src: Path, dst: Path, attempts: int = 10, delay_s: float = 
 
 def _remove_with_retry(target: Path, attempts: int = 6, delay_s: float = 0.25) -> bool:
     """Remove ``target`` file safely with retries; returns True if removed."""
+    ext_target = _to_extended_path(target)
     for i in range(max(1, attempts)):
         try:
-            if target.is_file() or target.is_symlink():
-                target.unlink()
+            if os.path.isfile(ext_target) or os.path.islink(ext_target):
+                _clear_readonly(ext_target)
+                os.unlink(ext_target)
             return True
         except (PermissionError, OSError):
+            _clear_readonly(ext_target)
             if i < attempts - 1:
                 time.sleep(delay_s)
     return False
+
+
+def _write_text_with_retry(target: Path, content: str, attempts: int = 8, delay_s: float = 0.25) -> None:
+    """Write UTF-8 text to ``target`` with retries for transient OneDrive/AV locks."""
+    ext_target = _to_extended_path(target)
+    os.makedirs(_to_extended_path(target.parent), exist_ok=True)
+    last_err: Optional[Exception] = None
+    for i in range(max(1, attempts)):
+        try:
+            if os.path.exists(ext_target):
+                _clear_readonly(ext_target)
+            with open(ext_target, "w", encoding="utf-8") as fh:
+                fh.write(content)
+            return
+        except (PermissionError, OSError) as exc:
+            last_err = exc
+            _clear_readonly(ext_target)
+            if i < attempts - 1:
+                time.sleep(delay_s)
+    if last_err is not None:
+        raise last_err
 
 
 def apply_staged_tree(
@@ -180,10 +255,10 @@ def apply_staged_tree(
 
     Returns a summary dict with counts of copied, seeded, skipped, and removed files.
     """
-    staged_app_dir = Path(staged_app_dir).resolve()
-    app_root = Path(app_root).resolve()
+    staged_app_dir = Path(os.path.abspath(str(staged_app_dir)))
+    app_root = Path(os.path.abspath(str(app_root)))
 
-    if not (staged_app_dir / "src" / "main_tools.py").is_file():
+    if not os.path.isfile(_to_extended_path(staged_app_dir / "src" / "main_tools.py")):
         raise FileNotFoundError(
             f"Staged directory does not contain src/main_tools.py: {staged_app_dir}"
         )
@@ -194,16 +269,17 @@ def apply_staged_tree(
     removed = 0
     new_managed_files: List[str] = []
 
-    for root, dirs, files in os.walk(staged_app_dir):
-        root_path = Path(root)
+    ext_staged = _to_extended_path(staged_app_dir)
+    for root, dirs, files in os.walk(ext_staged):
         # Skip cache directories before descending
         dirs[:] = [
             d for d in dirs
             if d not in {"__pycache__", ".git", ".idea", ".ipynb_checkpoints"}
         ]
         for fname in files:
-            src_file = root_path / fname
-            rel_posix = normalize_rel_path(str(src_file.relative_to(staged_app_dir)))
+            src_full = os.path.join(root, fname)
+            rel_posix = normalize_rel_path(os.path.relpath(src_full, ext_staged))
+            src_file = staged_app_dir / rel_posix
 
             if is_ignored_cache_path(rel_posix):
                 continue
@@ -211,7 +287,7 @@ def apply_staged_tree(
             dst_file = app_root / rel_posix
 
             if is_seed_only_relative_path(rel_posix):
-                if dst_file.exists():
+                if os.path.exists(_to_extended_path(dst_file)):
                     skipped += 1
                     continue
                 _copy_with_retry(src_file, dst_file)
@@ -235,19 +311,22 @@ def apply_staged_tree(
             if is_protected_relative_path(norm_old) or is_seed_only_relative_path(norm_old):
                 continue
             old_target = app_root / norm_old
-            if old_target.is_file():
+            if os.path.isfile(_to_extended_path(old_target)):
                 if _remove_with_retry(old_target):
                     removed += 1
                     # Prune empty parent folders inside app_root
                     parent = old_target.parent
-                    while parent != app_root and parent.is_dir():
+                    while parent != app_root and os.path.isdir(_to_extended_path(parent)):
                         try:
-                            parent.rmdir()
+                            os.rmdir(_to_extended_path(parent))
                             parent = parent.parent
                         except OSError:
                             break
 
     now_iso = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+    has_git_dir = os.path.exists(_to_extended_path(app_root / ".git")) or os.path.exists(
+        _to_extended_path(app_root.parent / ".git")
+    )
     version_payload = {
         "installed_sha": str(commit_meta.get("sha") or ""),
         "short_sha": str(commit_meta.get("short_sha") or str(commit_meta.get("sha") or "")[:7]),
@@ -255,24 +334,27 @@ def apply_staged_tree(
         "updated_iso": str(commit_meta.get("updated_iso") or ""),
         "installed_at_iso": now_iso,
         "managed_files": sorted(new_managed_files),
+        "zip_override": bool(has_git_dir),
     }
     version_file = app_root / APP_VERSION_FILENAME
-    version_file.write_text(json.dumps(version_payload, indent=2), encoding="utf-8")
+    _write_text_with_retry(version_file, json.dumps(version_payload, indent=2))
 
     if app_data_root is not None:
-        app_data_root = Path(app_data_root)
-        app_data_root.mkdir(parents=True, exist_ok=True)
+        app_data_root = Path(os.path.abspath(str(app_data_root)))
+        os.makedirs(_to_extended_path(app_data_root), exist_ok=True)
         state_path = app_data_root / UPDATE_STATE_FILENAME
         state: Dict[str, object] = {}
-        if state_path.is_file():
+        ext_state_path = _to_extended_path(state_path)
+        if os.path.isfile(ext_state_path):
             try:
-                state = json.loads(state_path.read_text(encoding="utf-8")) or {}
+                with open(ext_state_path, "r", encoding="utf-8") as fh:
+                    state = json.loads(fh.read()) or {}
             except Exception:
                 state = {}
         state["last_updated_sha"] = version_payload["installed_sha"]
         state["last_updated_at_iso"] = now_iso
         state["skipped_sha"] = ""
-        state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        _write_text_with_retry(state_path, json.dumps(state, indent=2))
 
     log_fn(
         f"[Updater] Applied update: {copied} updated, {seeded} seeded, "
@@ -290,13 +372,16 @@ def apply_staged_tree(
 def _relaunch_application(app_root: Path, python_exe: str) -> None:
     """Relaunch 3GPP Delegate Tools after update completes."""
     launch_cmd = app_root / "src" / "Launch.cmd"
-    if os.name == "nt" and launch_cmd.is_file():
-        subprocess.Popen(
-            ["cmd.exe", "/c", str(launch_cmd)],
-            cwd=str(app_root),
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
-        )
-        return
+    if os.name == "nt" and os.path.isfile(_to_extended_path(launch_cmd)):
+        try:
+            subprocess.Popen(
+                ["cmd.exe", "/c", str(launch_cmd)],
+                cwd=str(app_root),
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+            return
+        except OSError:
+            pass
 
     env = os.environ.copy()
     src_dir = str(app_root / "src")
@@ -313,7 +398,8 @@ def _relaunch_application(app_root: Path, python_exe: str) -> None:
 
 def run_manifest(manifest_path: Path) -> int:
     """Execute an update from a JSON manifest file."""
-    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    with open(_to_extended_path(manifest_path), "r", encoding="utf-8") as fh:
+        manifest = json.loads(fh.read())
     parent_pid = int(manifest.get("parent_pid") or 0)
     app_root = Path(manifest["app_root"])
     staged_app_dir = Path(manifest["staged_app_dir"])
@@ -323,6 +409,7 @@ def run_manifest(manifest_path: Path) -> int:
     commit_meta = dict(manifest.get("commit_meta") or {})
     prev_managed_files = list(manifest.get("prev_managed_files") or [])
     cleanup_dir = Path(manifest["cleanup_dir"]) if manifest.get("cleanup_dir") else None
+    cleanup_zip = Path(manifest["cleanup_zip"]) if manifest.get("cleanup_zip") else None
     relaunch = bool(manifest.get("relaunch", True))
 
     print("=" * 56)
@@ -349,23 +436,25 @@ def run_manifest(manifest_path: Path) -> int:
 
     if requirements_changed:
         req_file = app_root / "requirements.txt"
-        if req_file.is_file():
+        if os.path.isfile(_to_extended_path(req_file)):
             print("\nInstalling updated Python dependencies from requirements.txt...")
-            res = subprocess.run(
-                [python_exe, "-m", "pip", "install", "-r", str(req_file)],
-                cwd=str(app_root),
-            )
-            if res.returncode != 0:
-                print(
-                    f"[WARN] pip install exited with code {res.returncode}. "
-                    "Startup dependency check will assist if anything is missing."
+            try:
+                res = subprocess.run(
+                    [python_exe, "-m", "pip", "install", "-r", str(req_file)],
+                    cwd=str(app_root),
                 )
+                if res.returncode != 0:
+                    print(
+                        f"[WARN] pip install exited with code {res.returncode}. "
+                        "Startup dependency check will assist if anything is missing."
+                    )
+            except Exception as exc:
+                print(f"[WARN] Could not run pip install automatically: {exc}")
 
-    if cleanup_dir and cleanup_dir.exists():
-        try:
-            shutil.rmtree(str(cleanup_dir), ignore_errors=True)
-        except Exception:
-            pass
+    if cleanup_dir is not None:
+        rmtree_extended(cleanup_dir)
+    if cleanup_zip is not None:
+        _remove_with_retry(cleanup_zip)
 
     if relaunch:
         print("\nRelaunching 3GPP Delegate Tools...")
