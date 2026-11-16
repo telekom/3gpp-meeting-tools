@@ -36,7 +36,12 @@ from core.ui.right_side_panel import MODE_ASSISTANT, MODE_SPEC_SEARCH, RightSide
 from core.ui.shell_state import restore_shell_state, save_shell_state
 from core.ui.theme import C
 from core.ui.toast import ToastAction, ToastManager, notify_info
-from core.ui.ui_components import ProxyDialog, create_app_icon
+from core.ui.ui_components import (
+    ProxyDialog,
+    apply_native_window_icon,
+    create_app_icon,
+    install_window_icon_manager,
+)
 from core.ui.ui_panels import (
     ConsolePanel, QueuePanel, ProcessManagerDialog, DatabaseMaintenanceDialog, GuiLogHandler
 )
@@ -67,6 +72,7 @@ class DragDropUI(QMainWindow):
         super().__init__()
         self.setWindowTitle("3GPP Delegate Tools")
         self.setWindowIcon(create_app_icon())
+        install_window_icon_manager(QApplication.instance())
         self.setMinimumSize(780, 560)
         self.resize(1160, 780)
 
@@ -1375,6 +1381,7 @@ class DragDropUI(QMainWindow):
 
     def showEvent(self, event):
         super().showEvent(event)
+        apply_native_window_icon(self, set_class_icon=True)
 
         if not self._services_started:
             self._services_started = True

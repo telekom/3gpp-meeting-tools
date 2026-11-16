@@ -22,7 +22,14 @@ from PyQt5.QtWidgets import QApplication, QDialog
 from core.network.session import NetworkSession
 from core.ui.font_scale import apply_font_scale, install_font_scaling, load_font_scale
 from core.ui.theme import load_app_fonts
-from core.ui.ui_components import GLOBAL_STYLE, ProxyDialog, create_app_icon
+from core.ui.ui_components import (
+    APP_USER_MODEL_ID,
+    GLOBAL_STYLE,
+    ProxyDialog,
+    apply_native_window_icon,
+    create_app_icon,
+    install_window_icon_manager,
+)
 from core.ui.ui_panels import GuiLogHandler
 from core.utils.paths import ensure_app_data_dirs, get_app_data_root, get_project_root
 from core.utils.utils import get_best_java
@@ -97,8 +104,7 @@ if __name__ == '__main__':
     if os.name == 'nt':
         import ctypes
 
-        myappid = '3GPP Delegate Tools.1.0'
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
 
     logging.info("🏁 [STARTUP] Registering plugins...")
     register_puml2visio_plugin()
@@ -114,6 +120,7 @@ if __name__ == '__main__':
     load_app_fonts(app)
     app_icon = create_app_icon()
     app.setWindowIcon(app_icon)
+    install_window_icon_manager(app)
     app.setStyle("Fusion")
     app.setStyleSheet(GLOBAL_STYLE)
     app.setQuitOnLastWindowClosed(True)
@@ -161,13 +168,14 @@ if __name__ == '__main__':
     )
 
     window = DragDropUI(gui_log_handler=gui_log_handler)
-    # Explicitly set the icon on the native top-level window as well as on
-    # QApplication. This avoids relying solely on Qt icon inheritance when
-    # Windows creates the taskbar/title-bar representation for python.exe.
+    # Explicitly set both the Qt QIcon and native Win32 HICON/IPropertyStore
+    # metadata on the top-level window as well as on QApplication.
     window.setWindowIcon(app_icon)
+    apply_native_window_icon(window, set_class_icon=True)
 
     logging.info("🏁 [STARTUP] Displaying main window...")
     window.show()
+    apply_native_window_icon(window, set_class_icon=True)
     logging.info(
         "🚀 [STARTUP] window.show() completed successfully."
     )
