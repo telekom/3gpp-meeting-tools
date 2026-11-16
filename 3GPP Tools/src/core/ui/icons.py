@@ -252,6 +252,10 @@ _LUCIDE_PATHS: Dict[str, str] = {
         '<line x1="3" y1="15" x2="21" y2="15"/>'
         '<line x1="9" y1="3" x2="9" y2="21"/>'
     ),
+    "clock": (
+        '<circle cx="12" cy="12" r="10"/>'
+        '<polyline points="12 6 12 12 16 14"/>'
+    ),
 }
 
 _PIXMAP_CACHE: Dict[Tuple[str, str, int, int], QPixmap] = {}

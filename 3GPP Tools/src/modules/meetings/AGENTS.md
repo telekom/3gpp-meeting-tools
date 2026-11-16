@@ -245,10 +245,10 @@ src/modules/meetings/
 
 ### 3.12. SA2 Meeting Session Plan Management, Version Diffing & Mobile Export
 - **Problem Solved:** SA2 meeting session plans ("Draft time allocation") are published as living TDocs with frequent revisions (often reusing the same TDoc number `S2-2610195` across intra-day updates), 3 parallel streams, 45-minute half-quarter Time Units (TUs), and ad-hoc drafting sessions (08:00 morning, lunch, and 18:00 evening).
-- **Timezone & Corporate Laptop Synchronization (`SessionPlanTimezone`):**
-  - Solves the Austrian corporate laptop clock lock (`Europe/Vienna`, CET `UTC+1` / CEST `UTC+2`) by strictly anchoring internal timestamps in true UTC.
-  - 3-tier meeting timezone resolution: (1) Auto-parsing from Agenda Deadlines table (`0900 Local time | 0700 UTC` $\rightarrow$ `UTC+02:00`); (2) City/Country lookup from meeting location; (3) Interactive `SessionPlanTimezoneDialog` confirmation prompt.
-  - Dual-time display in UI and tooltips (`09:00 Venue (02:00 Vienna)`).
+- **Timezone & Corporate Laptop Synchronization (`SessionPlanTimezone`, `WorldClockService`):**
+  - Solves corporate laptop clock locks (`Europe/Vienna`, CET `UTC+1` / CEST `UTC+2`) by strictly anchoring internal timestamps in true UTC.
+  - 3-tier meeting timezone resolution: (1) Per-meeting folder `meeting_timezone.json` (`<meeting_dir>/meeting_timezone.json`) & `meetings_config.json` `venue_overrides` (`manual_override` locked against automatic overwrites); (2) Public Web API verification (`WebTimezoneSyncWorker` via Open-Meteo Geocoding + `timeapi.io`, plus physical Geo-IP check via `ipwho.is`) and Agenda Deadlines table parsing (`0900 Local time | 0700 UTC`); (3) Expanded offline 3GPP city/country dictionary backed by Python `zoneinfo` (plus `SessionPlanTimezoneDialog` / `WorldClockDialog` manual overrides and `-1h`/`+1h` DST nudges).
+  - Dual-time display in UI and tooltips (`09:00 Venue (02:00 Vienna)`), global status-bar pill (`SystemStatusBar.clock_indicator`), and contextual per-meeting `TDocsWindow.venue_clock_btn` pill.
   - Live clock strip in toolbar updating Venue time and laptop time every second.
 - **Interactive Session Plan Studio & Ergonomics (`SessionPlanWindow`):**
   - **10-Column Graphical Half-Quarter Layout:** Organizes the 5-day week into 10 sub-columns (2 sub-columns per day: `TU 1` and `TU 2`) using `QHeaderView.Stretch`. Full-quarter sessions span both sub-columns (`setSpan(row, day*2, 1, 2)`), while half-quarters occupy 50% left or right sub-columns, communicating timing geometrically and cleanly eliminating inline timestamp text (`[TU 1 (09:00–09:45)]`) from cell interiors.

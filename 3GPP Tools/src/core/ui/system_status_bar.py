@@ -21,6 +21,7 @@ from core.network.wifi_monitor import WifiMonitorThread
 from core.ui.icons import lucide_icon
 from core.ui.theme import C, R, T
 from core.ui.ui_components import ProxyDialog
+from core.ui.world_clock_service import WebTimezoneSyncWorker, WorldClockService
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,10 @@ class SystemStatusBar(QStatusBar):
         self._drawer_open: bool = False
         self._drawer_queue_count: int = 0
         self._drawer_unread_errors: int = 0
+        self._world_clock_service = WorldClockService()
+        self._clock_sync_workers: list = []
+        self._clock_auto_synced: set = set()
+        self._monitors_stopped: bool = False
 
         self.showMessage("⏳ Initializing...")
         self._setup_indicators()
@@ -184,6 +189,20 @@ class SystemStatusBar(QStatusBar):
         self.drawer_toggle_btn.clicked.connect(self.drawer_toggle_requested.emit)
         self.addPermanentWidget(self.drawer_toggle_btn)
         self.update_drawer_badge(False, 0, 0)
+
+        # 8. Live World Clock & Active 3GPP Meeting Venues Pill
+        self.clock_indicator = QPushButton("🕒 --:--")
+        self.clock_indicator.setObjectName("statusClockBtn")
+        self.clock_indicator.setCursor(Qt.PointingHandCursor)
+        self.clock_indicator.setStyleSheet(_status_pill_qss(bg=C.BG_SURFACE, fg=C.TEXT_BODY))
+        self.clock_indicator.clicked.connect(self.open_world_clock)
+        self.addPermanentWidget(self.clock_indicator)
+
+        self.clock_timer = QTimer(self)
+        self.clock_timer.setInterval(1000)
+        self.clock_timer.timeout.connect(self.update_clock_indicator)
+        self.clock_timer.start()
+        self.update_clock_indicator()
 
         # Synchronize proxy on boot
         self.sync_proxy_environment_from_session()
@@ -375,6 +394,8 @@ class SystemStatusBar(QStatusBar):
     # ==========================================
     def start_wifi_monitor(self):
         """Starts Wi-Fi monitor independently."""
+        self._monitors_stopped = False
+        QTimer.singleShot(2500, self._schedule_active_venue_web_sync)
         try:
             if self.wifi_monitor is None or not self.wifi_monitor.isRunning():
                 logger.info("🏁 [STARTUP:SERVICES] Starting WifiMonitorThread...")
@@ -508,10 +529,86 @@ class SystemStatusBar(QStatusBar):
         except Exception:
             pass
 
+    def update_clock_indicator(self) -> None:
+        """Refreshes the status-bar World Clock pill text and rich tooltip."""
+        try:
+            snapshot = self._world_clock_service.get_snapshot()
+            self.clock_indicator.setText(self._world_clock_service.format_status_bar_text(snapshot))
+            self.clock_indicator.setToolTip(self._world_clock_service.format_status_bar_tooltip(snapshot))
+        except Exception as e:
+            logger.debug(f"[StatusBarClock] Failed to update clock indicator: {e}")
+
+    def refresh_world_clock(self) -> None:
+        """Invalidates meeting DB cache and immediately refreshes the clock pill."""
+        self._world_clock_service.invalidate_cache()
+        self.update_clock_indicator()
+
+    def open_world_clock(self) -> None:
+        """Opens the interactive World Clock & Active 3GPP Venue Timezone dialog."""
+        from core.ui.world_clock_dialog import WorldClockDialog
+
+        dlg = WorldClockDialog(self._world_clock_service, parent=self.window())
+        dlg.settings_changed.connect(self.refresh_world_clock)
+        dlg.exec_()
+        self.refresh_world_clock()
+
+    def _schedule_active_venue_web_sync(self) -> None:
+        """Background-verifies active meeting venue timezones not yet web-verified or manually overridden."""
+        if self._monitors_stopped:
+            return
+        try:
+            snapshot = self._world_clock_service.get_snapshot()
+            for v in snapshot.primary_venues + snapshot.other_venues:
+                loc_key = v.location.strip().lower()
+                if (
+                    v.source in ("builtin", "unresolved")
+                    and loc_key
+                    and loc_key not in self._clock_auto_synced
+                ):
+                    self._clock_auto_synced.add(loc_key)
+                    worker = WebTimezoneSyncWorker(
+                        mode="city",
+                        location=v.location,
+                        meetings=v.meetings,
+                        parent=self,
+                    )
+                    worker.city_resolved.connect(self._on_auto_venue_web_resolved)
+                    worker.finished.connect(
+                        lambda w=worker: self._clock_sync_workers.remove(w)
+                        if w in self._clock_sync_workers
+                        else None
+                    )
+                    self._clock_sync_workers.append(worker)
+                    worker.start()
+        except Exception as e:
+            logger.debug(f"[StatusBarClock] Auto web sync scheduling failed: {e}")
+
+    def _on_auto_venue_web_resolved(
+        self, location: str, offset_min: int, label: str, iana_tz: str, meetings: list
+    ) -> None:
+        self._world_clock_service.settings.set_venue_timezone_override(
+            location=location,
+            tz_offset_minutes=offset_min,
+            tz_label=label,
+            source="web_api",
+            iana_tz=iana_tz,
+            matching_meetings=meetings,
+        )
+        self.refresh_world_clock()
+
     def stop_monitors(self):
         """Cleanly stops background thread monitors upon window shutdown."""
+        self._monitors_stopped = True
+        if hasattr(self, "clock_timer") and self.clock_timer.isActive():
+            self.clock_timer.stop()
         if hasattr(self, "mcp_timer") and self.mcp_timer.isActive():
             self.mcp_timer.stop()
+        for w in list(getattr(self, "_clock_sync_workers", [])):
+            if w.isRunning():
+                w.requestInterruption()
+                w.wait(250)
+        if hasattr(self, "_clock_sync_workers"):
+            self._clock_sync_workers.clear()
         if self.wifi_monitor and self.wifi_monitor.isRunning():
             self.wifi_monitor.requestInterruption()
             self.wifi_monitor.wait(300)

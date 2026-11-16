@@ -621,3 +621,129 @@ class MeetingsDatabase:
             row.pop("range_complete", None)
         return rows
 
+    _NON_PHYSICAL_LOCATIONS = (
+        "ONLINE",
+        "ELECTRONIC",
+        "ELECTRONIC MEETING",
+        "ELECTRONIC MTG",
+        "TELECONFERENCE MTG",
+        "TBD",
+    )
+
+    def get_active_meetings_for_date(
+        self,
+        ref_date_str: str,
+        buffer_days: int = 2,
+        wg_filter: Optional[list] = None,
+    ) -> list:
+        """
+        Returns all in-person (non-electronic) meetings with a physical location
+        whose date range overlaps `[ref_date - buffer_days, ref_date + buffer_days]`.
+        """
+        try:
+            ref_d = datetime.date.fromisoformat(ref_date_str[:10])
+        except Exception:
+            ref_d = datetime.date.today()
+
+        buf = max(0, int(buffer_days))
+        window_start = (ref_d - datetime.timedelta(days=buf)).isoformat()
+        window_end = (ref_d + datetime.timedelta(days=buf)).isoformat()
+
+        excl_placeholders = ",".join("?" * len(self._NON_PHYSICAL_LOCATIONS))
+        query = f"""
+            SELECT m.*, w.name as wg_name
+            FROM meetings m
+            JOIN working_groups w ON m.wg_id = w.id
+            WHERE COALESCE(m.is_electronic, 0) = 0
+              AND COALESCE(TRIM(m.location), '') != ''
+              AND UPPER(TRIM(m.location)) NOT IN ({excl_placeholders})
+              AND COALESCE(TRIM(m.start_date), '') != ''
+              AND COALESCE(TRIM(m.end_date), '') != ''
+              AND m.start_date <= ?
+              AND m.end_date >= ?
+        """
+        params: list = list(self._NON_PHYSICAL_LOCATIONS) + [window_end, window_start]
+
+        if wg_filter:
+            clean_wgs = [str(w).strip().upper() for w in wg_filter if str(w).strip()]
+            if clean_wgs:
+                wg_placeholders = ",".join("?" * len(clean_wgs))
+                query += f" AND UPPER(w.name) IN ({wg_placeholders})"
+                params.extend(clean_wgs)
+
+        query += " ORDER BY m.start_date ASC, w.name ASC, m.id ASC"
+
+        with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_next_upcoming_meetings(
+        self,
+        ref_date_str: str,
+        wg_filter: Optional[list] = None,
+    ) -> list:
+        """
+        Returns the next upcoming cohort of in-person meetings starting after `ref_date_str`
+        (all meetings starting within 7 days of the earliest upcoming meeting date).
+        """
+        try:
+            ref_d = datetime.date.fromisoformat(ref_date_str[:10]).isoformat()
+        except Exception:
+            ref_d = datetime.date.today().isoformat()
+
+        excl_placeholders = ",".join("?" * len(self._NON_PHYSICAL_LOCATIONS))
+        base_where = f"""
+            COALESCE(m.is_electronic, 0) = 0
+            AND COALESCE(TRIM(m.location), '') != ''
+            AND UPPER(TRIM(m.location)) NOT IN ({excl_placeholders})
+            AND COALESCE(TRIM(m.start_date), '') != ''
+            AND m.start_date > ?
+        """
+        base_params: list = list(self._NON_PHYSICAL_LOCATIONS) + [ref_d]
+
+        wg_clause = ""
+        wg_params: list = []
+        if wg_filter:
+            clean_wgs = [str(w).strip().upper() for w in wg_filter if str(w).strip()]
+            if clean_wgs:
+                wg_placeholders = ",".join("?" * len(clean_wgs))
+                wg_clause = f" AND UPPER(w.name) IN ({wg_placeholders})"
+                wg_params.extend(clean_wgs)
+
+        with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                f"""
+                SELECT MIN(m.start_date) as next_start
+                FROM meetings m
+                JOIN working_groups w ON m.wg_id = w.id
+                WHERE {base_where} {wg_clause}
+                """,
+                base_params + wg_params,
+            )
+            row = cursor.fetchone()
+            if not row or not row["next_start"]:
+                return []
+            earliest_str = str(row["next_start"])[:10]
+            try:
+                cohort_end = (datetime.date.fromisoformat(earliest_str) + datetime.timedelta(days=7)).isoformat()
+            except Exception:
+                cohort_end = earliest_str
+
+            cursor.execute(
+                f"""
+                SELECT m.*, w.name as wg_name
+                FROM meetings m
+                JOIN working_groups w ON m.wg_id = w.id
+                WHERE {base_where} {wg_clause}
+                  AND m.start_date <= ?
+                ORDER BY m.start_date ASC, w.name ASC, m.id ASC
+                """,
+                base_params + wg_params + [cohort_end],
+            )
+            return [dict(r) for r in cursor.fetchall()]
+
+

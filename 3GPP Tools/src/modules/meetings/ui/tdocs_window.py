@@ -23,6 +23,8 @@ from core.ui.font_scale import (
     register_scaled_row_height,
     scale_px,
 )
+from core.ui.world_clock_service import WorldClockService
+from modules.meetings.core.session_plan.session_plan_timezone import format_utc_offset
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY
 )
@@ -179,6 +181,12 @@ class TDocsWindow(QWidget):
 
         self.routing_indicator = QLabel("⚪ Routing...")
         self.routing_indicator.setStyleSheet("font-weight: bold; padding: 2px 6px; border-radius: 4px;")
+
+        self._clock_service = WorldClockService()
+        self.venue_clock_btn = QPushButton("📍 --:--")
+        self.venue_clock_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.venue_clock_btn.setCursor(Qt.PointingHandCursor)
+        self.venue_clock_btn.clicked.connect(self._open_venue_clock_dialog)
 
         self.routing_timer = QTimer(self)
         self.routing_timer.timeout.connect(self._update_routing_indicator)
@@ -445,6 +453,7 @@ class TDocsWindow(QWidget):
 
         header_layout.addWidget(title_lbl)
         header_layout.addWidget(self.routing_indicator)
+        header_layout.addWidget(self.venue_clock_btn)
         header_layout.addStretch()
 
         header_layout.addWidget(QLabel("🚀"))
@@ -2267,6 +2276,61 @@ class TDocsWindow(QWidget):
             self.routing_indicator.setText("🌐 Standard Web")
             self.routing_indicator.setStyleSheet(f"color: {C.TEXT_BODY}; background-color: {C.BG_CANVAS}; font-weight: bold; padding: 2px 8px; border-radius: 4px;")
             self.routing_indicator.setToolTip("Downloads are routed through the standard 3GPP web archive.")
+        self._update_venue_clock()
+
+    def _update_venue_clock(self):
+        if not hasattr(self, "venue_clock_btn") or not hasattr(self, "_clock_service"):
+            return
+        try:
+            state = self._clock_service.resolve_single_meeting(
+                self.mtg_info, meeting_dir=self.meeting_dir
+            )
+            if state.venue_dt is not None and state.tz_offset_minutes is not None:
+                is_elec = bool(self.mtg_info.get("is_electronic", 0)) or state.location == "Online (UTC)"
+                if is_elec:
+                    self.venue_clock_btn.setText(f"🌐 {state.venue_dt:%H:%M} UTC (eMeeting)")
+                else:
+                    off_str = format_utc_offset(state.tz_offset_minutes)
+                    if off_str.endswith(":00"):
+                        off_str = off_str[:-3]
+                    day_tag = f" ({state.day_diff_vs_laptop:+d}d)" if state.day_diff_vs_laptop != 0 else ""
+                    self.venue_clock_btn.setText(f"📍 {state.location} {state.venue_dt:%H:%M}{day_tag} ({off_str})")
+                self.venue_clock_btn.setToolTip(
+                    f"Meeting Venue: {state.location}\n"
+                    f"Venue Time: {state.venue_dt:%a %d %b %Y, %H:%M:%S}\n"
+                    f"Timezone: {state.tz_label}\n"
+                    f"Source: {state.source}\n\n"
+                    f"Click to manage venue timezone, sync from web, or set manual override"
+                )
+            else:
+                self.venue_clock_btn.setText(f"📍 {state.location or 'Venue'} (--:--)")
+                self.venue_clock_btn.setToolTip(
+                    "Venue timezone unresolved. Click to configure or sync from web."
+                )
+        except Exception as e:
+            logging.debug(f"[TDocsWindow] Venue clock update failed: {e}")
+
+    def _open_venue_clock_dialog(self):
+        from PyQt5.QtWidgets import QApplication
+        from core.ui.world_clock_dialog import WorldClockDialog
+
+        dlg = WorldClockDialog(
+            self._clock_service,
+            focus_meeting=self.mtg_info,
+            focus_meeting_dir=self.meeting_dir,
+            parent=self,
+        )
+
+        def _sync_all_clocks():
+            self._update_venue_clock()
+            for top in QApplication.topLevelWidgets():
+                sb = getattr(top, "status_bar", None)
+                if sb is not None and hasattr(sb, "refresh_world_clock"):
+                    sb.refresh_world_clock()
+
+        dlg.settings_changed.connect(_sync_all_clocks)
+        dlg.exec_()
+        _sync_all_clocks()
 
     def _on_instant_fetch(self):
         tdoc_str = self.instant_fetch_input.text().strip()

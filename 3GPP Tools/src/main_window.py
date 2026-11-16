@@ -912,6 +912,7 @@ class DragDropUI(QMainWindow):
         """Populates the rail footer Settings & System Tools dropdown menu."""
         self.settings_menu.clear()
         self.settings_menu.addAction("🔤 Display && Text Size...", self.open_display_settings)
+        self.settings_menu.addAction("🕒 World Clock && Meeting Venues...", self.open_world_clock)
         self.settings_menu.addSeparator()
         self.settings_menu.addAction("🦙 Ollama AI Settings...", self.open_ollama_settings)
         self.settings_menu.addAction("🛡️ Proxy Settings...", self.open_proxy_settings)
@@ -1301,6 +1302,8 @@ class DragDropUI(QMainWindow):
                 # newly resolved meeting appears without requiring retyping.
                 if out_path == "MEETINGS_DB_PHASE_2":
                     self.meetings_tab.refresh_quick_tdoc_lookup()
+            if hasattr(self, "status_bar") and hasattr(self.status_bar, "refresh_world_clock"):
+                self.status_bar.refresh_world_clock()
 
         elif out_path:
             self.last_out_path = out_path
@@ -1444,6 +1447,11 @@ class DragDropUI(QMainWindow):
 
         dlg = DisplaySettingsDialog(parent=self)
         dlg.exec_()
+
+    def open_world_clock(self):
+        """Open the World Clock & Active 3GPP Meeting Venues dialog."""
+        if hasattr(self, "status_bar") and hasattr(self.status_bar, "open_world_clock"):
+            self.status_bar.open_world_clock()
 
     def _on_font_scale_changed(self, scale: float) -> None:
         """Refresh active table layouts and confirm live font scaling to the user."""

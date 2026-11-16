@@ -585,6 +585,7 @@ def build_static_command_items(window: object) -> List[CommandItem]:
         ("sys:java", "Java & PlantUML Engine", "Verify Java runtime & PlantUML JAR status", "cpu", getattr(window, "open_java_maintenance", None)),
         ("sys:mcp", "MCP Server & AI Cockpit", "Inspect stdio MCP tools and agent activity", "terminal", getattr(window, "open_mcp_monitor", None)),
         ("sys:display_settings", "Display & Text Size", "Configure global font size presets (90%–140%) & readability scale", "settings", getattr(window, "open_display_settings", None)),
+        ("sys:world_clock", "World Clock & Meeting Venues", "Laptop time, UTC, active 3GPP venue clocks, WG filter & overrides", "clock", getattr(window, "open_world_clock", None)),
         ("sys:check_updates", "Check for App Updates", "Check GitHub master for new changes and update", "download", getattr(window, "open_app_updater", None)),
     ]
     for cid, title, sub, icon, fn in sys_actions:

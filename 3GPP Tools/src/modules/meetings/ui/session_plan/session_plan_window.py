@@ -367,14 +367,27 @@ class SessionPlanWindow(QWidget):
     # --- Timezone Initialization ---
 
     def _init_timezone(self):
-        """Initializes venue timezone from DB metadata, Agenda deadlines, or city lookup."""
+        """Initializes venue timezone from meeting_timezone.json, DB metadata, or city lookup."""
+        mtg_root = self.meeting_dir.parent if self.meeting_dir.name.lower() == "agenda" else self.meeting_dir
+        folder_tz = SessionPlanTimezone.load_meeting_folder_timezone(mtg_root)
         meta = self.db.get_meeting_meta(self.meeting_number)
+
+        if folder_tz and folder_tz.get("source") == "manual_override":
+            self.tz_offset_min = int(folder_tz["tz_offset_minutes"])
+            self.tz_name = folder_tz.get("tz_label") or f"UTC{self.tz_offset_min//60:+03d}:00"
+            return
+
         if meta and meta.get("tz_offset_minutes") is not None:
             self.tz_offset_min = meta["tz_offset_minutes"]
             self.tz_name = meta.get("tz_name") or f"UTC{self.tz_offset_min//60:+03d}:00"
             return
 
-        res = SessionPlanTimezone.lookup_city_timezone(self.location)
+        if folder_tz:
+            self.tz_offset_min = int(folder_tz["tz_offset_minutes"])
+            self.tz_name = folder_tz.get("tz_label") or f"UTC{self.tz_offset_min//60:+03d}:00"
+            return
+
+        res = SessionPlanTimezone.lookup_city_timezone(self.location, self.start_date_str)
         if res:
             self.tz_offset_min, self.tz_name = res
             self.db.set_meeting_meta(
@@ -2875,6 +2888,16 @@ class SessionPlanWindow(QWidget):
                 tz_offset_minutes=self.tz_offset_min,
                 tz_name=self.tz_name,
                 tz_confirmed=1,
+            )
+            mtg_root = self.meeting_dir.parent if self.meeting_dir.name.lower() == "agenda" else self.meeting_dir
+            SessionPlanTimezone.save_meeting_folder_timezone(
+                meeting_dir=mtg_root,
+                tz_offset_minutes=self.tz_offset_min,
+                tz_label=self.tz_name,
+                source="manual_override",
+                location=self.location,
+                wg=str(self.mtg_info.get("wg_name", "")),
+                meeting_number=self.meeting_number,
             )
             self._render_current_views()
 
