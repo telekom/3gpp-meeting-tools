@@ -375,7 +375,7 @@ class SpecificationsTab(QWidget):
 
         # --- TIER 2: Search, Quick Scope & Faceted Filters ---
         search_group = QWidget(self.ribbon_card)
-        search_group.setStyleSheet("background: transparent; border: none;")
+        search_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         search_layout = QHBoxLayout(search_group)
         search_layout.setContentsMargins(0, 0, 0, 0)
         search_layout.setSpacing(6)
@@ -407,7 +407,7 @@ class SpecificationsTab(QWidget):
 
         # Quick Toggle Pills
         scope_group = QWidget(self.ribbon_card)
-        scope_group.setStyleSheet("background: transparent; border: none;")
+        scope_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         scope_layout = QHBoxLayout(scope_group)
         scope_layout.setContentsMargins(0, 0, 0, 0)
         scope_layout.setSpacing(6)
@@ -434,7 +434,7 @@ class SpecificationsTab(QWidget):
 
         # TSG Segmented Chips (All, RAN, SA, CT)
         tsg_group = QWidget(self.ribbon_card)
-        tsg_group.setStyleSheet("background: transparent; border: none;")
+        tsg_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         tsg_layout = QHBoxLayout(tsg_group)
         tsg_layout.setContentsMargins(0, 0, 0, 0)
         tsg_layout.setSpacing(4)
@@ -465,7 +465,7 @@ class SpecificationsTab(QWidget):
 
         # Working Group + Series + Tech group
         wg_group = QWidget(self.ribbon_card)
-        wg_group.setStyleSheet("background: transparent; border: none;")
+        wg_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         wg_layout = QHBoxLayout(wg_group)
         wg_layout.setContentsMargins(0, 0, 0, 0)
         wg_layout.setSpacing(6)
@@ -504,7 +504,7 @@ class SpecificationsTab(QWidget):
 
         # Spec Type + Tag Filter + Reset All
         type_tag_group = QWidget(self.ribbon_card)
-        type_tag_group.setStyleSheet("background: transparent; border: none;")
+        type_tag_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         tt_layout = QHBoxLayout(type_tag_group)
         tt_layout.setContentsMargins(0, 0, 0, 0)
         tt_layout.setSpacing(4)
@@ -571,7 +571,7 @@ class SpecificationsTab(QWidget):
         tags_bar_layout.addWidget(self.active_tags_label)
 
         self.active_tags_container = QWidget(self.active_tags_widget)
-        self.active_tags_container.setStyleSheet("background: transparent; border: none;")
+        self.active_tags_container.setStyleSheet(".QWidget { background: transparent; border: none; }")
         self.active_tags_container_layout = QHBoxLayout(self.active_tags_container)
         self.active_tags_container_layout.setContentsMargins(0, 0, 0, 0)
         self.active_tags_container_layout.setSpacing(4)

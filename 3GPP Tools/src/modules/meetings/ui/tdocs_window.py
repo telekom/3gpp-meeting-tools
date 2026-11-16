@@ -8,19 +8,19 @@ import urllib.parse
 import webbrowser
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPoint
-from PyQt5.QtGui import QCursor, QKeySequence
+from PyQt5.QtCore import Qt, QRect, QTimer, pyqtSignal, QPoint
+from PyQt5.QtGui import QCursor, QKeySequence, QTextDocument
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableView,
     QHeaderView, QLabel, QLineEdit, QFrame,
     QPushButton, QMessageBox, QMenu, QApplication, QShortcut,
-    QToolTip, QCheckBox, QDialog, QTextEdit, QComboBox
+    QToolTip, QCheckBox, QDialog, QTextEdit, QComboBox, QSizePolicy
 )
 
 from core.network.network_state import NetworkState
+from core.ui.flow_layout import FlowLayout
 from core.ui.font_scale import (
     get_font_scale_notifier,
-    register_scaled_row_height,
     scale_px,
 )
 from core.ui.world_clock_service import WorldClockService
@@ -155,6 +155,11 @@ class TDocsWindow(QWidget):
         self.setWindowTitle(title)
         self.resize(1400, 750)
 
+        self._row_height_timer = QTimer(self)
+        self._row_height_timer.setSingleShot(True)
+        self._row_height_timer.setInterval(35)
+        self._row_height_timer.timeout.connect(self._adjust_table_row_heights)
+
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(12, 12, 12, 12)
         main_layout.setSpacing(8)
@@ -171,9 +176,16 @@ class TDocsWindow(QWidget):
         super().showEvent(event)
         self._load_tracked_wi_tokens()
         self._update_filter_facets()
+        self._schedule_row_height_adjustment()
 
     def _setup_header(self, layout, title, is_electronic, count):
-        header_layout = QHBoxLayout()
+        header_container = QWidget(self)
+        header_container.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        header_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        header_sp.setHeightForWidth(True)
+        header_container.setSizePolicy(header_sp)
+        header_layout = FlowLayout(header_container, margin=0, h_spacing=6, v_spacing=6)
+        self._header_container = header_container
         title_lbl = QLabel(f"<b>{title}</b>")
         title_lbl.setStyleSheet(f"font-size: 16px; color: {C.TEXT_STRONG};")
         title_lbl.setToolTip("Electronic Meeting (eMeeting)" if is_electronic else "In-Person Meeting (Face-to-Face)")
@@ -451,17 +463,28 @@ class TDocsWindow(QWidget):
         ))
         self.instant_cmp_btn.clicked.connect(self._on_instant_compare_active_word)
 
-        header_layout.addWidget(title_lbl)
-        header_layout.addWidget(self.routing_indicator)
-        header_layout.addWidget(self.venue_clock_btn)
-        header_layout.addStretch()
+        identity_group = QWidget(header_container)
+        identity_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        id_layout = QHBoxLayout(identity_group)
+        id_layout.setContentsMargins(0, 0, 4, 0)
+        id_layout.setSpacing(6)
+        id_layout.addWidget(title_lbl)
+        id_layout.addWidget(self.routing_indicator)
+        id_layout.addWidget(self.venue_clock_btn)
+        id_layout.addWidget(self.last_mod_lbl)
+        id_layout.addWidget(self.count_lbl)
+        header_layout.addWidget(identity_group)
 
-        header_layout.addWidget(QLabel("🚀"))
-        header_layout.addWidget(self.instant_fetch_input)
-        header_layout.addWidget(self.instant_cmp_btn)
-        header_layout.addSpacing(10)
+        instant_group = QWidget(header_container)
+        instant_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        inst_layout = QHBoxLayout(instant_group)
+        inst_layout.setContentsMargins(0, 0, 4, 0)
+        inst_layout.setSpacing(4)
+        inst_layout.addWidget(QLabel("🚀"))
+        inst_layout.addWidget(self.instant_fetch_input)
+        inst_layout.addWidget(self.instant_cmp_btn)
+        header_layout.addWidget(instant_group)
 
-        header_layout.addWidget(self.last_mod_lbl)
         header_layout.addWidget(self.refresh_btn)
         header_layout.addWidget(self.folder_btn)
         header_layout.addWidget(self.excel_btn)
@@ -472,13 +495,19 @@ class TDocsWindow(QWidget):
         else:
             self.btn_meeting_agreements.setVisible(False)
         header_layout.addWidget(self.draft_cr_btn)
-        header_layout.addWidget(self.stats_btn)
-        header_layout.addWidget(self.stats_cfg_btn)
+
+        stats_group = QWidget(header_container)
+        stats_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        stats_layout = QHBoxLayout(stats_group)
+        stats_layout.setContentsMargins(0, 0, 0, 0)
+        stats_layout.setSpacing(4)
+        stats_layout.addWidget(self.stats_btn)
+        stats_layout.addWidget(self.stats_cfg_btn)
+        header_layout.addWidget(stats_group)
+
         header_layout.addWidget(self.email_btn)
         header_layout.addWidget(self.btn_help)
-        header_layout.addSpacing(10)
-        header_layout.addWidget(self.count_lbl)
-        layout.addLayout(header_layout)
+        layout.addWidget(header_container)
 
     def _populate_resources_menu(self):
         self.folder_menu.clear()
@@ -617,8 +646,12 @@ class TDocsWindow(QWidget):
         self.search_timer.timeout.connect(self._apply_search_filter)
 
         filter_frame = QFrame()
+        filter_frame.setObjectName("tdocFilterFrame")
+        filter_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        filter_sp.setHeightForWidth(True)
+        filter_frame.setSizePolicy(filter_sp)
         filter_frame.setStyleSheet(f"""
-            QFrame {{
+            QFrame#tdocFilterFrame {{
                 background-color: {C.BG_CARD};
                 border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
@@ -641,13 +674,19 @@ class TDocsWindow(QWidget):
                 font-weight: bold;
             }}
         """)
-        filter_layout = QHBoxLayout(filter_frame)
+        filter_layout = FlowLayout(filter_frame, margin=0, h_spacing=6, v_spacing=5)
         filter_layout.setContentsMargins(8, 5, 8, 5)
-        filter_layout.setSpacing(6)
+        self._filter_frame = filter_frame
+
+        search_group = QWidget(filter_frame)
+        search_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        search_layout = QHBoxLayout(search_group)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(6)
 
         search_lbl = QLabel("🔍")
         search_lbl.setToolTip("Full-text search across TDoc number, title, source, remarks, and related metadata.")
-        filter_layout.addWidget(search_lbl)
+        search_layout.addWidget(search_lbl)
 
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText('Search TDocs (e.g. "CR", -draft)...')
@@ -658,9 +697,9 @@ class TDocsWindow(QWidget):
             '• Substrings & numbers: S2-260855, TS 23.501'
         )
         self.search_input.setClearButtonEnabled(True)
-        self.search_input.setMinimumWidth(scale_px(160))
+        self.search_input.setMinimumWidth(scale_px(225))
         self.search_input.textChanged.connect(lambda _: self.search_timer.start())
-        filter_layout.addWidget(self.search_input, stretch=2)
+        search_layout.addWidget(self.search_input, stretch=1)
 
         self.btn_followed_wis = QPushButton("🎯")
         self.btn_followed_wis.setCheckable(True)
@@ -674,7 +713,7 @@ class TDocsWindow(QWidget):
             tip="Right-click to manage your Followed Work Items watchlist."
         ))
         self.btn_followed_wis.clicked.connect(self._toggle_followed_wis_filter)
-        filter_layout.addWidget(self.btn_followed_wis)
+        search_layout.addWidget(self.btn_followed_wis)
 
         self.btn_starred_wis = QPushButton("⭐")
         self.btn_starred_wis.setCheckable(True)
@@ -688,7 +727,7 @@ class TDocsWindow(QWidget):
             tip="Right-click to toggle including unassigned incoming Liaison Statements (LS)."
         ))
         self.btn_starred_wis.clicked.connect(self._toggle_starred_wis_filter)
-        filter_layout.addWidget(self.btn_starred_wis)
+        search_layout.addWidget(self.btn_starred_wis)
 
         self.btn_agreements_filter = QPushButton("⚖️")
         self.btn_agreements_filter.setCheckable(True)
@@ -701,20 +740,12 @@ class TDocsWindow(QWidget):
         ))
         self.btn_agreements_filter.clicked.connect(self._toggle_agreements_filter)
         if self.is_ran:
-            filter_layout.addWidget(self.btn_agreements_filter)
+            search_layout.addWidget(self.btn_agreements_filter)
         else:
             self.btn_agreements_filter.setVisible(False)
 
         self._update_tracked_wi_button_styles()
-
-        def _make_vsep():
-            sep = QFrame()
-            sep.setFrameShape(QFrame.VLine)
-            sep.setFrameShadow(QFrame.Plain)
-            sep.setStyleSheet(f"color: {C.BORDER_STRONG}; background-color: {C.BORDER_SUBTLE}; width: 1px; margin: 2px 1px;")
-            return sep
-
-        filter_layout.addWidget(_make_vsep())
+        filter_layout.addWidget(search_group)
 
         self.company_combo = CheckableComboBox("Company")
         self.company_combo.setMaximumWidth(scale_px(200))
@@ -764,18 +795,21 @@ class TDocsWindow(QWidget):
         self.my_status_combo.selectionChanged.connect(self._on_my_status_changed)
         filter_layout.addWidget(self.my_status_combo)
 
-        filter_layout.addWidget(_make_vsep())
+        tail_group = QWidget(filter_frame)
+        tail_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        tail_layout = QHBoxLayout(tail_group)
+        tail_layout.setContentsMargins(0, 0, 0, 0)
+        tail_layout.setSpacing(6)
 
         if self.is_sa2:
             self.chk_no_comments = QCheckBox("No Comments")
             self.chk_no_comments.setToolTip('Show only TDocs without secretary/chair comments.')
             self.chk_no_comments.toggled.connect(self._on_no_comments_toggled)
-            filter_layout.addWidget(self.chk_no_comments)
-            filter_layout.addWidget(_make_vsep())
+            tail_layout.addWidget(self.chk_no_comments)
 
         order_lbl = QLabel("Order:")
         order_lbl.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED}; font-weight: bold;")
-        filter_layout.addWidget(order_lbl)
+        tail_layout.addWidget(order_lbl)
 
         self.order_combo = QComboBox()
         self.order_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
@@ -794,7 +828,7 @@ class TDocsWindow(QWidget):
         self.order_combo.addItem("✉️ Most Emails", "EMAILS")
         self.order_combo.addItem("🗂️ Default / File Order", "DEFAULT")
         self.order_combo.currentIndexChanged.connect(self._on_order_changed)
-        filter_layout.addWidget(self.order_combo)
+        tail_layout.addWidget(self.order_combo)
 
         self.btn_reset_filters = QPushButton("✕ Clear")
         self.btn_reset_filters.setToolTip("Reset all search text and active filters to show all TDocs.")
@@ -816,7 +850,8 @@ class TDocsWindow(QWidget):
             }}
         """)
         self.btn_reset_filters.clicked.connect(self._clear_all_filters)
-        filter_layout.addWidget(self.btn_reset_filters)
+        tail_layout.addWidget(self.btn_reset_filters)
+        filter_layout.addWidget(tail_group)
 
         layout.addWidget(filter_frame)
 
@@ -829,8 +864,14 @@ class TDocsWindow(QWidget):
         self.proxy.setIncludeTentativeSources(self.settings.get_include_tentative_sources())
         self.proxy.setSourceModel(self.model)
         self.proxy.layoutChanged.connect(self._update_count_label)
+        self.proxy.layoutChanged.connect(self._schedule_row_height_adjustment)
+        self.proxy.modelReset.connect(self._schedule_row_height_adjustment)
+        self.proxy.rowsInserted.connect(lambda *_: self._schedule_row_height_adjustment())
+        self.proxy.rowsRemoved.connect(lambda *_: self._schedule_row_height_adjustment())
+        self.model.dataChanged.connect(lambda *_: self._schedule_row_height_adjustment())
 
         self.table.setModel(self.proxy)
+        self.table.setWordWrap(True)
         self.table.setSelectionBehavior(QTableView.SelectItems)
         self.table.setSelectionMode(QTableView.ExtendedSelection)
         self.table.doubleClicked.connect(self._show_cell_popup)
@@ -850,8 +891,10 @@ class TDocsWindow(QWidget):
                 color: {C.TEXT_STRONG};
             }}
         """)
-        self.table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
-        register_scaled_row_height(self.table, 48)
+        vheader = self.table.verticalHeader()
+        vheader.setSectionResizeMode(QHeaderView.Fixed)
+        vheader.setMinimumSectionSize(scale_px(48))
+        vheader.setDefaultSectionSize(scale_px(48))
 
         self.action_delegate = TDocActionDelegate(self.table)
         self.action_delegate.actionClicked.connect(self._handle_tdoc_action)
@@ -870,12 +913,14 @@ class TDocsWindow(QWidget):
         self.table.setItemDelegateForColumn(10, self.agenda_delegate)
 
         header = self.table.horizontalHeader()
+        header.setMinimumSectionSize(scale_px(28))
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setSectionResizeMode(6, QHeaderView.Fixed)
         header.setSectionResizeMode(7, QHeaderView.Stretch)
         header.setSectionResizeMode(9, QHeaderView.Fixed)
         self._apply_scaled_table_columns()
         header.sectionClicked.connect(self._on_header_section_clicked)
+        header.sectionResized.connect(lambda *_: self._schedule_row_height_adjustment())
         get_font_scale_notifier().scale_changed.connect(self._on_font_scale_changed)
 
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -905,32 +950,111 @@ class TDocsWindow(QWidget):
         self._load_tracked_wi_tokens()
         self._refresh_comboboxes()
         self._refresh_email_counts()
+        self._schedule_row_height_adjustment()
 
         from PyQt5.QtWidgets import QShortcut
         from PyQt5.QtGui import QKeySequence
         self.copy_shortcut = QShortcut(QKeySequence.Copy, self.table)
         self.copy_shortcut.activated.connect(self._copy_table_selection)
 
+    def _schedule_row_height_adjustment(self):
+        """Coalesce table row-height recalculations onto a short single-shot timer."""
+        if hasattr(self, "_row_height_timer") and self._row_height_timer is not None:
+            self._row_height_timer.start()
+
+    def _adjust_table_row_heights(self):
+        """Expand visible TDocs rows dynamically for wrapped multi-line titles, sources, and remarks."""
+        if not hasattr(self, "table") or not hasattr(self, "proxy"):
+            return
+        row_count = self.proxy.rowCount()
+        min_h = scale_px(48)
+        max_h = scale_px(124)
+
+        vheader = self.table.verticalHeader()
+        vheader.setMinimumSectionSize(min_h)
+        vheader.setDefaultSectionSize(min_h)
+
+        if row_count <= 0:
+            return
+
+        hheader = self.table.horizontalHeader()
+        w_title = max(scale_px(80), hheader.sectionSize(2))
+        w_source = max(scale_px(60), hheader.sectionSize(3))
+        w_remarks = max(scale_px(140), hheader.sectionSize(7))
+        w_related = max(scale_px(80), hheader.sectionSize(12))
+
+        fm = self.table.fontMetrics()
+        pad_v = scale_px(8)
+        doc = QTextDocument()
+        doc.setDocumentMargin(4)
+        doc.setDefaultFont(self.table.font())
+
+        has_emails = len(self.model._headers) > 13
+        title_wrap_w = max(40, w_title - 10)
+        source_wrap_w = max(40, w_source - 10)
+        proxy = self.proxy
+
+        for r in range(row_count):
+            needed = min_h
+
+            title_txt = str(proxy.data(proxy.index(r, 2), Qt.DisplayRole) or "")
+            if title_txt and (len(title_txt) * fm.averageCharWidth() > title_wrap_w or "\n" in title_txt):
+                h_t = fm.boundingRect(QRect(0, 0, title_wrap_w, 1000), Qt.TextWordWrap, title_txt).height() + pad_v
+                if h_t > needed:
+                    needed = h_t
+
+            source_txt = str(proxy.data(proxy.index(r, 3), Qt.DisplayRole) or "")
+            if source_txt and (len(source_txt) * fm.averageCharWidth() > source_wrap_w or "\n" in source_txt):
+                h_s = fm.boundingRect(QRect(0, 0, source_wrap_w, 1000), Qt.TextWordWrap, source_txt).height() + pad_v
+                if h_s > needed:
+                    needed = h_s
+
+            remarks_html = str(proxy.data(proxy.index(r, 7), Qt.DisplayRole) or "")
+            if remarks_html and ("<" in remarks_html or len(remarks_html) > 35):
+                doc.setTextWidth(w_remarks)
+                doc.setHtml(remarks_html)
+                h_r = int(doc.size().height()) + scale_px(6)
+                if h_r > needed:
+                    needed = h_r
+
+            if has_emails:
+                rel_html = str(proxy.data(proxy.index(r, 12), Qt.DisplayRole) or "")
+                if rel_html and len(rel_html) > 25:
+                    doc.setTextWidth(w_related)
+                    doc.setHtml(rel_html)
+                    h_rel = int(doc.size().height()) + scale_px(6)
+                    if h_rel > needed:
+                        needed = h_rel
+
+            clamped = max(min_h, min(max_h, needed))
+            if self.table.rowHeight(r) != clamped:
+                self.table.setRowHeight(r, clamped)
+
     def _apply_scaled_table_columns(self):
-        """Scale TDocsWindow table column widths to match the current font scale."""
+        """Scale TDocsWindow table column widths to fit maximized viewports cleanly."""
         header = self.table.horizontalHeader()
-        header.resizeSection(0, max(120, scale_px(120)))
-        header.resizeSection(1, max(100, scale_px(100)))
-        header.resizeSection(2, max(200, scale_px(200)))
-        header.resizeSection(3, max(100, scale_px(100)))
+        header.setMinimumSectionSize(scale_px(28))
+        header.resizeSection(0, max(116, scale_px(116)))
+        header.resizeSection(1, max(96, scale_px(96)))
+        header.resizeSection(2, max(225, scale_px(225)))
+        header.resizeSection(3, max(130, scale_px(130)))
+        header.resizeSection(4, max(82, scale_px(82)))
+        header.resizeSection(5, max(84, scale_px(84)))
         header.resizeSection(6, max(28, scale_px(28)))
-        header.resizeSection(8, max(90, scale_px(90)))
+        # col 7 (Secretary Remarks) uses QHeaderView.Stretch
+        header.resizeSection(8, max(86, scale_px(86)))
         header.resizeSection(9, max(28, scale_px(28)))
-        header.resizeSection(10, max(115, scale_px(115)))
-        header.resizeSection(12, max(160, scale_px(160)))
+        header.resizeSection(10, max(125, scale_px(125)))
+        header.resizeSection(11, max(86, scale_px(86)))
+        header.resizeSection(12, max(135, scale_px(135)))
         if len(self.model._headers) > 13:
-            header.resizeSection(13, max(85, scale_px(85)))
+            header.resizeSection(13, max(72, scale_px(72)))
 
     def _on_font_scale_changed(self, _scale: float = 0.0):
-        """Update filter dropdown caps, toolbar buttons, and column widths when font scale changes."""
+        """Update filter dropdown caps, toolbar buttons, column widths, and row heights on font scale changes."""
         self.instant_fetch_input.setMinimumWidth(scale_px(120))
         self.instant_fetch_input.setMaximumWidth(scale_px(160))
-        self.search_input.setMinimumWidth(scale_px(160))
+        self.search_input.setMinimumWidth(scale_px(225))
         for btn in (self.btn_followed_wis, self.btn_starred_wis, self.btn_agreements_filter):
             btn.setFixedSize(scale_px(30), scale_px(28))
         caps = (
@@ -947,6 +1071,7 @@ class TDocsWindow(QWidget):
             combo.setMaximumWidth(scale_px(base_max))
             combo.updateGeometry()
         self._apply_scaled_table_columns()
+        self._schedule_row_height_adjustment()
 
     def _setup_cache(self):
         agenda_dir = self.meeting_dir / "Agenda"
@@ -1379,6 +1504,7 @@ class TDocsWindow(QWidget):
 
     def _update_count_label(self):
         self.count_lbl.setText(f"Showing {self.proxy.rowCount()} of {self.model.rowCount()} TDocs")
+        self._schedule_row_height_adjustment()
 
     def _update_filter_facets(self):
         """Update zero-intersection styling for every metadata filter."""
@@ -2358,6 +2484,7 @@ class TDocsWindow(QWidget):
         super().resizeEvent(event)
         if hasattr(self, 'drop_overlay'):
             self.drop_overlay.setGeometry(self.rect())
+        self._schedule_row_height_adjustment()
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():

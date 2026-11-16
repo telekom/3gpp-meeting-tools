@@ -474,7 +474,7 @@ class SpecSearchTab(QWidget):
         self.search_ribbon = PageRibbonCard("Spec Search", parent=self)
 
         search_bar_widget = QWidget(self.search_ribbon)
-        search_bar_widget.setStyleSheet("background: transparent; border: none;")
+        search_bar_widget.setStyleSheet(".QWidget { background: transparent; border: none; }")
         search_bar_layout = QHBoxLayout(search_bar_widget)
         search_bar_layout.setContentsMargins(0, 0, 0, 0)
         search_bar_layout.setSpacing(6)
@@ -530,7 +530,7 @@ class SpecSearchTab(QWidget):
 
         # Tier 2: Cutoff Date Filter + Post-Cutoff Checkbox (auto-wraps cleanly)
         cutoff_group = QWidget(self.search_ribbon)
-        cutoff_group.setStyleSheet("background: transparent; border: none;")
+        cutoff_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         cutoff_layout = QHBoxLayout(cutoff_group)
         cutoff_layout.setContentsMargins(0, 0, 0, 0)
         cutoff_layout.setSpacing(S.SM)

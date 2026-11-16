@@ -254,7 +254,7 @@ class MeetingsTab(QWidget):
 
         # 2. Quick TDoc Jump group (travels cleanly as one wrapping unit)
         tdoc_group = QWidget(self.ribbon_card)
-        tdoc_group.setStyleSheet("background: transparent; border: none;")
+        tdoc_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         tdoc_layout = QHBoxLayout(tdoc_group)
         tdoc_layout.setContentsMargins(0, 0, 0, 0)
         tdoc_layout.setSpacing(6)
@@ -403,7 +403,7 @@ class MeetingsTab(QWidget):
 
         # --- TIER 2: Search & Filter Flow ---
         search_group = QWidget(self.ribbon_card)
-        search_group.setStyleSheet("background: transparent; border: none;")
+        search_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         search_layout = QHBoxLayout(search_group)
         search_layout.setContentsMargins(0, 0, 0, 0)
         search_layout.setSpacing(6)
@@ -424,7 +424,7 @@ class MeetingsTab(QWidget):
 
         # TSG Segmented Chips (All, SA, RAN, CT)
         tsg_group = QWidget(self.ribbon_card)
-        tsg_group.setStyleSheet("background: transparent; border: none;")
+        tsg_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         tsg_layout = QHBoxLayout(tsg_group)
         tsg_layout.setContentsMargins(0, 0, 0, 0)
         tsg_layout.setSpacing(4)
@@ -448,7 +448,7 @@ class MeetingsTab(QWidget):
 
         # Working Group Selector
         wg_group = QWidget(self.ribbon_card)
-        wg_group.setStyleSheet("background: transparent; border: none;")
+        wg_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         wg_layout = QHBoxLayout(wg_group)
         wg_layout.setContentsMargins(0, 0, 0, 0)
         wg_layout.setSpacing(6)
@@ -466,7 +466,7 @@ class MeetingsTab(QWidget):
 
         # Ad-Hoc / In-Person Format Dropdowns
         nature_group = QWidget(self.ribbon_card)
-        nature_group.setStyleSheet("background: transparent; border: none;")
+        nature_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         nature_layout = QHBoxLayout(nature_group)
         nature_layout.setContentsMargins(0, 0, 0, 0)
         nature_layout.setSpacing(6)
@@ -492,7 +492,7 @@ class MeetingsTab(QWidget):
 
         # Dates Filter: Preset Combo + Date Range Pickers
         dates_group = QWidget(self.ribbon_card)
-        dates_group.setStyleSheet("background: transparent; border: none;")
+        dates_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         dates_layout = QHBoxLayout(dates_group)
         dates_layout.setContentsMargins(0, 0, 0, 0)
         dates_layout.setSpacing(6)

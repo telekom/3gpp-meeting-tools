@@ -623,8 +623,14 @@ src/modules/meetings/
   - **Liaison Statements Table Selection (`_on_ls_selection_changed`):** Displays direction badge (`📥 LS IN` / `📤 LS OUT`), title, source company, status, and full inter-WG reply threading metadata (`Reply To: S2-2601999`, `Reply In: R2-2602100`).
   - Automatically synchronizes display when switching between tabs (`_on_tab_changed`), or clears when no row is selected.
 
-
-
-
+### 3.22. `TDocsWindow` Responsive Layout, Multi-Line Row Visibility & `CheckableComboBox` Popup Rendering (`tdocs_window.py`, `tdoc_delegates.py`, `tdocs_components.py`)
+- **Responsive Wrapping Header & Filter Bars (`FlowLayout`):**
+  - `TDocsWindow._setup_header()` and `TDocsWindow._setup_filters()` arrange header identity/instant-fetch/action clusters and filter comboboxes inside `FlowLayout` (`QSizePolicy.Preferred`, `QSizePolicy.Maximum`, `setHeightForWidth(True)`), keeping `TDocsWindow.minimumSizeHint().width() <= 1050 px` (instead of exceeding `2300 px`) so maximizing the window on laptop or desktop screens never pushes rightmost columns (`Agenda Item`, `TDoc Status`, `Related TDocs`, `Emails`) or the vertical scrollbar off-screen.
+- **Word-Wrapped Delegates & Content-Aware Row Heights:**
+  - `HtmlDelegate` (`Secretary Remarks`, `Related TDocs`) constrains `QTextDocument.setTextWidth()` to the column width during `paint()`, `sizeHint()`, and `editorEvent()`, vertically centering wrapped blocks without losing clickable link hit-testing; `TDocActionDelegate` centers fixed-height Open/Download pills inside expanded rows; `AgendaItemDelegate` centers two-line `AI + Sub-Item pill` blocks vertically.
+  - `TDocsWindow._adjust_table_row_heights()` (coalesced on a single-shot timer via `_schedule_row_height_adjustment()`) measures wrapped text across `Title`, `Source`, `Secretary Remarks`, and `Related TDocs` and adapts row heights between `scale_px(48)` and `scale_px(124)` across filtering, sorting, column resizes, window resizes, and font-scale changes.
+- **Scoped Filter Containers & `CheckableComboItemDelegate`:**
+  - Filter group `QWidget` containers across tabs use exact-class `.QWidget { background: transparent; border: none; }` selectors so background/border overrides never cascade into `QComboBox` popup views.
+  - `CheckableComboBox` uses `CheckableComboItemDelegate` on an explicitly styled `#checkableComboPopupView` (`QListView`) to paint theme-aware rounded checkbox indicators (`C.ACCENT_PRIMARY` / `C.BG_CARD`), avoiding Qt `QStyleSheetStyle` + `Fusion` solid black checkbox regressions, and computes `sizeHint()` / `minimumSizeHint()` strictly from summary strings (`{title}: All`, `99 sel`) rather than wide popup item strings.
 
 

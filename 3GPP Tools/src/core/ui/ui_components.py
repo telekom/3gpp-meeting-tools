@@ -128,6 +128,7 @@ GLOBAL_STYLE = f"""
         color: {C.TEXT_BODY};
     }}
     QComboBox {{
+        combobox-popup: 0;
         padding: 4px 8px;
         border-radius: {R.SM}px;
         border: 1px solid {C.BORDER_STRONG};
@@ -549,6 +550,7 @@ QPushButton:hover {{
 
 SPEC_FILTER_COMBO_STYLE = f"""
 QComboBox {{
+    combobox-popup: 0;
     padding: 3px 8px;
     border: 1px solid {C.BORDER_STRONG};
     border-radius: {R.SM}px;

@@ -1,8 +1,8 @@
 # --- File: src/modules/meetings/ui/tdocs_components.py ---
 import logging
 from pathlib import Path
-from PyQt5.QtCore import pyqtSignal, QEvent, Qt, QPoint, QSize
-from PyQt5.QtGui import QStandardItemModel, QStandardItem, QPalette, QColor, QBrush, QCursor
+from PyQt5.QtCore import pyqtSignal, QEvent, Qt, QPoint, QRectF, QSize
+from PyQt5.QtGui import QStandardItemModel, QStandardItem, QPalette, QColor, QBrush, QCursor, QPainter, QPen
 from PyQt5.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -14,13 +14,108 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QStyle,
+    QStyledItemDelegate,
     QStyleOptionComboBox,
+    QStyleOptionViewItem,
     QStylePainter,
     QToolTip,
     QWidget,
 )
 from core.ui.font_scale import get_font_scale_notifier, scale_px
 from core.ui.theme import C
+
+
+class CheckableComboItemDelegate(QStyledItemDelegate):
+    """
+    Draws crisp theme-aware checkboxes and text inside CheckableComboBox popups.
+
+    Using an explicit item delegate prevents Qt's QStyleSheetStyle + Fusion
+    PE_IndicatorItemViewItemCheck interaction from painting solid black boxes
+    when ancestor widgets have transparent/borderless QWidget stylesheets.
+    """
+
+    def paint(self, painter, option, index):
+        if not (index.flags() & Qt.ItemIsUserCheckable):
+            super().paint(painter, option, index)
+            return
+
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        is_checked = index.data(Qt.CheckStateRole) in (Qt.Checked, 2)
+        is_enabled = bool(opt.state & QStyle.State_Enabled)
+        is_hovered = bool(opt.state & QStyle.State_MouseOver)
+        is_selected = bool(opt.state & QStyle.State_Selected)
+
+        # Draw row background via style without native indicator/text
+        raw_text = opt.text
+        fg_brush = index.data(Qt.ForegroundRole)
+        opt.text = ""
+        opt.features &= ~QStyleOptionViewItem.HasCheckIndicator
+        style = opt.widget.style() if opt.widget else None
+        if style is not None:
+            style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+
+        rect = opt.rect
+        box_sz = scale_px(15, minimum=14)
+        left_pad = scale_px(8)
+        gap = scale_px(8)
+        box_y = rect.top() + (rect.height() - box_sz) / 2.0
+        box_rect = QRectF(rect.left() + left_pad, box_y, box_sz, box_sz)
+
+        if is_checked:
+            fill_col = QColor(C.ACCENT_PRIMARY if is_enabled else C.BORDER_STRONG)
+            border_col = fill_col
+            painter.setBrush(fill_col)
+            painter.setPen(QPen(border_col, 1.2))
+            painter.drawRoundedRect(box_rect, 3.0, 3.0)
+
+            # Crisp white vector checkmark
+            check_pen = QPen(
+                QColor(C.TEXT_ON_ACCENT),
+                max(1.6, box_sz * 0.12),
+                Qt.SolidLine,
+                Qt.RoundCap,
+                Qt.RoundJoin,
+            )
+            painter.setPen(check_pen)
+            x1, y1 = box_rect.left() + box_sz * 0.22, box_rect.top() + box_sz * 0.52
+            x2, y2 = box_rect.left() + box_sz * 0.43, box_rect.top() + box_sz * 0.73
+            x3, y3 = box_rect.left() + box_sz * 0.78, box_rect.top() + box_sz * 0.28
+            painter.drawLine(QPoint(int(round(x1)), int(round(y1))), QPoint(int(round(x2)), int(round(y2))))
+            painter.drawLine(QPoint(int(round(x2)), int(round(y2))), QPoint(int(round(x3)), int(round(y3))))
+        else:
+            fill_col = QColor(C.BG_CARD)
+            border_col = QColor(C.BORDER_HOVER if is_hovered else C.BORDER_STRONG)
+            painter.setBrush(fill_col)
+            painter.setPen(QPen(border_col, 1.4))
+            painter.drawRoundedRect(box_rect, 3.0, 3.0)
+
+        text_color = QColor(C.TEXT_STRONG)
+        if isinstance(fg_brush, QBrush) and fg_brush.style() != Qt.NoBrush:
+            text_color = fg_brush.color()
+        elif isinstance(fg_brush, QColor) and fg_brush.isValid():
+            text_color = fg_brush
+        elif is_selected:
+            text_color = QColor(C.ACCENT_PRIMARY)
+
+        painter.setPen(text_color)
+        painter.setFont(opt.font)
+        text_rect = rect.adjusted(int(round(left_pad + box_sz + gap)), 0, -scale_px(6), 0)
+        painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft | Qt.TextSingleLine, raw_text)
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        base = super().sizeHint(option, index)
+        fm = option.fontMetrics
+        box_sz = scale_px(15, minimum=14)
+        extra_w = scale_px(8) + box_sz + scale_px(8) + scale_px(12)
+        text = str(index.data(Qt.DisplayRole) or "")
+        text_w = fm.horizontalAdvance(text)
+        h = max(base.height(), fm.height() + scale_px(8), scale_px(24))
+        return QSize(max(base.width(), text_w + extra_w), h)
 
 
 class CheckableComboBox(QComboBox):
@@ -34,7 +129,35 @@ class CheckableComboBox(QComboBox):
         self.setEditable(False)
         self.setMaxVisibleItems(25)
 
-        self.setView(QListView(self))
+        view = QListView(self)
+        view.setObjectName("checkableComboPopupView")
+        view.setUniformItemSizes(True)
+        view.setStyleSheet(f"""
+            QListView#checkableComboPopupView {{
+                background-color: {C.BG_CARD};
+                color: {C.TEXT_STRONG};
+                border: 1px solid {C.BORDER_STRONG};
+                border-radius: 4px;
+                padding: 3px;
+                outline: none;
+            }}
+            QListView#checkableComboPopupView::item {{
+                min-height: 20px;
+                padding: 0px 4px;
+                border-radius: 3px;
+            }}
+            QListView#checkableComboPopupView::item:hover {{
+                background-color: {C.BG_CANVAS};
+                color: {C.TEXT_PRIMARY};
+            }}
+            QListView#checkableComboPopupView::item:selected {{
+                background-color: {C.ACCENT_SOFT};
+                color: {C.ACCENT_PRIMARY};
+            }}
+        """)
+        self._item_delegate = CheckableComboItemDelegate(view)
+        view.setItemDelegate(self._item_delegate)
+        self.setView(view)
         self.setModel(QStandardItemModel(self))
 
         self._updating = False
@@ -49,17 +172,19 @@ class CheckableComboBox(QComboBox):
         self.updateGeometry()
         self.update()
 
-    def _compute_summary_size_hint(self) -> QSize:
-        """Compute sizeHint from the rendered summary string rather than raw model item text."""
-        base = super().sizeHint()
+    def _compute_summary_size_hint(self, minimum: bool = False) -> QSize:
+        """Compute sizeHint from rendered summary labels rather than wide popup items."""
         fm = self.fontMetrics()
         current_text = getattr(self, "_current_summary_text", "") or f"{self.title}: All"
-        candidates = (
-            current_text,
-            f"{self.title}: All",
-            f"{self.title}: 99 sel",
-            f"{self.title}: None",
-        )
+        if minimum:
+            candidates = (f"{self.title}: All", current_text)
+        else:
+            candidates = (
+                current_text,
+                f"{self.title}: All",
+                f"{self.title}: 99 sel",
+                f"{self.title}: None",
+            )
         max_text_w = max(fm.horizontalAdvance(text) for text in candidates)
         opt = QStyleOptionComboBox()
         self.initStyleOption(opt)
@@ -69,15 +194,19 @@ class CheckableComboBox(QComboBox):
             QSize(max_text_w + scale_px(18), max(fm.height(), scale_px(16))),
             self,
         )
-        width = max(base.width(), styled.width(), max_text_w + scale_px(42))
-        height = max(base.height(), styled.height(), fm.height() + scale_px(10))
+        pad_w = scale_px(32 if minimum else 42)
+        width = max(styled.width(), max_text_w + pad_w)
+        max_w = self.maximumWidth()
+        if 0 < max_w < 16777215:
+            width = min(width, max_w)
+        height = max(styled.height(), fm.height() + scale_px(10))
         return QSize(width, height)
 
     def sizeHint(self) -> QSize:
-        return self._compute_summary_size_hint()
+        return self._compute_summary_size_hint(minimum=False)
 
     def minimumSizeHint(self) -> QSize:
-        return self._compute_summary_size_hint()
+        return self._compute_summary_size_hint(minimum=True)
 
     def showPopup(self):
         if self.view() is not None:
@@ -87,7 +216,9 @@ class CheckableComboBox(QComboBox):
                 item = self.model().item(row)
                 if item and item.text():
                     max_item_w = max(max_item_w, fm.horizontalAdvance(item.text()))
-            self.view().setMinimumWidth(max(self.width(), max_item_w + scale_px(56)))
+            self.view().setMinimumWidth(
+                min(scale_px(480), max(self.width(), max_item_w + scale_px(68)))
+            )
         super().showPopup()
         if self.view():
             self.view().scrollToTop()

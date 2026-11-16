@@ -306,7 +306,7 @@ class WorkItemsTab(QWidget):
 
         # Tier 2: Inline Search, TSG Quick Scope & Faceted Filters
         search_group = QWidget(self.ribbon_card)
-        search_group.setStyleSheet("background: transparent; border: none;")
+        search_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         search_layout = QHBoxLayout(search_group)
         search_layout.setContentsMargins(0, 0, 0, 0)
         search_layout.setSpacing(6)
@@ -323,7 +323,7 @@ class WorkItemsTab(QWidget):
         self.ribbon_card.add_filter_widget(search_group)
 
         tsg_group = QWidget(self.ribbon_card)
-        tsg_group.setStyleSheet("background: transparent; border: none;")
+        tsg_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         tsg_layout = QHBoxLayout(tsg_group)
         tsg_layout.setContentsMargins(0, 0, 0, 0)
         tsg_layout.setSpacing(4)
@@ -343,7 +343,7 @@ class WorkItemsTab(QWidget):
         self.ribbon_card.add_filter_widget(tsg_group)
 
         combos_group = QWidget(self.ribbon_card)
-        combos_group.setStyleSheet("background: transparent; border: none;")
+        combos_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         combos_layout = QHBoxLayout(combos_group)
         combos_layout.setContentsMargins(0, 0, 0, 0)
         combos_layout.setSpacing(6)
@@ -435,7 +435,7 @@ class WorkItemsTab(QWidget):
 
         # Active Dismissible Tags Container
         self.active_tags_widget = QWidget(chips_strip)
-        self.active_tags_widget.setStyleSheet("background: transparent; border: none;")
+        self.active_tags_widget.setStyleSheet(".QWidget { background: transparent; border: none; }")
         self.active_tags_container_layout = QHBoxLayout(self.active_tags_widget)
         self.active_tags_container_layout.setContentsMargins(0, 0, 0, 0)
         self.active_tags_container_layout.setSpacing(4)

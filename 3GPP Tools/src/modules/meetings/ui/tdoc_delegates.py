@@ -10,42 +10,55 @@ class HtmlDelegate(QStyledItemDelegate):
     linkClicked = pyqtSignal(str)
     linkRightClicked = pyqtSignal(str, QPoint)  # <--- NEW: Signal for Right-Clicks
 
+    @staticmethod
+    def _build_document(options: QStyleOptionViewItem, text_width: float) -> QTextDocument:
+        doc = QTextDocument()
+        doc.setDocumentMargin(4)
+        doc.setDefaultFont(options.font)
+        doc.setTextWidth(max(20.0, float(text_width)))
+        doc.setHtml(options.text)
+        return doc
+
+    @staticmethod
+    def _vertical_offset(rect_height: float, doc_height: float) -> float:
+        if doc_height < rect_height:
+            return max(0.0, (rect_height - doc_height) / 2.0)
+        return 0.0
+
     def paint(self, painter, option, index):
         options = QStyleOptionViewItem(option)
         self.initStyleOption(options, index)
         painter.save()
-        doc = QTextDocument()
-        doc.setDocumentMargin(4)
-        doc.setDefaultFont(options.font)
-        doc.setHtml(options.text)
+        doc = self._build_document(options, options.rect.width())
 
         options.text = ""
         options.widget.style().drawControl(QStyle.CE_ItemViewItem, options, painter)
 
-        painter.translate(options.rect.left(), options.rect.top())
-        clip = QRectF(0, 0, options.rect.width(), options.rect.height())
+        y_offset = self._vertical_offset(options.rect.height(), doc.size().height())
+        painter.translate(options.rect.left(), options.rect.top() + y_offset)
+        clip = QRectF(0, 0, options.rect.width(), max(0.0, options.rect.height() - y_offset))
         doc.drawContents(painter, clip)
         painter.restore()
 
     def sizeHint(self, option, index):
         options = QStyleOptionViewItem(option)
         self.initStyleOption(options, index)
-        doc = QTextDocument()
-        doc.setDocumentMargin(4)
-        doc.setDefaultFont(options.font)
-        doc.setHtml(options.text)
-        return QSize(int(doc.idealWidth()), int(doc.size().height()))
+        col_w = options.rect.width()
+        if col_w <= 0 and options.widget is not None and hasattr(options.widget, "columnWidth"):
+            col_w = options.widget.columnWidth(index.column())
+        if col_w <= 0:
+            col_w = scale_px(220)
+        doc = self._build_document(options, col_w)
+        return QSize(int(col_w), max(scale_px(48), int(doc.size().height()) + scale_px(6)))
 
     def editorEvent(self, event, model, option, index):
         if event.type() == QEvent.MouseButtonRelease:
             options = QStyleOptionViewItem(option)
             self.initStyleOption(options, index)
-            doc = QTextDocument()
-            doc.setDocumentMargin(4)
-            doc.setDefaultFont(options.font)
-            doc.setHtml(options.text)
+            doc = self._build_document(options, options.rect.width())
+            y_offset = self._vertical_offset(options.rect.height(), doc.size().height())
 
-            pos = event.pos() - option.rect.topLeft()
+            pos = event.pos() - QPoint(option.rect.left(), int(round(option.rect.top() + y_offset)))
             anchor = doc.documentLayout().anchorAt(pos)
             if anchor:
                 # ---> THE FIX: Distinguish between Left and Right Clicks
@@ -60,6 +73,15 @@ class HtmlDelegate(QStyledItemDelegate):
 class TDocActionDelegate(QStyledItemDelegate):
     actionClicked = pyqtSignal(str)
 
+    @staticmethod
+    def _button_rect(cell_rect) -> QRectF:
+        pill = cell_rect.adjusted(4, 4, -4, -4)
+        max_h = scale_px(40, minimum=36)
+        if pill.height() > max_h:
+            top = cell_rect.top() + (cell_rect.height() - max_h) / 2.0
+            return QRectF(pill.left(), top, pill.width(), max_h)
+        return QRectF(pill)
+
     def paint(self, painter, option, index):
         options = QStyleOptionViewItem(option)
         self.initStyleOption(options, index)
@@ -73,7 +95,7 @@ class TDocActionDelegate(QStyledItemDelegate):
 
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
-        rect = option.rect.adjusted(4, 4, -4, -4)
+        rect = self._button_rect(option.rect)
 
         if state == 'EXISTS':
             bg_color, border_color, text_color = QColor("#E6F4E6"), QColor("#A3DDA3"), QColor("#0C6B0C")
@@ -102,7 +124,7 @@ class TDocActionDelegate(QStyledItemDelegate):
 
     def editorEvent(self, event, model, option, index):
         if event.type() == QEvent.MouseButtonRelease:
-            rect = option.rect.adjusted(4, 4, -4, -4)
+            rect = self._button_rect(option.rect)
             if rect.contains(event.pos()):
                 tdoc = index.data(Qt.UserRole)
                 if tdoc:
@@ -143,9 +165,15 @@ class AgendaItemDelegate(QStyledItemDelegate):
             painter.setFont(font)
             painter.drawText(rect, Qt.AlignCenter, ai_text)
         else:
-            # Two-line: AI number top, Sub-Item pill bottom
+            # Two-line: AI number top, Sub-Item pill bottom (vertically centered as a block)
+            ai_h = scale_px(20, minimum=18)
+            gap = scale_px(2, minimum=2)
+            pill_h = scale_px(18, minimum=16)
+            total_h = ai_h + gap + pill_h
+            top_y = rect.top() + max(2.0, (rect.height() - total_h) / 2.0)
+
             # 1. AI Number (top)
-            ai_rect = QRectF(rect.left(), rect.top() + 3, rect.width(), scale_px(20, minimum=18))
+            ai_rect = QRectF(rect.left(), top_y, rect.width(), ai_h)
             painter.setPen(
                 options.palette.color(options.palette.Normal, options.palette.Text)
                 if not (options.state & QStyle.State_Selected)
@@ -157,11 +185,10 @@ class AgendaItemDelegate(QStyledItemDelegate):
             painter.drawText(ai_rect, Qt.AlignCenter, ai_text)
 
             # 2. Sub-Item pill (bottom)
-            pill_h = scale_px(18, minimum=16)
             pill_margin = 3
             pill_rect = QRectF(
                 rect.left() + pill_margin,
-                rect.top() + scale_px(24, minimum=21),
+                top_y + ai_h + gap,
                 rect.width() - (2 * pill_margin),
                 pill_h,
             )
