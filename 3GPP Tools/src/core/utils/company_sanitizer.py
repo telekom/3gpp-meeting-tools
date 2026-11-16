@@ -5,7 +5,7 @@ import logging
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional, Pattern, Set, Tuple
+from typing import Callable, Dict, List, Optional, Pattern, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +190,14 @@ class CompanySanitizer:
     # Structure: {canonical_name: {"pattern": str, "full_name": str, "category": str, "description": str}}
     COMPANY_METADATA: Dict[str, Dict[str, str]] = {}
 
+    # Precompiled fast-matching structures rebuilt by `_compile_fast_matchers()`
+    _WORD_TOKEN_RE: Pattern = re.compile(r'\w+')
+    _FAST_WORD_INDEX: Dict[str, List[Tuple[int, str]]] = {}
+    _FAST_PLAIN_SUB_RULES: List[Tuple[int, str, str]] = []
+    _FAST_ANCHORED_REGEX_RULES: List[Tuple[int, str, str, Callable]] = []
+    _FAST_UNANCHORED_REGEX_RULES: List[Tuple[int, str, Callable]] = []
+    _COMPILED_DICT_SNAPSHOT: Optional[Tuple[Tuple[str, Pattern], ...]] = None
+
     SOURCE_REPLACE_REGEX = re.compile(
         r'\(Rapporteur\)|\(\?\)|[\[\]\?\(\)]|(([\w\d]{2,3})-(\d\d)([\d]+))',
         re.IGNORECASE,
@@ -209,11 +217,164 @@ class CompanySanitizer:
         re.IGNORECASE,
     )
 
+    # Precompiled helper regexes used inside hot loops (`tokenize_source_segments`, `get_primary_contributors`, etc.)
+    _INLINE_Q_RE = re.compile(r'^(\(\s*\?\s*\)|\?+)')
+    _AFTER_Q_DELIM_RE = re.compile(r'^\s*[,;+]')
+    _LEADING_WS_RE = re.compile(r'^[ \t]+')
+    _PRIMARY_SPLIT_RE = re.compile(r'[,;]|\band\b')
+    _COMMA_SEMICOLON_SPLIT_RE = re.compile(r'[,;]+')
+    _CONFIRMED_NORM_SPLIT_RE = re.compile(r'[,;\s]+')
+    _TENTATIVE_OUTER_STRIP_RE = re.compile(r'^[\[\(\s]+|[\]\)\s\?？]+$')
+    _TENTATIVE_INNER_SPLIT_RE = re.compile(r'[,;?？\(\)\[\]]+')
+
     @classmethod
     def get_config_paths(cls) -> Tuple[Path, Path]:
         """Returns (default_config_path, user_config_path) for externalized company synonym rules."""
         config_dir = Path(__file__).resolve().parent.parent.parent / "config"
         return config_dir / "company_synonyms.json", config_dir / "company_synonyms_user.json"
+
+    @staticmethod
+    def _split_top_level_branches(pattern: str) -> List[str]:
+        """Splits a regex pattern string on top-level `|` operators (outside parentheses/character classes)."""
+        branches: List[str] = []
+        depth_paren = 0
+        in_char_class = False
+        curr: List[str] = []
+        i = 0
+        n = len(pattern)
+        while i < n:
+            ch = pattern[i]
+            if ch == '\\' and i + 1 < n:
+                curr.append(pattern[i:i + 2])
+                i += 2
+                continue
+            if ch == '[' and not in_char_class:
+                in_char_class = True
+            elif ch == ']' and in_char_class:
+                in_char_class = False
+            elif not in_char_class:
+                if ch == '(':
+                    depth_paren += 1
+                elif ch == ')':
+                    depth_paren = max(0, depth_paren - 1)
+                elif ch == '|' and depth_paren == 0:
+                    branches.append(''.join(curr))
+                    curr = []
+                    i += 1
+                    continue
+            curr.append(ch)
+            i += 1
+        branches.append(''.join(curr))
+        return branches
+
+    @classmethod
+    def _compile_fast_matchers(cls) -> None:
+        """
+        Compiles `SIGNATURE_SYNONYMS_REGEX` into a 3-stage C-accelerated execution plan:
+        1. `_FAST_WORD_INDEX`: O(1) hash lookup for pure `\\b<word>\\b` branches (`\\bkt\\b`, `\\bnec\\b`, `\\bbupt\\b`, etc.)
+        2. `_FAST_PLAIN_SUB_RULES`: C-level `sub in clean` substring checks for literal branches (`nokia`, `samsung`, etc.)
+        3. `_FAST_ANCHORED_REGEX_RULES`: C-level `anchor in clean` pre-filter guarding `regex.search(clean)` for complex branches
+        4. `_FAST_UNANCHORED_REGEX_RULES`: Fallback `regex.search(clean)` for any custom regex without a fixed literal anchor
+        """
+        word_index: Dict[str, List[Tuple[int, str]]] = {}
+        plain_sub_rules: List[Tuple[int, str, str]] = []
+        anchored_rx: List[Tuple[int, str, str, Callable]] = []
+        unanchored_rx: List[Tuple[int, str, Callable]] = []
+
+        items = list(cls.SIGNATURE_SYNONYMS_REGEX.items())
+        for idx, (name, rx) in enumerate(items):
+            # If a pattern was compiled with special flags (other than default), run it directly
+            if rx.flags & ~re.UNICODE:
+                unanchored_rx.append((idx, name, rx.search))
+                continue
+
+            pat = rx.pattern
+            branches = cls._split_top_level_branches(pat)
+            for b in branches:
+                b_s = b.strip()
+                # Strip redundant outer parentheses if balanced
+                while b_s.startswith('(') and b_s.endswith(')') and not b_s.startswith('(?'):
+                    inner = b_s[1:-1]
+                    d = 0
+                    in_cc = False
+                    ok = True
+                    k = 0
+                    while k < len(inner):
+                        c = inner[k]
+                        if c == '\\':
+                            k += 2
+                            continue
+                        if c == '[' and not in_cc:
+                            in_cc = True
+                        elif c == ']' and in_cc:
+                            in_cc = False
+                        elif not in_cc:
+                            if c == '(':
+                                d += 1
+                            elif c == ')':
+                                d -= 1
+                                if d < 0:
+                                    ok = False
+                                    break
+                        k += 1
+                    if ok and d == 0 and not in_cc:
+                        b_s = inner.strip()
+                    else:
+                        break
+
+                if not b_s:
+                    continue
+
+                # Case 1: Pure word-bounded token `\b<word>\b`
+                m_wb = re.fullmatch(r'\\b([a-z0-9_]+)\\b', b_s)
+                if m_wb:
+                    word_index.setdefault(m_wb.group(1), []).append((idx, name))
+                    continue
+
+                # Case 2: Pure literal substring without regex metacharacters
+                if all(ch not in b_s for ch in r'.^$*+?{}[]\|()') and b_s == b_s.lower():
+                    plain_sub_rules.append((idx, name, b_s))
+                    continue
+
+                # Case 3: Regex branch — extract longest guaranteed required literal substring as a fast C `in` pre-filter
+                try:
+                    b_rx = re.compile(b_s)
+                except re.error:
+                    b_rx = rx
+                b_no_wb = b_s[2:] if b_s.startswith(r'\b') else b_s
+                b_required = re.sub(r'(\[[^\]]*\]|\([^\)]*\)|\\.|[^\\])[\?\*]', ' ', b_no_wb)
+                b_required = re.sub(r'\[[^\]]*\]', ' ', b_required)
+                b_required = re.sub(r'\([^\)]*\)', ' ', b_required)
+                b_required = re.sub(r'\\[bBsSwWdD]', ' ', b_required)
+                b_required = b_required.replace(r'\.', '.')
+                anchor = None
+                if '|' not in b_required and '{' not in b_required and '+' not in b_required and '\\' not in b_required:
+                    lits = re.findall(r'[a-z0-9_@.-]{2,}', b_required)
+                    if lits:
+                        candidate = max(lits, key=len)
+                        if candidate == candidate.lower():
+                            anchor = candidate
+                if anchor:
+                    anchored_rx.append((idx, name, anchor, b_rx.search))
+                else:
+                    unanchored_rx.append((idx, name, b_rx.search))
+
+        cls._FAST_WORD_INDEX = word_index
+        cls._FAST_PLAIN_SUB_RULES = plain_sub_rules
+        cls._FAST_ANCHORED_REGEX_RULES = anchored_rx
+        cls._FAST_UNANCHORED_REGEX_RULES = unanchored_rx
+        cls._COMPILED_DICT_SNAPSHOT = tuple(items)
+
+    @classmethod
+    def clear_caches(cls) -> None:
+        """Clears all internal LRU caches so dynamic rule changes take effect immediately."""
+        for method in (
+            cls.tokenize_source_segments,
+            cls.parse_contributors_detailed,
+            cls._get_primary_contributors_cached,
+        ):
+            if hasattr(method, "cache_clear"):
+                method.cache_clear()
 
     @classmethod
     def reload_rules(
@@ -228,7 +389,7 @@ class CompanySanitizer:
         3. `src/config/company_synonyms_user.json` (optional user overrides/additions)
 
         Mutates `SIGNATURE_SYNONYMS_REGEX` and `COMPANY_METADATA` in-place to preserve
-        any external references, and clears LRU caches so changes take effect immediately.
+        any external references, rebuilds the C-accelerated fast matcher index, and clears LRU caches.
         """
         def_path, usr_path = cls.get_config_paths()
         if default_config_path is not None:
@@ -302,11 +463,8 @@ class CompanySanitizer:
         cls.COMPANY_METADATA.clear()
         cls.COMPANY_METADATA.update(new_meta)
 
-        # Invalidate LRU caches so updated rules take effect immediately
-        if hasattr(cls.tokenize_source_segments, "cache_clear"):
-            cls.tokenize_source_segments.cache_clear()
-        if hasattr(cls.parse_contributors_detailed, "cache_clear"):
-            cls.parse_contributors_detailed.cache_clear()
+        cls._compile_fast_matchers()
+        cls.clear_caches()
 
     @classmethod
     def get_company_metadata(cls, canonical_name: str) -> Dict[str, str]:
@@ -328,10 +486,38 @@ class CompanySanitizer:
         clean = cls.SOURCE_REPLACE_REGEX.sub(' ', str(text_fragment)).strip().lower()
         if not clean:
             return []
-        return [key for key, regex in cls.SIGNATURE_SYNONYMS_REGEX.items() if regex.search(clean)]
+
+        # Recompile fast plan automatically if a caller mutated SIGNATURE_SYNONYMS_REGEX directly
+        if cls._COMPILED_DICT_SNAPSHOT is None or len(cls.SIGNATURE_SYNONYMS_REGEX) != len(cls._COMPILED_DICT_SNAPSHOT):
+            cls._compile_fast_matchers()
+
+        hits: Dict[int, str] = {}
+        word_index = cls._FAST_WORD_INDEX
+        if word_index:
+            for w in cls._WORD_TOKEN_RE.findall(clean):
+                entries = word_index.get(w)
+                if entries:
+                    for idx, name in entries:
+                        hits[idx] = name
+
+        for idx, name, sub in cls._FAST_PLAIN_SUB_RULES:
+            if sub in clean:
+                hits[idx] = name
+
+        for idx, name, anchor, fn in cls._FAST_ANCHORED_REGEX_RULES:
+            if anchor in clean and fn(clean):
+                hits[idx] = name
+
+        for idx, name, fn in cls._FAST_UNANCHORED_REGEX_RULES:
+            if fn(clean):
+                hits[idx] = name
+
+        if len(hits) <= 1:
+            return list(hits.values())
+        return [hits[k] for k in sorted(hits)]
 
     @classmethod
-    @lru_cache(maxsize=16384)
+    @lru_cache(maxsize=65536)
     def tokenize_source_segments(cls, original_source: str) -> tuple:
         """
         Splits a raw 3GPP TDoc 'Source' string into a tuple of (raw_text, is_tentative) segments
@@ -405,7 +591,7 @@ class CompanySanitizer:
                 # Standard comma / semicolon / plus separator
                 if ch in ',;+':
                     # Check if what follows the comma is a corporate suffix like ", Inc?" or ", Ltd."
-                    suffix_match = cls.CORP_SUFFIX_RE.match(reg_text[pos:])
+                    suffix_match = cls.CORP_SUFFIX_RE.match(reg_text[pos:]) if ch == ',' else None
                     if suffix_match and pos > curr_start:
                         pos += suffix_match.end()
                         continue
@@ -425,21 +611,22 @@ class CompanySanitizer:
 
                 # Check for "(?)" or "?" acting as an inline terminator when the author forgot a comma
                 # e.g. "Huawei? Samsung? TNO?" or "ETRI?NEC?"
-                q_match = re.match(r'^(\(\s*\?\s*\)|\?+)', reg_text[pos:])
-                if q_match:
-                    q_end = pos + q_match.end()
-                    # Look ahead: if followed by whitespace + word or directly by a word (and not a comma/semicolon)
-                    rest = reg_text[q_end:]
-                    if rest and not re.match(r'^\s*[,;+]', rest):
-                        seg = reg_text[curr_start:q_end]
-                        raw_tokens.append([seg, True])
-                        ws_match = re.match(r'^[ \t]+', rest)
-                        if ws_match:
-                            raw_tokens.append([ws_match.group(0), False])
-                            q_end += ws_match.end()
-                        pos = q_end
-                        curr_start = pos
-                        continue
+                if ch in '?( ' and ('?' in reg_text[pos:pos + 6]):
+                    q_match = cls._INLINE_Q_RE.match(reg_text[pos:])
+                    if q_match:
+                        q_end = pos + q_match.end()
+                        # Look ahead: if followed by whitespace + word or directly by a word (and not a comma/semicolon)
+                        rest = reg_text[q_end:]
+                        if rest and not cls._AFTER_Q_DELIM_RE.match(rest):
+                            seg = reg_text[curr_start:q_end]
+                            raw_tokens.append([seg, True])
+                            ws_match = cls._LEADING_WS_RE.match(rest)
+                            if ws_match:
+                                raw_tokens.append([ws_match.group(0), False])
+                                q_end += ws_match.end()
+                            pos = q_end
+                            curr_start = pos
+                            continue
 
                 pos += 1
 
@@ -472,7 +659,7 @@ class CompanySanitizer:
         return tuple(merged)
 
     @classmethod
-    @lru_cache(maxsize=16384)
+    @lru_cache(maxsize=65536)
     def parse_contributors_detailed(cls, original_source: str) -> tuple:
         """
         Parses a raw Source string into (confirmed_companies, tentative_companies).
@@ -522,6 +709,24 @@ class CompanySanitizer:
         return list(confirmed)
 
     @classmethod
+    @lru_cache(maxsize=65536)
+    def _get_primary_contributors_cached(cls, original_source: str, include_tentative: bool = False) -> tuple:
+        s = str(original_source).strip()
+        if not s:
+            return ()
+        segments = cls.tokenize_source_segments(s)
+        if not segments:
+            return ()
+
+        first_seg_text, first_is_tent = segments[0]
+        if first_is_tent and not include_tentative:
+            return ()
+
+        parts = cls._PRIMARY_SPLIT_RE.split(first_seg_text, maxsplit=1)
+        first_author = parts[0] if parts else first_seg_text
+        return tuple(cls.get_matching_contributors(first_author, include_tentative=include_tentative))
+
+    @classmethod
     def get_primary_contributors(cls, original_source: str, include_tentative: bool = False) -> list:
         """
         Extracts the primary (first-listed) contributor from `original_source`.
@@ -529,20 +734,7 @@ class CompanySanitizer:
         """
         if not original_source:
             return []
-
-        s = str(original_source).strip()
-        segments = cls.tokenize_source_segments(s)
-        if not segments:
-            return []
-
-        # Take the first non-delimiter segment
-        first_seg_text, first_is_tent = segments[0]
-        if first_is_tent and not include_tentative:
-            return []
-
-        parts = re.split(r'[,;]|\band\b', first_seg_text, maxsplit=1)
-        first_author = parts[0] if parts else first_seg_text
-        return cls.get_matching_contributors(first_author, include_tentative=include_tentative)
+        return list(cls._get_primary_contributors_cached(str(original_source), bool(include_tentative)))
 
     @classmethod
     def has_tentative_sources(cls, original_source: str) -> bool:
@@ -627,7 +819,7 @@ class CompanySanitizer:
         confirmed_parts = []
         for seg_text, is_tent in cls.tokenize_source_segments(original_source):
             if not is_tent:
-                for sub in re.split(r'[,;]+', seg_text):
+                for sub in cls._COMMA_SEMICOLON_SPLIT_RE.split(seg_text):
                     sub_s = sub.strip()
                     if sub_s:
                         confirmed_parts.append(sub_s)
@@ -643,14 +835,18 @@ class CompanySanitizer:
         if not original_source or not cls.has_tentative_sources(original_source):
             return ""
 
-        confirmed_norm = {c.lower() for c in re.split(r'[,;\s]+', cls.get_confirmed_source_text(original_source)) if c}
+        confirmed_norm = {
+            c.lower()
+            for c in cls._CONFIRMED_NORM_SPLIT_RE.split(cls.get_confirmed_source_text(original_source))
+            if c
+        }
         tentative_parts = []
         seen = set()
 
         for seg_text, is_tent in cls.tokenize_source_segments(original_source):
             if is_tent:
-                cleaned = re.sub(r'^[\[\(\s]+|[\]\)\s\?？]+$', '', seg_text)
-                for sub in re.split(r'[,;?？\(\)\[\]]+', cleaned):
+                cleaned = cls._TENTATIVE_OUTER_STRIP_RE.sub('', seg_text)
+                for sub in cls._TENTATIVE_INNER_SPLIT_RE.split(cleaned):
                     s = sub.strip()
                     if s and s.lower() not in confirmed_norm and s.lower() not in seen:
                         seen.add(s.lower())

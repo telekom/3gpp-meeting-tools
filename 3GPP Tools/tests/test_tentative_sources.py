@@ -280,6 +280,27 @@ class TestTentativeSources(unittest.TestCase):
                 CompanySanitizer.reload_rules()
                 self.assertNotIn("Acme Telecom", CompanySanitizer.SIGNATURE_SYNONYMS_REGEX)
 
+    def test_fast_matcher_matches_naive_regex_order_and_semantics(self):
+        test_strings = [
+            "Deutsche Telekom, KT, Nokia, Qualcomm, Huawei, HiSilicon, T-Mobile USA, cic[tmobile], CICT",
+            "ZTE, NTT, DoCoMo, Samsung, LG, LG Electronics, InterDigital, interdigtial, NEC, Connected Maritime",
+            "China Telecom, Chinatelecom Cloud, TIM, Telecom Italia, Ultimate Timing, Ericsson, AT&T, CATT",
+            "Lenovo, Motorola Mobility, Facebook, Meta, DISH, Boost Mobile, VIAVI Solutions",
+            "ATIS IMS911 (IMS911 LS to 3GPP SA1), BUPT, [BUPT], CSCN, ETSI TC NET, HFCL Limited, HIPE IP Inc.",
+            "IIT Bombay, IIT Kharagpur, Free Stream Technologies, NCSC (UK), BSI (DE), US NSA, NPL",
+            "PML, Pengcheng Laboratory, ZGC Institute of Ubiquitous-X Innovation and Application",
+            "SKY Perfect JSAT Corporation, Seoul National University, Spreadtrum, UNISOC, Transsion Holdings",
+        ]
+        for s in test_strings:
+            clean = CompanySanitizer.SOURCE_REPLACE_REGEX.sub(" ", s).strip().lower()
+            expected = [
+                key
+                for key, regex in CompanySanitizer.SIGNATURE_SYNONYMS_REGEX.items()
+                if regex.search(clean)
+            ]
+            actual = CompanySanitizer._match_text_to_companies(s)
+            self.assertEqual(actual, expected, f"Mismatch on {s!r}")
+
 
 if __name__ == "__main__":
     unittest.main()

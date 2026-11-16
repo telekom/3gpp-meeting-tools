@@ -467,7 +467,7 @@ src/modules/meetings/
   - **Externalized Two-Tier Company Catalog & Metadata (`src/config/company_synonyms.json`, `src/config/company_synonyms_user.json`, `CompanySanitizer.reload_rules`):**
     - Stores every canonical 3GPP company, operator, vendor, SDO, research university/lab, and government agency in `src/config/company_synonyms.json` with `pattern` (regex), `full_name`, `category`, and human-readable `description` explaining each entity.
     - Supports optional local user overrides/additions in `src/config/company_synonyms_user.json` (automatically preserved across GitHub updates by `apply_worker.py`) while keeping `_BUILTIN_SYNONYMS_PATTERNS` in `company_sanitizer.py` as a 100% backwards-compatible, zero-I/O fallback.
-    - `CompanySanitizer.reload_rules()` mutates `SIGNATURE_SYNONYMS_REGEX` and `COMPANY_METADATA` in-place and clears `@lru_cache` on `tokenize_source_segments` and `parse_contributors_detailed`.
+    - `CompanySanitizer.reload_rules()` mutates `SIGNATURE_SYNONYMS_REGEX` and `COMPANY_METADATA` in-place, compiles the C-accelerated 3-stage matcher (`_compile_fast_matchers`: O(1) `_FAST_WORD_INDEX` hash lookup for `\b<word>\b` acronyms, C-level `sub in clean` substring scan for plain literals, and literal-anchored regex execution), and clears `@lru_cache` (`maxsize=65536`) on `tokenize_source_segments`, `parse_contributors_detailed`, and `_get_primary_contributors_cached`.
   - **Lossless Segment Tokenizer (`CompanySanitizer.tokenize_source_segments`):**
     - Parses raw `Source` strings into `(segment_text, is_tentative)` pairs with 100% text preservation.
     - Treats square-bracketed company blocks (`[...]`) and question-marked company names (`?`, `(?)`, `？`) identically (`is_tentative=True`).
