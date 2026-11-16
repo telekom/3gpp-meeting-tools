@@ -164,12 +164,17 @@ class MeetingsTab(QWidget):
         if "wg" in filters:
             saved_wgs = filters["wg"]
             if isinstance(saved_wgs, list):
+                all_checked = True
                 for i in range(1, self.wg_filter.model().rowCount()):
                     item = self.wg_filter.model().item(i)
                     if item.text() in saved_wgs:
                         item.setCheckState(Qt.Checked)
                     else:
                         item.setCheckState(Qt.Unchecked)
+                        all_checked = False
+                root_item = self.wg_filter.model().item(0)
+                if root_item is not None and self.wg_filter.model().rowCount() > 1:
+                    root_item.setCheckState(Qt.Checked if all_checked else Qt.Unchecked)
                 self.wg_filter.updateText()
 
         if "adhoc" in filters:
