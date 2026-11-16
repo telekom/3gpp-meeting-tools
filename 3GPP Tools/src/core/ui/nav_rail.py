@@ -407,7 +407,7 @@ class NavRail(QFrame):
 
     def apply_responsive_width(self, window_width: int, dock_open: bool = False) -> None:
         """
-        Apply responsive breakpoint hysteresis (`<940 px` collapse, `>=970 px` expand).
+        Apply responsive breakpoint hysteresis (`<1040 px` collapse, `>=1070 px` expand).
         When the right-hand side dock is open, tightens breakpoints to `<1280 px` / `>=1310 px`
         so the central workspace retains comfortable width on compact laptops.
         """

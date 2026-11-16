@@ -163,6 +163,11 @@ class TestWorldClockAndTimezones(unittest.TestCase):
         self.assertIn("(SA2)", bar_txt)
         self.assertNotIn("South Korea", bar_txt)
 
+        compact_bar_txt = service.format_status_bar_text(snap_split_sa2, compact=True)
+        self.assertIn("Prague", compact_bar_txt)
+        self.assertIn("Local", compact_bar_txt)
+        self.assertNotIn("(SA2)", compact_bar_txt)
+
     def test_meeting_folder_persistence_and_override_priority(self) -> None:
         folder = "TSGS2_178_Calgary_2026-11"
         mtg_dir = self.cache_dir / folder

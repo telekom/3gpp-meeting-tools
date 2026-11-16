@@ -748,7 +748,7 @@ class WorldClockService:
         )
 
     @staticmethod
-    def format_status_bar_text(snapshot: WorldClockSnapshot) -> str:
+    def format_status_bar_text(snapshot: WorldClockSnapshot, compact: bool = False) -> str:
         """Formats the compact status-bar clock pill text."""
         parts = [f"🕒 {snapshot.laptop_dt:%H:%M} Local"]
         if snapshot.show_utc_in_bar:
@@ -770,13 +770,19 @@ class WorldClockService:
 
         if venue_chunks:
             prefix = "⏭️" if all(v.is_upcoming for v in snapshot.primary_venues) else "📍"
+            if compact and len(venue_chunks) > 2:
+                extra = len(venue_chunks) - 2
+                shown_venues = " | ".join(venue_chunks[:2]) + f" +{extra}"
+            else:
+                shown_venues = " | ".join(venue_chunks)
+
             wg_suffix = ""
-            if snapshot.wg_filter:
+            if not compact and snapshot.wg_filter:
                 wg_txt = "/".join(snapshot.wg_filter[:2])
                 if len(snapshot.wg_filter) > 2:
                     wg_txt += "+"
                 wg_suffix = f" ({wg_txt})"
-            parts.append(f"{prefix} {' | '.join(venue_chunks)}{wg_suffix}")
+            parts.append(f"{prefix} {shown_venues}{wg_suffix}")
 
         return " · ".join(parts)
 

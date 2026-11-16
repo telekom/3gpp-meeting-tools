@@ -64,17 +64,17 @@ class TestIconsAndNavRail(unittest.TestCase):
         self.assertFalse(rail.is_collapsed)
         self.assertEqual(rail.width(), S.RAIL_EXPANDED_WIDTH)
 
-        # Shrink below 940 -> auto-collapses to 56px
+        # Shrink below COMPACT_COLLAPSE_PX (1040) -> auto-collapses to 56px
         rail.apply_responsive_width(B.COMPACT_COLLAPSE_PX - 10)
         self.assertTrue(rail.is_collapsed)
         self.assertEqual(rail.width(), S.RAIL_COLLAPSED_WIDTH)
         self.assertEqual(signals, [True])
 
-        # Stay inside hysteresis zone (950) -> stays collapsed (no jitter)
-        rail.apply_responsive_width(950)
+        # Stay inside hysteresis zone (1050) -> stays collapsed (no jitter)
+        rail.apply_responsive_width(B.COMPACT_COLLAPSE_PX + 10)
         self.assertTrue(rail.is_collapsed)
 
-        # Widen >= 970 -> expands back to 224px
+        # Widen >= COMPACT_EXPAND_PX (1070) -> expands back to 224px
         rail.apply_responsive_width(B.COMPACT_EXPAND_PX + 20)
         self.assertFalse(rail.is_collapsed)
         self.assertEqual(rail.width(), S.RAIL_EXPANDED_WIDTH)
@@ -126,10 +126,12 @@ class TestIconsAndNavRail(unittest.TestCase):
             self.app.processEvents()
             self.assertLessEqual(win.width(), 900)
             self.assertTrue(win.nav_rail.is_collapsed)
+            self.assertTrue(win.status_bar.is_minimal_mode)
 
             win.resize(1680, 960)
             self.app.processEvents()
             self.assertFalse(win.nav_rail.is_collapsed)
+            self.assertFalse(win.status_bar.is_minimal_mode)
             win.close()
         finally:
             s.clear()

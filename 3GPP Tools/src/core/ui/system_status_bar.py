@@ -19,7 +19,7 @@ from core.ai.ollama_dialog import OllamaConfigDialog
 from core.network.session import NetworkSession, ProxyProfileManager
 from core.network.wifi_monitor import WifiMonitorThread
 from core.ui.icons import lucide_icon
-from core.ui.theme import C, R, T
+from core.ui.theme import B, C, R, T
 from core.ui.ui_components import ProxyDialog
 from core.ui.world_clock_service import WebTimezoneSyncWorker, WorldClockService
 
@@ -32,12 +32,14 @@ def _status_pill_qss(
     bd: str = C.BORDER_STRONG,
     hover_bg: str = C.BG_CANVAS,
     hover_bd: str = C.BORDER_HOVER,
+    compact: bool = False,
 ) -> str:
     """Build consistent DPI-friendly status bar pill QSS."""
+    pad = "2px 5px" if compact else "2px 8px"
     return (
         f"QPushButton {{"
         f" background-color: {bg}; border: 1px solid {bd}; border-radius: {R.SM}px;"
-        f" padding: 2px 8px; font-family: {T.FONT_FAMILY_UI}; font-size: {T.SIZE_CAPTION}px;"
+        f" padding: {pad}; font-family: {T.FONT_FAMILY_UI}; font-size: {T.SIZE_CAPTION}px;"
         f" font-weight: 600; color: {fg};"
         f"}}"
         f"QPushButton:hover {{ background-color: {hover_bg}; border-color: {hover_bd}; }}"
@@ -67,9 +69,18 @@ class SystemStatusBar(QStatusBar):
         super().__init__(parent)
         self.wifi_monitor: Optional[WifiMonitorThread] = None
         self.ollama_monitor: Optional[OllamaMonitorThread] = None
+        self._minimal_mode: bool = False
         self._drawer_open: bool = False
         self._drawer_queue_count: int = 0
         self._drawer_unread_errors: int = 0
+        self._right_panel_open: bool = False
+        self._right_panel_mode: str = "assistant"
+        self._update_state: tuple = (False, 0, "", "")
+        self._ollama_initial_model: str = ""
+        self._ollama_state: Optional[tuple] = None
+        self._mcp_state: tuple = (False, 0)
+        self._proxy_active: bool = False
+        self._network_state: tuple = ("", False, False)
         self._world_clock_service = WorldClockService()
         self._clock_sync_workers: list = []
         self._clock_auto_synced: set = set()
@@ -78,9 +89,46 @@ class SystemStatusBar(QStatusBar):
         self.showMessage("⏳ Initializing...")
         self._setup_indicators()
 
+    @property
+    def is_minimal_mode(self) -> bool:
+        """Whether the status bar is currently in narrow-window minimalist icon mode."""
+        return self._minimal_mode
+
+    def apply_responsive_width(self, window_width: int) -> None:
+        """Apply responsive breakpoint hysteresis (`<1040 px` minimalist, `>=1070 px` full)."""
+        if window_width < B.STATUS_MINIMAL_COLLAPSE_PX:
+            self.set_minimal_mode(True)
+        elif window_width >= B.STATUS_MINIMAL_EXPAND_PX:
+            self.set_minimal_mode(False)
+
+    def set_minimal_mode(self, minimal: bool) -> None:
+        """Switch between full pill labels and compact icon-only minimalist mode."""
+        want = bool(minimal)
+        if want == self._minimal_mode:
+            return
+        self._minimal_mode = want
+        self._refresh_all_indicators()
+
+    def _refresh_all_indicators(self) -> None:
+        """Re-render every status bar pill for the current minimalist mode state."""
+        self._render_update_indicator()
+        self._render_ollama_indicator()
+        self._render_mcp_indicator()
+        self._render_proxy_indicator()
+        self._render_network_indicator()
+        self._render_system_btn()
+        self.update_right_panel_badges(self._right_panel_open, self._right_panel_mode)
+        self.update_drawer_badge(
+            self._drawer_open,
+            self._drawer_queue_count,
+            self._drawer_unread_errors,
+        )
+        self.update_clock_indicator()
+
     def _setup_indicators(self):
         saved_cfg = load_ollama_config()
         saved_model = saved_cfg.get("selected_model", "").strip()
+        self._ollama_initial_model = saved_model
         initial_ollama_text = f"🦙 {saved_model}" if saved_model else "🦙 Ollama"
 
         # 0. App Update Pill (shown only when a new commit is available on master)
@@ -98,6 +146,7 @@ class SystemStatusBar(QStatusBar):
                 bd=C.ACCENT_RING,
                 hover_bg=C.ACCENT_SOFT_HOVER,
                 hover_bd=C.ACCENT_PRIMARY,
+                compact=self._minimal_mode,
             )
         )
         self.update_indicator.clicked.connect(self.update_check_requested.emit)
@@ -108,7 +157,7 @@ class SystemStatusBar(QStatusBar):
         self.ollama_indicator = QPushButton(initial_ollama_text)
         self.ollama_indicator.setCursor(Qt.PointingHandCursor)
         self.ollama_indicator.setToolTip("Click to configure Ollama LLM connection")
-        self.ollama_indicator.setStyleSheet(_status_pill_qss())
+        self.ollama_indicator.setStyleSheet(_status_pill_qss(compact=self._minimal_mode))
         self.ollama_indicator.clicked.connect(self.open_ollama_settings)
         self.addPermanentWidget(self.ollama_indicator)
 
@@ -116,14 +165,14 @@ class SystemStatusBar(QStatusBar):
         self.mcp_indicator = QPushButton("🤖 MCP: Idle")
         self.mcp_indicator.setCursor(Qt.PointingHandCursor)
         self.mcp_indicator.setToolTip("Click to inspect MCP Server activity & external AI agents (Claude, Codex)")
-        self.mcp_indicator.setStyleSheet(_status_pill_qss())
+        self.mcp_indicator.setStyleSheet(_status_pill_qss(compact=self._minimal_mode))
         self.mcp_indicator.clicked.connect(self.open_mcp_monitor)
         self.addPermanentWidget(self.mcp_indicator)
 
         # 3. Proxy Indicator Pill
         self.proxy_indicator = QPushButton("🌐 Direct")
         self.proxy_indicator.setCursor(Qt.PointingHandCursor)
-        self.proxy_indicator.setStyleSheet(_status_pill_qss())
+        self.proxy_indicator.setStyleSheet(_status_pill_qss(compact=self._minimal_mode))
         self.proxy_indicator.clicked.connect(self.open_proxy_settings)
         self.addPermanentWidget(self.proxy_indicator)
 
@@ -143,7 +192,7 @@ class SystemStatusBar(QStatusBar):
         )
         self.system_btn.setIconSize(QSize(14, 14))
         self.system_btn.setToolTip("System diagnostics and maintenance tools (COM Task Manager, Database, Proxy, Network, Java, MCP)")
-        self.system_btn.setStyleSheet(_status_pill_qss(bg=C.BG_SURFACE, fg=C.TEXT_BODY))
+        self._render_system_btn()
         self.system_menu = QMenu(self)
         self.system_menu.setToolTipsVisible(True)
         self._populate_system_menu()
@@ -226,22 +275,50 @@ class SystemStatusBar(QStatusBar):
         self.system_menu.addAction("☕ Java...", self.java_info_requested.emit)
         self.system_menu.addAction("🤖 MCP...", self.open_mcp_monitor)
 
-    def set_update_available(
-        self, count: int, latest_short_sha: str = "", summary: str = ""
-    ) -> None:
-        """Display the clickable update badge in the status bar."""
-        label = f"Update ({count})" if count > 0 else "Update Available"
+    def _render_system_btn(self) -> None:
+        self.system_btn.setText("" if self._minimal_mode else "System")
+        self.system_btn.setStyleSheet(
+            _status_pill_qss(bg=C.BG_SURFACE, fg=C.TEXT_BODY, compact=self._minimal_mode)
+        )
+
+    def _render_update_indicator(self) -> None:
+        visible, count, latest_short_sha, summary = self._update_state
+        if not visible:
+            self.update_indicator.setVisible(False)
+            return
+        if self._minimal_mode:
+            label = f"{count}" if count > 0 else ""
+        else:
+            label = f"Update ({count})" if count > 0 else "Update Available"
         self.update_indicator.setText(label)
         tip = f"New update available on GitHub master ({latest_short_sha})"
         if summary:
             tip += f"\nLatest: {summary}"
         tip += "\n\nClick to view changes and update"
         self.update_indicator.setToolTip(tip)
+        self.update_indicator.setStyleSheet(
+            _status_pill_qss(
+                bg=C.ACCENT_SOFT,
+                fg=C.ACCENT_PRIMARY,
+                bd=C.ACCENT_RING,
+                hover_bg=C.ACCENT_SOFT_HOVER,
+                hover_bd=C.ACCENT_PRIMARY,
+                compact=self._minimal_mode,
+            )
+        )
         self.update_indicator.setVisible(True)
+
+    def set_update_available(
+        self, count: int, latest_short_sha: str = "", summary: str = ""
+    ) -> None:
+        """Display the clickable update badge in the status bar."""
+        self._update_state = (True, int(count), str(latest_short_sha), str(summary))
+        self._render_update_indicator()
 
     def clear_update_available(self) -> None:
         """Hide the status-bar update badge."""
-        self.update_indicator.setVisible(False)
+        self._update_state = (False, 0, "", "")
+        self._render_update_indicator()
 
     def update_drawer_badge(self, opened: bool, queue_count: int, unread_errors: int) -> None:
         """Update the status-bar Console & Queue pill text, active state, and error/queue badges."""
@@ -249,17 +326,28 @@ class SystemStatusBar(QStatusBar):
         self._drawer_queue_count = max(0, int(queue_count))
         self._drawer_unread_errors = max(0, int(unread_errors))
 
-        parts = ["Console && Queue"]
-        if self._drawer_queue_count > 0:
-            parts.append(f"{self._drawer_queue_count} queued")
-        if self._drawer_unread_errors > 0:
-            noun = "err" if self._drawer_unread_errors == 1 else "errs"
-            parts.append(f"{self._drawer_unread_errors} {noun}")
+        if self._minimal_mode:
+            if self._drawer_unread_errors > 0:
+                text = f"{self._drawer_unread_errors}!"
+            elif self._drawer_queue_count > 0:
+                text = f"{self._drawer_queue_count}"
+            else:
+                text = ""
+            pad = "1px 5px"
+        else:
+            parts = ["Console && Queue"]
+            if self._drawer_queue_count > 0:
+                parts.append(f"{self._drawer_queue_count} queued")
+            if self._drawer_unread_errors > 0:
+                noun = "err" if self._drawer_unread_errors == 1 else "errs"
+                parts.append(f"{self._drawer_unread_errors} {noun}")
+            text = " · ".join(parts)
+            pad = "1px 8px"
 
         self.drawer_toggle_btn.blockSignals(True)
         self.drawer_toggle_btn.setChecked(self._drawer_open)
         self.drawer_toggle_btn.blockSignals(False)
-        self.drawer_toggle_btn.setText(" · ".join(parts))
+        self.drawer_toggle_btn.setText(text)
 
         if self._drawer_unread_errors > 0 and not self._drawer_open:
             bg, fg, bd = C.DANGER_SOFT, C.DANGER, C.DANGER_BORDER
@@ -277,7 +365,7 @@ class SystemStatusBar(QStatusBar):
                 color: {fg};
                 border: 1px solid {bd};
                 border-radius: {R.SM}px;
-                padding: 1px 8px;
+                padding: {pad};
                 font-family: {T.FONT_FAMILY_UI};
                 font-size: {T.SIZE_CAPTION}px;
                 font-weight: 600;
@@ -290,14 +378,18 @@ class SystemStatusBar(QStatusBar):
 
     def update_right_panel_badges(self, opened: bool, mode: str) -> None:
         """Synchronize the status-bar Assistant & Quick Search dock pill styles."""
-        for btn, obj_name, target_mode in (
-            (self.assistant_dock_btn, "statusAssistantDockBtn", "assistant"),
-            (self.search_dock_btn, "statusSearchDockBtn", "spec_search"),
+        self._right_panel_open = bool(opened)
+        self._right_panel_mode = str(mode)
+        pad = "1px 5px" if self._minimal_mode else "1px 8px"
+        for btn, obj_name, target_mode, full_label in (
+            (self.assistant_dock_btn, "statusAssistantDockBtn", "assistant", "Assistant"),
+            (self.search_dock_btn, "statusSearchDockBtn", "spec_search", "Quick Search"),
         ):
             active = bool(opened and mode == target_mode)
             btn.blockSignals(True)
             btn.setChecked(active)
             btn.blockSignals(False)
+            btn.setText("" if self._minimal_mode else full_label)
             if active:
                 bg, fg, bd, hover_bg = C.ACCENT_SOFT, C.ACCENT_PRIMARY, C.ACCENT_RING, C.ACCENT_SOFT_HOVER
             else:
@@ -308,7 +400,7 @@ class SystemStatusBar(QStatusBar):
                     color: {fg};
                     border: 1px solid {bd};
                     border-radius: {R.SM}px;
-                    padding: 1px 8px;
+                    padding: {pad};
                     font-family: {T.FONT_FAMILY_UI};
                     font-size: {T.SIZE_CAPTION}px;
                     font-weight: 600;
@@ -341,6 +433,23 @@ class SystemStatusBar(QStatusBar):
         opener = urllib.request.build_opener(proxy_handler)
         urllib.request.install_opener(opener)
 
+    def _render_proxy_indicator(self) -> None:
+        if self._proxy_active:
+            self.proxy_indicator.setText("🛡️" if self._minimal_mode else "🛡️ Proxy: ON")
+            self.proxy_indicator.setStyleSheet(
+                _status_pill_qss(
+                    bg=C.INFO_SOFT_ALT,
+                    fg=C.ACCENT_PRIMARY,
+                    bd=C.INFO_BORDER_SKY,
+                    hover_bg=C.INFO_BORDER_ALT,
+                    hover_bd=C.ACCENT_SKY,
+                    compact=self._minimal_mode,
+                )
+            )
+        else:
+            self.proxy_indicator.setText("🌐" if self._minimal_mode else "🌐 Direct")
+            self.proxy_indicator.setStyleSheet(_status_pill_qss(compact=self._minimal_mode))
+
     def update_proxy_indicator(self, console_panel=None):
         """Updates both the bottom status pill and the optional ConsolePanel proxy button."""
         session = NetworkSession.get_instance()
@@ -353,18 +462,9 @@ class SystemStatusBar(QStatusBar):
         if active_proxies:
             details = "\n".join(f"• {k.upper()}: {v}" for k, v in active_proxies.items())
             tooltip = f"Proxy Active:\n{details}\n\nClick to configure proxy settings"
-
-            self.proxy_indicator.setText("🛡️ Proxy: ON")
+            self._proxy_active = True
             self.proxy_indicator.setToolTip(tooltip)
-            self.proxy_indicator.setStyleSheet(
-                _status_pill_qss(
-                    bg=C.INFO_SOFT_ALT,
-                    fg=C.ACCENT_PRIMARY,
-                    bd=C.INFO_BORDER_SKY,
-                    hover_bg=C.INFO_BORDER_ALT,
-                    hover_bd=C.ACCENT_SKY,
-                )
-            )
+            self._render_proxy_indicator()
             if console_panel:
                 console_panel.set_proxy_status(True, tooltip)
         else:
@@ -372,10 +472,9 @@ class SystemStatusBar(QStatusBar):
             has_saved = bool(profile.get("http_host") or profile.get("https_host"))
             state_note = " (Saved profile inactive)" if has_saved else ""
             tooltip = f"Direct Connection — No proxy active{state_note}\nClick to configure proxy settings"
-
-            self.proxy_indicator.setText("🌐 Direct")
+            self._proxy_active = False
             self.proxy_indicator.setToolTip(tooltip)
-            self.proxy_indicator.setStyleSheet(_status_pill_qss())
+            self._render_proxy_indicator()
             if console_panel:
                 console_panel.set_proxy_status(False, tooltip)
 
@@ -404,7 +503,8 @@ class SystemStatusBar(QStatusBar):
                 self.wifi_monitor.start()
         except Exception as e:
             logger.error(f"❌ Failed to start WifiMonitorThread: {e}")
-            self.network_indicator.setText("🌐 Offline")
+            self._network_state = ("Offline", False, False)
+            self._render_network_indicator()
 
     def start_ollama_monitor(self):
         """Starts Ollama monitor independently."""
@@ -416,31 +516,71 @@ class SystemStatusBar(QStatusBar):
                 self.ollama_monitor.start()
         except Exception as e:
             logger.error(f"❌ Failed to start OllamaMonitorThread: {e}")
-            self.ollama_indicator.setText("🦙 Offline")
+            self._ollama_state = (False, "", 0, str(e))
+            self._render_ollama_indicator()
 
-    def _update_network_indicator(self, ssid: str, is_3gpp: bool, server_reachable: bool):
+    def _render_network_indicator(self) -> None:
+        ssid, is_3gpp, server_reachable = self._network_state
+        if self._minimal_mode:
+            if not is_3gpp:
+                self.network_indicator.setVisible(False)
+                return
+            self.network_indicator.setVisible(True)
+            if server_reachable:
+                self.network_indicator.setText("🟢 3GPP")
+                self.network_indicator.setToolTip(f"{ssid} (Local Server Active)")
+                self.network_indicator.setStyleSheet(
+                    f"color: {C.SUCCESS}; font-size: {T.SIZE_CAPTION}px; font-weight: 600; padding: 0 4px;"
+                )
+            else:
+                self.network_indicator.setText("🟡 3GPP")
+                self.network_indicator.setToolTip(f"{ssid} (No Local Server)")
+                self.network_indicator.setStyleSheet(
+                    f"color: {C.WARNING}; font-size: {T.SIZE_CAPTION}px; font-weight: 600; padding: 0 4px;"
+                )
+            return
+
+        self.network_indicator.setVisible(True)
         if is_3gpp and server_reachable:
             self.network_indicator.setText(f"🟢 {ssid} (Local Server Active)")
+            self.network_indicator.setToolTip(f"Connected to 3GPP meeting Wi-Fi: {ssid} (Local Server Active)")
             self.network_indicator.setStyleSheet(
                 f"color: {C.SUCCESS}; font-size: {T.SIZE_CAPTION}px; font-weight: 600; padding: 0 8px;"
             )
         elif is_3gpp and not server_reachable:
             self.network_indicator.setText(f"🟡 {ssid} (No Local Server)")
+            self.network_indicator.setToolTip(f"Connected to 3GPP meeting Wi-Fi: {ssid} (No Local Server)")
             self.network_indicator.setStyleSheet(
                 f"color: {C.WARNING}; font-size: {T.SIZE_CAPTION}px; font-weight: 600; padding: 0 8px;"
             )
         else:
-            display_name = ssid if ssid else "Offline"
-            self.network_indicator.setText(f"🌐 {display_name}")
+            display_name = ssid if ssid else ("Network" if ssid == "" and not self._monitors_stopped else "Offline")
+            if ssid == "" and not self._network_state[0]:
+                display_name = "Network" if self.wifi_monitor is None else "Offline"
+            self.network_indicator.setText(f"🌐 {display_name}" if display_name != "Network" else "📶 Network")
+            self.network_indicator.setToolTip(f"Network: {display_name}")
             self.network_indicator.setStyleSheet(
                 f"color: {C.TEXT_MUTED}; font-size: {T.SIZE_CAPTION}px; padding: 0 8px;"
             )
 
-    def _update_ollama_indicator(self, is_online: bool, selected_model: str, models: list, error: str):
+    def _update_network_indicator(self, ssid: str, is_3gpp: bool, server_reachable: bool):
+        clean_ssid = str(ssid or "").strip() or "Offline"
+        self._network_state = (clean_ssid, bool(is_3gpp), bool(server_reachable))
+        self._render_network_indicator()
+
+    def _render_ollama_indicator(self) -> None:
+        if self._ollama_state is None:
+            full_txt = f"🦙 {self._ollama_initial_model}" if self._ollama_initial_model else "🦙 Ollama"
+            self.ollama_indicator.setText("🦙" if self._minimal_mode else full_txt)
+            self.ollama_indicator.setStyleSheet(_status_pill_qss(compact=self._minimal_mode))
+            return
+
+        is_online, model_display, models_count, error = self._ollama_state
         if is_online:
-            model_display = selected_model if selected_model else (models[0] if models else "Connected")
-            self.ollama_indicator.setText(f"🦙 {model_display}")
-            self.ollama_indicator.setToolTip(f"Ollama Online ({len(models)} models available)\nClick to configure")
+            self.ollama_indicator.setText("🦙" if self._minimal_mode else f"🦙 {model_display}")
+            self.ollama_indicator.setToolTip(
+                f"Ollama Online ({model_display}, {models_count} models available)\nClick to configure"
+            )
             self.ollama_indicator.setStyleSheet(
                 _status_pill_qss(
                     bg=C.SUCCESS_SOFT,
@@ -448,10 +588,11 @@ class SystemStatusBar(QStatusBar):
                     bd=C.SUCCESS_BORDER,
                     hover_bg=C.SUCCESS_SOFT_ALT,
                     hover_bd=C.SUCCESS_BORDER_MINT,
+                    compact=self._minimal_mode,
                 )
             )
         else:
-            self.ollama_indicator.setText("🦙 Offline")
+            self.ollama_indicator.setText("🦙" if self._minimal_mode else "🦙 Offline")
             self.ollama_indicator.setToolTip(f"Ollama Unreachable: {error}\nClick to configure")
             self.ollama_indicator.setStyleSheet(
                 _status_pill_qss(
@@ -460,8 +601,14 @@ class SystemStatusBar(QStatusBar):
                     bd=C.DANGER_BORDER,
                     hover_bg=C.DANGER_SOFT_HOVER,
                     hover_bd=C.DANGER_BORDER_ALT,
+                    compact=self._minimal_mode,
                 )
             )
+
+    def _update_ollama_indicator(self, is_online: bool, selected_model: str, models: list, error: str):
+        model_display = selected_model if selected_model else (models[0] if models else "Connected")
+        self._ollama_state = (bool(is_online), str(model_display), len(models), str(error or ""))
+        self._render_ollama_indicator()
 
     def open_ollama_settings(self):
         """Opens Ollama connection, model preferences, and service management dialog."""
@@ -486,6 +633,29 @@ class SystemStatusBar(QStatusBar):
         except Exception as exc:
             logger.exception("Failed to open MCP Monitor dialog: %s", exc)
 
+    def _render_mcp_indicator(self) -> None:
+        active, total_calls = self._mcp_state
+        if active:
+            text = "🤖 🟢" if self._minimal_mode else f"🤖 MCP: 🟢 Active ({total_calls})"
+            self.mcp_indicator.setText(text)
+            self.mcp_indicator.setStyleSheet(
+                _status_pill_qss(
+                    bg=C.SUCCESS_SOFT,
+                    fg=C.SUCCESS,
+                    bd=C.SUCCESS_BORDER,
+                    hover_bg=C.SUCCESS_SOFT_ALT,
+                    hover_bd=C.SUCCESS_BORDER_MINT,
+                    compact=self._minimal_mode,
+                )
+            )
+        else:
+            if self._minimal_mode:
+                text = "🤖"
+            else:
+                text = f"🤖 MCP: {total_calls} calls" if total_calls > 0 else "🤖 MCP: Idle"
+            self.mcp_indicator.setText(text)
+            self.mcp_indicator.setStyleSheet(_status_pill_qss(compact=self._minimal_mode))
+
     def update_mcp_indicator(self):
         """Polls active MCP sessions and recent activity stats to update the status bar pill."""
         try:
@@ -497,7 +667,6 @@ class SystemStatusBar(QStatusBar):
             if sessions:
                 clients = ", ".join(s.get("client", "agent") for s in sessions)
                 pids = ", ".join(str(s.get("pid", "?")) for s in sessions)
-                text = f"🤖 MCP: 🟢 Active ({total_calls})"
                 tooltip = (
                     f"MCP Server: Active\n"
                     f"Connected Client: {clients} (PID: {pids})\n"
@@ -505,27 +674,18 @@ class SystemStatusBar(QStatusBar):
                     f"Success Rate: {stats.get('success_rate', 100)}%\n\n"
                     f"Click to open MCP & AI Agent Cockpit"
                 )
-                self.mcp_indicator.setText(text)
+                self._mcp_state = (True, total_calls)
                 self.mcp_indicator.setToolTip(tooltip)
-                self.mcp_indicator.setStyleSheet(
-                    _status_pill_qss(
-                        bg=C.SUCCESS_SOFT,
-                        fg=C.SUCCESS,
-                        bd=C.SUCCESS_BORDER,
-                        hover_bg=C.SUCCESS_SOFT_ALT,
-                        hover_bd=C.SUCCESS_BORDER_MINT,
-                    )
-                )
+                self._render_mcp_indicator()
             else:
-                text = f"🤖 MCP: {total_calls} calls" if total_calls > 0 else "🤖 MCP: Idle"
                 tooltip = (
                     f"MCP Server: Idle (No active agent process connected)\n"
                     f"Total Calls Logged: {total_calls}\n\n"
                     f"Click to open MCP & AI Agent Cockpit"
                 )
-                self.mcp_indicator.setText(text)
+                self._mcp_state = (False, total_calls)
                 self.mcp_indicator.setToolTip(tooltip)
-                self.mcp_indicator.setStyleSheet(_status_pill_qss())
+                self._render_mcp_indicator()
         except Exception:
             pass
 
@@ -533,8 +693,15 @@ class SystemStatusBar(QStatusBar):
         """Refreshes the status-bar World Clock pill text and rich tooltip."""
         try:
             snapshot = self._world_clock_service.get_snapshot()
-            self.clock_indicator.setText(self._world_clock_service.format_status_bar_text(snapshot))
+            self.clock_indicator.setText(
+                self._world_clock_service.format_status_bar_text(
+                    snapshot, compact=self._minimal_mode
+                )
+            )
             self.clock_indicator.setToolTip(self._world_clock_service.format_status_bar_tooltip(snapshot))
+            self.clock_indicator.setStyleSheet(
+                _status_pill_qss(bg=C.BG_SURFACE, fg=C.TEXT_BODY, compact=self._minimal_mode)
+            )
         except Exception as e:
             logger.debug(f"[StatusBarClock] Failed to update clock indicator: {e}")
 

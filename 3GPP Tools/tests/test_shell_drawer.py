@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import QApplication, QSplitter, QWidget
 
 from core.ui.bottom_drawer import BottomDrawer
 from core.ui.system_status_bar import SystemStatusBar
+from core.ui.theme import B
 from core.ui.ui_panels import ConsolePanel, QueuePanel
 
 
@@ -117,6 +118,63 @@ class TestBottomDrawerAndStatusBadges(unittest.TestCase):
             bar.system_menu.actions()[3].trigger()
             bar.system_menu.actions()[4].trigger()
             self.assertEqual(fired, ["task", "db", "net", "java"])
+        finally:
+            bar.stop_monitors()
+            bar.mcp_timer.stop()
+
+    def test_status_bar_minimalist_mode_and_hysteresis(self):
+        bar = SystemStatusBar()
+        try:
+            # Seed states before collapsing
+            bar._update_ollama_indicator(True, "qwen3:8b", ["qwen3:8b"], "")
+            bar._update_network_indicator("Ramada", False, False)
+            bar.update_drawer_badge(False, 3, 2)
+
+            self.assertFalse(bar.is_minimal_mode)
+            self.assertEqual(bar.system_btn.text(), "System")
+            self.assertEqual(bar.assistant_dock_btn.text(), "Assistant")
+            self.assertEqual(bar.search_dock_btn.text(), "Quick Search")
+            self.assertEqual(bar.ollama_indicator.text(), "🦙 qwen3:8b")
+            self.assertEqual(bar.proxy_indicator.text(), "🌐 Direct")
+            self.assertEqual(bar.network_indicator.text(), "🌐 Ramada")
+            self.assertFalse(bar.network_indicator.isHidden())
+
+            # Shrink below STATUS_MINIMAL_COLLAPSE_PX -> enters minimalist mode
+            bar.apply_responsive_width(B.STATUS_MINIMAL_COLLAPSE_PX - 20)
+            self.assertTrue(bar.is_minimal_mode)
+            self.assertEqual(bar.system_btn.text(), "")
+            self.assertEqual(bar.assistant_dock_btn.text(), "")
+            self.assertEqual(bar.search_dock_btn.text(), "")
+            self.assertEqual(bar.ollama_indicator.text(), "🦙")
+            self.assertEqual(bar.proxy_indicator.text(), "🌐")
+            self.assertEqual(bar.drawer_toggle_btn.text(), "2!")
+            self.assertTrue(bar.network_indicator.isHidden())
+            self.assertIn("Local", bar.clock_indicator.text())
+
+            # Idle drawer shows no text in minimal mode, active queue shows count
+            bar.update_drawer_badge(False, 4, 0)
+            self.assertEqual(bar.drawer_toggle_btn.text(), "4")
+            bar.update_drawer_badge(False, 0, 0)
+            self.assertEqual(bar.drawer_toggle_btn.text(), "")
+
+            # 3GPP network IS shown compactly even in minimalist mode
+            bar._update_network_indicator("3GPP-Meeting", True, True)
+            self.assertFalse(bar.network_indicator.isHidden())
+            self.assertEqual(bar.network_indicator.text(), "🟢 3GPP")
+
+            # Hysteresis zone keeps minimal mode active
+            bar.apply_responsive_width(B.STATUS_MINIMAL_COLLAPSE_PX + 10)
+            self.assertTrue(bar.is_minimal_mode)
+
+            # Expand >= STATUS_MINIMAL_EXPAND_PX -> restores full labels
+            bar.apply_responsive_width(B.STATUS_MINIMAL_EXPAND_PX)
+            self.assertFalse(bar.is_minimal_mode)
+            self.assertEqual(bar.system_btn.text(), "System")
+            self.assertEqual(bar.assistant_dock_btn.text(), "Assistant")
+            self.assertEqual(bar.search_dock_btn.text(), "Quick Search")
+            self.assertEqual(bar.drawer_toggle_btn.text(), "Console && Queue")
+            self.assertEqual(bar.ollama_indicator.text(), "🦙 qwen3:8b")
+            self.assertEqual(bar.network_indicator.text(), "🟢 3GPP-Meeting (Local Server Active)")
         finally:
             bar.stop_monitors()
             bar.mcp_timer.stop()

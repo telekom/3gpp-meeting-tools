@@ -456,6 +456,7 @@ class DragDropUI(QMainWindow):
             self.right_panel.is_open,
             self.right_panel.mode,
         )
+        self.status_bar.apply_responsive_width(self.width())
 
         # Floating non-blocking Toast notification overlay manager
         self.toast_manager = ToastManager(self)
@@ -690,6 +691,8 @@ class DragDropUI(QMainWindow):
         dock_open = hasattr(self, "right_panel") and self.right_panel.is_open
         if hasattr(self, "nav_rail"):
             self.nav_rail.apply_responsive_width(self.width(), dock_open=dock_open)
+        if hasattr(self, "status_bar") and hasattr(self.status_bar, "apply_responsive_width"):
+            self.status_bar.apply_responsive_width(self.width())
         if hasattr(self, "toast_manager"):
             self.toast_manager.reposition()
 

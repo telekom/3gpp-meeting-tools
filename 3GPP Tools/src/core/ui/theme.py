@@ -224,9 +224,12 @@ class ThemeBreakpoints:
     to prevent resize jitter when dragging window borders.
     """
 
-    COMPACT_MAX_PX = 960
-    COMPACT_COLLAPSE_PX = 940
-    COMPACT_EXPAND_PX = 970
+    COMPACT_MAX_PX = 1055
+    COMPACT_COLLAPSE_PX = 1040
+    COMPACT_EXPAND_PX = 1070
+
+    STATUS_MINIMAL_COLLAPSE_PX = 1040
+    STATUS_MINIMAL_EXPAND_PX = 1070
 
     WIDE_MIN_PX = 1600
     FOUR_COLUMN_MIN_PX = 1920

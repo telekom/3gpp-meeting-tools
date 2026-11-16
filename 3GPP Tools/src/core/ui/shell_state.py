@@ -206,3 +206,11 @@ def restore_shell_state(window: object, settings: Optional[QSettings] = None) ->
         status_bar = getattr(window, "status_bar", None)
         if status_bar is not None and hasattr(status_bar, "update_right_panel_badges"):
             status_bar.update_right_panel_badges(right_panel.is_open, right_panel.mode)
+
+    status_bar = getattr(window, "status_bar", None)
+    if (
+        status_bar is not None
+        and hasattr(status_bar, "apply_responsive_width")
+        and hasattr(window, "width")
+    ):
+        status_bar.apply_responsive_width(window.width())
