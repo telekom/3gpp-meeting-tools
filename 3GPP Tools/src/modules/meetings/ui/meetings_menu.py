@@ -8,7 +8,32 @@ from PyQt5.QtCore import QDate
 from PyQt5.QtWidgets import QMenu
 
 from core.utils.portal_utils import open_portal_create_tdoc, open_portal_meeting
-from modules.meetings.ui.tdocs_window import _open_terminal
+from core.utils.terminal_opener import open_terminal as _open_terminal
+
+
+def add_meeting_portal_actions(menu: QMenu, mtg_info: Dict[str, Any]) -> bool:
+    """Adds official 3GU Meeting Portal actions to ``menu`` when ``mtg_id`` is available.
+
+    Returns True if at least one portal action was added.
+    """
+    mtg_id = mtg_info.get("mtg_id") if mtg_info else None
+    if not mtg_id:
+        return False
+
+    act_portal = menu.addAction("🖥️ 3GU Meeting Portal")
+    act_portal.setToolTip("Open this meeting's workspace in the official 3GPP 3GU Portal.")
+    act_portal.triggered.connect(lambda _=False, m=mtg_id: open_portal_meeting(m))
+
+    end_date_str = str(mtg_info.get("end_date") or "")
+    end_date = QDate.fromString(end_date_str, "yyyy-MM-dd")
+    current_date = QDate.currentDate()
+
+    if not end_date.isValid() or end_date >= current_date:
+        act_reserve = menu.addAction("📝 Reserve / Contribute TDoc")
+        act_reserve.setToolTip("Open the 3GU Portal to reserve or submit a TDoc for this meeting.")
+        act_reserve.triggered.connect(lambda _=False, m=mtg_id: open_portal_create_tdoc(m))
+
+    return True
 
 
 def populate_meeting_context_menu(tab: Any, menu: QMenu, row_data: Dict[str, Any], row_idx: int) -> None:
@@ -38,19 +63,7 @@ def populate_meeting_context_menu(tab: Any, menu: QMenu, row_data: Dict[str, Any
     menu.addAction("ℹ️ Meeting Info").triggered.connect(lambda _, d=row_data: tab.show_meeting_info(d))
 
     mtg_id = row_data.get("mtg_id")
-    if mtg_id:
-        menu.addAction("🖥️ 3GU Meeting Portal").triggered.connect(
-            lambda _, m=mtg_id: open_portal_meeting(m)
-        )
-
-        end_date_str = row_data.get("end_date", "")
-        end_date = QDate.fromString(end_date_str, "yyyy-MM-dd")
-        current_date = QDate.currentDate()
-
-        if not end_date.isValid() or end_date >= current_date:
-            menu.addAction("📝 Reserve / Contribute TDoc").triggered.connect(
-                lambda _, m=mtg_id: open_portal_create_tdoc(m)
-            )
+    add_meeting_portal_actions(menu, row_data)
 
     menu.addAction("📝 Draft CR / pCR for this Meeting...").triggered.connect(
         lambda _, d=row_data: tab.open_cr_pcr_for_meeting(d)

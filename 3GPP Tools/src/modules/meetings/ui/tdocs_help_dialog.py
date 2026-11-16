@@ -201,7 +201,7 @@ def _build_toolbar_tab_html() -> str:
 
     <div class="card">
         <div class="card-title">🗂️ Resources ▾ & 📗 Original Excel</div>
-        <p><b>🗂️ Resources ▾:</b> 1-click shortcuts to open local meeting folders (<code>Docs/</code>, <code>Agenda/</code>, <code>ChairNotes/</code>), launch a Windows Terminal in the cache directory, view export debriefs, or open remote 3GPP FTP web folders.</p>
+        <p><b>🗂️ Resources ▾:</b> 1-click shortcuts to open local meeting folders (<code>Docs/</code>, <code>Agenda/</code>, <code>ChairNotes/</code>), launch a Windows Terminal in the cache directory, view export debriefs, open remote 3GPP FTP web folders, or jump straight to the meeting's <b>3GU Meeting Portal</b> (and <b>Reserve / Contribute TDoc</b> for active/upcoming meetings).</p>
         <p><b>📗 Original Excel:</b> Opens the official unmodified 3GPP Excel spreadsheet in Microsoft Excel for external calculations or custom formatting.</p>
     </div>
 

@@ -59,7 +59,7 @@ src/modules/meetings/
     ├── dialogs.py                     # MeetingInfoDialog, AddMeetingDialog, MeetingsConfigDialog
     ├── meetings_actions.py            # Async download, caching, and export actions for MeetingsTab
     ├── meetings_delegates.py          # DynamicHoverMenuDelegate, TDocsButtonDelegate, WGTagDelegate
-    ├── meetings_menu.py               # Right-click context menu builder for meetings table
+    ├── meetings_menu.py               # Meetings table context menu & shared 3GU meeting portal actions (`add_meeting_portal_actions`)
     ├── models.py                      # MeetingsTableModel (7 consolidated columns, English date ranges)
     ├── dialogs/                       # Modal export & parameter configuration dialogs
     │   ├── post_meeting_export_dialog.py  # Post-meeting report generator dialog
@@ -111,7 +111,7 @@ src/modules/meetings/
 - **Official 3GU Web Portal Integration (`core.utils.portal_utils`):**
   - Canonical resolution (`get_portal_tdoc_url`, `open_portal_tdoc`) constructs and launches official 3GPP (3GU) web portal view URLs (`https://portal.3gpp.org/ngppapp/CreateTdoc.aspx?mode=view&contributionUid={uid}`).
   - Employs `contributionUid` (never obsolete `tdocId`) and automatically strips revision markers via `extract_base_tdoc()` so portal lookups consistently resolve to the base contribution.
-  - Standardized across the TDoc right-click context menu, Quick Copy clipboard submenu, dossier HTML headers, meeting workspace links (`open_portal_meeting`), and contribution reservation actions (`open_portal_create_tdoc`).
+  - Standardized across the TDoc right-click context menu, Quick Copy clipboard submenu, dossier HTML headers, meeting workspace links (`open_portal_meeting`), and contribution reservation actions (`open_portal_create_tdoc`), with shared menu helper `add_meeting_portal_actions()` in `meetings_menu.py` powering both the Meetings table context menu and `TDocsWindow`'s `🗂️ Resources` menu.
 
 ### 3.4. Tracked Work Items Quick Filters (Integration with Work Items Module)
 - **Token Resolution & Precomputation:** When loading meeting TDocs, `TDocsTableModel._precompute_row_wi_tokens` parses and caches normalized WI tokens on each row dictionary (`row["_wi_tokens"]`). This covers explicit `Related WIs`, `agenda_map` acronyms, and parenthesized acronyms in `Agenda item description`.

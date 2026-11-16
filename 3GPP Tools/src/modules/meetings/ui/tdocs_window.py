@@ -56,6 +56,7 @@ from modules.meetings.ui.tdocs_dialogs import (
     InteractiveNotesDialog,
     StatisticsSettingsDialog, TDocInfoDialog
 )
+from modules.meetings.ui.meetings_menu import add_meeting_portal_actions
 from modules.meetings.ui.tdocs_menus import build_action_menu, build_related_menu
 from modules.meetings.ui.tdocs_menu import handle_table_context_menu
 from modules.meetings.ui.dialogs.tdocs_export_controller import (
@@ -247,7 +248,7 @@ class TDocsWindow(QWidget):
         self.folder_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.folder_btn.setToolTip(make_rich_tooltip(
             title="🗂️ Resources & Directories",
-            description="Quick access to local cache directories (Docs, Agenda, ChairNotes, SessionPlans) and remote 3GPP FTP folders.",
+            description="Quick access to local cache directories (Docs, Agenda, ChairNotes, SessionPlans), remote 3GPP FTP folders, and official 3GU Meeting Portal links.",
             tip="You can also open a Windows Terminal directly inside the local meeting cache folder."
         ))
 
@@ -583,15 +584,21 @@ class TDocsWindow(QWidget):
                 self.folder_menu.addAction("🟢 Local Server: TdocsByAgenda.htm", lambda u=f"{local_base}/TdocsByAgenda.htm": webbrowser.open(u))
             self.folder_menu.addAction("🟢 Local Server: Home (10.10.10.10)", lambda: webbrowser.open("http://10.10.10.10/"))
 
-        self.folder_menu.addSeparator()
-        if self.main_ftp_url:
-            self.folder_menu.addAction("🌐 Web FTP: Main Folder", lambda: webbrowser.open(self.main_ftp_url))
-        if self.docs_ftp_url:
-            self.folder_menu.addAction("🌐 Web FTP: Docs Folder", lambda: webbrowser.open(self.docs_ftp_url))
-            act_cache = self.folder_menu.addAction("📥 Cache TDocs (Docs/)", self._cache_all_tdocs)
-            act_cache.setToolTip("Cache all official TDoc archives from the 3GPP Docs directory into the local meeting cache.")
-        if self.revisions_url:
-            self.folder_menu.addAction("🌐 Web FTP: Revisions Folder", lambda: webbrowser.open(self.revisions_url))
+        has_ftp = bool(self.main_ftp_url or self.docs_ftp_url or self.revisions_url)
+        if has_ftp:
+            self.folder_menu.addSeparator()
+            if self.main_ftp_url:
+                self.folder_menu.addAction("🌐 Web FTP: Main Folder", lambda: webbrowser.open(self.main_ftp_url))
+            if self.docs_ftp_url:
+                self.folder_menu.addAction("🌐 Web FTP: Docs Folder", lambda: webbrowser.open(self.docs_ftp_url))
+                act_cache = self.folder_menu.addAction("📥 Cache TDocs (Docs/)", self._cache_all_tdocs)
+                act_cache.setToolTip("Cache all official TDoc archives from the 3GPP Docs directory into the local meeting cache.")
+            if self.revisions_url:
+                self.folder_menu.addAction("🌐 Web FTP: Revisions Folder", lambda: webbrowser.open(self.revisions_url))
+
+        if self.mtg_info.get("mtg_id"):
+            self.folder_menu.addSeparator()
+            add_meeting_portal_actions(self.folder_menu, self.mtg_info)
 
     def _trigger_download_thread(self, base_tdoc: str, target_filename: str, legacy_url: str = None,
                                  is_silent_compare: bool = False, auto_compare_active_word: bool = False):
