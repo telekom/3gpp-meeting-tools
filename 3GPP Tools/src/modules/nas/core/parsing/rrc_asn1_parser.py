@@ -35,9 +35,18 @@ class RRCAsn1Parser(BaseAsn1DocxParser):
         for type_name, type_info in type_defs.items():
             clean_name = type_name.strip()
             norm_key = self._normalize_key(clean_name)
+            sib_base = (
+                re.sub(r"-(?:r\d+|v\d+[a-z]?)$", "", clean_name, flags=re.IGNORECASE)
+                if re.match(r"^SIB(?:\d+(?:bis)?|pos)-", clean_name, re.IGNORECASE)
+                else ""
+            )
+            sib_norm = self._normalize_key(sib_base) if sib_base else ""
+
             assigned_clause = (
                     clause_map.get(norm_key)
                     or clause_map.get(clean_name.lower())
+                    or (clause_map.get(sib_norm) if sib_norm else None)
+                    or (clause_map.get(sib_base.lower()) if sib_base else None)
                     or type_info.get("clause")
                     or ("6.2" if "Message" in clean_name or clean_name.startswith("RRC") else "6.3")
             )
@@ -50,6 +59,8 @@ class RRCAsn1Parser(BaseAsn1DocxParser):
                     or field_desc_tables.get(f"{clean_name.lower()}-ies")
                     or field_desc_tables.get(f"{clean_name.lower()}ies")
                     or field_desc_tables.get(self._normalize_key(f"{clean_name}-IEs"))
+                    or (field_desc_tables.get(sib_norm) if sib_norm else None)
+                    or (field_desc_tables.get(sib_base.lower()) if sib_base else None)
                     or type_info.get("desc_table_html")
                     or ""
             )
@@ -137,10 +148,26 @@ class RRCAsn1Parser(BaseAsn1DocxParser):
 
     @staticmethod
     def _is_rrc_message(name: str) -> bool:
-        if name.endswith(("-IEs", "IEs")) or re.search(r"-v\d+[a-z]?-IEs$", name):
+        if not name or not name[0].isupper() or name == "SetupRelease":
             return False
 
-        if name.startswith(("RRC", "SIB", "SystemInformation", "MasterInformationBlock")):
+        # Exclude all *-IEs containers (including versioned suffixes like SIB12-IEs-r16, SIB12-IEs-v16k0)
+        if (
+            name.endswith(("-IEs", "IEs"))
+            or "-IEs-" in name
+            or re.search(r"-(?:v\d+[a-z]?|r\d+)-IEs$", name, re.IGNORECASE)
+        ):
+            return False
+
+        # Exclude non-PDU configuration/helper types that happen to start with SIB or end with Request
+        if name.startswith(("SIB-TypeInfo", "SIB1-Request", "UE-CapabilityRAT-Request")):
+            return False
+
+        if name.startswith(("RRC", "SystemInformation", "MasterInformationBlock")):
+            return True
+
+        # Match genuine SIB PDUs: SIB1..SIB99, SIBpos, SIB17bis, with optional -rXX / -vXXXX suffix
+        if re.match(r"^SIB(?:\d+(?:bis)?|pos)(?:-(?:r\d+|v\d+[a-z]?))?$", name, re.IGNORECASE):
             return True
 
         if name.endswith((

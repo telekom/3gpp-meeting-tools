@@ -1,8 +1,8 @@
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 import re
 import pandas as pd
 from PyQt5.QtCore import QAbstractTableModel, QModelIndex, Qt
-from PyQt5.QtGui import QBrush, QColor
+from PyQt5.QtGui import QBrush, QColor, QFont
 
 from modules.nas.core.nas_db import parse_version_tuple
 from core.ui.theme import C
@@ -21,12 +21,19 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             search_descriptions: bool = False,
             interface_filter: Optional[str] = None,
             diff_filter: Optional[Set[str]] = None,
+            max_depth: Optional[int] = None,
     ):
         super().__init__()
         self._raw_df = raw_df if raw_df is not None else pd.DataFrame()
         self._ie_filter = ie_filter.strip().lower() if ie_filter else None
         self._search_descriptions = search_descriptions
         self._diff_filter: Set[str] = {str(d).lower() for d in (diff_filter or set()) if d}
+        self._max_depth: Optional[int] = max_depth
+        self.max_available_depth: int = (
+            int(self._raw_df["depth"].fillna(0).max())
+            if not self._raw_df.empty and "depth" in self._raw_df.columns
+            else 0
+        )
 
         # Recognize "All", "All Interfaces", or None as disabling the filter
         if interface_filter and not interface_filter.strip().upper().startswith("ALL"):
@@ -45,6 +52,8 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         self._depth_list: List[int] = []
         self._tooltip_list: List[str] = []
         self._bg_brush_matrix: List[List[Optional[QBrush]]] = []
+        self._has_children_list: List[bool] = []
+        self._tree_guides_list: List[Tuple[Tuple[bool, ...], bool, str]] = []
 
         self._setup_matrix()
 
@@ -192,6 +201,13 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
 
                 self._pivot_df = self._pivot_df[mask].reset_index(drop=True)
 
+        # 5b. Filter by maximum nesting depth if requested
+        if self._max_depth is not None and not self._pivot_df.empty and "depth" in self._pivot_df.columns:
+            self._pivot_df = (
+                self._pivot_df[self._pivot_df["depth"].fillna(0).astype(int) <= self._max_depth]
+                .reset_index(drop=True)
+            )
+
         # 6. Pre-build fast access caches
         self._build_fast_caches()
 
@@ -205,6 +221,8 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             self._depth_list = []
             self._tooltip_list = []
             self._bg_brush_matrix = []
+            self._has_children_list = []
+            self._tree_guides_list = []
             return
 
         self._depth_list = self._pivot_df.get("depth", pd.Series([0] * num_rows)).fillna(0).astype(int).tolist()
@@ -273,6 +291,43 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             self._bg_brush_matrix = [self._bg_brush_matrix[r] for r in keep]
             self._appl_list = [self._appl_list[r] for r in keep]
 
+        # Precompute tree hierarchy guide metadata for visible rows
+        vis_n = len(self._data_matrix)
+        self._has_children_list = [False] * vis_n
+        self._tree_guides_list = []
+        for r in range(vis_n):
+            d = self._depth_list[r]
+            if r + 1 < vis_n and self._depth_list[r + 1] > d:
+                self._has_children_list[r] = True
+
+            raw_name = self._data_matrix[r][1] if num_cols > 1 else ""
+            if d <= 0:
+                self._tree_guides_list.append(((), True, raw_name))
+                continue
+
+            ancestor_continues: List[bool] = []
+            for lvl in range(1, d):
+                continues = False
+                for nxt in range(r + 1, vis_n):
+                    nd = self._depth_list[nxt]
+                    if nd < lvl:
+                        break
+                    if nd == lvl:
+                        continues = True
+                        break
+                ancestor_continues.append(continues)
+
+            is_last = True
+            for nxt in range(r + 1, vis_n):
+                nd = self._depth_list[nxt]
+                if nd < d:
+                    break
+                if nd == d:
+                    is_last = False
+                    break
+
+            self._tree_guides_list.append((tuple(ancestor_continues), is_last, raw_name))
+
     def rowCount(self, parent=QModelIndex()) -> int:
         return len(self._data_matrix)
 
@@ -296,6 +351,19 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
                 if depth > 0:
                     return f"{'    ' * (depth - 1)}└─ {val}"
             return val
+
+        if role == Qt.FontRole and col == 1:
+            if row < len(self._has_children_list) and self._has_children_list[row]:
+                f = QFont()
+                f.setWeight(QFont.DemiBold)
+                return f
+            return None
+
+        if role == Qt.UserRole and col == 1:
+            return self._depth_list[row] if row < len(self._depth_list) else 0
+
+        if role == Qt.UserRole + 1 and col == 1:
+            return self._tree_guides_list[row] if row < len(self._tree_guides_list) else None
 
         if role == Qt.BackgroundRole:
             if col >= 3:

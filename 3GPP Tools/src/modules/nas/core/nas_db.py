@@ -13,6 +13,10 @@ RE_NAS_IE_MIN_MAX_LEN = re.compile(
     re.IGNORECASE,
 )
 RE_NAS_IE_EXACT_LEN = re.compile(r"\blength\s+of\s+(\d+)\s+octets?\b", re.IGNORECASE)
+RE_TRAILING_ASN1_CAPTION = re.compile(
+    r"(?:\s+|^)(?:[A-Z][A-Za-z0-9]*(?:-[A-Za-z0-9]+|[A-Z0-9][A-Za-z0-9]*)[A-Za-z0-9\-]*)\s+"
+    r"(?:information\s+elements?|messages?)\s*$"
+)
 
 
 def parse_version_tuple(version_str: str) -> tuple:
@@ -707,10 +711,17 @@ class NASDatabase:
                 version_ids=version_ids,
             )
             for d in defs:
+                if (
+                    message_name
+                    and str(d.get("ie_name", "")).strip().lower() != message_name.strip().lower()
+                    and str(d.get("clause", "")).strip().lower() != message_name.strip().lower()
+                ):
+                    continue
                 raw_html = d.get("raw_description", "") or ""
                 if not raw_html:
                     continue
                 before_tbl = raw_html.split("<table", 1)[0]
+                before_tbl = re.sub(r"<pre[^>]*>.*?</pre>", "", before_tbl, flags=re.DOTALL | re.IGNORECASE)
                 p_matches = re.findall(r"<(?:p|div)[^>]*>(.*?)</(?:p|div)>", before_tbl, flags=re.DOTALL | re.IGNORECASE)
                 prose_parts = []
                 for pm in p_matches:
@@ -728,6 +739,16 @@ class NASDatabase:
                     best_desc = " ".join(prose_parts).strip()
                 if best_desc and best_dir:
                     break
+
+        if best_desc:
+            if message_name:
+                best_desc = re.sub(
+                    rf"(?:\s+|^){re.escape(message_name)}\s+(?:information\s+elements?|messages?)\s*$",
+                    "",
+                    best_desc,
+                    flags=re.IGNORECASE,
+                ).strip()
+            best_desc = RE_TRAILING_ASN1_CAPTION.sub("", best_desc).strip()
 
         return {
             "description": best_desc,
@@ -782,6 +803,40 @@ class NASDatabase:
             cursor = conn.cursor()
             cursor.execute(query, params)
             rows = [dict(row) for row in cursor.fetchall()]
+
+        # Disambiguate umbrella clauses (e.g. TS 38.331 Clause 6.3.2 shared by hundreds of IEs)
+        if rows:
+            if clean_alt:
+                exact_alt_rows = [
+                    r for r in rows
+                    if str(r.get("ie_name", "")).strip().lower() == clean_alt.lower()
+                ]
+                if exact_alt_rows:
+                    rows = exact_alt_rows
+                elif clean_c:
+                    exact_c_rows = [
+                        r for r in rows
+                        if str(r.get("ie_name", "")).strip().lower() == clean_c.lower()
+                    ]
+                    if exact_c_rows:
+                        rows = exact_c_rows
+                    else:
+                        names_per_ver: Dict[Any, set] = {}
+                        for r in rows:
+                            names_per_ver.setdefault(r.get("version_id"), set()).add(
+                                str(r.get("ie_name", "")).strip().lower()
+                            )
+                        rows = [
+                            r for r in rows
+                            if len(names_per_ver.get(r.get("version_id"), set())) <= 3
+                        ]
+            elif clean_c:
+                exact_c_rows = [
+                    r for r in rows
+                    if str(r.get("ie_name", "")).strip().lower() == clean_c.lower()
+                ]
+                if exact_c_rows:
+                    rows = exact_c_rows
 
         return sorted(rows, key=lambda x: parse_version_tuple(x["version"]), reverse=True)
 

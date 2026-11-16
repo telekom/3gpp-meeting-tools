@@ -48,6 +48,7 @@ from modules.nas.core.nas_threads import NASFetchAndImportThread
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
 from modules.nas.ui.nas_components import (
     NASInspectorWidget,
+    NASMatrixTreeDelegate,
     NASMessageItemDelegate,
     NASVersionCardsWidget,
     NASVersionTreeWidget,
@@ -83,6 +84,44 @@ logger = logging.getLogger(__name__)
 
 RE_SPEC_FROM_COL = re.compile(r"(?:24|25|29|36|37|38)\.[0-9]{3}")
 RE_CLAUSE_FROM_REF = re.compile(r"((?:9|8|7|6|5|4|D\.6)(?:\.[0-9A-Za-z]+)+)")
+RE_CTX_SRB = re.compile(
+    r"\bSignalling\s+radio\s+bearer\s*:\s*(.+?)(?=\s+(?:RLC-SAP|Logical\s+channels?|Direction)\s*:|$)",
+    re.IGNORECASE,
+)
+RE_CTX_RLC = re.compile(
+    r"\bRLC-SAP\s*:\s*(.+?)(?=\s+(?:Logical\s+channels?|Direction)\s*:|$)",
+    re.IGNORECASE,
+)
+RE_CTX_LCH = re.compile(
+    r"\bLogical\s+channels?\s*:\s*(.+?)(?=\s+Direction\s*:|$)",
+    re.IGNORECASE,
+)
+RE_CTX_TRAILING_CAPTION = re.compile(
+    r"(?:\s+|^)(?:[A-Z][A-Za-z0-9]*(?:-[A-Za-z0-9]+|[A-Z0-9][A-Za-z0-9]*)[A-Za-z0-9\-]*)\s+"
+    r"(?:information\s+elements?|messages?)\s*$"
+)
+
+SEGMENTED_MODE_STYLE = f"""
+    QPushButton {{
+        font-size: 11px;
+        font-weight: 500;
+        color: {C.TEXT_SECONDARY};
+        background-color: transparent;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        padding: 2px 8px;
+    }}
+    QPushButton:hover {{
+        color: {C.TEXT_PRIMARY};
+        background-color: {C.BG_SURFACE};
+    }}
+    QPushButton:checked {{
+        font-weight: 600;
+        color: {C.ACCENT_PRIMARY};
+        background-color: {C.BG_CARD};
+        border: 1px solid {C.BORDER_STRONG};
+    }}
+"""
 
 TOGGLE_BUTTON_STYLE = f"""
     QPushButton {{
@@ -154,11 +193,16 @@ class NASTab(QWidget):
     navigate_to_specs_tab_requested = pyqtSignal(str, str)  # spec_number, version
     search_in_spec_search_requested = pyqtSignal(str, str)  # spec_number, version
 
-    def __init__(self, nas_db_path: Path, specs_db_path: Optional[Path] = None):
+    def __init__(
+        self,
+        nas_db_path: Path,
+        specs_db_path: Optional[Path] = None,
+        config_path: Optional[Path] = None,
+    ):
         super().__init__()
         self.nas_db_path = Path(nas_db_path)
         self.specs_db_path = Path(specs_db_path) if specs_db_path else None
-        self.config_path = get_project_root() / "config" / "nas_config.json"
+        self.config_path = Path(config_path) if config_path else (get_project_root() / "config" / "nas_config.json")
 
         self._reverse_lookup_worker: Optional[ReverseLookupWorker] = None
         self._reverse_lookup_request_id: int = 0
@@ -536,7 +580,7 @@ class NASTab(QWidget):
         msg_header_layout.setSpacing(6)
 
         msg_card_title = QLabel("📨 Protocol Library")
-        msg_card_title.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {C.TEXT_STRONG};")
+        msg_card_title.setStyleSheet(f"font-weight: 600; font-size: 11px; color: {C.TEXT_STRONG};")
         msg_header_layout.addWidget(msg_card_title)
         msg_header_layout.addStretch()
 
@@ -544,7 +588,7 @@ class NASTab(QWidget):
         self.msg_count_lbl.setStyleSheet(f"""
             color: {C.TEXT_MUTED};
             font-size: 10px;
-            font-weight: bold;
+            font-weight: 500;
             background-color: {C.BG_CANVAS};
             border: 1px solid {C.BORDER_SUBTLE};
             border-radius: 9px;
@@ -558,18 +602,27 @@ class NASTab(QWidget):
         msg_body_layout.setContentsMargins(6, 6, 6, 6)
         msg_body_layout.setSpacing(5)
 
-        # Mode Toggle Bar: [📨 Messages | 🧩 All IEs / Types]
-        mode_bar_layout = QHBoxLayout()
-        mode_bar_layout.setContentsMargins(0, 0, 0, 2)
-        mode_bar_layout.setSpacing(4)
+        # Sleek Segmented Mode Bar: [📨 Messages | 🧩 All IEs / Types]
+        mode_frame = QFrame()
+        mode_frame.setObjectName("modeSegmentedFrame")
+        mode_frame.setStyleSheet(f"""
+            QFrame#modeSegmentedFrame {{
+                background-color: {C.BG_CANVAS};
+                border: 1px solid {C.BORDER_SUBTLE};
+                border-radius: 5px;
+            }}
+        """)
+        mode_bar_layout = QHBoxLayout(mode_frame)
+        mode_bar_layout.setContentsMargins(2, 2, 2, 2)
+        mode_bar_layout.setSpacing(2)
 
         self.mode_messages_btn = QPushButton("📨 Messages")
         self.mode_messages_btn.setCheckable(True)
         self.mode_messages_btn.setChecked(True)
         self.mode_messages_btn.setCursor(Qt.PointingHandCursor)
-        self.mode_messages_btn.setFixedHeight(26)
+        self.mode_messages_btn.setFixedHeight(24)
         self.mode_messages_btn.setToolTip("Browse Protocol Messages & SIBs (Clause 8 / ASN.1 PDUs)")
-        self.mode_messages_btn.setStyleSheet(TOGGLE_BUTTON_STYLE)
+        self.mode_messages_btn.setStyleSheet(SEGMENTED_MODE_STYLE)
         self.mode_messages_btn.clicked.connect(lambda: self._set_browse_mode("messages"))
         mode_bar_layout.addWidget(self.mode_messages_btn)
 
@@ -577,15 +630,15 @@ class NASTab(QWidget):
         self.mode_ies_btn.setCheckable(True)
         self.mode_ies_btn.setChecked(False)
         self.mode_ies_btn.setCursor(Qt.PointingHandCursor)
-        self.mode_ies_btn.setFixedHeight(26)
+        self.mode_ies_btn.setFixedHeight(24)
         self.mode_ies_btn.setToolTip(
             "Browse all parsed Information Elements & Types directly (including standalone & nested Clause 9 containers)"
         )
-        self.mode_ies_btn.setStyleSheet(TOGGLE_BUTTON_STYLE)
+        self.mode_ies_btn.setStyleSheet(SEGMENTED_MODE_STYLE)
         self.mode_ies_btn.clicked.connect(lambda: self._set_browse_mode("ies"))
         mode_bar_layout.addWidget(self.mode_ies_btn)
 
-        msg_body_layout.addLayout(mode_bar_layout)
+        msg_body_layout.addWidget(mode_frame)
 
         self.msg_search = QLineEdit()
         self.msg_search.setPlaceholderText("Filter by name, acronym, or spec (e.g. SIB1, PFCP, 24.501)...")
@@ -615,6 +668,7 @@ class NASTab(QWidget):
         msg_body_layout.addLayout(ie_search_bar_layout)
 
         self.msg_list = QListWidget()
+        self.msg_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.msg_list.setItemDelegate(NASMessageItemDelegate(self.msg_list))
         self.msg_list.itemClicked.connect(self._on_message_clicked)
         self.msg_list.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -746,6 +800,18 @@ class NASTab(QWidget):
         self.interface_combo.currentIndexChanged.connect(lambda _: self._rebuild_matrix_model())
         matrix_header_layout.addWidget(self.interface_combo)
 
+        self.depth_combo = QComboBox()
+        self.depth_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.depth_combo.setToolTip("Limit nested Information Element expansion depth in the matrix")
+        self.depth_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
+        self.depth_combo.addItem("All Levels", None)
+        self.depth_combo.addItem("Top-Level Only", 0)
+        self.depth_combo.addItem("Depth ≤ 1", 1)
+        self.depth_combo.addItem("Depth ≤ 2", 2)
+        self.depth_combo.setVisible(False)
+        self.depth_combo.currentIndexChanged.connect(lambda _: self._rebuild_matrix_model())
+        matrix_header_layout.addWidget(self.depth_combo)
+
         self.open_spec_btn = QPushButton("Open Spec ▾")
         self.open_spec_btn.setCursor(Qt.PointingHandCursor)
         self.open_spec_btn.setToolTip("Open active 3GPP specification document in Microsoft Word (Clause copied to clipboard)")
@@ -851,7 +917,7 @@ class NASTab(QWidget):
                 background-color: {C.SKY_SOFT};
                 color: {C.ACCENT_SKY_DARK};
                 font-size: 11px;
-                font-weight: bold;
+                font-weight: 600;
                 border: 1px solid {C.SKY_BORDER};
                 border-radius: 4px;
                 padding: 2px 8px;
@@ -859,6 +925,21 @@ class NASTab(QWidget):
         """)
         self.msg_direction_badge.setVisible(False)
         msg_ctx_layout.addWidget(self.msg_direction_badge, 0, Qt.AlignTop)
+
+        self.msg_meta_badge = QLabel()
+        self.msg_meta_badge.setStyleSheet(f"""
+            QLabel {{
+                background-color: {C.BG_CANVAS};
+                color: {C.TEXT_SECONDARY};
+                font-size: 10px;
+                font-weight: 600;
+                border: 1px solid {C.BORDER_STRONG};
+                border-radius: 4px;
+                padding: 2px 7px;
+            }}
+        """)
+        self.msg_meta_badge.setVisible(False)
+        msg_ctx_layout.addWidget(self.msg_meta_badge, 0, Qt.AlignTop)
 
         self.msg_description_lbl = QLabel()
         self.msg_description_lbl.setWordWrap(True)
@@ -935,6 +1016,7 @@ class NASTab(QWidget):
         self.matrix_table.doubleClicked.connect(self._on_table_cell_double_clicked)
         self.matrix_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.matrix_table.customContextMenuRequested.connect(self._on_matrix_context_menu)
+        self.matrix_table.setItemDelegateForColumn(1, NASMatrixTreeDelegate(self.matrix_table))
         self.matrix_stack.addWidget(self.matrix_table)
 
         matrix_card_layout.addWidget(self.matrix_stack)
@@ -976,14 +1058,21 @@ class NASTab(QWidget):
         if not model or model.rowCount() == 0:
             return
 
+        visible_cols = [
+            c for c in range(model.columnCount())
+            if not self.matrix_table.isColumnHidden(c)
+        ]
+        if not visible_cols:
+            visible_cols = list(range(model.columnCount()))
+
         headers = [
             str(model.headerData(c, Qt.Horizontal, Qt.DisplayRole) or "")
-            for c in range(model.columnCount())
+            for c in visible_cols
         ]
         rows = [
             [
                 str(model.data(model.index(r, c), Qt.DisplayRole) or "")
-                for c in range(model.columnCount())
+                for c in visible_cols
             ]
             for r in range(model.rowCount())
         ]
@@ -993,7 +1082,7 @@ class NASTab(QWidget):
         if hasattr(model, "_bg_brush_matrix"):
             for r in range(model.rowCount()):
                 row_colors = []
-                for c in range(model.columnCount()):
+                for c in visible_cols:
                     brush = (
                         model._bg_brush_matrix[r][c]
                         if r < len(model._bg_brush_matrix) and c < len(model._bg_brush_matrix[r])
@@ -1005,7 +1094,7 @@ class NASTab(QWidget):
                         row_colors.append(None)
                 diff_colors.append(row_colors)
 
-        title = self.matrix_title_lbl.text().strip() if hasattr(self, "matrix_title_lbl") else ""
+        title = self.matrix_title.text().strip() if hasattr(self, "matrix_title") else ""
         if not title:
             title = self.current_selected_message_name or self.current_selected_ie_key or "Protocol Evolution Matrix"
 
@@ -1197,6 +1286,9 @@ class NASTab(QWidget):
         if hasattr(self, "msg_direction_badge"):
             self.msg_direction_badge.setVisible(False)
             self.msg_direction_badge.setText("")
+        if hasattr(self, "msg_meta_badge"):
+            self.msg_meta_badge.setVisible(False)
+            self.msg_meta_badge.setText("")
         if hasattr(self, "msg_description_lbl"):
             self.msg_description_lbl.setVisible(False)
             self.msg_description_lbl.setText("")
@@ -1204,7 +1296,26 @@ class NASTab(QWidget):
     def _update_message_context_banner(self, description: str, direction: str):
         desc_clean = (description or "").strip()
         dir_clean = (direction or "").strip()
-        if not desc_clean and not dir_clean:
+
+        # Extract RRC radio-bearer metadata into clean chips
+        meta_chips: List[str] = []
+        if desc_clean:
+            for pattern, label in (
+                (RE_CTX_SRB, "SRB"),
+                (RE_CTX_RLC, "RLC"),
+                (RE_CTX_LCH, "Ch"),
+            ):
+                m = pattern.search(desc_clean)
+                if m:
+                    val = m.group(1).strip()
+                    if val:
+                        meta_chips.append(f"{label}: {val}")
+                    desc_clean = (desc_clean[:m.start()] + " " + desc_clean[m.end():]).strip()
+
+            desc_clean = re.sub(r"\s+", " ", desc_clean).strip()
+            desc_clean = RE_CTX_TRAILING_CAPTION.sub("", desc_clean).strip()
+
+        if not desc_clean and not dir_clean and not meta_chips:
             self._hide_message_context_banner()
             return
 
@@ -1214,6 +1325,14 @@ class NASTab(QWidget):
         else:
             self.msg_direction_badge.setText("")
             self.msg_direction_badge.setVisible(False)
+
+        if hasattr(self, "msg_meta_badge"):
+            if meta_chips:
+                self.msg_meta_badge.setText(" · ".join(meta_chips))
+                self.msg_meta_badge.setVisible(True)
+            else:
+                self.msg_meta_badge.setText("")
+                self.msg_meta_badge.setVisible(False)
 
         if desc_clean:
             self.msg_description_lbl.setText(desc_clean)
@@ -1250,6 +1369,9 @@ class NASTab(QWidget):
             self.matrix_table.setModel(None)
             self.matrix_stack.setCurrentIndex(0)
             self.copy_matrix_btn.setEnabled(False)
+            self.interface_combo.setVisible(False)
+            if hasattr(self, "depth_combo"):
+                self.depth_combo.setVisible(False)
             self._hide_message_context_banner()
             default_prompt = (
                 "Select an Information Element to View Evolution & Definition"
@@ -1409,6 +1531,9 @@ class NASTab(QWidget):
             self.matrix_table.setModel(None)
             self.matrix_stack.setCurrentIndex(0)
             self.copy_matrix_btn.setEnabled(False)
+            self.interface_combo.setVisible(False)
+            if hasattr(self, "depth_combo"):
+                self.depth_combo.setVisible(False)
             self._hide_message_context_banner()
             self.matrix_title.setText(default_prompt)
             self._current_message_clause = None
@@ -1418,6 +1543,9 @@ class NASTab(QWidget):
             self.matrix_table.setModel(None)
             self.matrix_stack.setCurrentIndex(0)
             self.copy_matrix_btn.setEnabled(False)
+            self.interface_combo.setVisible(False)
+            if hasattr(self, "depth_combo"):
+                self.depth_combo.setVisible(False)
             self._hide_message_context_banner()
             self.matrix_title.setText(default_prompt)
             self.inspector.clear_display()
@@ -1454,6 +1582,8 @@ class NASTab(QWidget):
             clause_suffix = f" [Clause {clause}]" if clause and clause != ie_name else ""
             self.matrix_title.setText(f"Information Element{spec_badge}: {ie_name}{clause_suffix}")
             self.interface_combo.setVisible(False)
+            if hasattr(self, "depth_combo"):
+                self.depth_combo.setVisible(False)
 
             self._current_matrix_df = df
             self._rebuild_matrix_model(ignore_ie_filter=True)
@@ -1548,6 +1678,17 @@ class NASTab(QWidget):
             self.interface_combo.setCurrentIndex(0)
         self.interface_combo.blockSignals(False)
 
+        has_nested = bool(
+            "depth" in df.columns
+            and df["depth"].fillna(0).astype(int).gt(0).any()
+        )
+        if hasattr(self, "depth_combo"):
+            self.depth_combo.blockSignals(True)
+            self.depth_combo.setVisible(has_nested)
+            if not has_nested:
+                self.depth_combo.setCurrentIndex(0)
+            self.depth_combo.blockSignals(False)
+
         self._current_matrix_df = df
         self._rebuild_matrix_model()
         self._update_open_spec_button()
@@ -1640,6 +1781,11 @@ class NASTab(QWidget):
         ie_query = "" if (ignore_ie_filter or self._browse_mode == "ies") else self.ie_search.text().strip()
         search_desc = self.deep_search_btn.isChecked()
         active_if = self.interface_combo.currentText() if self.interface_combo.isVisible() else None
+        max_depth = (
+            self.depth_combo.currentData()
+            if hasattr(self, "depth_combo") and self.depth_combo.isVisible()
+            else None
+        )
 
         model = NASEvolutionMatrixModel(
             df,
@@ -1647,6 +1793,7 @@ class NASTab(QWidget):
             search_descriptions=(search_desc and bool(ie_query)),
             interface_filter=active_if,
             diff_filter=self._get_active_diff_filter(),
+            max_depth=max_depth,
         )
         self.matrix_table.setModel(model)
         self._update_diff_filter_badges(getattr(model, "diff_counts", None))
@@ -1656,6 +1803,11 @@ class NASTab(QWidget):
 
         h_header = self.matrix_table.horizontalHeader()
         if model.columnCount() > 0:
+            has_any_iei = any(
+                str(model.data(model.index(r, 0), Qt.DisplayRole) or "").strip() not in ("", "-")
+                for r in range(model.rowCount())
+            )
+            self.matrix_table.setColumnHidden(0, not has_any_iei)
             h_header.setSectionResizeMode(0, QHeaderView.Interactive)
             self.matrix_table.setColumnWidth(0, max(75, scale_px(75)))
 

@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QStackedWidget,
     QStyle,
     QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTextBrowser,
     QToolButton,
     QTreeWidget,
@@ -47,16 +48,16 @@ def _extract_major_release(version: str) -> str:
 
 class NASMessageItemDelegate(QStyledItemDelegate):
     """
-    Renders protocol messages and information elements in a spacious 2-line card layout:
-    - Line 1 (Top): Full bold Message / IE Name without crowded horizontal truncation
-    - Line 2 (Bottom): Color-coded WG · Spec chip, protocol acronym chip, and Clause pill
+    Renders protocol messages and information elements in a clean, scannable 2-line layout:
+    - Line 1 (Top): Message / IE Name (regular weight unselected; semibold + accent when selected)
+    - Line 2 (Bottom): Compact WG chip + muted 'Spec · Acronym' subtitle, and right-aligned Clause
     """
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
 
     def sizeHint(self, option, index) -> QSize:
-        return QSize(option.rect.width(), scale_px(46, minimum=42))
+        return QSize(option.rect.width(), scale_px(42, minimum=42))
 
     def paint(self, painter: QPainter, option, index):
         painter.save()
@@ -69,25 +70,29 @@ class NASMessageItemDelegate(QStyledItemDelegate):
         # 1. Background rendering
         if is_selected:
             bg_brush = QBrush(QColor(C.ACCENT_SOFT))
-            border_pen = QPen(QColor(C.ACCENT_PRIMARY), 1.2)
+            border_pen = QPen(QColor(C.ACCENT_RING), 1.0)
         elif is_hovered:
             bg_brush = QBrush(QColor(C.BG_SURFACE))
-            border_pen = QPen(QColor(C.BORDER_SUBTLE), 1)
+            border_pen = QPen(QColor(C.BORDER_SUBTLE), 1.0)
         else:
             bg_brush = QBrush(QColor(C.BG_CARD))
-            border_pen = QPen(QColor(C.BG_CANVAS), 0.8)
+            border_pen = None
 
-        bg_path = QPainterPath()
         bg_rect = QRectF(rect.x() + 2, rect.y() + 1, rect.width() - 4, rect.height() - 2)
+        bg_path = QPainterPath()
         bg_path.addRoundedRect(bg_rect, 4.0, 4.0)
         painter.fillPath(bg_path, bg_brush)
-        painter.setPen(border_pen)
-        painter.drawPath(bg_path)
+        if border_pen is not None:
+            painter.setPen(border_pen)
+            painter.drawPath(bg_path)
+        else:
+            painter.setPen(QPen(QColor(C.BORDER_ROW), 1.0))
+            painter.drawLine(rect.x() + 8, rect.bottom(), rect.right() - 8, rect.bottom())
 
         # Active selection accent marker on left border
         if is_selected:
             accent_path = QPainterPath()
-            accent_rect = QRectF(rect.x() + 2, rect.y() + 2, 3.5, rect.height() - 4)
+            accent_rect = QRectF(rect.x() + 2, rect.y() + 3, 3.0, rect.height() - 6)
             accent_path.addRoundedRect(accent_rect, 1.5, 1.5)
             painter.fillPath(accent_path, QBrush(QColor(C.ACCENT_PRIMARY)))
 
@@ -103,83 +108,132 @@ class NASMessageItemDelegate(QStyledItemDelegate):
         left_x = rect.x() + (10 if not is_selected else 12)
         right_limit = rect.right() - 8
 
-        # 3. Line 1: Full-width Message / IE Name
+        # 3. Line 1: Message / IE Name (regular when unselected; semibold when selected)
         name_font = QFont(option.font)
         name_font.setPointSize(9)
-        name_font.setBold(True)
+        name_font.setWeight(QFont.DemiBold if is_selected else QFont.Normal)
         painter.setFont(name_font)
-        painter.setPen(QColor(C.ACCENT_PRIMARY) if is_selected else QColor(C.TEXT_PRIMARY))
+        if is_selected:
+            painter.setPen(QColor(C.ACCENT_PRIMARY))
+        elif is_hovered:
+            painter.setPen(QColor(C.TEXT_PRIMARY))
+        else:
+            painter.setPen(QColor(C.TEXT_BODY))
 
-        line1_h = max(18, (rect.height() - 6) // 2)
+        line1_h = max(17, (rect.height() - 6) // 2)
         line1_rect = QRect(left_x, rect.y() + 3, max(40, right_limit - left_x), line1_h)
         elided_text = QFontMetrics(name_font).elidedText(msg_name, Qt.ElideRight, line1_rect.width())
         painter.drawText(line1_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_text)
 
-        # 4. Line 2: Left-aligned WG·Spec chip + Acronym chip, Right-aligned Clause pill
+        # 4. Line 2: Compact WG chip + clean 'Spec · Acronym' subtitle, Right-aligned Clause
         chip_y = rect.y() + 3 + line1_h + 1
-        chip_h = max(16, min(18, rect.bottom() - chip_y - 3))
-        pill_font = QFont(option.font)
-        pill_font.setPointSize(8)
-        pill_font.setBold(True)
-        pill_fm = QFontMetrics(pill_font)
+        chip_h = max(15, min(16, rect.bottom() - chip_y - 3))
+
+        sub_font = QFont(option.font)
+        sub_font.setPointSize(8)
+        sub_font.setWeight(QFont.Normal)
+        sub_fm = QFontMetrics(sub_font)
 
         clause_left_edge = right_limit
         if clause and clause != msg_name:
             clause_text = f"Cl. {clause}"
-            clause_w = pill_fm.horizontalAdvance(clause_text) + 10
+            clause_w = sub_fm.horizontalAdvance(clause_text) + 4
             clause_x = right_limit - clause_w
             if clause_x > left_x + 40:
-                clause_path = QPainterPath()
-                clause_path.addRoundedRect(QRectF(clause_x, chip_y, clause_w, chip_h), chip_h / 2.0, chip_h / 2.0)
-                painter.fillPath(clause_path, QBrush(QColor(C.BG_CANVAS)))
-                painter.setPen(QPen(QColor(C.BORDER_STRONG), 1))
-                painter.drawPath(clause_path)
-
-                painter.setFont(pill_font)
-                painter.setPen(QColor(C.TEXT_SECONDARY))
-                painter.drawText(QRect(clause_x, chip_y, clause_w, chip_h), Qt.AlignCenter, clause_text)
+                painter.setFont(sub_font)
+                painter.setPen(QColor(C.TEXT_MUTED))
+                painter.drawText(QRect(clause_x, chip_y, clause_w, chip_h), Qt.AlignRight | Qt.AlignVCenter, clause_text)
                 clause_left_edge = clause_x - 6
 
         cur_x = left_x
-        if spec_num:
-            wg_colors = (
-                get_wg_colors(wg)
-                if wg
-                else {"bg": C.BG_SURFACE, "text": C.TEXT_BODY, "border": C.BORDER_STRONG}
-            )
-            spec_label = f"{wg} · {spec_num}" if wg and wg != "3GPP" else f"TS {spec_num}"
-            chip_w = pill_fm.horizontalAdvance(spec_label) + 10
-            if cur_x + chip_w <= clause_left_edge:
-                chip_path = QPainterPath()
-                chip_path.addRoundedRect(QRectF(cur_x, chip_y, chip_w, chip_h), 3.0, 3.0)
-                painter.fillPath(chip_path, QBrush(QColor(wg_colors.get("bg", C.BG_SURFACE))))
-                painter.setPen(QPen(QColor(wg_colors.get("border", C.BORDER_STRONG)), 1))
-                painter.drawPath(chip_path)
+        if wg:
+            wg_colors = get_wg_colors(wg)
+            wg_font = QFont(option.font)
+            wg_font.setPointSizeF(7.5)
+            wg_font.setWeight(QFont.DemiBold)
+            wg_fm = QFontMetrics(wg_font)
+            wg_w = wg_fm.horizontalAdvance(wg) + 8
+            if cur_x + wg_w <= clause_left_edge:
+                wg_path = QPainterPath()
+                wg_path.addRoundedRect(QRectF(cur_x, chip_y + 0.5, wg_w, chip_h - 1), 3.0, 3.0)
+                painter.fillPath(wg_path, QBrush(QColor(wg_colors.get("bg", C.BG_SURFACE))))
+                painter.setPen(QPen(QColor(wg_colors.get("border", C.BORDER_STRONG)), 0.8))
+                painter.drawPath(wg_path)
 
-                painter.setFont(pill_font)
+                painter.setFont(wg_font)
                 painter.setPen(QColor(wg_colors.get("text", C.TEXT_BODY)))
-                painter.drawText(QRect(cur_x, chip_y, chip_w, chip_h), Qt.AlignCenter, spec_label)
-                cur_x += chip_w + 5
+                painter.drawText(QRect(cur_x, chip_y, wg_w, chip_h), Qt.AlignCenter, wg)
+                cur_x += wg_w + 6
 
-        if acronym:
-            acr_font = QFont(option.font)
-            acr_font.setPointSize(8)
-            acr_font.setBold(False)
-            acr_fm = QFontMetrics(acr_font)
-            avail_acr = clause_left_edge - cur_x
-            if avail_acr > 44:
-                acr_text = acr_fm.elidedText(acronym, Qt.ElideRight, avail_acr - 8)
-                acr_w = acr_fm.horizontalAdvance(acr_text) + 8
-                acr_path = QPainterPath()
-                acr_path.addRoundedRect(QRectF(cur_x, chip_y, acr_w, chip_h), 3.0, 3.0)
-                painter.fillPath(acr_path, QBrush(QColor(C.BG_SURFACE)))
-                painter.setPen(QPen(QColor(C.BORDER_SUBTLE), 1))
-                painter.drawPath(acr_path)
+        subtitle_parts = []
+        if spec_num:
+            subtitle_parts.append(spec_num)
+        if acronym and acronym != f"TS {spec_num}":
+            subtitle_parts.append(acronym)
+        subtitle_str = " · ".join(subtitle_parts)
 
-                painter.setFont(acr_font)
-                painter.setPen(QColor(C.TEXT_MUTED))
-                painter.drawText(QRect(cur_x, chip_y, acr_w, chip_h), Qt.AlignCenter, acr_text)
+        if subtitle_str:
+            avail_sub = clause_left_edge - cur_x
+            if avail_sub > 24:
+                sub_elided = sub_fm.elidedText(subtitle_str, Qt.ElideRight, avail_sub)
+                painter.setFont(sub_font)
+                painter.setPen(QColor(C.TEXT_SECONDARY))
+                painter.drawText(
+                    QRect(cur_x, chip_y, avail_sub, chip_h),
+                    Qt.AlignLeft | Qt.AlignVCenter,
+                    sub_elided,
+                )
 
+        painter.restore()
+
+
+class NASMatrixTreeDelegate(QStyledItemDelegate):
+    """Renders crisp geometric tree guide lines for nested fields in the Evolution Matrix."""
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+
+    def paint(self, painter: QPainter, option, index):
+        guide_info = index.data(Qt.UserRole + 1)
+        depth = index.data(Qt.UserRole)
+        if guide_info is None or depth is None or depth <= 0:
+            super().paint(painter, option, index)
+            return
+
+        ancestor_continues, is_last_sibling, raw_label = guide_info
+
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.text = ""
+
+        style = opt.widget.style() if opt.widget else QApplication.style()
+        style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+
+        painter.save()
+        rect = opt.rect
+        pad_left = scale_px(6, minimum=4)
+        indent_w = scale_px(16, minimum=14)
+        mid_y = rect.center().y()
+
+        painter.setPen(QPen(QColor(C.BORDER_STRONG), 1.0))
+
+        for lvl_idx, continues in enumerate(ancestor_continues):
+            if continues:
+                cx = rect.left() + pad_left + lvl_idx * indent_w + indent_w // 2
+                painter.drawLine(cx, rect.top(), cx, rect.bottom())
+
+        branch_cx = rect.left() + pad_left + (depth - 1) * indent_w + indent_w // 2
+        branch_end_y = mid_y if is_last_sibling else rect.bottom()
+        painter.drawLine(branch_cx, rect.top(), branch_cx, branch_end_y)
+        painter.drawLine(branch_cx, mid_y, branch_cx + indent_w // 2 + 2, mid_y)
+
+        text_x = rect.left() + pad_left + depth * indent_w + 4
+        text_rect = QRect(text_x, rect.top(), max(20, rect.right() - text_x - 4), rect.height())
+        painter.setFont(opt.font)
+        is_selected = bool(opt.state & QStyle.State_Selected)
+        painter.setPen(QColor(C.TEXT_PRIMARY) if is_selected else QColor(C.TEXT_BODY))
+        elided = QFontMetrics(opt.font).elidedText(str(raw_label), Qt.ElideRight, text_rect.width())
+        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, elided)
         painter.restore()
 
 
@@ -610,7 +664,7 @@ class NASReleasePillWidget(QPushButton):
         self.setText(f"{short_rel}: {self.version}")
         self.setCheckable(True)
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedHeight(scale_px(22, minimum=20))
+        self.setFixedHeight(scale_px(20, minimum=18))
 
         self.setToolTip(
             f"TS {self.spec_number} v{self.version} ({meta.get('title', '')})\n"
@@ -634,8 +688,8 @@ class NASReleasePillWidget(QPushButton):
                     background-color: {C.ACCENT_SKY};
                     color: {C.BG_CARD};
                     border: 1px solid {C.ACCENT_SKY};
-                    border-radius: 11px;
-                    padding: 1px 8px;
+                    border-radius: 10px;
+                    padding: 1px 7px;
                     font-size: 11px;
                     font-weight: 600;
                 }}
@@ -650,8 +704,8 @@ class NASReleasePillWidget(QPushButton):
                     background-color: {C.BG_SURFACE};
                     color: {C.TEXT_MUTED};
                     border: 1px solid {C.BORDER_STRONG};
-                    border-radius: 11px;
-                    padding: 1px 8px;
+                    border-radius: 10px;
+                    padding: 1px 7px;
                     font-size: 11px;
                     font-weight: 500;
                 }}
@@ -666,10 +720,11 @@ class NASReleasePillWidget(QPushButton):
 class NASSpecCardWidget(QFrame):
     """
     Modern protocol specification card featuring WG color pill, acronym label,
-    tri-state selection checkbox, options menu, and auto-wrapping FlowLayout release pills.
+    tri-state selection checkbox, collapsible release pills, and options menu.
     """
 
     selection_changed = pyqtSignal()
+    collapsed_changed = pyqtSignal()
     reload_version_requested = pyqtSignal(str, str)
     reload_spec_requested = pyqtSignal(str, int)
     delete_version_requested = pyqtSignal(str, str)
@@ -690,6 +745,7 @@ class NASSpecCardWidget(QFrame):
         self.meta = get_spec_metadata(spec_number)
         self.pills: List[NASReleasePillWidget] = []
         self._updating_checks = False
+        self._is_collapsed = False
 
         self.setObjectName("NASSpecCard")
         self.setStyleSheet(f"""
@@ -704,10 +760,10 @@ class NASSpecCardWidget(QFrame):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(5)
+        layout.setContentsMargins(6, 5, 6, 5)
+        layout.setSpacing(4)
 
-        # Card Header Row: [☑] [WG] TS 24.501 · 5GS NAS   [Count] [⋮]
+        # Card Header Row: [☑] [WG] TS 24.501  5GS NAS   [Count] [▾] [⋮]
         hdr = QHBoxLayout()
         hdr.setContentsMargins(0, 0, 0, 0)
         hdr.setSpacing(5)
@@ -746,17 +802,39 @@ class NASSpecCardWidget(QFrame):
         lbl_acr.setToolTip(get_spec_tooltip(spec_number))
         hdr.addWidget(lbl_acr, stretch=1)
 
-        badge = QLabel(str(len(self.versions)))
-        badge.setStyleSheet(f"""
+        self.count_badge = QLabel(str(len(self.versions)))
+        self.count_badge.setStyleSheet(f"""
             background-color: {C.BG_CANVAS};
             color: {C.TEXT_SECONDARY};
             border: 1px solid {C.BORDER_SUBTLE};
             border-radius: 8px;
             padding: 1px 6px;
             font-size: 10px;
-            font-weight: bold;
+            font-weight: 600;
         """)
-        hdr.addWidget(badge)
+        hdr.addWidget(self.count_badge)
+
+        self.btn_collapse = QToolButton()
+        self.btn_collapse.setText("▾")
+        self.btn_collapse.setCursor(Qt.PointingHandCursor)
+        self.btn_collapse.setToolTip(f"Collapse / expand releases for TS {spec_number}")
+        self.btn_collapse.setStyleSheet(f"""
+            QToolButton {{
+                border: none;
+                background: transparent;
+                color: {C.TEXT_MUTED};
+                font-weight: bold;
+                font-size: 11px;
+                padding: 0px 3px;
+            }}
+            QToolButton:hover {{
+                color: {C.TEXT_PRIMARY};
+                background-color: {C.BG_CANVAS};
+                border-radius: 3px;
+            }}
+        """)
+        self.btn_collapse.clicked.connect(lambda: self.set_collapsed(not self._is_collapsed))
+        hdr.addWidget(self.btn_collapse)
 
         self.btn_opt = QToolButton()
         self.btn_opt.setText("⋮")
@@ -783,9 +861,9 @@ class NASSpecCardWidget(QFrame):
         layout.addLayout(hdr)
 
         # Flow Layout of Release Pills (explicit .QWidget scope prevents cascading into children)
-        pills_container = QWidget()
-        pills_container.setStyleSheet(".QWidget { background: transparent; border: none; }")
-        flow = FlowLayout(pills_container, margin=0, h_spacing=4, v_spacing=4)
+        self.pills_container = QWidget()
+        self.pills_container.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        flow = FlowLayout(self.pills_container, margin=0, h_spacing=4, v_spacing=3)
 
         for v in self.versions:
             pill = NASReleasePillWidget(v, self.meta, self)
@@ -798,7 +876,7 @@ class NASSpecCardWidget(QFrame):
             self.pills.append(pill)
             flow.addWidget(pill)
 
-        layout.addWidget(pills_container)
+        layout.addWidget(self.pills_container)
 
     def _show_options_menu(self):
         latest_v = self.versions[0]["version"] if self.versions else ""
@@ -892,6 +970,25 @@ class NASSpecCardWidget(QFrame):
         self._update_header_state()
         self.selection_changed.emit()
 
+    def is_collapsed(self) -> bool:
+        return self._is_collapsed
+
+    def set_collapsed(self, collapsed: bool, emit_signal: bool = True):
+        self._is_collapsed = bool(collapsed)
+        self.pills_container.setVisible(not self._is_collapsed)
+        self.btn_collapse.setText("▸" if self._is_collapsed else "▾")
+        self._update_badge_text()
+        if emit_signal:
+            self.collapsed_changed.emit()
+
+    def _update_badge_text(self):
+        checked_count = sum(1 for p in self.pills if p.isChecked())
+        total = len(self.pills)
+        if 0 < checked_count < total:
+            self.count_badge.setText(f"{checked_count}/{total}")
+        else:
+            self.count_badge.setText(str(total))
+
     def _update_header_state(self):
         self._updating_checks = True
         checked_count = sum(1 for p in self.pills if p.isChecked())
@@ -901,6 +998,7 @@ class NASSpecCardWidget(QFrame):
             self.chk_all.setCheckState(Qt.Unchecked)
         else:
             self.chk_all.setCheckState(Qt.PartiallyChecked)
+        self._update_badge_text()
         self._updating_checks = False
 
     def select_all(self):
@@ -1019,6 +1117,7 @@ class NASVersionCardsWidget(QScrollArea):
         for spec_num in sorted(specs_map.keys()):
             card = NASSpecCardWidget(spec_num, specs_map[spec_num], self.container)
             card.selection_changed.connect(self._on_card_selection_changed)
+            card.collapsed_changed.connect(self.structure_changed.emit)
             card.reload_version_requested.connect(self.reload_version_requested.emit)
             card.reload_spec_requested.connect(self.reload_spec_requested.emit)
             card.delete_version_requested.connect(self.delete_version_requested.emit)
@@ -1036,6 +1135,8 @@ class NASVersionCardsWidget(QScrollArea):
                 pill.setChecked(is_chk)
             card._updating_checks = False
             card._update_header_state()
+            if saved_collapsed and spec_num in saved_collapsed:
+                card.set_collapsed(True, emit_signal=False)
 
             self._cards[spec_num] = card
             self.cards_layout.addWidget(card)
@@ -1173,7 +1274,7 @@ class NASVersionCardsWidget(QScrollArea):
         return [{"spec_number": card.spec_number, "version": p.version} for p in card.pills]
 
     def get_collapsed_spec_numbers(self) -> List[str]:
-        return []
+        return [spec_num for spec_num, card in self._cards.items() if card.is_collapsed()]
 
     def topLevelItemCount(self) -> int:
         return 1 + len(self._cards)
@@ -1296,18 +1397,18 @@ class NASInspectorWidget(QFrame):
 
         self.version_combo = QComboBox()
         self.version_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-        self.version_combo.setMinimumWidth(scale_px(150))
+        self.version_combo.setMinimumWidth(scale_px(120))
+        self.version_combo.view().setMinimumWidth(scale_px(220))
         self.version_combo.setToolTip("Switch specification release for this definition")
         self.version_combo.setStyleSheet(f"""
             QComboBox {{
                 combobox-popup: 0;
-                font-weight: bold;
+                font-weight: 600;
                 font-size: 11px;
                 padding: 2px 8px;
                 border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 background-color: {C.BG_CARD};
-                min-width: 145px;
             }}
             QComboBox:hover {{
                 border-color: {C.ACCENT_SKY};
@@ -1626,18 +1727,18 @@ class NASInspectorWidget(QFrame):
                 num_msgs = len(containing_msgs)
                 self.usage_btn.setText(f"Used in: {num_msgs} msg{'s' if num_msgs != 1 else ''} ▾")
                 self.usage_btn.setEnabled(True)
+                self.usage_btn.setVisible(True)
             else:
-                self.usage_btn.setText("Used in: ... ▾")
                 self.usage_btn.setEnabled(False)
-            self.usage_btn.setVisible(True)
+                self.usage_btn.setVisible(False)
 
             self._updating_combo = True
             self.version_combo.clear()
             for d in defs:
                 clean_v = str(d.get("version", "")).lstrip("vV")
                 parts = clean_v.split(".")
-                rel_str = f"Rel-{parts[0]} " if parts and parts[0].isdigit() else ""
-                key_name = f"TS {d['spec_number']} {rel_str}v{d['version']}"
+                rel_str = f"· R{parts[0]} " if parts and parts[0].isdigit() else ""
+                key_name = f"TS {d['spec_number']} {rel_str}(v{d['version']})" if rel_str else f"TS {d['spec_number']} v{d['version']}"
                 self.version_combo.addItem(key_name, f"{d['spec_number']} v{d['version']}")
 
             target_version_key: Optional[str] = None
@@ -1948,6 +2049,10 @@ class NASInspectorWidget(QFrame):
     def set_containing_messages(self, containing_msgs: List[Dict[str, Any]]):
         self._current_containing_msgs = containing_msgs
         num_msgs = len(containing_msgs)
-        self.usage_btn.setText(f"Used in: {num_msgs} msg{'s' if num_msgs != 1 else ''} ▾")
-        self.usage_btn.setVisible(True)
-        self.usage_btn.setEnabled(True)
+        if num_msgs > 0:
+            self.usage_btn.setText(f"Used in: {num_msgs} msg{'s' if num_msgs != 1 else ''} ▾")
+            self.usage_btn.setVisible(True)
+            self.usage_btn.setEnabled(True)
+        else:
+            self.usage_btn.setVisible(False)
+            self.usage_btn.setEnabled(False)

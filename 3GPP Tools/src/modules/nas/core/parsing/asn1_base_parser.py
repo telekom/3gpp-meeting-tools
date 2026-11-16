@@ -15,6 +15,12 @@ from modules.nas.core.parsing.protocol_parser_utils import (
 )
 
 
+RE_ASN1_BOX_CAPTION = re.compile(
+    r"^[A-Za-z0-9\-_]+\s+(?:information\s+elements?|messages?)\s*$",
+    re.IGNORECASE,
+)
+
+
 class BaseAsn1DocxParser:
     """Base class for 3GPP ASN.1 specification parsing with Clause 9.2/9.3 and Clause 6.2/6.3 prose and table extraction."""
 
@@ -38,6 +44,7 @@ class BaseAsn1DocxParser:
         if not html_str:
             return "", ""
         before_table = html_str.split("<table", 1)[0]
+        before_table = re.sub(r"<pre[^>]*>.*?</pre>", "", before_table, flags=re.DOTALL | re.IGNORECASE)
         p_texts = re.findall(r"<(?:p|div)[^>]*>(.*?)</(?:p|div)>", before_table, flags=re.DOTALL | re.IGNORECASE)
         summary_parts: List[str] = []
         direction = ""
@@ -46,12 +53,17 @@ class BaseAsn1DocxParser:
             clean_p = re.sub(r"\s+", " ", clean_p)
             if not clean_p:
                 continue
+            if RE_ASN1_BOX_CAPTION.match(clean_p):
+                continue
             low_p = clean_p.lower()
             if low_p.startswith(("direction:", "direction :")):
                 direction = re.sub(r"(?i)^direction\s*:\s*", "", clean_p).strip()
-            elif not low_p.startswith(("note", "table ", "figure ", "signalling radio bearer:", "rlc-sap:", "logical channel:")):
+            elif not low_p.startswith((
+                "note", "table ", "figure ",
+                "signalling radio bearer:", "rlc-sap:", "logical channel:", "logical channels:"
+            )):
                 summary_parts.append(clean_p)
-            elif low_p.startswith(("signalling radio bearer:", "rlc-sap:", "logical channel:")):
+            elif low_p.startswith(("signalling radio bearer:", "rlc-sap:", "logical channel:", "logical channels:")):
                 summary_parts.append(clean_p)
         return " ".join(summary_parts).strip(), direction
 
@@ -185,7 +197,11 @@ class BaseAsn1DocxParser:
                                 f'padding: 4px 8px; margin: 4px 0; font-size: 11px; color: #455A64;">'
                                 f'{html.escape(p_text)}</div>'
                             )
-                        elif not p_text.startswith(("Table ", "Figure ")) and len(current_section_def["prose"]) < 8:
+                        elif (
+                            not p_text.startswith(("Table ", "Figure "))
+                            and not RE_ASN1_BOX_CAPTION.match(p_text)
+                            and len(current_section_def["prose"]) < 8
+                        ):
                             current_section_def["prose"].append(
                                 f'<p style="margin: 3px 0; line-height: 1.4; color: #334155; '
                                 f'font-size: 11px;">{html.escape(p_text)}</p>'
@@ -199,10 +215,16 @@ class BaseAsn1DocxParser:
                     header_text = " ".join(first_cells)
                     match_tbl = RE_DESC_TABLE.search(last_p_text) or RE_DESC_TABLE.search(header_text)
                     rrc_target = match_tbl.group(1).strip() if match_tbl else ""
-                    if rrc_target:
+                    if rrc_target and tbl_html:
                         rk = rrc_target.lower()
-                        field_desc_tables[rk] = tbl_html
-                        field_desc_tables[self._normalize_key(rrc_target)] = tbl_html
+                        norm_rk = self._normalize_key(rrc_target)
+                        existing_rk = field_desc_tables.get(rk, "")
+                        if tbl_html not in existing_rk:
+                            field_desc_tables[rk] = existing_rk + tbl_html
+                        if norm_rk and norm_rk != rk:
+                            existing_norm = field_desc_tables.get(norm_rk, "")
+                            if tbl_html not in existing_norm:
+                                field_desc_tables[norm_rk] = existing_norm + tbl_html
 
                     if current_section_def and tbl_html:
                         current_section_def["tables"].append(tbl_html)

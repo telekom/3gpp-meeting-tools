@@ -270,7 +270,7 @@ class TestNASUiVisuals(unittest.TestCase):
             # Verify NASTab UI updates banner & inspector when message is clicked
             from core.ui.page_ribbon import PageRibbonCard
 
-            tab = NASTab(nas_db_path=db_path)
+            tab = NASTab(nas_db_path=db_path, config_path=Path(tmpdir) / "nas_config.json")
             self.assertIsInstance(tab.ribbon_card, PageRibbonCard)
             tab.resize(1280, 800)
             tab.show()
@@ -380,7 +380,7 @@ class TestNASUiVisuals(unittest.TestCase):
         self.assertEqual(full_model.diff_counts, {"added": 1, "modified": 1, "removed": 0})
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            tab = NASTab(nas_db_path=Path(tmpdir) / "nas_diff_ui.db")
+            tab = NASTab(nas_db_path=Path(tmpdir) / "nas_diff_ui.db", config_path=Path(tmpdir) / "nas_config.json")
             self.assertIsInstance(tab.version_tree, NASVersionCardsWidget)
             self.assertTrue(tab.ribbon_card.isHidden())
             tab._current_matrix_df = df
@@ -397,6 +397,196 @@ class TestNASUiVisuals(unittest.TestCase):
             tab.btn_diff_modified.setChecked(False)
             self.assertEqual(tab.matrix_table.model().rowCount(), 3)
             tab.close()
+
+    def test_rrc_prose_preserved_across_asn1_block(self):
+        """Verifies RRC intro prose before -- ASN1START is preserved when a field descriptions table follows."""
+        import tempfile
+        import zipfile
+        from modules.nas.core.parsing.rrc_asn1_parser import RRCAsn1Parser
+
+        doc_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+          <w:body>
+            <w:p><w:r><w:t>6.3.2 Radio resource control information elements</w:t></w:r></w:p>
+            <w:p><w:r><w:t>– CellGroupConfig</w:t></w:r></w:p>
+            <w:p><w:r><w:t>The CellGroupConfig IE is used to configure a master cell group (MCG) or secondary cell group (SCG).</w:t></w:r></w:p>
+            <w:p><w:r><w:t>CellGroupConfig information element</w:t></w:r></w:p>
+            <w:p><w:r><w:t>-- ASN1START</w:t></w:r></w:p>
+            <w:p><w:r><w:t>CellGroupConfig ::= SEQUENCE {</w:t></w:r></w:p>
+            <w:p><w:r><w:t>cellGroupId CellGroupId</w:t></w:r></w:p>
+            <w:p><w:r><w:t>}</w:t></w:r></w:p>
+            <w:p><w:r><w:t>-- ASN1STOP</w:t></w:r></w:p>
+            <w:tbl>
+              <w:tr><w:tc><w:p><w:r><w:t>CellGroupConfig field descriptions</w:t></w:r></w:p></w:tc></w:tr>
+              <w:tr><w:tc><w:p><w:r><w:t>cellGroupId</w:t></w:r></w:p><w:p><w:r><w:t>Identifier of the cell group.</w:t></w:r></w:p></w:tc></w:tr>
+            </w:tbl>
+          </w:body>
+        </w:document>"""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = Path(tmpdir) / "38331-j30.docx"
+            with zipfile.ZipFile(docx_path, "w") as zf:
+                zf.writestr("word/document.xml", doc_xml)
+
+            messages, ie_defs = RRCAsn1Parser([docx_path], spec_number="38.331").parse()
+
+        cg_msg = next((m for m in messages if m["message_name"] == "CellGroupConfig"), None)
+        self.assertIsNotNone(cg_msg)
+        self.assertEqual(cg_msg["clause"], "6.3.2")
+        self.assertIn("master cell group (MCG)", cg_msg["description"])
+        self.assertNotIn("CellGroupConfig information element", cg_msg["description"])
+
+        cg_def = next((d for d in ie_defs if d["ie_name"] == "CellGroupConfig"), None)
+        self.assertIsNotNone(cg_def)
+        self.assertIn("master cell group (MCG)", cg_def["raw_description"])
+        self.assertIn("CellGroupConfig field descriptions", cg_def["raw_description"])
+
+    def test_rrc_is_message_excludes_versioned_ies_and_lowercase_fields(self):
+        """Verifies _is_rrc_message excludes *-IEs-rXX, SetupRelease, and lowercase inline fields."""
+        from modules.nas.core.parsing.rrc_asn1_parser import RRCAsn1Parser
+
+        for excluded in (
+            "SIB12-IEs-r16",
+            "SIB12-IEs-v16k0",
+            "SIB17bis-IEs-r18",
+            "scg-Response",
+            "mrdc-Request",
+            "SIB-TypeInfo",
+            "SIB1-RequestConfig-r19",
+            "UE-CapabilityRAT-Request",
+            "SetupRelease",
+        ):
+            self.assertFalse(RRCAsn1Parser._is_rrc_message(excluded), f"{excluded} should not be a message")
+
+        for included in (
+            "CellGroupConfig",
+            "RRCReconfiguration",
+            "SIB1",
+            "SIB12-r16",
+            "SIB17bis-r18",
+            "SIBpos-r16",
+        ):
+            self.assertTrue(RRCAsn1Parser._is_rrc_message(included), f"{included} should be a message")
+
+    def test_umbrella_clause_632_disambiguation(self):
+        """Verifies get_ie_definitions_by_clause and get_message_context_info do not leak sibling IEs in shared clauses."""
+        import tempfile
+        from modules.nas.core.nas_db import NASDatabase
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = NASDatabase(Path(tmpdir) / "test_clause_632.db")
+            ver_id = db.insert_parsed_spec(
+                "38.331",
+                "19.3.0",
+                messages=[
+                    {
+                        "clause": "6.3.2",
+                        "message_name": "CellGroupConfig",
+                        "table_caption": "CellGroupConfig ASN.1 PDU Definition (Clause 6.3.2)",
+                        "description": "",
+                        "direction": "",
+                        "ies": [{"iei": "", "information_element": "cellGroupId", "field_path": "cellGroupId", "depth": 0, "type_reference": "CellGroupId", "presence": "M", "format": "INTEGER", "length": "-"}],
+                    }
+                ],
+                ie_defs=[
+                    {
+                        "clause": "6.3.2",
+                        "ie_name": "AdditionalSpectrumEmission",
+                        "raw_description": "<h2>AdditionalSpectrumEmission (Clause 6.3.2)</h2><p>Emission requirements.</p>",
+                        "structure_table": "[]",
+                    },
+                    {
+                        "clause": "6.3.2",
+                        "ie_name": "CellGroupConfig",
+                        "raw_description": "<h2>CellGroupConfig (Clause 6.3.2)</h2><p>The CellGroupConfig IE configures MCG or SCG. CellGroupConfig information element</p><table><tr><th>CellGroupConfig field descriptions</th></tr></table>",
+                        "structure_table": "[]",
+                    },
+                    {
+                        "clause": "6.3.2",
+                        "ie_name": "OtherA",
+                        "raw_description": "<h2>OtherA</h2>",
+                        "structure_table": "[]",
+                    },
+                    {
+                        "clause": "6.3.2",
+                        "ie_name": "OtherB",
+                        "raw_description": "<h2>OtherB</h2>",
+                        "structure_table": "[]",
+                    },
+                    {
+                        "clause": "6.3.2",
+                        "ie_name": "srs-TPC-PDCCH-Group",
+                        "raw_description": "<h2>srs-TPC-PDCCH-Group (Clause 6.3.2)</h2>",
+                        "structure_table": "[]",
+                    },
+                ],
+            )
+            self.assertTrue(ver_id)
+
+            # Querying CellGroupConfig with clause 6.3.2 must return ONLY CellGroupConfig
+            defs = db.get_ie_definitions_by_clause(clause="6.3.2", alt_name="CellGroupConfig", spec_number="38.331")
+            self.assertEqual([d["ie_name"] for d in defs], ["CellGroupConfig"])
+
+            # Querying a missing IE with umbrella clause 6.3.2 must not return AdditionalSpectrumEmission
+            missing_defs = db.get_ie_definitions_by_clause(clause="6.3.2", alt_name="NonExistentIE", spec_number="38.331")
+            self.assertEqual(missing_defs, [])
+
+            # Message context info must extract CellGroupConfig's own prose without trailing caption
+            ctx = db.get_message_context_info("CellGroupConfig", clause="6.3.2")
+            self.assertIn("MCG or SCG", ctx["description"])
+            self.assertNotIn("AdditionalSpectrumEmission", ctx["description"])
+            self.assertNotIn("CellGroupConfig information element", ctx["description"])
+
+    def test_matrix_auto_hides_empty_iei_column_and_depth_filter(self):
+        """Verifies empty IEI column auto-hide, max_depth filtering, banner metadata chips, and card collapse."""
+        import tempfile
+        from modules.nas.ui.nas_tabs import NASTab
+
+        rrc_df = pd.DataFrame([
+            {"iei": "", "ie_name": "cellGroupId", "field_path": "cellGroupId", "depth": 0, "type_reference": "CellGroupId", "presence": "M", "format": "INTEGER", "length": "-", "spec_number": "38.331", "version": "19.3.0", "order_index": 0},
+            {"iei": "", "ie_name": "rlc-Config", "field_path": "rlc-BearerToAddModList.rlc-Config", "depth": 1, "type_reference": "RLC-Config", "presence": "C", "format": "CHOICE", "length": "-", "spec_number": "38.331", "version": "19.3.0", "order_index": 1},
+            {"iei": "", "ie_name": "am", "field_path": "rlc-BearerToAddModList.rlc-Config.am", "depth": 2, "type_reference": "SEQUENCE {...}", "presence": "O", "format": "SEQUENCE", "length": "-", "spec_number": "38.331", "version": "19.3.0", "order_index": 2},
+        ])
+        nas_df = pd.DataFrame([
+            {"iei": "5E", "ie_name": "PDU session identity 2", "field_path": "PDU session identity 2", "depth": 0, "type_reference": "9.11.4.10", "presence": "M", "format": "V", "length": "1", "spec_number": "24.501", "version": "20.0.0", "order_index": 0},
+        ])
+
+        top_model = NASEvolutionMatrixModel(rrc_df, max_depth=0)
+        self.assertEqual(top_model.rowCount(), 1)
+        self.assertEqual(top_model.max_available_depth, 2)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tab = NASTab(nas_db_path=Path(tmpdir) / "nas_matrix_ui.db", config_path=Path(tmpdir) / "nas_config.json")
+            tab._current_matrix_df = rrc_df
+            tab._rebuild_matrix_model()
+            self.assertTrue(tab.matrix_table.isColumnHidden(0))
+
+            tab._current_matrix_df = nas_df
+            tab._rebuild_matrix_model()
+            self.assertFalse(tab.matrix_table.isColumnHidden(0))
+
+            # Verify banner extracts SRB / RLC-SAP / Logical channels into msg_meta_badge
+            tab._update_message_context_banner(
+                description="RRCReconfiguration conveys measurement config. Signalling radio bearer: SRB1 or SRB3 RLC-SAP: AM Logical channel: DCCH",
+                direction="Network to UE",
+            )
+            self.assertFalse(tab.msg_meta_badge.isHidden())
+            self.assertIn("SRB: SRB1 or SRB3", tab.msg_meta_badge.text())
+            self.assertIn("RLC: AM", tab.msg_meta_badge.text())
+            self.assertIn("Ch: DCCH", tab.msg_meta_badge.text())
+            self.assertEqual(tab.msg_description_lbl.text(), "RRCReconfiguration conveys measurement config.")
+            tab.close()
+
+        # Verify collapsible spec cards state
+        cards = NASVersionCardsWidget()
+        cards.populate([
+            {"id": 1, "spec_number": "38.331", "version": "19.3.0"},
+            {"id": 2, "spec_number": "38.331", "version": "18.10.0"},
+        ], saved_collapsed={"38.331"})
+        self.assertEqual(cards.get_collapsed_spec_numbers(), ["38.331"])
+        self.assertTrue(cards._cards["38.331"].is_collapsed())
+        cards._cards["38.331"].set_collapsed(False)
+        self.assertEqual(cards.get_collapsed_spec_numbers(), [])
 
 
 if __name__ == "__main__":

@@ -37,9 +37,13 @@ progress callback.
   definitions (TS 38.415).
 - `asn1_base_parser.py` — shared ASN.1 DOCX scanning, extraction of type
   definitions and field descriptions, ASN.1 token/field parsing, trailing comma
-  sanitization, and inspector HTML construction.
-- `rrc_asn1_parser.py` — RRC ASN.1 message selection and field unrolling, built
-  on `BaseAsn1DocxParser` (TS 36.331/38.331).
+  sanitization, pre-`-- ASN1START` prose preservation when `<Name> field descriptions`
+  tables follow `-- ASN1STOP`, `<Name> information element`/`message` caption
+  filtering (`RE_ASN1_BOX_CAPTION`), and inspector HTML construction.
+- `rrc_asn1_parser.py` — RRC ASN.1 message selection (excluding `*-IEs-rXX` /
+  `*-IEs-vXX` containers, `SetupRelease`, helper types, and lowercase inline
+  fields), base-name clause/description fallback for versioned SIB PDUs (e.g.
+  `SIB10-r16`), and field unrolling, built on `BaseAsn1DocxParser` (TS 36.331/38.331).
 - `ran3_asn1_parser.py` — RAN3 ASN.1 object-set, `SEQUENCE OF` list unrolling,
   `ProtocolExtensionContainer` resolution, `MessageType` synthesis, and protocol
   IE extraction with Assigned Criticality tracking, built on `BaseAsn1DocxParser`
