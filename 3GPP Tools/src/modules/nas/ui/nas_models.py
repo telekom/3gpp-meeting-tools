@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 import re
 import pandas as pd
 from PyQt5.QtCore import QAbstractTableModel, QModelIndex, Qt
@@ -20,11 +20,13 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             ie_filter: Optional[str] = None,
             search_descriptions: bool = False,
             interface_filter: Optional[str] = None,
+            diff_filter: Optional[Set[str]] = None,
     ):
         super().__init__()
         self._raw_df = raw_df if raw_df is not None else pd.DataFrame()
         self._ie_filter = ie_filter.strip().lower() if ie_filter else None
         self._search_descriptions = search_descriptions
+        self._diff_filter: Set[str] = {str(d).lower() for d in (diff_filter or set()) if d}
 
         # Recognize "All", "All Interfaces", or None as disabling the filter
         if interface_filter and not interface_filter.strip().upper().startswith("ALL"):
@@ -35,6 +37,7 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         self._pivot_df = pd.DataFrame()
         self._versions: List[str] = []
         self._appl_list: List[str] = []
+        self.diff_counts: Dict[str, int] = {"added": 0, "modified": 0, "removed": 0}
 
         # Fast memory caches for O(1) cell access
         self._visible_columns: List[str] = []
@@ -215,13 +218,18 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
             for r in range(num_rows)
         ]
 
-        # Precompute visual diff brushes
+        # Precompute visual diff brushes and per-row change tags
         self._bg_brush_matrix = [[None] * num_cols for _ in range(num_rows)]
         ver_col_indices = [
             (c_idx, self._visible_columns[c_idx])
             for c_idx in range(3, num_cols)
             if self._visible_columns[c_idx] in self._versions
         ]
+
+        row_diff_tags: List[Set[str]] = [set() for _ in range(num_rows)]
+        added_rows = 0
+        modified_rows = 0
+        removed_rows = 0
 
         for c_idx, ver_col in ver_col_indices:
             v_idx = self._versions.index(ver_col)
@@ -235,15 +243,35 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
 
                         if prev_val == "-" and current_val != "-":
                             self._bg_brush_matrix[r_idx][c_idx] = BRUSH_ADDED
+                            row_diff_tags[r_idx].add("added")
                         elif prev_val != "-" and current_val == "-":
                             self._bg_brush_matrix[r_idx][c_idx] = BRUSH_REMOVED
+                            row_diff_tags[r_idx].add("removed")
                         elif prev_val != current_val and prev_val != "-" and current_val != "-":
                             self._bg_brush_matrix[r_idx][c_idx] = BRUSH_MODIFIED
+                            row_diff_tags[r_idx].add("modified")
+
+        for tags in row_diff_tags:
+            if "added" in tags:
+                added_rows += 1
+            if "modified" in tags:
+                modified_rows += 1
+            if "removed" in tags:
+                removed_rows += 1
+        self.diff_counts = {"added": added_rows, "modified": modified_rows, "removed": removed_rows}
 
         if "applicability" in self._pivot_df.columns:
             self._appl_list = self._pivot_df["applicability"].fillna("").astype(str).tolist()
         else:
             self._appl_list = [""] * num_rows
+
+        if self._diff_filter:
+            keep = [r_idx for r_idx, tags in enumerate(row_diff_tags) if tags & self._diff_filter]
+            self._data_matrix = [self._data_matrix[r] for r in keep]
+            self._depth_list = [self._depth_list[r] for r in keep]
+            self._tooltip_list = [self._tooltip_list[r] for r in keep]
+            self._bg_brush_matrix = [self._bg_brush_matrix[r] for r in keep]
+            self._appl_list = [self._appl_list[r] for r in keep]
 
     def rowCount(self, parent=QModelIndex()) -> int:
         return len(self._data_matrix)

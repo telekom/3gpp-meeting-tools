@@ -49,6 +49,7 @@ from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatch
 from modules.nas.ui.nas_components import (
     NASInspectorWidget,
     NASMessageItemDelegate,
+    NASVersionCardsWidget,
     NASVersionTreeWidget,
 )
 from modules.nas.ui.nas_dialogs import (
@@ -204,47 +205,125 @@ class NASTab(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
 
-        # ---------------------------------------------------------------------
-        # 1. Top Action Bar: 2-Tier Ribbon Card (Ingestion, Stats, Manage Menu)
-        # ---------------------------------------------------------------------
+        # Hidden backward-compatibility ribbon & KPI labels for legacy callers/tests;
+        # primary Import / Manage controls live compactly inside the Indexed Protocols card header.
         self.ribbon_card = PageRibbonCard("Protocols", parent=self)
+        self.ribbon_card.setVisible(False)
+        self.stats_specs_lbl = QLabel("📦 0 Specs", self.ribbon_card)
+        self.stats_specs_lbl.setVisible(False)
+        self.stats_vers_lbl = QLabel("🏷️ 0 Versions", self.ribbon_card)
+        self.stats_vers_lbl.setVisible(False)
+        self.stats_msgs_lbl = QLabel("📨 0 Items", self.ribbon_card)
+        self.stats_msgs_lbl.setVisible(False)
 
-        self.fetch_btn = QPushButton("Import from Specs DB")
-        self.fetch_btn.setObjectName("primaryBtn")
-        self.fetch_btn.setCursor(Qt.PointingHandCursor)
-        apply_lucide_icon(self.fetch_btn, "download", color=C.TEXT_ON_ACCENT)
-        self.fetch_btn.clicked.connect(self._on_fetch_from_specs_db_clicked)
-        self.ribbon_card.add_primary_widget(self.fetch_btn)
+        # ---------------------------------------------------------------------
+        # 1. Main Horizontal Splitter (Left: Indexed Protocols + Library, Right: Matrix + Inspector)
+        # ---------------------------------------------------------------------
+        main_splitter = QSplitter(Qt.Horizontal)
 
-        self.import_file_btn = QPushButton("Import Local .docx")
-        self.import_file_btn.setCursor(Qt.PointingHandCursor)
-        self.import_file_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        apply_lucide_icon(self.import_file_btn, "upload")
-        self.import_file_btn.clicked.connect(self._on_import_local_file_clicked)
-        self.ribbon_card.add_primary_widget(self.import_file_btn)
+        # --- Left Panel (Vertical Splitter: Protocol Pill Cards + Protocol Library) ---
+        left_widget = QWidget()
+        left_widget.setMinimumWidth(scale_px(280))
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(0)
 
-        # Live Database KPI Stats Ribbon + Manage Menu (Utility strip)
-        self.stats_specs_lbl = QLabel("📦 0 Specs")
-        self.stats_specs_lbl.setStyleSheet(RIBBON_BADGE_STYLE)
-        self.ribbon_card.add_utility_widget(self.stats_specs_lbl)
+        self.left_splitter = QSplitter(Qt.Vertical)
+        self.left_splitter.setChildrenCollapsible(False)
 
-        self.stats_vers_lbl = QLabel("🏷️ 0 Versions")
-        self.stats_vers_lbl.setStyleSheet(RIBBON_BADGE_STYLE)
-        self.ribbon_card.add_utility_widget(self.stats_vers_lbl)
+        # Indexed Protocols Card Frame (Spec-Search-aligned pill cards & inline header)
+        ver_card = QFrame()
+        ver_card.setObjectName("nasSpecTreeCard")
+        ver_card.setStyleSheet(f"""
+            QFrame#nasSpecTreeCard {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
+                border-radius: 6px;
+            }}
+        """)
+        ver_card_layout = QVBoxLayout(ver_card)
+        ver_card_layout.setContentsMargins(6, 8, 6, 6)
+        ver_card_layout.setSpacing(6)
 
-        self.stats_msgs_lbl = QLabel("📨 0 Items")
-        self.stats_msgs_lbl.setStyleSheet(RIBBON_BADGE_STYLE)
-        self.ribbon_card.add_utility_widget(self.stats_msgs_lbl)
+        # Card Header: Title + Spec Count Badge + Compact Import & Manage Dropdowns
+        ver_hdr_layout = QHBoxLayout()
+        ver_hdr_layout.setContentsMargins(2, 0, 2, 0)
+        ver_hdr_layout.setSpacing(4)
 
-        # Manage / Maintenance Dropdown Menu
-        self.manage_btn = QPushButton("Manage ▾")
-        self.manage_btn.setCursor(Qt.PointingHandCursor)
-        self.manage_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        apply_lucide_icon(self.manage_btn, "sliders")
+        ver_title = QLabel("📚 Indexed Protocols")
+        ver_title.setStyleSheet(f"font-weight: bold; font-size: 12px; color: {C.TEXT_STRONG};")
+        ver_hdr_layout.addWidget(ver_title)
 
+        self.tree_stats_badge = QLabel("0")
+        self.tree_stats_badge.setStyleSheet(f"""
+            background-color: {C.BG_CANVAS};
+            color: {C.TEXT_SECONDARY};
+            font-size: 10px;
+            font-weight: bold;
+            border: 1px solid {C.BORDER_SUBTLE};
+            border-radius: 4px;
+            padding: 1px 5px;
+        """)
+        ver_hdr_layout.addWidget(self.tree_stats_badge)
+        ver_hdr_layout.addStretch()
+
+        self.import_menu_btn = QPushButton("Import ▾")
+        self.import_menu_btn.setCursor(Qt.PointingHandCursor)
+        self.import_menu_btn.setToolTip("Import protocol specifications from Specs DB or local Word .docx")
+        apply_lucide_icon(self.import_menu_btn, "download", color=C.ACCENT_PRIMARY, size=13)
+        self.import_menu_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.BG_SURFACE};
+                color: {C.TEXT_STRONG};
+                border: 1px solid {C.BORDER_STRONG};
+                border-radius: 4px;
+                padding: 2px 7px;
+                font-size: 11px;
+                font-weight: 500;
+            }}
+            QPushButton:hover {{
+                background-color: {C.BG_CANVAS};
+                border-color: {C.TEXT_FAINT};
+            }}
+            QPushButton::menu-indicator {{
+                image: none;
+                width: 0px;
+            }}
+        """)
+        import_menu = QMenu(self)
+        act_import_db = import_menu.addAction("📥 Import from Specifications DB...")
+        act_import_db.triggered.connect(self._on_fetch_from_specs_db_clicked)
+        act_import_docx = import_menu.addAction("📁 Import Local Word Document (.docx)...")
+        act_import_docx.triggered.connect(self._on_import_local_file_clicked)
+        self.import_menu_btn.setMenu(import_menu)
+        ver_hdr_layout.addWidget(self.import_menu_btn)
+
+        self.db_menu_btn = QPushButton("▾")
+        self.db_menu_btn.setCursor(Qt.PointingHandCursor)
+        self.db_menu_btn.setToolTip("Protocol database maintenance (reload versions, clear, wipe DB)")
+        apply_lucide_icon(self.db_menu_btn, "sliders", color=C.TEXT_SECONDARY, size=13)
+        self.db_menu_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.BG_SURFACE};
+                color: {C.TEXT_SECONDARY};
+                border: 1px solid {C.BORDER_STRONG};
+                border-radius: 4px;
+                padding: 2px 6px;
+                font-size: 11px;
+                font-weight: 500;
+            }}
+            QPushButton:hover {{
+                background-color: {C.BG_CANVAS};
+                border-color: {C.TEXT_FAINT};
+            }}
+            QPushButton::menu-indicator {{
+                image: none;
+                width: 0px;
+            }}
+        """)
         manage_menu = QMenu(self)
         manage_menu.setStyleSheet(f"""
             QMenu {{
@@ -263,7 +342,6 @@ class NASTab(QWidget):
                 color: {C.ACCENT_PRIMARY};
             }}
         """)
-
         act_reload_checked = QAction("🔄 Reload Checked Version(s)...", self)
         act_reload_checked.triggered.connect(self._on_reload_checked_clicked)
         manage_menu.addAction(act_reload_checked)
@@ -278,80 +356,134 @@ class NASTab(QWidget):
         act_wipe.triggered.connect(self._on_wipe_db_clicked)
         manage_menu.addAction(act_wipe)
 
-        self.manage_btn.setMenu(manage_menu)
-        self.ribbon_card.add_utility_widget(self.manage_btn)
+        self.db_menu_btn.setMenu(manage_menu)
+        ver_hdr_layout.addWidget(self.db_menu_btn)
 
-        layout.addWidget(self.ribbon_card)
+        # Compatibility aliases for ingestion controller and unit tests
+        self.fetch_btn = self.import_menu_btn
+        self.import_file_btn = self.import_menu_btn
+        self.manage_btn = self.db_menu_btn
 
+        ver_card_layout.addLayout(ver_hdr_layout)
+
+        # Sleek 4px inline progress bar for background ingestion
         self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedHeight(4)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: none;
+                background-color: {C.BORDER_SUBTLE};
+                border-radius: 2px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {C.ACCENT_SKY};
+                border-radius: 2px;
+            }}
+        """)
         self.progress_bar.setVisible(False)
-        layout.addWidget(self.progress_bar)
+        ver_card_layout.addWidget(self.progress_bar)
 
-        # ---------------------------------------------------------------------
-        # 2. Main Horizontal Splitter
-        # ---------------------------------------------------------------------
-        main_splitter = QSplitter(Qt.Horizontal)
-
-        # --- Left Panel (Spec Tree Card + Protocol Library Card) ---
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(8)
-
-        # Specification Versions Card Frame
-        ver_card = QFrame()
-        ver_card.setObjectName("cardFrame")
-        ver_card.setStyleSheet(f"""
-            QFrame#cardFrame {{
-                background-color: {C.BG_CARD};
+        # Quick Spec Filter Input
+        self.tree_filter_input = QLineEdit()
+        self.tree_filter_input.setPlaceholderText("Filter specs (e.g. 24.501, NGAP, RRC)...")
+        self.tree_filter_input.setClearButtonEnabled(True)
+        self.tree_filter_input.setStyleSheet(f"""
+            QLineEdit {{
+                padding: 3px 6px;
                 border: 1px solid {C.BORDER_STRONG};
-                border-radius: 6px;
-            }}
-        """)
-        ver_card_layout = QVBoxLayout(ver_card)
-        ver_card_layout.setContentsMargins(0, 0, 0, 0)
-        ver_card_layout.setSpacing(0)
-
-        ver_header = QFrame()
-        ver_header.setStyleSheet(f"""
-            QFrame {{
+                border-radius: 4px;
+                font-size: 11px;
                 background-color: {C.BG_SURFACE};
-                border-bottom: 1px solid {C.BORDER_SUBTLE};
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
-                padding: 4px 8px;
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {C.ACCENT_SKY};
+                background-color: {C.BG_CARD};
             }}
         """)
-        ver_header_layout = QHBoxLayout(ver_header)
-        ver_header_layout.setContentsMargins(6, 4, 6, 4)
-        ver_header_layout.setSpacing(6)
+        ver_card_layout.addWidget(self.tree_filter_input)
 
-        ver_title = QLabel("🏷️ Specification Releases")
-        ver_title.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {C.TEXT_STRONG};")
-        ver_header_layout.addWidget(ver_title)
-        ver_header_layout.addStretch()
+        # Quick Filter Action Chips (matching Spec Search)
+        chips_layout = QHBoxLayout()
+        chips_layout.setSpacing(4)
+
+        chip_neutral_style = f"""
+            QPushButton {{
+                font-size: 10px;
+                font-weight: 600;
+                color: {C.TEXT_BODY};
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_STRONG};
+                border-radius: 3px;
+                padding: 2px 6px;
+            }}
+            QPushButton:hover {{
+                background-color: {C.BORDER_SUBTLE};
+                color: {C.TEXT_PRIMARY};
+            }}
+        """
 
         btn_all = QPushButton("All")
-        btn_all.setToolTip("Select all specifications and releases")
-        btn_all.setStyleSheet(TINY_HEADER_BTN_STYLE)
-        btn_all.clicked.connect(self._on_select_all_specs)
-        ver_header_layout.addWidget(btn_all)
+        btn_all.setToolTip("Select all indexed releases across all protocol specifications")
+        btn_all.setCursor(Qt.PointingHandCursor)
+        btn_all.setStyleSheet(chip_neutral_style)
+        chips_layout.addWidget(btn_all)
+
+        btn_none = QPushButton("None")
+        btn_none.setToolTip("Deselect all protocol releases")
+        btn_none.setCursor(Qt.PointingHandCursor)
+        btn_none.setStyleSheet(chip_neutral_style)
+        chips_layout.addWidget(btn_none)
+
+        btn_latest_rel = QPushButton("⭐ Latest/Rel")
+        btn_latest_rel.setToolTip("Check only the newest version of each Release per specification")
+        btn_latest_rel.setCursor(Qt.PointingHandCursor)
+        btn_latest_rel.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 10px;
+                font-weight: 600;
+                color: {C.ACCENT_SKY_DARK};
+                background-color: {C.SKY_SURFACE};
+                border: 1px solid {C.SKY_BORDER};
+                border-radius: 3px;
+                padding: 2px 6px;
+            }}
+            QPushButton:hover {{
+                background-color: {C.SKY_SOFT};
+                color: {C.ACCENT_SKY};
+            }}
+        """)
+        chips_layout.addWidget(btn_latest_rel)
 
         btn_latest = QPushButton("Latest")
-        btn_latest.setToolTip("Select only latest version for each specification")
-        btn_latest.setStyleSheet(TINY_HEADER_BTN_STYLE)
-        btn_latest.clicked.connect(self._on_select_latest_specs)
-        ver_header_layout.addWidget(btn_latest)
+        btn_latest.setToolTip("Select only the single newest version per specification")
+        btn_latest.setCursor(Qt.PointingHandCursor)
+        btn_latest.setStyleSheet(chip_neutral_style)
+        chips_layout.addWidget(btn_latest)
 
-        btn_none = QPushButton("Clear")
-        btn_none.setToolTip("Deselect all specifications")
-        btn_none.setStyleSheet(TINY_HEADER_BTN_STYLE)
-        btn_none.clicked.connect(self._on_select_none_specs)
-        ver_header_layout.addWidget(btn_none)
+        btn_r18 = QPushButton("Rel-18+")
+        btn_r18.setToolTip("Select only Release 18, 19, and 20 (5G-Advanced & 6G)")
+        btn_r18.setCursor(Qt.PointingHandCursor)
+        btn_r18.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 10px;
+                font-weight: 600;
+                color: {C.INDIGO_DARK};
+                background-color: {C.WG_SA_BG};
+                border: 1px solid {C.WG_SA_BORDER};
+                border-radius: 3px;
+                padding: 2px 6px;
+            }}
+            QPushButton:hover {{
+                background-color: {C.INDIGO_SOFT};
+                color: {C.WG_SA_TEXT};
+            }}
+        """)
+        chips_layout.addWidget(btn_r18)
+        chips_layout.addStretch()
+        ver_card_layout.addLayout(chips_layout)
 
-        ver_card_layout.addWidget(ver_header)
-
-        self.version_tree = NASVersionTreeWidget()
+        self.version_tree = NASVersionCardsWidget()
         self.version_tree.selection_changed.connect(self._on_version_selection_changed)
         self.version_tree.structure_changed.connect(self._save_config)
         self.version_tree.reload_version_requested.connect(self._reload_single_version)
@@ -363,8 +495,16 @@ class NASTab(QWidget):
         )
         self.version_tree.show_in_specs_requested.connect(self.navigate_to_specs_tab_requested)
         self.version_tree.search_in_spec_search_requested.connect(self.search_in_spec_search_requested)
+
+        self.tree_filter_input.textChanged.connect(self.version_tree.filter_tree)
+        btn_all.clicked.connect(self.version_tree.select_all)
+        btn_none.clicked.connect(self.version_tree.deselect_all)
+        btn_latest_rel.clicked.connect(self.version_tree.select_latest_per_release)
+        btn_latest.clicked.connect(self.version_tree.select_latest_only)
+        btn_r18.clicked.connect(lambda: self.version_tree.select_releases_min(18))
+
         ver_card_layout.addWidget(self.version_tree)
-        left_layout.addWidget(ver_card, 1)
+        self.left_splitter.addWidget(ver_card)
 
         # Protocol Library Card Frame
         msg_card = QFrame()
@@ -381,8 +521,9 @@ class NASTab(QWidget):
         msg_card_layout.setSpacing(0)
 
         msg_header = QFrame()
+        msg_header.setObjectName("msgLibHeader")
         msg_header.setStyleSheet(f"""
-            QFrame {{
+            QFrame#msgLibHeader {{
                 background-color: {C.BG_SURFACE};
                 border-bottom: 1px solid {C.BORDER_SUBTLE};
                 border-top-left-radius: 6px;
@@ -489,7 +630,9 @@ class NASTab(QWidget):
         """)
         msg_body_layout.addWidget(self.msg_list)
         msg_card_layout.addWidget(msg_body)
-        left_layout.addWidget(msg_card, 2)
+        self.left_splitter.addWidget(msg_card)
+        self.left_splitter.setSizes([270, 430])
+        left_layout.addWidget(self.left_splitter)
 
         main_splitter.addWidget(left_widget)
 
@@ -510,8 +653,9 @@ class NASTab(QWidget):
         matrix_card_layout.setSpacing(0)
 
         matrix_header_frame = QFrame()
+        matrix_header_frame.setObjectName("matrixHeaderFrame")
         matrix_header_frame.setStyleSheet(f"""
-            QFrame {{
+            QFrame#matrixHeaderFrame {{
                 background-color: {C.BG_SURFACE};
                 border-bottom: 1px solid {C.BORDER_SUBTLE};
                 border-top-left-radius: 6px;
@@ -527,21 +671,64 @@ class NASTab(QWidget):
         self.matrix_title.setStyleSheet(f"font-weight: bold; font-size: 12px; color: {C.TEXT_STRONG};")
         matrix_header_layout.addWidget(self.matrix_title)
 
-        # Diff Legend Pill Bar
+        # Interactive Diff Filter Pills
         diff_legend = QHBoxLayout()
         diff_legend.setSpacing(4)
 
-        lbl_added = QLabel("🟢 Added")
-        lbl_added.setStyleSheet(f"background-color: {C.DIFF_ADDED_BG}; color: {C.SUCCESS_DARK}; font-size: 10px; font-weight: bold; border: 1px solid {C.SUCCESS_BORDER}; border-radius: 3px; padding: 1px 5px;")
-        diff_legend.addWidget(lbl_added)
+        def _make_diff_pill(text: str, bg: str, fg: str, border: str, active_border: str, tip: str) -> QPushButton:
+            btn = QPushButton(text)
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setToolTip(tip)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {bg};
+                    color: {fg};
+                    font-size: 10px;
+                    font-weight: bold;
+                    border: 1px solid {border};
+                    border-radius: 10px;
+                    padding: 2px 8px;
+                }}
+                QPushButton:hover {{
+                    border-color: {active_border};
+                }}
+                QPushButton:checked {{
+                    border: 2px solid {active_border};
+                }}
+            """)
+            btn.toggled.connect(lambda _checked: self._rebuild_matrix_model())
+            return btn
 
-        lbl_mod = QLabel("🟡 Modified")
-        lbl_mod.setStyleSheet(f"background-color: {C.WARNING_YELLOW_SOFT}; color: {C.WARNING_YELLOW_TEXT}; font-size: 10px; font-weight: bold; border: 1px solid {C.HIGHLIGHT_YELLOW}; border-radius: 3px; padding: 1px 5px;")
-        diff_legend.addWidget(lbl_mod)
+        self.btn_diff_added = _make_diff_pill(
+            "🟢 Added",
+            C.DIFF_ADDED_BG,
+            C.SUCCESS_DARK,
+            C.SUCCESS_BORDER,
+            C.SUCCESS,
+            "Toggle filter: show only fields added between selected releases",
+        )
+        diff_legend.addWidget(self.btn_diff_added)
 
-        lbl_rem = QLabel("🔴 Removed")
-        lbl_rem.setStyleSheet(f"background-color: {C.DANGER_SOFT_HOVER}; color: {C.DANGER_DARK}; font-size: 10px; font-weight: bold; border: 1px solid {C.DANGER_BORDER}; border-radius: 3px; padding: 1px 5px;")
-        diff_legend.addWidget(lbl_rem)
+        self.btn_diff_modified = _make_diff_pill(
+            "🟡 Modified",
+            C.WARNING_YELLOW_SOFT,
+            C.WARNING_YELLOW_TEXT,
+            C.HIGHLIGHT_YELLOW,
+            C.WARNING_ACCENT,
+            "Toggle filter: show only fields modified between selected releases",
+        )
+        diff_legend.addWidget(self.btn_diff_modified)
+
+        self.btn_diff_removed = _make_diff_pill(
+            "🔴 Removed",
+            C.DANGER_SOFT_HOVER,
+            C.DANGER_DARK,
+            C.DANGER_BORDER,
+            C.DANGER,
+            "Toggle filter: show only fields removed between selected releases",
+        )
+        diff_legend.addWidget(self.btn_diff_removed)
 
         matrix_header_layout.addLayout(diff_legend)
         matrix_header_layout.addStretch()
@@ -767,7 +954,7 @@ class NASTab(QWidget):
 
         right_splitter.setSizes([380, 320])
         main_splitter.addWidget(right_splitter)
-        main_splitter.setSizes([320, 680])
+        main_splitter.setSizes([380, 700])
         layout.addWidget(main_splitter, 1)
 
     # -------------------------------------------------------------------------
@@ -855,6 +1042,12 @@ class NASTab(QWidget):
             self.stats_specs_lbl.setText(f"📦 {unique_specs} Spec{'s' if unique_specs != 1 else ''}")
             self.stats_vers_lbl.setText(f"🏷️ {total_versions} Version{'s' if total_versions != 1 else ''}")
             self.stats_msgs_lbl.setText(f"📨 {total_msgs} Messages · {total_ies} IEs")
+            if hasattr(self, "tree_stats_badge"):
+                self.tree_stats_badge.setText(str(unique_specs))
+                self.tree_stats_badge.setToolTip(
+                    f"Indexed Protocols: {unique_specs} Spec(s) · {total_versions} Version(s)\n"
+                    f"Library Contents: {total_msgs} Messages · {total_ies} Information Elements"
+                )
         except Exception as e:
             logger.debug(f"Could not update stats ribbon: {e}")
 
@@ -1413,11 +1606,34 @@ class NASTab(QWidget):
                 fallback_type_ref=f"{msg_name} {eff_clause}".strip(),
             )
 
+    def _get_active_diff_filter(self) -> set:
+        active = set()
+        if getattr(self, "btn_diff_added", None) and self.btn_diff_added.isChecked():
+            active.add("added")
+        if getattr(self, "btn_diff_modified", None) and self.btn_diff_modified.isChecked():
+            active.add("modified")
+        if getattr(self, "btn_diff_removed", None) and self.btn_diff_removed.isChecked():
+            active.add("removed")
+        return active
+
+    def _update_diff_filter_badges(self, counts: Optional[Dict[str, int]] = None):
+        counts = counts or {"added": 0, "modified": 0, "removed": 0}
+        specs = (
+            ("btn_diff_added", "🟢 Added", counts.get("added", 0)),
+            ("btn_diff_modified", "🟡 Modified", counts.get("modified", 0)),
+            ("btn_diff_removed", "🔴 Removed", counts.get("removed", 0)),
+        )
+        for attr, base_lbl, cnt in specs:
+            btn = getattr(self, attr, None)
+            if btn is not None:
+                btn.setText(f"{base_lbl} ({cnt})" if cnt > 0 else base_lbl)
+
     def _rebuild_matrix_model(self, ignore_ie_filter: bool = False):
         if not hasattr(self, "_current_matrix_df") or self._current_matrix_df.empty:
             self.matrix_table.setModel(None)
             self.matrix_stack.setCurrentIndex(0)
             self.copy_matrix_btn.setEnabled(False)
+            self._update_diff_filter_badges(None)
             return
 
         df = self._current_matrix_df
@@ -1430,8 +1646,10 @@ class NASTab(QWidget):
             ie_filter=ie_query,
             search_descriptions=(search_desc and bool(ie_query)),
             interface_filter=active_if,
+            diff_filter=self._get_active_diff_filter(),
         )
         self.matrix_table.setModel(model)
+        self._update_diff_filter_badges(getattr(model, "diff_counts", None))
         has_rows = model.rowCount() > 0
         self.matrix_stack.setCurrentIndex(1 if has_rows else 0)
         self.copy_matrix_btn.setEnabled(has_rows)

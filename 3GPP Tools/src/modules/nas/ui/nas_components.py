@@ -3,26 +3,32 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from PyQt5.QtCore import QPoint, QRect, QRectF, QSize, Qt, QUrl, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
+from PyQt5.QtGui import QBrush, QColor, QCursor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
+    QCheckBox,
     QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QStyle,
     QStyledItemDelegate,
     QTextBrowser,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from core.ui.flow_layout import FlowLayout
+from core.ui.font_scale import scale_px
 from core.ui.ui_components import get_wg_colors
 from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
 from modules.nas.core.nas_exporter import copy_definition_to_clipboard
@@ -30,18 +36,27 @@ from modules.nas.ui.nas_dialogs import get_spec_metadata, get_spec_title, get_sp
 from core.ui.theme import C
 
 
+def _extract_major_release(version: str) -> str:
+    """Extract major release label (e.g. 'Rel-20') from a 3GPP version string."""
+    clean_v = str(version or "").lstrip("vV").strip()
+    first = clean_v.split(".")[0] if clean_v else ""
+    if first.isdigit():
+        return f"Rel-{first}"
+    return "Rel-?"
+
+
 class NASMessageItemDelegate(QStyledItemDelegate):
     """
-    Renders protocol messages and information elements with high visual polish:
-    - Left: Message / IE Name in bold typeface
-    - Right: Color-coded Working Group / Specification chip and Clause pill
+    Renders protocol messages and information elements in a spacious 2-line card layout:
+    - Line 1 (Top): Full bold Message / IE Name without crowded horizontal truncation
+    - Line 2 (Bottom): Color-coded WG · Spec chip, protocol acronym chip, and Clause pill
     """
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
 
     def sizeHint(self, option, index) -> QSize:
-        return QSize(option.rect.width(), 32)
+        return QSize(option.rect.width(), scale_px(46, minimum=42))
 
     def paint(self, painter: QPainter, option, index):
         painter.save()
@@ -83,80 +98,87 @@ class NASMessageItemDelegate(QStyledItemDelegate):
 
         meta = get_spec_metadata(spec_num) if spec_num else {}
         wg = meta.get("wg", "")
-        acronym = meta.get("acronym", "")
+        acronym = str(index.data(Qt.UserRole + 4) or meta.get("acronym", "")).strip()
 
-        right_cursor = rect.right() - 8
+        left_x = rect.x() + (10 if not is_selected else 12)
+        right_limit = rect.right() - 8
 
-        # 3. Draw Right-aligned Clause Pill
+        # 3. Line 1: Full-width Message / IE Name
+        name_font = QFont(option.font)
+        name_font.setPointSize(9)
+        name_font.setBold(True)
+        painter.setFont(name_font)
+        painter.setPen(QColor(C.ACCENT_PRIMARY) if is_selected else QColor(C.TEXT_PRIMARY))
+
+        line1_h = max(18, (rect.height() - 6) // 2)
+        line1_rect = QRect(left_x, rect.y() + 3, max(40, right_limit - left_x), line1_h)
+        elided_text = QFontMetrics(name_font).elidedText(msg_name, Qt.ElideRight, line1_rect.width())
+        painter.drawText(line1_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_text)
+
+        # 4. Line 2: Left-aligned WG·Spec chip + Acronym chip, Right-aligned Clause pill
+        chip_y = rect.y() + 3 + line1_h + 1
+        chip_h = max(16, min(18, rect.bottom() - chip_y - 3))
+        pill_font = QFont(option.font)
+        pill_font.setPointSize(8)
+        pill_font.setBold(True)
+        pill_fm = QFontMetrics(pill_font)
+
+        clause_left_edge = right_limit
         if clause and clause != msg_name:
-            clause_font = QFont(option.font)
-            clause_font.setPointSize(9)
-            clause_font.setBold(True)
-            clause_fm = QFontMetrics(clause_font)
             clause_text = f"Cl. {clause}"
-            pill_w = clause_fm.horizontalAdvance(clause_text) + 12
-            pill_h = 18
-            pill_y = rect.y() + (rect.height() - pill_h) // 2
-            pill_x = right_cursor - pill_w
+            clause_w = pill_fm.horizontalAdvance(clause_text) + 10
+            clause_x = right_limit - clause_w
+            if clause_x > left_x + 40:
+                clause_path = QPainterPath()
+                clause_path.addRoundedRect(QRectF(clause_x, chip_y, clause_w, chip_h), chip_h / 2.0, chip_h / 2.0)
+                painter.fillPath(clause_path, QBrush(QColor(C.BG_CANVAS)))
+                painter.setPen(QPen(QColor(C.BORDER_STRONG), 1))
+                painter.drawPath(clause_path)
 
-            pill_path = QPainterPath()
-            pill_path.addRoundedRect(QRectF(pill_x, pill_y, pill_w, pill_h), 9.0, 9.0)
-            painter.fillPath(pill_path, QBrush(QColor(C.BG_CANVAS)))
-            painter.setPen(QPen(QColor(C.BORDER_STRONG), 1))
-            painter.drawPath(pill_path)
+                painter.setFont(pill_font)
+                painter.setPen(QColor(C.TEXT_SECONDARY))
+                painter.drawText(QRect(clause_x, chip_y, clause_w, chip_h), Qt.AlignCenter, clause_text)
+                clause_left_edge = clause_x - 6
 
-            painter.setFont(clause_font)
-            painter.setPen(QColor(C.TEXT_SECONDARY))
-            painter.drawText(
-                QRect(pill_x, pill_y, pill_w, pill_h),
-                Qt.AlignCenter,
-                clause_text,
-            )
-            right_cursor = pill_x - 6
-
-        # 4. Draw Right-aligned Specification / WG Chip
+        cur_x = left_x
         if spec_num:
-            wg_colors = get_wg_colors(wg) if wg else {"bg": C.BG_SURFACE, "text": C.TEXT_BODY, "border": C.BORDER_STRONG}
-            spec_font = QFont(option.font)
-            spec_font.setPointSize(9)
-            spec_font.setBold(True)
-            spec_fm = QFontMetrics(spec_font)
-
+            wg_colors = (
+                get_wg_colors(wg)
+                if wg
+                else {"bg": C.BG_SURFACE, "text": C.TEXT_BODY, "border": C.BORDER_STRONG}
+            )
             spec_label = f"{wg} · {spec_num}" if wg and wg != "3GPP" else f"TS {spec_num}"
-            chip_w = spec_fm.horizontalAdvance(spec_label) + 10
-            chip_h = 18
-            chip_y = rect.y() + (rect.height() - chip_h) // 2
-            chip_x = right_cursor - chip_w
-
-            if chip_x > rect.x() + 100:  # Only draw if enough horizontal room
+            chip_w = pill_fm.horizontalAdvance(spec_label) + 10
+            if cur_x + chip_w <= clause_left_edge:
                 chip_path = QPainterPath()
-                chip_path.addRoundedRect(QRectF(chip_x, chip_y, chip_w, chip_h), 3.0, 3.0)
+                chip_path.addRoundedRect(QRectF(cur_x, chip_y, chip_w, chip_h), 3.0, 3.0)
                 painter.fillPath(chip_path, QBrush(QColor(wg_colors.get("bg", C.BG_SURFACE))))
                 painter.setPen(QPen(QColor(wg_colors.get("border", C.BORDER_STRONG)), 1))
                 painter.drawPath(chip_path)
 
-                painter.setFont(spec_font)
+                painter.setFont(pill_font)
                 painter.setPen(QColor(wg_colors.get("text", C.TEXT_BODY)))
-                painter.drawText(
-                    QRect(chip_x, chip_y, chip_w, chip_h),
-                    Qt.AlignCenter,
-                    spec_label,
-                )
-                right_cursor = chip_x - 6
+                painter.drawText(QRect(cur_x, chip_y, chip_w, chip_h), Qt.AlignCenter, spec_label)
+                cur_x += chip_w + 5
 
-        # 5. Draw Left-aligned Message Name
-        name_font = QFont(option.font)
-        name_font.setPointSize(10)
-        name_font.setBold(is_selected)
-        painter.setFont(name_font)
-        painter.setPen(QColor(C.TEXT_PRIMARY) if not is_selected else QColor(C.ACCENT_PRIMARY))
+        if acronym:
+            acr_font = QFont(option.font)
+            acr_font.setPointSize(8)
+            acr_font.setBold(False)
+            acr_fm = QFontMetrics(acr_font)
+            avail_acr = clause_left_edge - cur_x
+            if avail_acr > 44:
+                acr_text = acr_fm.elidedText(acronym, Qt.ElideRight, avail_acr - 8)
+                acr_w = acr_fm.horizontalAdvance(acr_text) + 8
+                acr_path = QPainterPath()
+                acr_path.addRoundedRect(QRectF(cur_x, chip_y, acr_w, chip_h), 3.0, 3.0)
+                painter.fillPath(acr_path, QBrush(QColor(C.BG_SURFACE)))
+                painter.setPen(QPen(QColor(C.BORDER_SUBTLE), 1))
+                painter.drawPath(acr_path)
 
-        left_x = rect.x() + (10 if not is_selected else 12)
-        avail_w = max(40, right_cursor - left_x)
-        text_rect = QRect(left_x, rect.y(), avail_w, rect.height())
-
-        elided_text = QFontMetrics(name_font).elidedText(msg_name, Qt.ElideRight, avail_w)
-        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_text)
+                painter.setFont(acr_font)
+                painter.setPen(QColor(C.TEXT_MUTED))
+                painter.drawText(QRect(cur_x, chip_y, acr_w, chip_h), Qt.AlignCenter, acr_text)
 
         painter.restore()
 
@@ -568,6 +590,602 @@ class NASVersionTreeWidget(QTreeWidget):
             menu.exec_(self.viewport().mapToGlobal(pos))
 
 
+class NASReleasePillWidget(QPushButton):
+    """
+    Compact clickable pill representing a single protocol specification release.
+    Displays e.g. 'R20: 20.0.0' with active/inactive highlight, tooltip, and double-click open.
+    """
+
+    open_word_requested = pyqtSignal(str, str)
+
+    def __init__(self, version_data: Dict[str, Any], meta: Dict[str, str], parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.version_data = version_data
+        self.spec_number = str(version_data.get("spec_number", ""))
+        self.version = str(version_data.get("version", ""))
+        self.version_id = version_data.get("id")
+
+        rel = _extract_major_release(self.version)
+        short_rel = rel.replace("Rel-", "R") if rel.startswith("Rel-") else rel
+        self.setText(f"{short_rel}: {self.version}")
+        self.setCheckable(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedHeight(scale_px(22, minimum=20))
+
+        self.setToolTip(
+            f"TS {self.spec_number} v{self.version} ({meta.get('title', '')})\n"
+            f"Working Group: {meta.get('wg', '3GPP')} · Release: {rel}\n"
+            f"(Click to toggle comparison | Double-click to open Word | Right-click for options)"
+        )
+        self._update_style()
+        self.toggled.connect(lambda _: self._update_style())
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton and self.spec_number and self.version:
+            self.open_word_requested.emit(self.spec_number, self.version)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def _update_style(self):
+        if self.isChecked():
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {C.ACCENT_SKY};
+                    color: {C.BG_CARD};
+                    border: 1px solid {C.ACCENT_SKY};
+                    border-radius: 11px;
+                    padding: 1px 8px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }}
+                QPushButton:hover {{
+                    background-color: {C.ACCENT_SKY_DARK};
+                    border-color: {C.ACCENT_SKY_DARK};
+                }}
+            """)
+        else:
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {C.BG_SURFACE};
+                    color: {C.TEXT_MUTED};
+                    border: 1px solid {C.BORDER_STRONG};
+                    border-radius: 11px;
+                    padding: 1px 8px;
+                    font-size: 11px;
+                    font-weight: 500;
+                }}
+                QPushButton:hover {{
+                    background-color: {C.BG_CANVAS};
+                    color: {C.TEXT_PRIMARY};
+                    border-color: {C.TEXT_FAINT};
+                }}
+            """)
+
+
+class NASSpecCardWidget(QFrame):
+    """
+    Modern protocol specification card featuring WG color pill, acronym label,
+    tri-state selection checkbox, options menu, and auto-wrapping FlowLayout release pills.
+    """
+
+    selection_changed = pyqtSignal()
+    reload_version_requested = pyqtSignal(str, str)
+    reload_spec_requested = pyqtSignal(str, int)
+    delete_version_requested = pyqtSignal(str, str)
+    delete_spec_requested = pyqtSignal(str, int)
+    open_spec_requested = pyqtSignal(str, str, str, str)
+    show_in_specs_requested = pyqtSignal(str, str)
+    search_in_spec_search_requested = pyqtSignal(str, str)
+
+    def __init__(
+        self,
+        spec_number: str,
+        versions: List[Dict[str, Any]],
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(parent)
+        self.spec_number = spec_number
+        self.versions = sorted(versions, key=lambda x: parse_version_tuple(x["version"]), reverse=True)
+        self.meta = get_spec_metadata(spec_number)
+        self.pills: List[NASReleasePillWidget] = []
+        self._updating_checks = False
+
+        self.setObjectName("NASSpecCard")
+        self.setStyleSheet(f"""
+            QFrame#NASSpecCard {{
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_SUBTLE};
+                border-radius: 6px;
+            }}
+            QFrame#NASSpecCard:hover {{
+                border-color: {C.BORDER_STRONG};
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(5)
+
+        # Card Header Row: [☑] [WG] TS 24.501 · 5GS NAS   [Count] [⋮]
+        hdr = QHBoxLayout()
+        hdr.setContentsMargins(0, 0, 0, 0)
+        hdr.setSpacing(5)
+
+        self.chk_all = QCheckBox()
+        self.chk_all.setCursor(Qt.PointingHandCursor)
+        self.chk_all.clicked.connect(self._on_header_checkbox_clicked)
+        hdr.addWidget(self.chk_all)
+
+        wg = str(self.meta.get("wg", "") or "3GPP")
+        wg_colors = get_wg_colors(wg)
+        wg_badge = QLabel(wg)
+        wg_badge.setStyleSheet(f"""
+            background-color: {wg_colors.get('bg', C.BG_SURFACE)};
+            color: {wg_colors.get('text', C.TEXT_BODY)};
+            border: 1px solid {wg_colors.get('border', C.BORDER_STRONG)};
+            border-radius: 3px;
+            padding: 1px 5px;
+            font-size: 10px;
+            font-weight: bold;
+        """)
+        hdr.addWidget(wg_badge)
+
+        lbl_spec = QLabel(f"TS {spec_number}")
+        font_spec = QFont()
+        font_spec.setBold(True)
+        font_spec.setPointSize(9)
+        lbl_spec.setFont(font_spec)
+        lbl_spec.setStyleSheet(f"color: {C.TEXT_PRIMARY};")
+        lbl_spec.setToolTip(get_spec_tooltip(spec_number))
+        hdr.addWidget(lbl_spec)
+
+        acronym = str(self.meta.get("acronym", "") or "")
+        lbl_acr = QLabel(acronym)
+        lbl_acr.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
+        lbl_acr.setToolTip(get_spec_tooltip(spec_number))
+        hdr.addWidget(lbl_acr, stretch=1)
+
+        badge = QLabel(str(len(self.versions)))
+        badge.setStyleSheet(f"""
+            background-color: {C.BG_CANVAS};
+            color: {C.TEXT_SECONDARY};
+            border: 1px solid {C.BORDER_SUBTLE};
+            border-radius: 8px;
+            padding: 1px 6px;
+            font-size: 10px;
+            font-weight: bold;
+        """)
+        hdr.addWidget(badge)
+
+        self.btn_opt = QToolButton()
+        self.btn_opt.setText("⋮")
+        self.btn_opt.setCursor(Qt.PointingHandCursor)
+        self.btn_opt.setToolTip(f"Actions for TS {spec_number}")
+        self.btn_opt.setStyleSheet(f"""
+            QToolButton {{
+                border: none;
+                background: transparent;
+                color: {C.TEXT_MUTED};
+                font-weight: bold;
+                font-size: 12px;
+                padding: 0px 3px;
+            }}
+            QToolButton:hover {{
+                color: {C.TEXT_PRIMARY};
+                background-color: {C.BG_CANVAS};
+                border-radius: 3px;
+            }}
+        """)
+        self.btn_opt.clicked.connect(self._show_options_menu)
+        hdr.addWidget(self.btn_opt)
+
+        layout.addLayout(hdr)
+
+        # Flow Layout of Release Pills (explicit .QWidget scope prevents cascading into children)
+        pills_container = QWidget()
+        pills_container.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        flow = FlowLayout(pills_container, margin=0, h_spacing=4, v_spacing=4)
+
+        for v in self.versions:
+            pill = NASReleasePillWidget(v, self.meta, self)
+            pill.toggled.connect(self._on_pill_toggled)
+            pill.open_word_requested.connect(
+                lambda sp, vr: self.open_spec_requested.emit(sp, vr, "", "word")
+            )
+            pill.setContextMenuPolicy(Qt.CustomContextMenu)
+            pill.customContextMenuRequested.connect(lambda pos, p=pill: self._show_pill_menu(p, pos))
+            self.pills.append(pill)
+            flow.addWidget(pill)
+
+        layout.addWidget(pills_container)
+
+    def _show_options_menu(self):
+        latest_v = self.versions[0]["version"] if self.versions else ""
+        menu = QMenu(self)
+        act_word = QAction(f"📝 Open Latest TS {self.spec_number} (v{latest_v}) in Word", self)
+        act_word.triggered.connect(lambda: self.open_spec_requested.emit(self.spec_number, latest_v, "", "word"))
+        menu.addAction(act_word)
+
+        act_folder = QAction("📂 Open Local Folder in Explorer", self)
+        act_folder.triggered.connect(lambda: self.open_spec_requested.emit(self.spec_number, latest_v, "", "folder"))
+        menu.addAction(act_folder)
+        menu.addSeparator()
+
+        act_reload = QAction(f"🔄 Reload all versions of TS {self.spec_number} ({len(self.versions)} versions)", self)
+        act_reload.triggered.connect(lambda: self.reload_spec_requested.emit(self.spec_number, len(self.versions)))
+        menu.addAction(act_reload)
+        menu.addSeparator()
+
+        act_sel_all = QAction("Select All Releases", self)
+        act_sel_all.triggered.connect(self.select_all)
+        menu.addAction(act_sel_all)
+
+        act_desel = QAction("Deselect All Releases", self)
+        act_desel.triggered.connect(self.deselect_all)
+        menu.addAction(act_desel)
+        menu.addSeparator()
+
+        act_specs = QAction(f"📚 Show TS {self.spec_number} in Specifications Tab", self)
+        act_specs.triggered.connect(lambda: self.show_in_specs_requested.emit(self.spec_number, latest_v))
+        menu.addAction(act_specs)
+
+        act_search = QAction(f"🔎 Search TS {self.spec_number} in Spec Search Tab", self)
+        act_search.triggered.connect(lambda: self.search_in_spec_search_requested.emit(self.spec_number, latest_v))
+        menu.addAction(act_search)
+        menu.addSeparator()
+
+        act_del = QAction(f"🗑️ Delete all versions of TS {self.spec_number} ({len(self.versions)} versions)", self)
+        act_del.triggered.connect(lambda: self.delete_spec_requested.emit(self.spec_number, len(self.versions)))
+        menu.addAction(act_del)
+        menu.exec_(QCursor.pos())
+
+    def _show_pill_menu(self, pill: NASReleasePillWidget, pos: QPoint):
+        menu = QMenu(self)
+        act_word = QAction(f"📝 Open TS {pill.spec_number} v{pill.version} (Word)", self)
+        act_word.triggered.connect(lambda: self.open_spec_requested.emit(pill.spec_number, pill.version, "", "word"))
+        menu.addAction(act_word)
+
+        act_pdf = QAction(f"📕 Open TS {pill.spec_number} v{pill.version} (PDF)", self)
+        act_pdf.triggered.connect(lambda: self.open_spec_requested.emit(pill.spec_number, pill.version, "", "pdf"))
+        menu.addAction(act_pdf)
+
+        act_folder = QAction("📂 Open Containing Folder in Explorer", self)
+        act_folder.triggered.connect(lambda: self.open_spec_requested.emit(pill.spec_number, pill.version, "", "folder"))
+        menu.addAction(act_folder)
+        menu.addSeparator()
+
+        act_reload = QAction(f"🔄 Reload TS {pill.spec_number} v{pill.version}", self)
+        act_reload.triggered.connect(lambda: self.reload_version_requested.emit(pill.spec_number, pill.version))
+        menu.addAction(act_reload)
+        menu.addSeparator()
+
+        act_specs = QAction(f"📚 Show TS {pill.spec_number} v{pill.version} in Specifications Tab", self)
+        act_specs.triggered.connect(lambda: self.show_in_specs_requested.emit(pill.spec_number, pill.version))
+        menu.addAction(act_specs)
+
+        act_search = QAction(f"🔎 Search TS {pill.spec_number} in Spec Search Tab", self)
+        act_search.triggered.connect(lambda: self.search_in_spec_search_requested.emit(pill.spec_number, pill.version))
+        menu.addAction(act_search)
+        menu.addSeparator()
+
+        act_del = QAction(f"🗑️ Delete TS {pill.spec_number} v{pill.version}", self)
+        act_del.triggered.connect(lambda: self.delete_version_requested.emit(pill.spec_number, pill.version))
+        menu.addAction(act_del)
+        menu.exec_(pill.mapToGlobal(pos))
+
+    def _on_header_checkbox_clicked(self):
+        if self._updating_checks:
+            return
+        all_checked = all(p.isChecked() for p in self.pills)
+        new_state = not all_checked
+        self._updating_checks = True
+        for p in self.pills:
+            p.setChecked(new_state)
+        self._updating_checks = False
+        self._update_header_state()
+        self.selection_changed.emit()
+
+    def _on_pill_toggled(self):
+        if self._updating_checks:
+            return
+        self._update_header_state()
+        self.selection_changed.emit()
+
+    def _update_header_state(self):
+        self._updating_checks = True
+        checked_count = sum(1 for p in self.pills if p.isChecked())
+        if self.pills and checked_count == len(self.pills):
+            self.chk_all.setCheckState(Qt.Checked)
+        elif checked_count == 0:
+            self.chk_all.setCheckState(Qt.Unchecked)
+        else:
+            self.chk_all.setCheckState(Qt.PartiallyChecked)
+        self._updating_checks = False
+
+    def select_all(self):
+        self._updating_checks = True
+        for p in self.pills:
+            p.setChecked(True)
+        self._updating_checks = False
+        self._update_header_state()
+        self.selection_changed.emit()
+
+    def deselect_all(self):
+        self._updating_checks = True
+        for p in self.pills:
+            p.setChecked(False)
+        self._updating_checks = False
+        self._update_header_state()
+        self.selection_changed.emit()
+
+
+class _NASCardCompatChild:
+    def __init__(self, pill: NASReleasePillWidget):
+        self.pill = pill
+
+    def text(self, col: int = 0) -> str:
+        rel = _extract_major_release(self.pill.version)
+        return f"{rel} · v{self.pill.version}"
+
+    def checkState(self, col: int = 0) -> Qt.CheckState:
+        return Qt.Checked if self.pill.isChecked() else Qt.Unchecked
+
+
+class _NASCardCompatSpec:
+    def __init__(self, card: NASSpecCardWidget):
+        self.card = card
+
+    def text(self, col: int = 0) -> str:
+        wg = self.card.meta.get("wg", "3GPP")
+        acr = self.card.meta.get("acronym", "")
+        return f"[{wg}] TS {self.card.spec_number} — {acr}".strip()
+
+    def childCount(self) -> int:
+        return len(self.card.pills)
+
+    def child(self, idx: int) -> _NASCardCompatChild:
+        return _NASCardCompatChild(self.card.pills[idx])
+
+
+class NASVersionCardsWidget(QScrollArea):
+    """
+    Modern Spec-Search-aligned release pills selector for Protocols (`NASTab`).
+    Replaces the deep vertical tree with compact specification cards and wrapping release pills.
+    """
+
+    selection_changed = pyqtSignal()
+    reload_version_requested = pyqtSignal(str, str)
+    reload_spec_requested = pyqtSignal(str, int)
+    delete_version_requested = pyqtSignal(str, str)
+    delete_spec_requested = pyqtSignal(str, int)
+    structure_changed = pyqtSignal()
+    open_spec_requested = pyqtSignal(str, str, str, str)
+    show_in_specs_requested = pyqtSignal(str, str)
+    search_in_spec_search_requested = pyqtSignal(str, str)
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._updating_checks: bool = False
+        self._cards: Dict[str, NASSpecCardWidget] = {}
+
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setStyleSheet(f"""
+            QScrollArea {{
+                border: 1px solid {C.BORDER_STRONG};
+                border-radius: 4px;
+                background-color: {C.BG_SURFACE};
+            }}
+        """)
+
+        self.container = QWidget()
+        self.container.setObjectName("nasCardsContainer")
+        self.container.setStyleSheet(
+            f"QWidget#nasCardsContainer {{ background-color: {C.BG_SURFACE}; }}"
+        )
+        self.cards_layout = QVBoxLayout(self.container)
+        self.cards_layout.setContentsMargins(4, 4, 4, 4)
+        self.cards_layout.setSpacing(6)
+        self.cards_layout.addStretch()
+        self.setWidget(self.container)
+
+    def populate(
+        self,
+        versions: List[Dict[str, Any]],
+        saved_checked: Optional[List[Dict[str, Any]]] = None,
+        saved_collapsed: Optional[Set[str]] = None,
+    ):
+        self._updating_checks = True
+        self.clear()
+        if not versions:
+            self._updating_checks = False
+            self.selection_changed.emit()
+            return
+
+        saved_tuples: Optional[Set[Tuple[str, str]]] = None
+        if saved_checked is not None:
+            saved_tuples = {(item.get("spec_number"), item.get("version")) for item in saved_checked if item}
+
+        specs_map: Dict[str, List[Dict[str, Any]]] = {}
+        for v in versions:
+            specs_map.setdefault(v["spec_number"], []).append(v)
+
+        # Remove trailing stretch before adding cards
+        count = self.cards_layout.count()
+        if count > 0 and self.cards_layout.itemAt(count - 1).spacerItem():
+            self.cards_layout.removeItem(self.cards_layout.itemAt(count - 1))
+
+        for spec_num in sorted(specs_map.keys()):
+            card = NASSpecCardWidget(spec_num, specs_map[spec_num], self.container)
+            card.selection_changed.connect(self._on_card_selection_changed)
+            card.reload_version_requested.connect(self.reload_version_requested.emit)
+            card.reload_spec_requested.connect(self.reload_spec_requested.emit)
+            card.delete_version_requested.connect(self.delete_version_requested.emit)
+            card.delete_spec_requested.connect(self.delete_spec_requested.emit)
+            card.open_spec_requested.connect(self.open_spec_requested.emit)
+            card.show_in_specs_requested.connect(self.show_in_specs_requested.emit)
+            card.search_in_spec_search_requested.connect(self.search_in_spec_search_requested.emit)
+
+            card._updating_checks = True
+            for pill in card.pills:
+                if saved_tuples is not None:
+                    is_chk = (str(spec_num), str(pill.version)) in saved_tuples
+                else:
+                    is_chk = True
+                pill.setChecked(is_chk)
+            card._updating_checks = False
+            card._update_header_state()
+
+            self._cards[spec_num] = card
+            self.cards_layout.addWidget(card)
+
+        self.cards_layout.addStretch()
+        self._updating_checks = False
+        self.selection_changed.emit()
+
+    def clear(self):
+        while self.cards_layout.count():
+            item = self.cards_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        self._cards.clear()
+        self.cards_layout.addStretch()
+
+    def _on_card_selection_changed(self):
+        if self._updating_checks:
+            return
+        self.selection_changed.emit()
+        self.structure_changed.emit()
+
+    def filter_tree(self, query: str):
+        q = str(query or "").strip().lower()
+        if not q:
+            for card in self._cards.values():
+                card.setVisible(True)
+            return
+        for spec_num, card in self._cards.items():
+            hay = " ".join([
+                spec_num,
+                str(card.meta.get("wg", "")),
+                str(card.meta.get("acronym", "")),
+                str(card.meta.get("title", "")),
+                " ".join(p.text() for p in card.pills),
+            ]).lower()
+            card.setVisible(all(tok in hay for tok in q.split()))
+
+    def select_all(self):
+        self._updating_checks = True
+        for card in self._cards.values():
+            card._updating_checks = True
+            for p in card.pills:
+                p.setChecked(True)
+            card._updating_checks = False
+            card._update_header_state()
+        self._updating_checks = False
+        self.selection_changed.emit()
+        self.structure_changed.emit()
+
+    def deselect_all(self):
+        self._updating_checks = True
+        for card in self._cards.values():
+            card._updating_checks = True
+            for p in card.pills:
+                p.setChecked(False)
+            card._updating_checks = False
+            card._update_header_state()
+        self._updating_checks = False
+        self.selection_changed.emit()
+        self.structure_changed.emit()
+
+    def select_none(self):
+        self.deselect_all()
+
+    def select_latest_only(self):
+        """Selects only the single newest version for each indexed protocol specification."""
+        self._updating_checks = True
+        for card in self._cards.values():
+            card._updating_checks = True
+            for idx, p in enumerate(card.pills):
+                p.setChecked(idx == 0)
+            card._updating_checks = False
+            card._update_header_state()
+        self._updating_checks = False
+        self.selection_changed.emit()
+        self.structure_changed.emit()
+
+    def select_latest_per_release(self):
+        """Selects the newest version of each major Release per specification for evolution diffs."""
+        self._updating_checks = True
+        for card in self._cards.values():
+            card._updating_checks = True
+            seen = set()
+            for p in card.pills:
+                rel = _extract_major_release(p.version)
+                if rel not in seen:
+                    seen.add(rel)
+                    p.setChecked(True)
+                else:
+                    p.setChecked(False)
+            card._updating_checks = False
+            card._update_header_state()
+        self._updating_checks = False
+        self.selection_changed.emit()
+        self.structure_changed.emit()
+
+    def select_releases_min(self, min_rel_num: int):
+        """Selects only releases with major release >= min_rel_num (e.g. Rel-18+)."""
+        self._updating_checks = True
+        for card in self._cards.values():
+            card._updating_checks = True
+            for p in card.pills:
+                rel = _extract_major_release(p.version)
+                m = re.search(r"\d+", rel)
+                p.setChecked(bool(m and int(m.group()) >= min_rel_num))
+            card._updating_checks = False
+            card._update_header_state()
+        self._updating_checks = False
+        self.selection_changed.emit()
+        self.structure_changed.emit()
+
+    def get_selected_version_ids(self) -> List[int]:
+        ids: List[int] = []
+        for card in self._cards.values():
+            for p in card.pills:
+                if p.isChecked() and p.version_id is not None:
+                    ids.append(p.version_id)
+        return ids
+
+    def get_checked_versions_info(self) -> List[Dict[str, Any]]:
+        checked: List[Dict[str, Any]] = []
+        for spec_num in sorted(self._cards.keys()):
+            card = self._cards[spec_num]
+            for p in card.pills:
+                if p.isChecked():
+                    checked.append({"spec_number": spec_num, "version": p.version})
+        return checked
+
+    def get_all_versions_for_spec(self, spec_number: str) -> List[Dict[str, Any]]:
+        card = self._cards.get(spec_number)
+        if not card:
+            return []
+        return [{"spec_number": card.spec_number, "version": p.version} for p in card.pills]
+
+    def get_collapsed_spec_numbers(self) -> List[str]:
+        return []
+
+    def topLevelItemCount(self) -> int:
+        return 1 + len(self._cards)
+
+    def topLevelItem(self, idx: int):
+        keys = sorted(self._cards.keys())
+        card_idx = idx - 1
+        if 0 <= card_idx < len(keys):
+            return _NASCardCompatSpec(self._cards[keys[card_idx]])
+        return None
+
+
 RE_NAS_CROSS_REF = re.compile(
     r"(?:see\s+)?(?:subclause|clause|sub-clause)\s+([0-9A-Za-z\.]+)\s+in\s+(?:3GPP\s+)?TS\s+(24\.(?:301|501|526|588|555|578|514))",
     re.IGNORECASE,
@@ -620,8 +1238,9 @@ class NASInspectorWidget(QFrame):
 
         # 1. Header Toolbar
         header_frame = QFrame()
+        header_frame.setObjectName("inspHeaderFrame")
         header_frame.setStyleSheet(f"""
-            QFrame {{
+            QFrame#inspHeaderFrame {{
                 background-color: {C.BG_SURFACE};
                 border-bottom: 1px solid {C.BORDER_SUBTLE};
                 border-top-left-radius: 6px;
@@ -638,6 +1257,8 @@ class NASInspectorWidget(QFrame):
         insp_header.addWidget(card_title)
 
         self.title_lbl = QLabel("No Selection")
+        self.title_lbl.setMaximumWidth(scale_px(300))
+        self.title_lbl.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.title_lbl.setStyleSheet(f"""
             font-weight: bold;
             color: {C.ACCENT_SKY};
@@ -674,16 +1295,19 @@ class NASInspectorWidget(QFrame):
         insp_header.addWidget(self.usage_btn)
 
         self.version_combo = QComboBox()
+        self.version_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.version_combo.setMinimumWidth(scale_px(150))
         self.version_combo.setToolTip("Switch specification release for this definition")
         self.version_combo.setStyleSheet(f"""
             QComboBox {{
+                combobox-popup: 0;
                 font-weight: bold;
                 font-size: 11px;
                 padding: 2px 8px;
                 border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 background-color: {C.BG_CARD};
-                min-width: 120px;
+                min-width: 145px;
             }}
             QComboBox:hover {{
                 border-color: {C.ACCENT_SKY};
@@ -990,7 +1614,12 @@ class NASInspectorWidget(QFrame):
 
         if defs:
             resolved_name = defs[0]["ie_name"]
-            self.title_lbl.setText(f"{resolved_name}{acronym_str}")
+            full_badge = f"{resolved_name}{acronym_str}"
+            elided_badge = self.title_lbl.fontMetrics().elidedText(
+                full_badge, Qt.ElideRight, max(140, self.title_lbl.maximumWidth() - 18)
+            )
+            self.title_lbl.setText(elided_badge)
+            self.title_lbl.setToolTip(full_badge)
             self._current_clause_defs = {f"{d['spec_number']} v{d['version']}": d for d in defs}
 
             if containing_msgs:

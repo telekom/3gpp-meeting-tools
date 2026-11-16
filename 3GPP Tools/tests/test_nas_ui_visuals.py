@@ -15,6 +15,7 @@ from modules.nas.ui.nas_models import NASEvolutionMatrixModel
 from modules.nas.ui.nas_components import (
     NASInspectorWidget,
     NASMessageItemDelegate,
+    NASVersionCardsWidget,
     NASVersionTreeWidget,
 )
 
@@ -295,6 +296,107 @@ class TestNASUiVisuals(unittest.TestCase):
             self.assertIn("NG-C interface instance", tab.msg_description_lbl.text())
             self.assertEqual(tab.inspector.stack.currentIndex(), 1)
             self.assertIn("AMFConfigurationUpdate", tab.inspector.title_lbl.text())
+
+    def test_version_cards_widget_pills_filtering_and_quick_selectors(self):
+        """Verifies NASVersionCardsWidget cards, release pills, filtering, and quick-selection chips."""
+        cards = NASVersionCardsWidget()
+        versions = [
+            {"id": 1, "spec_number": "24.501", "version": "20.0.0"},
+            {"id": 2, "spec_number": "24.501", "version": "19.7.0"},
+            {"id": 3, "spec_number": "24.501", "version": "19.6.0"},
+            {"id": 4, "spec_number": "38.413", "version": "17.9.0"},
+        ]
+        cards.populate(versions)
+        self.assertEqual(len(cards._cards), 2)
+        self.assertEqual(cards.topLevelItemCount(), 3)
+
+        # Latest/Rel selects newest version per major release (20.0.0 + 19.7.0 + 17.9.0)
+        cards.select_latest_per_release()
+        self.assertEqual(set(cards.get_selected_version_ids()), {1, 2, 4})
+
+        # Latest Only selects newest single version per spec (20.0.0 + 17.9.0)
+        cards.select_latest_only()
+        self.assertEqual(set(cards.get_selected_version_ids()), {1, 4})
+
+        # Rel-18+ selects only Rel-18/19/20 (ids 1, 2, 3; excludes Rel-17 id 4)
+        cards.select_releases_min(18)
+        self.assertEqual(set(cards.get_selected_version_ids()), {1, 2, 3})
+
+        # Select All / None
+        cards.select_none()
+        self.assertEqual(cards.get_selected_version_ids(), [])
+        cards.select_all()
+        self.assertEqual(len(cards.get_selected_version_ids()), 4)
+
+        # Quick text filter by acronym / spec number (show() needed so isHidden/isVisible reflects state)
+        cards.show()
+        cards.filter_tree("NGAP")
+        self.assertTrue(cards._cards["24.501"].isHidden())
+        self.assertFalse(cards._cards["38.413"].isHidden())
+        cards.filter_tree("")
+        self.assertFalse(cards._cards["24.501"].isHidden())
+        cards.close()
+
+    def test_two_line_message_delegate_and_diff_filter_pills(self):
+        """Verifies 2-line NASMessageItemDelegate sizing and interactive diff filter pills."""
+        import tempfile
+        from PyQt5.QtWidgets import QStyleOptionViewItem
+        from modules.nas.core.nas_db import NASDatabase
+        from modules.nas.ui.nas_tabs import NASTab
+
+        delegate = NASMessageItemDelegate()
+        hint = delegate.sizeHint(QStyleOptionViewItem(), None)
+        self.assertGreaterEqual(hint.height(), 42)
+
+        df = pd.DataFrame([
+            {
+                "iei": "1", "ie_name": "SharedField", "type_reference": "9.1",
+                "presence": "M", "format": "V", "length": "1",
+                "spec_number": "24.501", "version": "19.7.0", "order_index": 1,
+            },
+            {
+                "iei": "1", "ie_name": "SharedField", "type_reference": "9.1",
+                "presence": "M", "format": "V", "length": "1",
+                "spec_number": "24.501", "version": "20.0.0", "order_index": 1,
+            },
+            {
+                "iei": "2", "ie_name": "AddedField", "type_reference": "9.2",
+                "presence": "O", "format": "TV", "length": "2",
+                "spec_number": "24.501", "version": "20.0.0", "order_index": 2,
+            },
+            {
+                "iei": "3", "ie_name": "ModifiedField", "type_reference": "9.3",
+                "presence": "O", "format": "TLV", "length": "2-4",
+                "spec_number": "24.501", "version": "19.7.0", "order_index": 3,
+            },
+            {
+                "iei": "3", "ie_name": "ModifiedField", "type_reference": "9.3",
+                "presence": "O", "format": "TLV", "length": "2-8",
+                "spec_number": "24.501", "version": "20.0.0", "order_index": 3,
+            },
+        ])
+        full_model = NASEvolutionMatrixModel(df)
+        self.assertEqual(full_model.rowCount(), 3)
+        self.assertEqual(full_model.diff_counts, {"added": 1, "modified": 1, "removed": 0})
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tab = NASTab(nas_db_path=Path(tmpdir) / "nas_diff_ui.db")
+            self.assertIsInstance(tab.version_tree, NASVersionCardsWidget)
+            self.assertTrue(tab.ribbon_card.isHidden())
+            tab._current_matrix_df = df
+            tab._rebuild_matrix_model()
+            self.assertEqual(tab.matrix_table.model().rowCount(), 3)
+            self.assertIn("(1)", tab.btn_diff_added.text())
+            self.assertIn("(1)", tab.btn_diff_modified.text())
+
+            tab.btn_diff_added.setChecked(True)
+            self.assertEqual(tab.matrix_table.model().rowCount(), 1)
+            tab.btn_diff_modified.setChecked(True)
+            self.assertEqual(tab.matrix_table.model().rowCount(), 2)
+            tab.btn_diff_added.setChecked(False)
+            tab.btn_diff_modified.setChecked(False)
+            self.assertEqual(tab.matrix_table.model().rowCount(), 3)
+            tab.close()
 
 
 if __name__ == "__main__":
