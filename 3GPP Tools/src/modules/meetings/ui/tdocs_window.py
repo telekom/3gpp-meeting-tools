@@ -389,9 +389,12 @@ class TDocsWindow(QWidget):
         ))
         self.stats_btn.clicked.connect(self._generate_statistics)
 
-        self.stats_cfg_btn = QPushButton("⚙️")
-        self.stats_cfg_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.stats_cfg_btn.setFixedWidth(34)
+        self.stats_cfg_btn = QPushButton("⚙")
+        self.stats_cfg_btn.setStyleSheet(
+            BUTTON_STYLE_TOOLBAR_SECONDARY
+            + "\nQPushButton { padding: 4px 8px; font-size: 13px; }"
+        )
+        self.stats_cfg_btn.setMinimumWidth(scale_px(34))
         self.stats_cfg_btn.setToolTip(make_rich_tooltip(
             title="⚙️ Configure Statistics",
             description="Customize company alias unification, contribution categorization, and output charts."
@@ -437,7 +440,7 @@ class TDocsWindow(QWidget):
         self.email_btn.setMenu(email_menu)
 
         self.count_lbl = QLabel(f"Showing {count} of {count} TDocs")
-        self.count_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_MUTED};")
+        self.count_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {C.TEXT_SECONDARY};")
 
         self.instant_fetch_input = QLineEdit()
         self.instant_fetch_input.setPlaceholderText("Instant Fetch...")
@@ -467,19 +470,17 @@ class TDocsWindow(QWidget):
         identity_group = QWidget(header_container)
         identity_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         id_layout = QHBoxLayout(identity_group)
-        id_layout.setContentsMargins(0, 0, 4, 0)
+        id_layout.setContentsMargins(0, 0, 2, 0)
         id_layout.setSpacing(6)
         id_layout.addWidget(title_lbl)
         id_layout.addWidget(self.routing_indicator)
         id_layout.addWidget(self.venue_clock_btn)
-        id_layout.addWidget(self.last_mod_lbl)
-        id_layout.addWidget(self.count_lbl)
         header_layout.addWidget(identity_group)
 
         instant_group = QWidget(header_container)
         instant_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         inst_layout = QHBoxLayout(instant_group)
-        inst_layout.setContentsMargins(0, 0, 4, 0)
+        inst_layout.setContentsMargins(0, 0, 2, 0)
         inst_layout.setSpacing(4)
         inst_layout.addWidget(QLabel("🚀"))
         inst_layout.addWidget(self.instant_fetch_input)
@@ -501,7 +502,7 @@ class TDocsWindow(QWidget):
         stats_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         stats_layout = QHBoxLayout(stats_group)
         stats_layout.setContentsMargins(0, 0, 0, 0)
-        stats_layout.setSpacing(4)
+        stats_layout.setSpacing(2)
         stats_layout.addWidget(self.stats_btn)
         stats_layout.addWidget(self.stats_cfg_btn)
         header_layout.addWidget(stats_group)
@@ -681,15 +682,15 @@ class TDocsWindow(QWidget):
                 font-weight: bold;
             }}
         """)
-        filter_layout = FlowLayout(filter_frame, margin=0, h_spacing=6, v_spacing=5)
-        filter_layout.setContentsMargins(8, 5, 8, 5)
+        filter_layout = FlowLayout(filter_frame, margin=0, h_spacing=5, v_spacing=4)
+        filter_layout.setContentsMargins(6, 4, 6, 4)
         self._filter_frame = filter_frame
 
         search_group = QWidget(filter_frame)
         search_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         search_layout = QHBoxLayout(search_group)
         search_layout.setContentsMargins(0, 0, 0, 0)
-        search_layout.setSpacing(6)
+        search_layout.setSpacing(5)
 
         search_lbl = QLabel("🔍")
         search_lbl.setToolTip("Full-text search across TDoc number, title, source, remarks, and related metadata.")
@@ -704,14 +705,15 @@ class TDocsWindow(QWidget):
             '• Substrings & numbers: S2-260855, TS 23.501'
         )
         self.search_input.setClearButtonEnabled(True)
-        self.search_input.setMinimumWidth(scale_px(225))
+        self.search_input.setMinimumWidth(scale_px(180))
+        self.search_input.setMaximumWidth(scale_px(240))
         self.search_input.textChanged.connect(lambda _: self.search_timer.start())
         search_layout.addWidget(self.search_input, stretch=1)
 
         self.btn_followed_wis = QPushButton("🎯")
         self.btn_followed_wis.setCheckable(True)
         self.btn_followed_wis.setCursor(Qt.PointingHandCursor)
-        self.btn_followed_wis.setFixedSize(scale_px(30), scale_px(28))
+        self.btn_followed_wis.setFixedSize(scale_px(28), scale_px(28))
         self.btn_followed_wis.setContextMenuPolicy(Qt.CustomContextMenu)
         self.btn_followed_wis.customContextMenuRequested.connect(self._show_tracked_wi_context_menu)
         self.btn_followed_wis.setToolTip(make_rich_tooltip(
@@ -725,7 +727,7 @@ class TDocsWindow(QWidget):
         self.btn_starred_wis = QPushButton("⭐")
         self.btn_starred_wis.setCheckable(True)
         self.btn_starred_wis.setCursor(Qt.PointingHandCursor)
-        self.btn_starred_wis.setFixedSize(scale_px(30), scale_px(28))
+        self.btn_starred_wis.setFixedSize(scale_px(28), scale_px(28))
         self.btn_starred_wis.setContextMenuPolicy(Qt.CustomContextMenu)
         self.btn_starred_wis.customContextMenuRequested.connect(self._show_tracked_wi_context_menu)
         self.btn_starred_wis.setToolTip(make_rich_tooltip(
@@ -739,7 +741,7 @@ class TDocsWindow(QWidget):
         self.btn_agreements_filter = QPushButton("⚖️")
         self.btn_agreements_filter.setCheckable(True)
         self.btn_agreements_filter.setCursor(Qt.PointingHandCursor)
-        self.btn_agreements_filter.setFixedSize(scale_px(30), scale_px(28))
+        self.btn_agreements_filter.setFixedSize(scale_px(28), scale_px(28))
         self.btn_agreements_filter.setToolTip(make_rich_tooltip(
             title="⚖️ Chairman's Notes Agreements Filter (RAN)",
             description="Filter table to only TDocs with Chairman's Notes text agreements or working assumptions.",
@@ -755,7 +757,7 @@ class TDocsWindow(QWidget):
         filter_layout.addWidget(search_group)
 
         self.company_combo = CheckableComboBox("Company")
-        self.company_combo.setMaximumWidth(scale_px(200))
+        self.company_combo.setMaximumWidth(scale_px(165))
         self.company_combo.setContextMenuPolicy(Qt.CustomContextMenu)
         self.company_combo.customContextMenuRequested.connect(self._show_company_filter_context_menu)
         self.company_combo.setToolTip(
@@ -766,38 +768,38 @@ class TDocsWindow(QWidget):
         filter_layout.addWidget(self.company_combo)
 
         self.type_combo = CheckableComboBox("Type")
-        self.type_combo.setMaximumWidth(scale_px(150))
+        self.type_combo.setMaximumWidth(scale_px(125))
         self.type_combo.setToolTip('Filter by TDoc type. Grey entries currently have no intersection with the other active filters but remain selectable.')
         self.type_combo.selectionChanged.connect(self._on_type_changed)
         filter_layout.addWidget(self.type_combo)
 
         self.ai_combo = CheckableComboBox("AI")
-        self.ai_combo.setMaximumWidth(scale_px(150))
+        self.ai_combo.setMaximumWidth(scale_px(130))
         self.ai_combo.setToolTip('Filter by Agenda Item. When agenda.csv is available, associated acronyms are shown in parentheses.')
         self.ai_combo.selectionChanged.connect(self._on_ai_changed)
         filter_layout.addWidget(self.ai_combo)
 
         self.sub_item_combo = CheckableComboBox("Sub-Item")
-        self.sub_item_combo.setMaximumWidth(scale_px(175))
+        self.sub_item_combo.setMaximumWidth(scale_px(150))
         self.sub_item_combo.setToolTip('Filter by Agenda Sub-Item / topic separator from TdocsByAgenda.htm or Chairman notes.')
         self.sub_item_combo.selectionChanged.connect(self._on_sub_item_changed)
         self.sub_item_combo.setVisible(False)
         filter_layout.addWidget(self.sub_item_combo)
 
         self.wi_combo = CheckableComboBox("WI")
-        self.wi_combo.setMaximumWidth(scale_px(160))
+        self.wi_combo.setMaximumWidth(scale_px(135))
         self.wi_combo.setToolTip('Filter by the Related WIs metadata from the official TDoc list. Grey entries currently have no intersection with the other active filters.')
         self.wi_combo.selectionChanged.connect(self._on_wi_changed)
         filter_layout.addWidget(self.wi_combo)
 
         self.status_combo = CheckableComboBox("TDoc Status")
-        self.status_combo.setMaximumWidth(scale_px(185))
+        self.status_combo.setMaximumWidth(scale_px(155))
         self.status_combo.setToolTip('Filter by the meeting/secretary TDoc status.')
         self.status_combo.selectionChanged.connect(self._on_status_changed)
         filter_layout.addWidget(self.status_combo)
 
         self.my_status_combo = CheckableComboBox("My Status")
-        self.my_status_combo.setMaximumWidth(scale_px(175))
+        self.my_status_combo.setMaximumWidth(scale_px(145))
         self.my_status_combo.setToolTip('Filter by your personal TDoc status.')
         self.my_status_combo.selectionChanged.connect(self._on_my_status_changed)
         filter_layout.addWidget(self.my_status_combo)
@@ -806,7 +808,7 @@ class TDocsWindow(QWidget):
         tail_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         tail_layout = QHBoxLayout(tail_group)
         tail_layout.setContentsMargins(0, 0, 0, 0)
-        tail_layout.setSpacing(6)
+        tail_layout.setSpacing(5)
 
         if self.is_sa2:
             self.chk_no_comments = QCheckBox("No Comments")
@@ -820,7 +822,7 @@ class TDocsWindow(QWidget):
 
         self.order_combo = QComboBox()
         self.order_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-        self.order_combo.setMaximumWidth(scale_px(195))
+        self.order_combo.setMaximumWidth(scale_px(165))
         self.order_combo.setToolTip(
             "Change the display ordering of TDocs.\n"
             "• 📋 Agenda Order: Sort by Agenda Item and Sub-Item discussion order (superseded by TdocsByAgenda.htm).\n"
@@ -946,6 +948,19 @@ class TDocsWindow(QWidget):
         bottom_bar = QHBoxLayout()
         bottom_bar.setContentsMargins(2, 2, 2, 0)
         bottom_bar.setSpacing(8)
+
+        self._footer_status_widget = QWidget(self)
+        self._footer_status_widget.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        footer_status_layout = QHBoxLayout(self._footer_status_widget)
+        footer_status_layout.setContentsMargins(0, 0, 0, 0)
+        footer_status_layout.setSpacing(8)
+        footer_status_layout.addWidget(self.count_lbl)
+        sep_dot = QLabel("·")
+        sep_dot.setStyleSheet(f"color: {C.TEXT_FAINT}; font-weight: bold;")
+        footer_status_layout.addWidget(sep_dot)
+        footer_status_layout.addWidget(self.last_mod_lbl)
+        bottom_bar.addWidget(self._footer_status_widget)
+
         bottom_bar.addStretch()
 
         self.cart_frame = ComparisonCartWidget(self)
@@ -1061,18 +1076,20 @@ class TDocsWindow(QWidget):
         """Update filter dropdown caps, toolbar buttons, column widths, and row heights on font scale changes."""
         self.instant_fetch_input.setMinimumWidth(scale_px(120))
         self.instant_fetch_input.setMaximumWidth(scale_px(160))
-        self.search_input.setMinimumWidth(scale_px(225))
+        self.stats_cfg_btn.setMinimumWidth(scale_px(34))
+        self.search_input.setMinimumWidth(scale_px(180))
+        self.search_input.setMaximumWidth(scale_px(240))
         for btn in (self.btn_followed_wis, self.btn_starred_wis, self.btn_agreements_filter):
-            btn.setFixedSize(scale_px(30), scale_px(28))
+            btn.setFixedSize(scale_px(28), scale_px(28))
         caps = (
-            (self.company_combo, 200),
-            (self.type_combo, 150),
-            (self.ai_combo, 150),
-            (self.sub_item_combo, 175),
-            (self.wi_combo, 160),
-            (self.status_combo, 185),
-            (self.my_status_combo, 175),
-            (self.order_combo, 195),
+            (self.company_combo, 165),
+            (self.type_combo, 125),
+            (self.ai_combo, 130),
+            (self.sub_item_combo, 150),
+            (self.wi_combo, 135),
+            (self.status_combo, 155),
+            (self.my_status_combo, 145),
+            (self.order_combo, 165),
         )
         for combo, base_max in caps:
             combo.setMaximumWidth(scale_px(base_max))

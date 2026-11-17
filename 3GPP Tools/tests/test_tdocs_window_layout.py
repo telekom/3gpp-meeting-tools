@@ -125,11 +125,29 @@ class TestTDocsWindowLayoutAndChecklist(unittest.TestCase):
             win.sub_item_combo.setVisible(True)
             self.app.processEvents()
 
+            # Status readouts live in bottom footer bar, freeing top header width
+            self.assertIs(win.count_lbl.parent(), win._footer_status_widget)
+            self.assertIs(win.last_mod_lbl.parent(), win._footer_status_widget)
+            self.assertIsNot(win.count_lbl.parent(), win._header_container)
+
             # Window must fit easily within standard laptop/desktop widths without pushing columns off-screen
             self.assertLessEqual(win.minimumSizeHint().width(), 1050)
 
             win.resize(1920, 1040)
             win.show()
+            self.app.processEvents()
+
+            # Both top header bar and filter bar sit cleanly on 1 single row when maximized at 1920px
+            self.assertLessEqual(win._header_container.height(), scale_px(44))
+            self.assertLessEqual(win._filter_frame.height(), scale_px(52))
+
+            # Narrowing the window wraps both bars cleanly without locking horizontal width
+            win.resize(1024, 768)
+            self.app.processEvents()
+            self.assertGreater(win._header_container.heightForWidth(1000), scale_px(40))
+            self.assertGreater(win._filter_frame.heightForWidth(1000), scale_px(48))
+
+            win.resize(1920, 1040)
             self.app.processEvents()
 
             hdr = win.table.horizontalHeader()

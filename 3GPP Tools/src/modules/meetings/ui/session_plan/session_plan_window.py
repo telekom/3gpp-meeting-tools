@@ -13,8 +13,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from PyQt5.QtCore import QPoint, QSettings, Qt, QTimer
-from PyQt5.QtGui import QColor
+from PyQt5.QtCore import QPoint, QRect, QSettings, QSize, Qt, QTimer
+from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PyQt5.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -40,6 +40,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.flow_layout import FlowLayout
+from core.ui.font_scale import scale_px
 from core.utils.folder_opener import open_folder
 from modules.meetings.core.agenda_manager import AgendaManager
 from modules.meetings.core.session_plan.session_plan_db import SessionPlanDatabase
@@ -101,6 +103,213 @@ class GridRowDescriptor:
     row_type: str                # "stream" or "break"
     display_label: str           # Vertical header string
     time_range: Tuple[str, str]  # ("09:00", "10:30")
+    short_room: str = ""
+    local_time_range: Tuple[str, str] = ("", "")
+    tu_split_label: str = ""
+    is_live_period: bool = False
+
+
+def _format_compact_snapshot_label(snapshot_label: str, imported_at: str) -> str:
+    """Format long snapshot labels concisely for the header combo while preserving revision info."""
+    raw = (snapshot_label or "").strip()
+    ts = (imported_at or "")[:16]
+    m = re.match(r"^([A-Za-z0-9-]+)\s*\((.+)\)$", raw)
+    if m:
+        tdoc = m.group(1).strip()
+        inner = m.group(2).strip()
+        inner = re.sub(r"\.(docx?|docm|zip|htm|html)$", "", inner, flags=re.I).strip()
+        # Strip repeated "<tdoc>_SA2-NNN-Session Plan - " prefix
+        inner = re.sub(rf"^{re.escape(tdoc)}[_\s-]*", "", inner, flags=re.I)
+        inner = re.sub(r"^(?:SA\d+-?\d+[-\s]*)?Session\s*Plan\s*[-\s]*", "", inner, flags=re.I).strip(" -_")
+        short = f"{tdoc} · {inner}" if inner else tdoc
+    else:
+        short = raw or "Snapshot"
+    if len(short) > 36:
+        short = short[:33].rstrip() + "..."
+    return f"{short} ({ts})" if ts else short
+
+
+class SessionPlanVerticalHeader(QHeaderView):
+    """
+    Custom time-first vertical header for the Session Plan Overview Grid.
+
+    Renders the time range and period code (`Q1 · 09:00 – 10:30`) as the bold
+    primary anchor on line 1, with the color-coded stream/room and optional
+    local-time subtitle on line 2, plus a live `NOW` highlight when active.
+    """
+
+    def __init__(self, window: "SessionPlanWindow", parent=None):
+        super().__init__(Qt.Vertical, parent)
+        self._window = window
+        self.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.setSectionsClickable(False)
+
+    def _row_desc(self, logical_index: int) -> Optional[GridRowDescriptor]:
+        rows = getattr(self._window, "grid_rows", None)
+        if rows and 0 <= logical_index < len(rows):
+            return rows[logical_index]
+        return None
+
+    def _fonts(self) -> Tuple[QFont, QFont, QFont]:
+        f_time = QFont(self.font())
+        f_time.setBold(True)
+        f_time.setPixelSize(max(11, scale_px(12)))
+
+        f_sub = QFont(self.font())
+        f_sub.setBold(False)
+        f_sub.setPixelSize(max(9, scale_px(10)))
+
+        f_badge = QFont(self.font())
+        f_badge.setBold(True)
+        f_badge.setPixelSize(max(8, scale_px(9)))
+        return f_time, f_sub, f_badge
+
+    def sectionSizeFromContents(self, logicalIndex: int) -> QSize:
+        r_desc = self._row_desc(logicalIndex)
+        if r_desc is None:
+            return super().sectionSizeFromContents(logicalIndex)
+
+        f_time, f_sub, f_badge = self._fonts()
+        fm_time = QFontMetrics(f_time)
+        fm_sub = QFontMetrics(f_sub)
+        fm_badge = QFontMetrics(f_badge)
+
+        t_start, t_end = r_desc.time_range
+        if r_desc.row_type == "break":
+            title_txt = r_desc.display_label.splitlines()[0]
+            line1_w = fm_time.horizontalAdvance(title_txt) + scale_px(24)
+            line2_txt = f"⏰ {t_start} – {t_end}"
+            if r_desc.local_time_range[0]:
+                line2_txt += f" ({r_desc.local_time_range[0]}–{r_desc.local_time_range[1]})"
+            line2_w = fm_sub.horizontalAdvance(line2_txt) + scale_px(24)
+        else:
+            line1_txt = f"{r_desc.period} · {t_start} – {t_end}"
+            now_extra = fm_badge.horizontalAdvance("NOW") + scale_px(18) if r_desc.is_live_period else 0
+            line1_w = fm_time.horizontalAdvance(line1_txt) + now_extra + scale_px(24)
+            loc_txt = f" ({r_desc.local_time_range[0]}–{r_desc.local_time_range[1]})" if r_desc.local_time_range[0] else ""
+            line2_txt = f"Str {r_desc.stream_number} · {r_desc.short_room}{loc_txt}"
+            line2_w = fm_sub.horizontalAdvance(line2_txt) + scale_px(32)
+
+        w = max(scale_px(184), line1_w, line2_w)
+        h = max(scale_px(44), fm_time.height() + fm_sub.height() + scale_px(14))
+        return QSize(w, h)
+
+    def sizeHint(self) -> QSize:
+        rows = getattr(self._window, "grid_rows", None) or []
+        if not rows:
+            return QSize(scale_px(184), scale_px(44))
+        max_w = scale_px(184)
+        for idx in range(len(rows)):
+            max_w = max(max_w, self.sectionSizeFromContents(idx).width())
+        return QSize(max_w, super().sizeHint().height())
+
+    def paintSection(self, painter: QPainter, rect: QRect, logicalIndex: int):
+        r_desc = self._row_desc(logicalIndex)
+        if r_desc is None or not rect.isValid():
+            super().paintSection(painter, rect, logicalIndex)
+            return
+
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+
+        # Colors by stream / break / live status
+        stream_accents = {
+            1: C.INDIGO_DARK,
+            2: C.EMERALD_DARK,
+            3: C.WARNING,
+        }
+        accent_hex = C.WARNING_AMBER if r_desc.row_type == "break" else stream_accents.get(r_desc.stream_number, C.BORDER_STRONG)
+        if r_desc.is_live_period:
+            bg_hex = C.SUCCESS_SOFT
+            line1_color = C.SUCCESS_DARK
+        elif r_desc.row_type == "break":
+            bg_hex = C.WARNING_SOFT
+            line1_color = C.WARNING_DARK
+        else:
+            bg_hex = C.BG_SURFACE
+            line1_color = C.TEXT_PRIMARY
+
+        painter.fillRect(rect, QColor(bg_hex))
+
+        # Left color accent bar
+        bar_w = max(3, scale_px(4))
+        painter.fillRect(QRect(rect.left(), rect.top(), bar_w, rect.height()), QColor(accent_hex))
+
+        # Bottom & right grid borders
+        painter.setPen(QPen(QColor(C.BORDER_SUBTLE), 1))
+        painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+        painter.drawLine(rect.right(), rect.top(), rect.right(), rect.bottom())
+
+        f_time, f_sub, f_badge = self._fonts()
+        fm_time = QFontMetrics(f_time)
+        fm_sub = QFontMetrics(f_sub)
+        fm_badge = QFontMetrics(f_badge)
+
+        pad_l = bar_w + scale_px(7)
+        pad_r = scale_px(6)
+        total_txt_h = fm_time.height() + scale_px(2) + fm_sub.height()
+        top_y = rect.top() + max(scale_px(4), (rect.height() - total_txt_h) // 2)
+
+        t_start, t_end = r_desc.time_range
+
+        if r_desc.row_type == "break":
+            title_txt = r_desc.display_label.splitlines()[0]
+            r1 = QRect(rect.left() + pad_l, top_y, rect.width() - pad_l - pad_r, fm_time.height())
+            painter.setFont(f_time)
+            painter.setPen(QColor(line1_color))
+            painter.drawText(r1, Qt.AlignLeft | Qt.AlignVCenter, title_txt)
+
+            time_str = f"⏰ {t_start} – {t_end}"
+            if r_desc.local_time_range[0]:
+                time_str += f" ({r_desc.local_time_range[0]}–{r_desc.local_time_range[1]})"
+            r2 = QRect(rect.left() + pad_l, top_y + fm_time.height() + scale_px(2), rect.width() - pad_l - pad_r, fm_sub.height())
+            painter.setFont(f_sub)
+            f_sub_bold = QFont(f_sub)
+            f_sub_bold.setBold(True)
+            painter.setFont(f_sub_bold)
+            painter.setPen(QColor(C.WARNING))
+            painter.drawText(r2, Qt.AlignLeft | Qt.AlignVCenter, fm_sub.elidedText(time_str, Qt.ElideRight, r2.width()))
+        else:
+            now_w = 0
+            if r_desc.is_live_period:
+                badge_txt = "NOW"
+                bw = fm_badge.horizontalAdvance(badge_txt) + scale_px(10)
+                bh = fm_badge.height() + scale_px(2)
+                bx = rect.right() - pad_r - bw
+                by = top_y + max(0, (fm_time.height() - bh) // 2)
+                b_rect = QRect(bx, by, bw, bh)
+                painter.setPen(QPen(QColor(C.SUCCESS_BORDER_MEDIUM), 1))
+                painter.setBrush(QColor(C.SUCCESS_SOFT_ALT))
+                painter.drawRoundedRect(b_rect, 4, 4)
+                painter.setFont(f_badge)
+                painter.setPen(QColor(C.SUCCESS_DARK))
+                painter.drawText(b_rect, Qt.AlignCenter, badge_txt)
+                now_w = bw + scale_px(4)
+
+            line1_txt = f"{r_desc.period} · {t_start} – {t_end}"
+            r1 = QRect(rect.left() + pad_l, top_y, rect.width() - pad_l - pad_r - now_w, fm_time.height())
+            painter.setFont(f_time)
+            painter.setPen(QColor(line1_color))
+            painter.drawText(r1, Qt.AlignLeft | Qt.AlignVCenter, fm_time.elidedText(line1_txt, Qt.ElideRight, r1.width()))
+
+            # Stream color dot + Stream / Room + optional local time
+            line2_y = top_y + fm_time.height() + scale_px(2)
+            dot_sz = max(6, scale_px(7))
+            dot_y = line2_y + max(0, (fm_sub.height() - dot_sz) // 2)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(accent_hex))
+            painter.drawEllipse(rect.left() + pad_l, dot_y, dot_sz, dot_sz)
+
+            sub_x = rect.left() + pad_l + dot_sz + scale_px(5)
+            sub_w = rect.right() - pad_r - sub_x
+            loc_txt = f" ({r_desc.local_time_range[0]}–{r_desc.local_time_range[1]})" if r_desc.local_time_range[0] else ""
+            sub_txt = f"Str {r_desc.stream_number} · {r_desc.short_room}{loc_txt}"
+            r2 = QRect(sub_x, line2_y, max(20, sub_w), fm_sub.height())
+            painter.setFont(f_sub)
+            painter.setPen(QColor(C.TEXT_SECONDARY))
+            painter.drawText(r2, Qt.AlignLeft | Qt.AlignVCenter, fm_sub.elidedText(sub_txt, Qt.ElideRight, r2.width()))
+
+        painter.restore()
 
 
 class SessionPlanWindow(QWidget):
@@ -433,45 +642,71 @@ class SessionPlanWindow(QWidget):
         layout.addWidget(self.view_stack, 1)
 
     def _setup_top_ribbon(self, parent_layout: QVBoxLayout):
-        ribbon = QHBoxLayout()
-        ribbon.setSpacing(8)
+        top_bar = QWidget(self)
+        top_bar.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        top_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        top_sp.setHeightForWidth(True)
+        top_bar.setSizePolicy(top_sp)
+        ribbon = FlowLayout(top_bar, margin=0, h_spacing=8, v_spacing=6)
+        self._top_ribbon_widget = top_bar
 
-        # Title
+        # Identity + Snapshot group
+        id_grp = QWidget(top_bar)
+        id_grp.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        id_lay = QHBoxLayout(id_grp)
+        id_lay.setContentsMargins(0, 0, 0, 0)
+        id_lay.setSpacing(8)
+
         title_lbl = QLabel(f"<b>SA2 #{self.meeting_number}</b>")
         title_lbl.setStyleSheet(f"font-size: 16px; color: {C.TEXT_PRIMARY};")
         title_lbl.setToolTip(f"SA WG2 Meeting #{self.meeting_number} ({self.location})")
-        ribbon.addWidget(title_lbl)
+        id_lay.addWidget(title_lbl)
 
-        # Snapshot Combobox
         self.snap_combo = QComboBox()
-        self.snap_combo.setMinimumWidth(230)
+        self.snap_combo.setMinimumWidth(scale_px(210))
+        self.snap_combo.setMaximumWidth(scale_px(320))
+        self.snap_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.snap_combo.setStyleSheet(f"padding: 4px 8px; font-weight: 600; border-radius: 6px; border: 1px solid {C.BORDER_STRONG};")
         self.snap_combo.setToolTip("Select or switch between imported session plan snapshots and revisions.")
         self.snap_combo.currentIndexChanged.connect(self._on_snapshot_changed)
-        ribbon.addWidget(self.snap_combo)
+        id_lay.addWidget(self.snap_combo)
+        ribbon.addWidget(id_grp)
 
-        # Timezone Pill
+        # Prominent Dual-Clock Pill + Timezone Selector Group
+        clk_grp = QWidget(top_bar)
+        clk_grp.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        clk_lay = QHBoxLayout(clk_grp)
+        clk_lay.setContentsMargins(0, 0, 0, 0)
+        clk_lay.setSpacing(6)
+
+        self.clock_lbl = QLabel()
+        self.clock_lbl.setStyleSheet(
+            f"background: {C.INFO_SOFT}; color: {C.INFO_NAVY}; border: 1px solid {C.INFO_BORDER}; "
+            f"border-radius: 999px; padding: 4px 12px; font-size: 12.5px; font-weight: 600;"
+        )
+        self.clock_lbl.setToolTip("Current physical time at the meeting venue and on your corporate laptop.")
+        clk_lay.addWidget(self.clock_lbl)
+
         self.tz_btn = QPushButton(f"🌍 {self.tz_name}")
         self.tz_btn.setStyleSheet(f"""
             QPushButton {{
-                background: {C.BG_CANVAS}; color: {C.TEXT_BODY}; font-size: 11px; font-weight: 600;
+                background: {C.BG_CANVAS}; color: {C.TEXT_BODY}; font-size: 11.5px; font-weight: 600;
                 padding: 4px 10px; border: 1px solid {C.BORDER_STRONG}; border-radius: 999px;
             }}
             QPushButton:hover {{ background: {C.BORDER_SUBTLE}; }}
         """)
-        self.tz_btn.setToolTip("Meeting Venue Timezone. Click to change or verify against your Austrian corporate laptop clock.")
+        self.tz_btn.setToolTip("Meeting Venue Timezone. Click to change or verify against your corporate laptop clock.")
         self.tz_btn.clicked.connect(self._open_timezone_dialog)
-        ribbon.addWidget(self.tz_btn)
+        clk_lay.addWidget(self.tz_btn)
+        ribbon.addWidget(clk_grp)
 
-        # Real-time Clock Strip
-        self.clock_lbl = QLabel()
-        self.clock_lbl.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED}; font-weight: 500; margin-left: 8px;")
-        self.clock_lbl.setToolTip("Current physical time at the meeting venue and on your Austrian corporate laptop.")
-        ribbon.addWidget(self.clock_lbl)
+        # Action Buttons Group
+        act_grp = QWidget(top_bar)
+        act_grp.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        act_lay = QHBoxLayout(act_grp)
+        act_lay.setContentsMargins(0, 0, 0, 0)
+        act_lay.setSpacing(6)
 
-        ribbon.addStretch()
-
-        # Action Buttons
         self.import_btn = QPushButton("📥 Import ▾")
         self.import_btn.setStyleSheet(f"padding: 5px 12px; font-weight: 600; border-radius: 6px; background: {C.ACCENT_ALT}; color: {C.BG_CARD};")
         self.import_btn.setToolTip("Import a session plan document from URL, TDoc#, local file, or clipboard paste, or drag & drop files directly onto this window.")
@@ -480,13 +715,13 @@ class SessionPlanWindow(QWidget):
         import_menu.addAction("📂 Browse Local Document...", self._import_via_file).setToolTip("Select a .docx, .doc, .zip, or HTML table from your disk.")
         import_menu.addAction("📋 Paste Markdown/Text Table...", self._import_via_paste).setToolTip("Paste table text directly from an email, TOHRU chat, or notes.")
         self.import_btn.setMenu(import_menu)
-        ribbon.addWidget(self.import_btn)
+        act_lay.addWidget(self.import_btn)
 
         self.diff_btn = QPushButton("⇄ Compare")
         self.diff_btn.setStyleSheet(f"padding: 5px 10px; font-weight: 500; border-radius: 6px; background: {C.BG_CANVAS}; border: 1px solid {C.BORDER_STRONG};")
         self.diff_btn.setToolTip("Compare the active session plan against an earlier revision to see added, removed, rescheduled, or volume-changed sessions.")
         self.diff_btn.clicked.connect(self._open_diff_dialog)
-        ribbon.addWidget(self.diff_btn)
+        act_lay.addWidget(self.diff_btn)
 
         self.export_btn = QPushButton("📤 Export ▾")
         self.export_btn.setStyleSheet(f"padding: 5px 10px; font-weight: 500; border-radius: 6px; background: {C.BG_CANVAS}; border: 1px solid {C.BORDER_STRONG};")
@@ -503,13 +738,19 @@ class SessionPlanWindow(QWidget):
         export_menu.addSeparator()
         export_menu.addAction("📂 Open Session Plans Folder", self._open_plans_folder).setToolTip("Open <meeting_dir>/Agenda/SessionPlans/ in Windows Explorer.")
         self.export_btn.setMenu(export_menu)
-        ribbon.addWidget(self.export_btn)
+        act_lay.addWidget(self.export_btn)
+        ribbon.addWidget(act_grp)
 
-        parent_layout.addLayout(ribbon)
+        parent_layout.addWidget(top_bar)
 
     def _setup_navigation_ribbon(self, parent_layout: QVBoxLayout):
-        sub_layout = QHBoxLayout()
-        sub_layout.setSpacing(10)
+        nav_bar = QWidget(self)
+        nav_bar.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        nav_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        nav_sp.setHeightForWidth(True)
+        nav_bar.setSizePolicy(nav_sp)
+        sub_layout = FlowLayout(nav_bar, margin=0, h_spacing=6, v_spacing=5)
+        self._nav_ribbon_widget = nav_bar
 
         # Segmented view mode buttons
         self.mode_group = QButtonGroup(self)
@@ -519,7 +760,7 @@ class SessionPlanWindow(QWidget):
         self.btn_grid.setToolTip("Full 5-day spatial overview showing parallel Streams 1, 2, and 3 across all Quarters and Time Units.")
         self.btn_now = QPushButton("🔴 Now")
         self.btn_now.setToolTip("See what is happening right now across all streams & physical rooms, plus upcoming periods and custom room directions.")
-        self.btn_agenda = QPushButton("📋 Agenda Mode (Gap Check)")
+        self.btn_agenda = QPushButton("📋 Agenda (0 Sched / 0)")
         self.btn_agenda.setToolTip("Cross-references the official meeting agenda against scheduled sessions. Highlights which Agenda Items are scheduled vs unscheduled (missing from plan).")
         self.btn_drafting = QPushButton("🛠️ Drafting Radar (0)")
         self.btn_drafting.setToolTip("Chronological tracking of early morning (08:00), lunch (13:00), and evening (18:00) informal and formal drafting sessions.")
@@ -532,7 +773,7 @@ class SessionPlanWindow(QWidget):
             btn.setCheckable(True)
             btn.setStyleSheet(f"""
                 QPushButton {{
-                    padding: 5px 12px; font-size: 12px; font-weight: 600; border: 1px solid {C.BORDER_STRONG};
+                    padding: 5px 10px; font-size: 12px; font-weight: 600; border: 1px solid {C.BORDER_STRONG};
                     background: {C.BG_CARD}; color: {C.TEXT_SECONDARY}; border-radius: 6px;
                 }}
                 QPushButton:checked {{
@@ -572,19 +813,18 @@ class SessionPlanWindow(QWidget):
         self.btn_manage_topics.clicked.connect(self._open_manage_topics_dialog)
         sub_layout.addWidget(self.btn_manage_topics)
 
-        sub_layout.addStretch()
-
         # Search Bar
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔍 Filter AI, topic, convener, room...")
+        self.search_input.setPlaceholderText("🔍 Filter AI, topic, room, convener...")
         self.search_input.setToolTip("Filter sessions and agenda items by AI number (e.g. 20.6.18), topic keyword, room, or convener.")
         self.search_input.setClearButtonEnabled(True)
-        self.search_input.setMinimumWidth(260)
+        self.search_input.setMinimumWidth(scale_px(185))
+        self.search_input.setMaximumWidth(scale_px(280))
         self.search_input.setStyleSheet(f"padding: 5px 10px; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px;")
         self.search_input.textChanged.connect(self._apply_search_filter)
         sub_layout.addWidget(self.search_input)
 
-        parent_layout.addLayout(sub_layout)
+        parent_layout.addWidget(nav_bar)
 
     # --- View 1: Overview Grid ---
 
@@ -596,10 +836,14 @@ class SessionPlanWindow(QWidget):
 
         # Room & Convener Guide & Stream Toggle Strip
         self.room_strip = QFrame()
-        self.room_strip.setStyleSheet(f"background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; padding: 2px 8px;")
-        self.room_strip_layout = QHBoxLayout(self.room_strip)
-        self.room_strip_layout.setContentsMargins(2, 1, 2, 1)
-        self.room_strip_layout.setSpacing(10)
+        room_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        room_sp.setHeightForWidth(True)
+        self.room_strip.setSizePolicy(room_sp)
+        self.room_strip.setStyleSheet(
+            f"QFrame {{ background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; }}"
+        )
+        self.room_strip_layout = FlowLayout(self.room_strip, margin=0, h_spacing=10, v_spacing=4)
+        self.room_strip_layout.setContentsMargins(8, 3, 8, 3)
 
         self.btn_toggle_s1 = QCheckBox("🏢 Str 1: Main Room")
         self.btn_toggle_s1.setChecked(True)
@@ -652,18 +896,22 @@ class SessionPlanWindow(QWidget):
         self.btn_room_locations.clicked.connect(lambda: self._open_room_locations_dialog())
         self.room_strip_layout.addWidget(self.btn_room_locations)
 
-        self.room_strip_layout.addStretch()
         page_layout.addWidget(self.room_strip)
 
         # Delegate Focus / Heatmap Highlight Strip
         self.delegate_strip = QFrame()
-        self.delegate_strip.setStyleSheet(f"background: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; padding: 2px 8px;")
+        del_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        del_sp.setHeightForWidth(True)
+        self.delegate_strip.setSizePolicy(del_sp)
+        self.delegate_strip.setStyleSheet(
+            f"QFrame {{ background: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; }}"
+        )
         self.delegate_strip_layout = QHBoxLayout(self.delegate_strip)
-        self.delegate_strip_layout.setContentsMargins(2, 1, 2, 1)
+        self.delegate_strip_layout.setContentsMargins(8, 3, 8, 3)
         self.delegate_strip_layout.setSpacing(6)
 
         lbl_f = QLabel("<b>Delegate Focus:</b>")
-        lbl_f.setStyleSheet(f"font-size: 11px; color: {C.TEXT_SECONDARY};")
+        lbl_f.setStyleSheet(f"font-size: 11px; color: {C.TEXT_SECONDARY}; border: none; background: transparent;")
         lbl_f.setToolTip("Tick one or more delegates to highlight their sessions; all other sessions are dimmed.")
         self.delegate_strip_layout.addWidget(lbl_f)
 
@@ -673,15 +921,17 @@ class SessionPlanWindow(QWidget):
         self.btn_chip_all.clicked.connect(lambda: self._on_delegate_highlight_clicked("ALL"))
         self.delegate_strip_layout.addWidget(self.btn_chip_all)
 
-        # Dynamic "Only Me" + per-delegate focus checkboxes live in their own sub-layout
-        self.delegate_chips_layout = QHBoxLayout()
-        self.delegate_chips_layout.setContentsMargins(0, 0, 0, 0)
-        self.delegate_chips_layout.setSpacing(6)
-        self.delegate_strip_layout.addLayout(self.delegate_chips_layout)
+        # Dynamic per-delegate focus checkboxes live in a responsive FlowLayout
+        self.delegate_chips_widget = QWidget(self.delegate_strip)
+        self.delegate_chips_widget.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        chips_sp = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+        chips_sp.setHeightForWidth(True)
+        self.delegate_chips_widget.setSizePolicy(chips_sp)
+        self.delegate_chips_layout = FlowLayout(self.delegate_chips_widget, margin=0, h_spacing=6, v_spacing=4)
+        self.delegate_strip_layout.addWidget(self.delegate_chips_widget, 1)
 
         self.btn_chip_me: Optional[QPushButton] = None
         self.dynamic_delegate_chips: List[QCheckBox] = []
-        self.delegate_strip_layout.addStretch()
 
         self.lbl_badge_legend = QLabel(f"<span style='color:{C.TEXT_MUTED};'>ℹ️ Legend</span>")
         self.lbl_badge_legend.setStyleSheet(
@@ -690,6 +940,7 @@ class SessionPlanWindow(QWidget):
         )
         self.lbl_badge_legend.setToolTip(
             "<b>Cell &amp; Badge Legend</b><br>"
+            "• <b>🕒 Pill</b> = Effective slot time (blue = half-quarter, amber = custom time)<br>"
             "• <b>Solid pill</b> = Topic owner<br>"
             "• <b>Dashed pill</b> = Ad-hoc session cover<br>"
             "• <b style='color:#DC2626;'>Red ring / ⚠</b> = Parallel-stream clash<br>"
@@ -705,8 +956,10 @@ class SessionPlanWindow(QWidget):
         self.grid_table.setColumnCount(10)
         self.grid_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.grid_table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
+        self.vertical_time_header = SessionPlanVerticalHeader(self, self.grid_table)
+        self.grid_table.setVerticalHeader(self.vertical_time_header)
         self.grid_table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.grid_table.verticalHeader().setDefaultSectionSize(44)
+        self.grid_table.verticalHeader().setDefaultSectionSize(scale_px(46))
         self.grid_table.setAlternatingRowColors(False)
         self.grid_table.setStyleSheet(f"QTableWidget {{ gridline-color: {C.BORDER_SUBTLE}; selection-background-color: {C.INDIGO_SOFT}; }}")
         self.grid_table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -729,12 +982,14 @@ class SessionPlanWindow(QWidget):
 
         # Top Live Status & Manual Time-Travel Stepper Bar
         ctrl_card = QFrame()
+        ctrl_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        ctrl_sp.setHeightForWidth(True)
+        ctrl_card.setSizePolicy(ctrl_sp)
         ctrl_card.setStyleSheet(
-            f"background: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px; padding: 6px 10px;"
+            f"QFrame {{ background: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px; }}"
         )
-        ctrl_lay = QHBoxLayout(ctrl_card)
-        ctrl_lay.setContentsMargins(4, 2, 4, 2)
-        ctrl_lay.setSpacing(8)
+        ctrl_lay = FlowLayout(ctrl_card, margin=0, h_spacing=8, v_spacing=6)
+        ctrl_lay.setContentsMargins(10, 6, 10, 6)
 
         self.now_status_pill = QLabel("⏳ Initializing...")
         self.now_status_pill.setStyleSheet(
@@ -746,7 +1001,7 @@ class SessionPlanWindow(QWidget):
         self.now_banner_lbl = QLabel("")
         self.now_banner_lbl.setWordWrap(True)
         self.now_banner_lbl.setStyleSheet(f"color: {C.TEXT_STRONG}; font-size: 12px; font-weight: 600;")
-        ctrl_lay.addWidget(self.now_banner_lbl, 1)
+        ctrl_lay.addWidget(self.now_banner_lbl)
 
         self.btn_now_prev = QPushButton("◀ Prev")
         self.btn_now_prev.setCursor(Qt.PointingHandCursor)
@@ -755,7 +1010,8 @@ class SessionPlanWindow(QWidget):
         ctrl_lay.addWidget(self.btn_now_prev)
 
         self.now_slot_combo = QComboBox()
-        self.now_slot_combo.setMinimumWidth(240)
+        self.now_slot_combo.setMinimumWidth(scale_px(210))
+        self.now_slot_combo.setMaximumWidth(scale_px(320))
         self.now_slot_combo.setStyleSheet(f"padding: 3px 8px; font-size: 11.5px; border: 1px solid {C.BORDER_STRONG}; border-radius: 5px;")
         self.now_slot_combo.currentIndexChanged.connect(self._on_now_combo_changed)
         ctrl_lay.addWidget(self.now_slot_combo)
@@ -898,14 +1154,21 @@ class SessionPlanWindow(QWidget):
 
         # 1. Roster Card
         self.team_roster_card = QFrame()
-        self.team_roster_card.setStyleSheet(f"background: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px; padding: 6px 12px;")
-        rc_lay = QHBoxLayout(self.team_roster_card)
-        rc_lay.setContentsMargins(4, 4, 4, 4)
-        rc_lay.setSpacing(10)
+        rc_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        rc_sp.setHeightForWidth(True)
+        self.team_roster_card.setSizePolicy(rc_sp)
+        self.team_roster_card.setStyleSheet(
+            f"QFrame {{ background: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 8px; }}"
+        )
+        rc_lay = FlowLayout(self.team_roster_card, margin=0, h_spacing=8, v_spacing=6)
+        rc_lay.setContentsMargins(10, 6, 10, 6)
 
-        rc_lay.addWidget(QLabel("<b>👥 Delegation Roster:</b>"))
+        roster_lbl = QLabel("<b>👥 Delegation Roster:</b>")
+        roster_lbl.setStyleSheet("border: none; background: transparent;")
+        rc_lay.addWidget(roster_lbl)
 
         self.team_chips_container = QWidget()
+        self.team_chips_container.setStyleSheet(".QWidget { background: transparent; border: none; }")
         self.team_member_chips_layout = QHBoxLayout(self.team_chips_container)
         self.team_member_chips_layout.setContentsMargins(0, 0, 0, 0)
         self.team_member_chips_layout.setSpacing(6)
@@ -915,8 +1178,6 @@ class SessionPlanWindow(QWidget):
         self.btn_add_member.setStyleSheet(f"padding: 3px 10px; font-size: 11px; font-weight: 600; border: 1px dashed {C.INFO_ACCENT}; color: {C.ACCENT_ALT}; border-radius: 6px; background: {C.INFO_SOFT};")
         self.btn_add_member.clicked.connect(self._on_add_delegation_member)
         rc_lay.addWidget(self.btn_add_member)
-
-        rc_lay.addStretch()
 
         # Action Buttons
         self.btn_export_team_email = QPushButton("📧 Export Email Summary...")
@@ -948,13 +1209,18 @@ class SessionPlanWindow(QWidget):
         tt_lay.setContentsMargins(4, 6, 4, 4)
         tt_lay.setSpacing(6)
 
-        tt_filter_box = QHBoxLayout()
-        tt_filter_box.setSpacing(8)
+        tt_filter_widget = QWidget(tab_topics)
+        tt_filter_widget.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        tt_f_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        tt_f_sp.setHeightForWidth(True)
+        tt_filter_widget.setSizePolicy(tt_f_sp)
+        tt_filter_box = FlowLayout(tt_filter_widget, margin=0, h_spacing=8, v_spacing=5)
 
         self.team_ai_search = QLineEdit()
         self.team_ai_search.setPlaceholderText("🔍 Filter AI number, topic, or owner...")
         self.team_ai_search.setClearButtonEnabled(True)
-        self.team_ai_search.setMinimumWidth(260)
+        self.team_ai_search.setMinimumWidth(scale_px(210))
+        self.team_ai_search.setMaximumWidth(scale_px(300))
         self.team_ai_search.setStyleSheet(f"padding: 5px 10px; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px; font-size: 12px;")
         self.team_ai_search.textChanged.connect(self._filter_topic_ownership_table)
         tt_filter_box.addWidget(self.team_ai_search)
@@ -996,11 +1262,10 @@ class SessionPlanWindow(QWidget):
         self.btn_reset_session_overrides.clicked.connect(self._on_reset_all_session_overrides)
         tt_filter_box.addWidget(self.btn_reset_session_overrides)
 
-        tt_filter_box.addStretch()
         lbl_persist_hint = QLabel("📌 <i>Default AI Assignments persist across meetings · Session overrides apply to individual slots</i>")
         lbl_persist_hint.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED};")
         tt_filter_box.addWidget(lbl_persist_hint)
-        tt_lay.addLayout(tt_filter_box)
+        tt_lay.addWidget(tt_filter_widget)
 
         self.team_topics_table = QTableWidget()
         self.team_topics_table.setColumnCount(5)
@@ -1133,8 +1398,11 @@ class SessionPlanWindow(QWidget):
         self.snap_combo.blockSignals(True)
         self.snap_combo.clear()
         for snap_row in snapshots:
-            label = f"{snap_row['snapshot_label']} ({snap_row['imported_at'][:16]})"
-            self.snap_combo.addItem(label, snap_row["id"])
+            full_label = f"{snap_row['snapshot_label']} ({snap_row['imported_at'][:16]})"
+            compact_label = _format_compact_snapshot_label(snap_row["snapshot_label"], snap_row["imported_at"])
+            idx_row = self.snap_combo.count()
+            self.snap_combo.addItem(compact_label, snap_row["id"])
+            self.snap_combo.setItemData(idx_row, full_label, Qt.ToolTipRole)
         self.snap_combo.blockSignals(False)
 
         if snapshots:
@@ -1234,12 +1502,33 @@ class SessionPlanWindow(QWidget):
         e_str = max(tu2_ends) if tu2_ends else default_t[1]
         return SessionPlanParser._resolve_quarter_times(period, (s_str, e_str))
 
-    def _build_grid_rows(self) -> List[GridRowDescriptor]:
-        """Constructs the 23-row spatial grid descriptors covering quarters and breaks."""
-        rows = []
-        streams = self.active_snapshot.streams if self.active_snapshot else {}
+    def _get_live_period_name(self) -> Optional[str]:
+        """Returns the period code (e.g. 'Q1', 'Lunch') active right now in Venue time, or None."""
+        venue_dt = SessionPlanTimezone.get_venue_current_datetime(self.tz_offset_min)
+        try:
+            base_date = datetime.strptime(self.start_date_str, "%Y-%m-%d").date()
+            day_diff = (venue_dt.date() - base_date).days
+        except Exception:
+            return None
+        if day_diff < 0 or day_diff > 4:
+            return None
+        cur_hhmm = venue_dt.strftime("%H:%M")
         for p in PERIOD_ORDER:
             times = self._get_period_effective_times(p)
+            if times[0] <= cur_hhmm < times[1]:
+                return p
+        return None
+
+    def _build_grid_rows(self) -> List[GridRowDescriptor]:
+        """Constructs the 23-row time-first spatial grid descriptors covering quarters and breaks."""
+        rows = []
+        streams = self.active_snapshot.streams if self.active_snapshot else {}
+        live_period = self._get_live_period_name()
+        for p in PERIOD_ORDER:
+            times = self._get_period_effective_times(p)
+            local_range = SessionPlanTimezone.format_laptop_time_range(times[0], times[1], self.tz_offset_min)
+            tu_split = f"1st Half: {times[2]}–{times[3]} · 2nd Half: {times[4]}–{times[5]}"
+            is_live = (p == live_period)
             if any(b in p.lower() for b in ["break", "coffee", "lunch"]):
                 clean_name = (
                     p.replace(" 1", "")
@@ -1249,14 +1538,38 @@ class SessionPlanWindow(QWidget):
                     .replace("Lunch", "🍱 Lunch Break")
                 )
                 lbl = f"{clean_name}\n{times[0]} – {times[1]}"
-                rows.append(GridRowDescriptor(p, 0, "break", lbl, (times[0], times[1])))
+                rows.append(
+                    GridRowDescriptor(
+                        p,
+                        0,
+                        "break",
+                        lbl,
+                        (times[0], times[1]),
+                        short_room="",
+                        local_time_range=local_range,
+                        tu_split_label="",
+                        is_live_period=is_live,
+                    )
+                )
             else:
                 for s_num in [1, 2, 3]:
                     s_info = streams.get(s_num)
                     r_name = s_info.room_name if s_info else ("Main" if s_num == 1 else f"Brk {s_num-1}")
                     short_r = r_name.split("(")[0].strip()
-                    lbl = f"{p} · Str {s_num} ({short_r})\n{times[0]} – {times[1]}"
-                    rows.append(GridRowDescriptor(p, s_num, "stream", lbl, (times[0], times[1])))
+                    lbl = f"{p} · {times[0]} – {times[1]}\nStr {s_num} ({short_r})"
+                    rows.append(
+                        GridRowDescriptor(
+                            p,
+                            s_num,
+                            "stream",
+                            lbl,
+                            (times[0], times[1]),
+                            short_room=short_r,
+                            local_time_range=local_range,
+                            tu_split_label=tu_split,
+                            is_live_period=is_live,
+                        )
+                    )
         return rows
 
     def _update_row_visibility(self):
@@ -1547,11 +1860,43 @@ class SessionPlanWindow(QWidget):
 
         card.setStyleSheet(f"QFrame#slotCard {{ background: {card_bg}; border: {card_bdr}; border-radius: 5px; }}")
 
-        # Left column: optional room override chip + wrapped topic text
+        # Left column: explicit time badge + optional room override chip + wrapped topic text
         body_lay = QVBoxLayout()
         body_lay.setContentsMargins(0, 0, 0, 0)
         body_lay.setSpacing(2)
 
+        times = self._get_period_effective_times(period)
+        if tu == 1:
+            s_t = slot.start_time_local or times[2]
+            e_t = slot.end_time_local or times[3]
+            is_custom_time = (s_t, e_t) != (times[2], times[3])
+        elif tu == 2:
+            s_t = slot.start_time_local or times[4]
+            e_t = slot.end_time_local or times[5]
+            is_custom_time = (s_t, e_t) != (times[4], times[5])
+        else:
+            s_t = slot.start_time_local or times[0]
+            e_t = slot.end_time_local or times[1]
+            is_custom_time = (s_t, e_t) != (times[0], times[1])
+
+        time_chip = None
+        if not is_empty_drafting and s_t and e_t:
+            time_chip = QLabel(f"🕒 {s_t}–{e_t}")
+            if is_dimmed:
+                tc_bg, tc_fg, tc_bdr = C.BG_SURFACE, C.TEXT_FAINT, C.BORDER_SUBTLE
+            elif is_custom_time:
+                tc_bg, tc_fg, tc_bdr = C.WARNING_SOFT, C.WARNING_DARK, C.WARNING_BORDER
+            elif is_half or tu in (1, 2):
+                tc_bg, tc_fg, tc_bdr = C.INFO_SOFT, C.INFO_DARK, C.INFO_BORDER
+            else:
+                tc_bg, tc_fg, tc_bdr = C.BG_SURFACE, C.TEXT_SECONDARY, C.BORDER_SUBTLE
+            time_chip.setStyleSheet(
+                f"background: {tc_bg}; color: {tc_fg}; font-size: 9.5px; "
+                f"font-weight: 700; border: 1px solid {tc_bdr}; border-radius: 3px; padding: 0px 4px;"
+            )
+            time_chip.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+
+        room_chip = None
         if room_ov:
             room_chip = QLabel(f"📍 {room_ov}")
             room_chip.setStyleSheet(
@@ -1559,7 +1904,20 @@ class SessionPlanWindow(QWidget):
                 f"font-weight: 700; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 3px; padding: 0px 4px;"
             )
             room_chip.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-            body_lay.addWidget(room_chip, 0, Qt.AlignLeft)
+
+        if time_chip and room_chip and not is_half:
+            meta_row = QHBoxLayout()
+            meta_row.setContentsMargins(0, 0, 0, 0)
+            meta_row.setSpacing(4)
+            meta_row.addWidget(time_chip, 0, Qt.AlignLeft)
+            meta_row.addWidget(room_chip, 0, Qt.AlignLeft)
+            meta_row.addStretch(1)
+            body_lay.addLayout(meta_row)
+        else:
+            if time_chip:
+                body_lay.addWidget(time_chip, 0, Qt.AlignLeft)
+            if room_chip:
+                body_lay.addWidget(room_chip, 0, Qt.AlignLeft)
 
         if clean_text:
             lbl = QLabel(clean_text)
@@ -1702,9 +2060,23 @@ class SessionPlanWindow(QWidget):
         self.grid_rows = self._build_grid_rows()
         self.grid_table.setRowCount(len(self.grid_rows))
 
-        # 1. Vertical Headers with Period and Stream/Break
+        # 1. Vertical Headers with Time-First Period and Stream/Break
         v_headers = [r.display_label for r in self.grid_rows]
         self.grid_table.setVerticalHeaderLabels(v_headers)
+        for row_idx, r_desc in enumerate(self.grid_rows):
+            vh_item = self.grid_table.verticalHeaderItem(row_idx)
+            if vh_item is not None:
+                t_s, t_e = r_desc.time_range
+                tt_lines = [f"<b>{html.escape(r_desc.period)}</b> · {t_s} – {t_e} (Venue Time)"]
+                if r_desc.local_time_range[0]:
+                    tt_lines.append(f"🏠 Local Time: {r_desc.local_time_range[0]} – {r_desc.local_time_range[1]}")
+                if r_desc.tu_split_label:
+                    tt_lines.append(f"🕒 {html.escape(r_desc.tu_split_label)}")
+                if r_desc.row_type == "stream":
+                    tt_lines.append(f"🏢 Stream {r_desc.stream_number} · {html.escape(r_desc.short_room)}")
+                if r_desc.is_live_period:
+                    tt_lines.append("<b>🟢 HAPPENING NOW</b>")
+                vh_item.setToolTip("<br>".join(tt_lines))
 
         # 2. Horizontal Headers with Day and Half-Quarter Columns (10 columns)
         h_headers = []
@@ -1870,7 +2242,11 @@ class SessionPlanWindow(QWidget):
 
         num_sched = sum(1 for ai in all_ais if self._slots_for_ai(ai, scheduled_ais))
         num_unsched = len(all_ais) - num_sched
-        self.btn_agenda.setText(f"📋 Agenda Mode ({num_sched} Sched · {num_unsched} Unscheduled)")
+        self.btn_agenda.setText(f"📋 Agenda ({num_sched} Sched / {len(all_ais)})")
+        self.btn_agenda.setToolTip(
+            f"Agenda Mode: {num_sched} Scheduled · {num_unsched} Unscheduled ({len(all_ais)} total AIs).\n"
+            "Cross-references the official meeting agenda against scheduled sessions."
+        )
 
         self.agenda_table.setRowCount(len(all_ais))
 
@@ -1933,7 +2309,12 @@ class SessionPlanWindow(QWidget):
 
             self.drafting_table.setItem(row, 0, QTableWidgetItem(s.day_name))
             self.drafting_table.setItem(row, 1, QTableWidgetItem(s.quarter))
-            self.drafting_table.setItem(row, 2, QTableWidgetItem(time_str))
+            item_time = QTableWidgetItem(time_str)
+            f_t = item_time.font()
+            f_t.setBold(True)
+            item_time.setFont(f_t)
+            item_time.setForeground(QColor(C.TEXT_PRIMARY))
+            self.drafting_table.setItem(row, 2, item_time)
             self.drafting_table.setItem(row, 3, QTableWidgetItem(f"Str {s.stream_number} ({r_disp})"))
             self.drafting_table.setItem(row, 4, QTableWidgetItem(convener))
             self.drafting_table.setItem(row, 5, QTableWidgetItem(s.raw_text))
@@ -2011,9 +2392,15 @@ class SessionPlanWindow(QWidget):
 
         clash_slot_count = len(slot_conflicts_map)
         if clash_slot_count:
-            self.btn_tracked.setText(f"🎯 Delegate Agenda ({len(target_slots)}) ⚠️ {clash_slot_count} Clash(es)")
+            self.btn_tracked.setText(f"🎯 Delegate Agenda ({len(target_slots)} · ⚠️ {clash_slot_count})")
+            self.btn_tracked.setToolTip(
+                f"Delegate Agenda: {len(target_slots)} sessions · {clash_slot_count} parallel-stream clash(es) detected."
+            )
         else:
             self.btn_tracked.setText(f"🎯 Delegate Agenda ({len(target_slots)})")
+            self.btn_tracked.setToolTip(
+                "View personal schedules by delegate (or your own agenda) and the entire delegation timeline."
+            )
 
         self.btn_manage_topics.setText(f"⭐ Track Topics ({len(self.tracked_tokens)})")
         self.tracked_table.setRowCount(len(target_slots))
@@ -2059,6 +2446,10 @@ class SessionPlanWindow(QWidget):
             item_day.setData(Qt.UserRole, s)
             item_q = QTableWidgetItem(s.quarter)
             item_time = QTableWidgetItem(time_str)
+            f_t = item_time.font()
+            f_t.setBold(True)
+            item_time.setFont(f_t)
+            item_time.setForeground(QColor(C.TEXT_PRIMARY))
             item_str = QTableWidgetItem(f"Str {s.stream_number} ({r_disp})")
             item_del = QTableWidgetItem(del_txt)
 
@@ -2662,6 +3053,10 @@ class SessionPlanWindow(QWidget):
                 item_slot.setData(Qt.UserRole, s_a)
                 item_slot.setToolTip("Double-click to jump to this slot in the Overview Grid.")
                 item_time = QTableWidgetItem(time_str)
+                f_ct = item_time.font()
+                f_ct.setBold(True)
+                item_time.setFont(f_ct)
+                item_time.setForeground(QColor(C.TEXT_PRIMARY))
 
                 item_del = QTableWidgetItem(f"● {del_name}")
                 m = self.delegation_plan.members.get(del_name)
@@ -2993,7 +3388,7 @@ class SessionPlanWindow(QWidget):
     # --- Live Clock & Timezone ---
 
     def _update_live_clock(self):
-        """Updates real-time Venue Time vs Austrian Laptop Time in the header and refreshes live Now view."""
+        """Updates real-time Venue Time vs Laptop Time pill in the header and refreshes live highlights."""
         venue_dt = SessionPlanTimezone.get_venue_current_datetime(self.tz_offset_min)
         laptop_offset = SessionPlanTimezone.get_laptop_tz_offset_minutes()
 
@@ -3003,13 +3398,29 @@ class SessionPlanWindow(QWidget):
         laptop_str = laptop_dt.strftime("%H:%M")
 
         if self.tz_offset_min == laptop_offset:
-            self.clock_lbl.setText(f"🕒 <b>{venue_str}</b> (Venue &amp; Austrian Time)")
+            self.clock_lbl.setText(
+                f"🕒 Venue &amp; Local: <b style='font-size:13px; color:{C.INFO_DARK};'>{venue_str}</b>"
+            )
         else:
-            self.clock_lbl.setText(f"🏛️ Venue: <b>{venue_str}</b>  |  💻 Vienna: <b>{laptop_str}</b>")
+            self.clock_lbl.setText(
+                f"🏛️ Venue: <b style='font-size:13px; color:{C.INFO_DARK};'>{venue_str}</b>"
+                f" &nbsp;<span style='color:{C.BORDER_STRONG};'>|</span>&nbsp; "
+                f"🏠 Local: <b style='font-size:13px; color:{C.TEXT_PRIMARY};'>{laptop_str}</b>"
+            )
 
         bucket = (venue_dt.hour, venue_dt.minute)
         if self._last_now_live_bucket != bucket:
             self._last_now_live_bucket = bucket
+            live_p = self._get_live_period_name()
+            if hasattr(self, "grid_rows") and self.grid_rows:
+                changed = False
+                for r_desc in self.grid_rows:
+                    new_live = (r_desc.period == live_p)
+                    if r_desc.is_live_period != new_live:
+                        r_desc.is_live_period = new_live
+                        changed = True
+                if changed and hasattr(self, "grid_table"):
+                    self.grid_table.verticalHeader().viewport().update()
             if self.active_snapshot and hasattr(self, "now_page"):
                 self._update_now_tab_badge()
                 if self.now_auto_follow and self.view_stack.currentWidget() == self.now_page:

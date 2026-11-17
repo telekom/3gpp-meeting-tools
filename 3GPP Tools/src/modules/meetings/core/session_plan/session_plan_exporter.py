@@ -509,10 +509,30 @@ class SessionPlanExporter:
                 p_bdr = pm.border_tint if pm else "#BFDBFE"
                 card_inline_style = f' style="background:{p_tint}; border:1px solid {p_bdr}; border-left:4px solid {p_col};"'
 
-            # Compact room override pill ONLY when room_override differs from default stream room
-            room_row_html = ""
-            if room_ov:
-                room_row_html = f'<div class="cell-room-row"><span class="cell-room-override">📍 {html.escape(room_ov)}</span></div>'
+            # Effective slot time pill + optional room override pill (mirroring Desktop GUI)
+            p_times = get_period_effective_times(p)
+            if tu == 1:
+                s_t = slot.start_time_local or p_times[2]
+                e_t = slot.end_time_local or p_times[3]
+                is_custom_t = (s_t, e_t) != (p_times[2], p_times[3])
+                time_pill_cls = "is-custom-time" if is_custom_t else "is-half"
+            elif tu == 2:
+                s_t = slot.start_time_local or p_times[4]
+                e_t = slot.end_time_local or p_times[5]
+                is_custom_t = (s_t, e_t) != (p_times[4], p_times[5])
+                time_pill_cls = "is-custom-time" if is_custom_t else "is-half"
+            else:
+                s_t = slot.start_time_local or p_times[0]
+                e_t = slot.end_time_local or p_times[1]
+                is_custom_t = (s_t, e_t) != (p_times[0], p_times[1])
+                time_pill_cls = "is-custom-time" if is_custom_t else "is-full"
+
+            time_pill_html = ""
+            if (not is_empty_drafting) and s_t and e_t:
+                time_pill_html = f'<span class="cell-time-pill {time_pill_cls}">🕒 {html.escape(s_t)}–{html.escape(e_t)}</span>'
+
+            room_pill_html = f'<span class="cell-room-override">📍 {html.escape(room_ov)}</span>' if room_ov else ""
+            meta_row_html = f'<div class="cell-meta-row">{time_pill_html}{room_pill_html}</div>' if (time_pill_html or room_pill_html) else ""
 
             has_unassigned_ai = bool(not is_all and not is_not_followed and unassigned_ais)
 
@@ -568,7 +588,7 @@ class SessionPlanExporter:
             return f"""<td class="{' '.join(cell_classes)}" colspan="{colspan}" data-stream="{s_num}" data-period="{p}" data-tu="{tu}" data-day="{d_idx}" data-delegates="{html.escape(dels_joined)}" data-is-all="{1 if is_all else 0}" data-is-cov="{1 if is_cov else 0}" data-unassigned="{1 if is_unassigned else 0}" data-not-followed="{1 if is_not_followed else 0}" data-drafting="{1 if slot.is_drafting else 0}" data-search="{html.escape(' '.join(search_tokens))}">
   <div class="slot-card"{card_inline_style}>
     <div class="slot-card-body">
-      {room_row_html}
+      {meta_row_html}
       {f'<div class="cell-title">{raw_esc}</div>' if raw_esc else ''}
       {note_badge}
     </div>
@@ -607,6 +627,8 @@ class SessionPlanExporter:
         streams = snapshot.streams
         for p in all_periods:
             times = get_period_effective_times(p)
+            lap_s, lap_e = SessionPlanTimezone.format_laptop_time_range(times[0], times[1], meeting_tz_offset_min)
+            lap_html = f' <span class="hdr-time-local">({lap_s}–{lap_e})</span>' if lap_s else ""
             if any(b in p.lower() for b in ["break", "coffee", "lunch"]):
                 clean_name = (
                     p.replace(" 1", "")
@@ -618,7 +640,12 @@ class SessionPlanExporter:
                 is_empty_brk = (p not in active_break_periods)
                 brk_cls = "grid-row break-row" + (" empty-break" if is_empty_brk else "")
                 overview_html.append(f'<tr class="{brk_cls}" data-period="{p}">\n')
-                overview_html.append(f'<th class="row-hdr break-hdr">{clean_name}<br><span class="hdr-times">{times[0]} – {times[1]}</span></th>\n')
+                overview_html.append(
+                    f'<th class="row-hdr break-hdr" data-period="{p}">'
+                    f'<div class="hdr-time-line"><span class="hdr-break-title">{clean_name}</span><span class="hdr-now-tag">NOW</span></div>'
+                    f'<div class="hdr-time-break">⏰ {times[0]} – {times[1]}{lap_html}</div>'
+                    f'</th>\n'
+                )
 
                 for d_idx in range(5):
                     matching_b = break_slot_map.get((d_idx, p), [])
@@ -635,7 +662,13 @@ class SessionPlanExporter:
                     short_r = r_name.split("(")[0].strip()
 
                     overview_html.append(f'<tr class="grid-row stream-row stream-row-{s_num}" data-stream="{s_num}" data-period="{p}">\n')
-                    overview_html.append(f'<th class="row-hdr stream-hdr-s{s_num}">{p} · Str {s_num} <span class="hdr-room">({html.escape(short_r)})</span><br><span class="hdr-times">{times[0]} – {times[1]}</span></th>\n')
+                    overview_html.append(
+                        f'<th class="row-hdr stream-hdr-s{s_num}" data-period="{p}" '
+                        f'title="{p}: {times[0]}–{times[1]} · 1st Half {times[2]}–{times[3]} | 2nd Half {times[4]}–{times[5]}">'
+                        f'<div class="hdr-time-line"><span class="hdr-time-primary">{p} · {times[0]} – {times[1]}</span><span class="hdr-now-tag">NOW</span></div>'
+                        f'<div class="hdr-stream-line"><span class="str-dot s{s_num}"></span> <span class="hdr-stream-sub">Str {s_num} · {html.escape(short_r)}{lap_html}</span></div>'
+                        f'</th>\n'
+                    )
 
                     for d_idx in range(5):
                         matching = slot_map.get((d_idx, p, s_num), [])
@@ -727,11 +760,19 @@ class SessionPlanExporter:
                     convener = s_info.convener if s_info else ""
                     loc_suffix = f" · 🧭 {html.escape(loc_note)}" if loc_note else ""
 
-                    sub_tag = ""
+                    q_t = q_eff_times
                     if s.sub_slot == 1:
-                        sub_tag = f'<span class="sub-slot-badge">TU 1 ({s.start_time_local}–{s.end_time_local})</span>'
+                        st_s = s.start_time_local or q_t[2]
+                        st_e = s.end_time_local or q_t[3]
+                        sub_tag = f'<span class="sub-slot-badge is-half">🕒 {html.escape(st_s)}–{html.escape(st_e)} [TU 1]</span>'
                     elif s.sub_slot == 2:
-                        sub_tag = f'<span class="sub-slot-badge">TU 2 ({s.start_time_local}–{s.end_time_local})</span>'
+                        st_s = s.start_time_local or q_t[4]
+                        st_e = s.end_time_local or q_t[5]
+                        sub_tag = f'<span class="sub-slot-badge is-half">🕒 {html.escape(st_s)}–{html.escape(st_e)} [TU 2]</span>'
+                    else:
+                        st_s = s.start_time_local or q_t[0]
+                        st_e = s.end_time_local or q_t[1]
+                        sub_tag = f'<span class="sub-slot-badge">🕒 {html.escape(st_s)}–{html.escape(st_e)}</span>' if (st_s and st_e) else ""
 
                     chips = []
                     for it in s.items:
@@ -873,6 +914,13 @@ class SessionPlanExporter:
     font-size: 10.5px; font-weight: 700; background: #ECFDF5; color: #065F46;
     border: 1px solid #A7F3D0; padding: 2px 7px; border-radius: 999px; white-space: nowrap;
   }
+  .badge-live-clock {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+    background: #EFF6FF; color: #1E3A8A; border: 1px solid #BFDBFE;
+    padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  }
+  .badge-live-clock strong { font-size: 12.5px; font-weight: 700; }
   .tz-banner {
     display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--subtext);
     background: var(--surface); border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px;
@@ -1075,7 +1123,7 @@ class SessionPlanExporter:
   }
   .corner-hdr {
     background: #E2E8F0 !important; text-align: left !important; font-size: 11px;
-    position: sticky; top: 0; left: 0; z-index: 30 !important; width: 155px; min-width: 155px;
+    position: sticky; top: 0; left: 0; z-index: 30 !important; width: 184px; min-width: 184px;
   }
   .hdr-sub { font-size: 9.5px; font-weight: 500; color: #64748B; }
   .hdr-date { font-size: 10.5px; font-weight: 600; color: #475569; }
@@ -1091,15 +1139,36 @@ class SessionPlanExporter:
   }
   .row-hdr {
     background: #F8FAFC; color: #1E293B; font-weight: 600; text-align: left;
-    position: sticky; left: 0; z-index: 10; width: 155px; min-width: 155px; font-size: 10.5px;
-    padding: 5px 7px !important;
+    position: sticky; left: 0; z-index: 10; width: 184px; min-width: 184px; font-size: 10.5px;
+    padding: 5px 8px !important;
+  }
+  .hdr-time-line {
+    display: flex; align-items: center; justify-content: space-between; gap: 4px;
+  }
+  .hdr-time-primary {
+    font-size: 11.5px; font-weight: 700; color: #0F172A; font-variant-numeric: tabular-nums;
+  }
+  .hdr-now-tag {
+    display: none; font-size: 8.5px; font-weight: 700; padding: 0px 4px; border-radius: 4px;
+    background: #DCFCE7; color: #166534; border: 1px solid #86EFAC;
+  }
+  tr.grid-row.is-live-row-hdr th.row-hdr { background: #F0FDF4; }
+  tr.grid-row.is-live-row-hdr .hdr-time-primary,
+  tr.grid-row.is-live-row-hdr .hdr-break-title { color: #166534; }
+  tr.grid-row.is-live-row-hdr .hdr-now-tag { display: inline-block; }
+  .hdr-stream-line { display: flex; align-items: center; gap: 5px; margin-top: 2px; }
+  .hdr-stream-sub { font-size: 10px; font-weight: 500; color: #475569; }
+  .hdr-time-local { font-size: 9.5px; font-weight: 600; color: #64748B; }
+  .hdr-break-title { font-size: 11px; font-weight: 700; color: #92400E; }
+  .hdr-time-break {
+    font-size: 10.5px; font-weight: 700; color: #B45309; margin-top: 2px; font-variant-numeric: tabular-nums;
   }
   .hdr-room { font-size: 9.5px; font-weight: 500; color: #64748B; }
   .hdr-times { font-size: 9.5px; font-weight: 500; color: #64748B; }
-  .stream-hdr-s1 { border-left: 3px solid var(--stream1); }
-  .stream-hdr-s2 { border-left: 3px solid var(--stream2); }
-  .stream-hdr-s3 { border-left: 3px solid var(--stream3); }
-  .break-hdr { background: #F8FAFC; font-weight: 500; color: #475569; border-left: 3px solid #94A3B8; }
+  .stream-hdr-s1 { border-left: 4px solid var(--stream1); }
+  .stream-hdr-s2 { border-left: 4px solid var(--stream2); }
+  .stream-hdr-s3 { border-left: 4px solid var(--stream3); }
+  .break-hdr { background: #FFFBEB; font-weight: 600; color: #92400E; border-left: 4px solid #D97706; }
 
   /* Grid Cells & Unified Rounded Slot Cards */
   .grid-cell {
@@ -1171,6 +1240,22 @@ class SessionPlanExporter:
   .cell-del-float {
     display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
     flex-shrink: 0;
+  }
+  .cell-meta-row {
+    display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 2px;
+  }
+  .cell-time-pill {
+    display: inline-block; font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums;
+    border-radius: 3px; padding: 0px 4px; white-space: nowrap;
+  }
+  .cell-time-pill.is-full {
+    background: #F8FAFC; color: #475569; border: 1px solid #E2E8F0; font-weight: 600;
+  }
+  .cell-time-pill.is-half {
+    background: #EFF6FF; color: #1E40AF; border: 1px solid #BFDBFE;
+  }
+  .cell-time-pill.is-custom-time {
+    background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A;
   }
   .cell-room-row { margin-bottom: 1px; }
   .cell-room-override {
@@ -1262,7 +1347,11 @@ class SessionPlanExporter:
   .stream-badge.str-3 { background: #FFFBEB; color: var(--stream3); }
   .room-pill { font-size: 11px; color: var(--subtext); font-weight: 500; }
   .sub-slot-badge {
-    font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: #E2E8F0; color: #334155;
+    font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: #F1F5F9; color: #334155;
+    border: 1px solid #CBD5E1; font-variant-numeric: tabular-nums;
+  }
+  .sub-slot-badge.is-half {
+    background: #EFF6FF; color: #1E40AF; border-color: #BFDBFE;
   }
   .slot-content { font-size: 13px; font-weight: 500; color: #1E293B; margin-top: 3px; }
   .chips-container { margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
@@ -2606,17 +2695,29 @@ class SessionPlanExporter:
       '<div class="now-dispatch-grid">' + cardsHtml + '</div>';
   }
 
-  // Live Venue Status Monitor ("Now / Up Next")
+  // Live Venue Status Monitor ("Now / Up Next") & Header Dual Clock
+  function updateHeaderClockPill(vDate, nowDate) {
+    const pill = document.getElementById('liveClockPill');
+    if (!pill) return;
+    const pad = n => String(n).padStart(2, '0');
+    const dayShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const vStr = dayShort[vDate.getUTCDay()] + ' ' + pad(vDate.getUTCHours()) + ':' + pad(vDate.getUTCMinutes());
+    const lStr = pad(nowDate.getHours()) + ':' + pad(nowDate.getMinutes());
+    pill.innerHTML = '🏛️ Venue: <strong>' + vStr + '</strong> <span style="color:#93C5FD;">|</span> 🏠 Local: <strong>' + lStr + '</strong>';
+  }
+
   function checkLiveVenueStatus() {
     const banner = document.getElementById('liveVenueBanner');
     const nowTabBtn = document.getElementById('btnViewNow');
-    if (!MEETING_BASE_DATE) return;
-
-    document.querySelectorAll('.is-live-now').forEach(el => el.classList.remove('is-live-now'));
-
     const now = new Date();
     const venueMs = now.getTime() + (MEETING_TZ_OFFSET_MIN * 60000);
     const vDate = new Date(venueMs);
+    updateHeaderClockPill(vDate, now);
+
+    if (!MEETING_BASE_DATE) return;
+
+    document.querySelectorAll('.is-live-now').forEach(el => el.classList.remove('is-live-now'));
+    document.querySelectorAll('.is-live-row-hdr').forEach(el => el.classList.remove('is-live-row-hdr'));
 
     const pad = n => String(n).padStart(2, '0');
     const curTime = pad(vDate.getUTCHours()) + ':' + pad(vDate.getUTCMinutes());
@@ -2632,12 +2733,17 @@ class SessionPlanExporter:
       const upcoming = todayEvents.filter(e => e.start_local > curTime).sort((a, b) => a.start_local.localeCompare(b.start_local));
 
       if (liveNow.length > 0) {
+        const livePeriods = {};
         liveNow.forEach(ev => {
           const sDay = String(ev.day_idx);
           const sPeriod = String(ev.quarter);
           const sStr = String(ev.stream_num);
+          livePeriods[sPeriod] = true;
           document.querySelectorAll('.grid-cell[data-day="' + sDay + '"][data-period="' + sPeriod + '"][data-stream="' + sStr + '"]').forEach(el => el.classList.add('is-live-now'));
           document.querySelectorAll('.cards-slot-row[data-day="' + sDay + '"][data-period="' + sPeriod + '"][data-stream="' + sStr + '"]').forEach(el => el.classList.add('is-live-now'));
+        });
+        Object.keys(livePeriods).forEach(lp => {
+          document.querySelectorAll('tr.grid-row[data-period="' + lp + '"]').forEach(el => el.classList.add('is-live-row-hdr'));
         });
         if (nowTabBtn) nowTabBtn.textContent = '🟢 Now (' + liveNow[0].quarter + ')';
         if (banner) {
@@ -2710,6 +2816,7 @@ class SessionPlanExporter:
       <h1 class="title">SA2 #{snapshot.meeting_number} Session Plan</h1>
       <span class="badge-tdoc">{snapshot.tdoc_id}</span>
       {snap_label_html}
+      <span id="liveClockPill" class="badge-live-clock">🏛️ Venue: <strong>--:--</strong> <span style="color:#93C5FD;">|</span> 🏠 Local: <strong>--:--</strong></span>
       <span class="badge-utc">🕒 {venue_utc_str}</span>
       <span class="tz-banner">📍 {tz_name}{tz_extra}</span>
     </div>

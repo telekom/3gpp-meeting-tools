@@ -648,6 +648,25 @@ class SessionPlanTimezone:
         return utc_now.astimezone(venue_tz)
 
     @classmethod
+    def format_laptop_time_range(
+        cls, start_hhmm: str, end_hhmm: str, meeting_tz_offset_min: int
+    ) -> Tuple[str, str]:
+        """Returns (local_start_hhmm, local_end_hhmm) when laptop TZ differs from venue TZ, else ('', '')."""
+        laptop_offset_min = cls.get_laptop_tz_offset_minutes()
+        offset_diff = laptop_offset_min - meeting_tz_offset_min
+        if offset_diff == 0:
+            return ("", "")
+
+        s_min = cls._time_str_to_minutes(start_hhmm)
+        e_min = cls._time_str_to_minutes(end_hhmm)
+        if s_min is None or e_min is None:
+            return ("", "")
+
+        lap_s = (s_min + offset_diff) % 1440
+        lap_e = (e_min + offset_diff) % 1440
+        return (f"{lap_s // 60:02d}:{lap_s % 60:02d}", f"{lap_e // 60:02d}:{lap_e % 60:02d}")
+
+    @classmethod
     def format_dual_time_range(
         cls, start_hhmm: str, end_hhmm: str, meeting_tz_offset_min: int
     ) -> str:
@@ -656,24 +675,11 @@ class SessionPlanTimezone:
         If laptop timezone differs from meeting venue, appends the Austrian laptop time in parentheses.
         Example: '09:00 – 10:30 (02:00 – 03:30 Vienna)'
         """
-        laptop_offset_min = cls.get_laptop_tz_offset_minutes()
-        offset_diff = laptop_offset_min - meeting_tz_offset_min
-
         venue_str = f"{start_hhmm} – {end_hhmm}"
-        if offset_diff == 0:
+        lap_s_str, lap_e_str = cls.format_laptop_time_range(start_hhmm, end_hhmm, meeting_tz_offset_min)
+        if not lap_s_str:
             return venue_str
-
-        # Calculate corresponding Austrian laptop times
-        s_min = cls._time_str_to_minutes(start_hhmm)
-        e_min = cls._time_str_to_minutes(end_hhmm)
-        if s_min is None or e_min is None:
-            return venue_str
-
-        lap_s = (s_min + offset_diff) % 1440
-        lap_e = (e_min + offset_diff) % 1440
-
-        lap_str = f"{lap_s // 60:02d}:{lap_s % 60:02d} – {lap_e // 60:02d}:{lap_e % 60:02d} Vienna"
-        return f"{venue_str} ({lap_str})"
+        return f"{venue_str} ({lap_s_str} – {lap_e_str} Vienna)"
 
     @classmethod
     def venue_local_to_utc_dt(
