@@ -452,6 +452,7 @@ class DragDropUI(QMainWindow):
         self.status_bar.network_config_requested.connect(lambda: NetworkConfigDialog(self).exec_())
         self.status_bar.java_info_requested.connect(self.open_java_maintenance)
         self.status_bar.update_check_requested.connect(self.open_app_updater)
+        self.status_bar.restart_requested.connect(self.restart_application)
         self.status_bar.update_proxy_indicator(self.console_panel)
         self.status_bar.update_drawer_badge(
             self.bottom_drawer.is_open,
@@ -493,6 +494,10 @@ class DragDropUI(QMainWindow):
             self.command_palette_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
             self.command_palette_shortcut.setContext(Qt.WindowShortcut)
             self.command_palette_shortcut.activated.connect(self.open_command_palette)
+
+        self.restart_shortcut = QShortcut(QKeySequence("Ctrl+Shift+R"), self)
+        self.restart_shortcut.setContext(Qt.WindowShortcut)
+        self.restart_shortcut.activated.connect(self.restart_application)
 
         self.zoom_in_shortcut = QShortcut(QKeySequence.ZoomIn, self)
         self.zoom_in_shortcut.setContext(Qt.WindowShortcut)
@@ -934,6 +939,10 @@ class DragDropUI(QMainWindow):
         self.settings_menu.addSeparator()
         self.settings_menu.addAction("🔄 Check for Updates...", self.open_app_updater)
         self.settings_menu.addAction("📝 Edit Useful Links Config...", self.edit_useful_links_config)
+        self.settings_menu.addSeparator()
+        restart_action = self.settings_menu.addAction("🔁 Restart Application", self.restart_application)
+        restart_action.setShortcut(QKeySequence("Ctrl+Shift+R"))
+        restart_action.setToolTip("Save current workspace state and restart the application (Ctrl+Shift+R)")
 
     def _rebuild_help_menu(self):
         populate_help_menu(
@@ -1448,6 +1457,52 @@ class DragDropUI(QMainWindow):
                 )
             else:
                 self.status_bar.clear_update_available()
+
+    def restart_application(self):
+        """Save workspace state, confirm if background tasks are active, and relaunch the application."""
+        if getattr(self, "_restarting", False):
+            return
+
+        qm = getattr(self, "queue_manager", None)
+        is_busy = bool(qm is not None and (qm.is_processing or len(qm.file_queue) > 0))
+        if is_busy:
+            reply = QMessageBox.question(
+                self,
+                "Background Task Active",
+                "A background task is currently running or waiting in the queue.\n\n"
+                "Do you want to abort active tasks and restart the application now?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+            try:
+                qm.clear_queue()
+                qm.abort_current_task()
+            except Exception as exc:
+                logging.warning("⚠️ [RESTART] Error aborting queue before restart: %s", exc)
+
+        self._restarting = True
+        logging.info("🔁 [RESTART] Restarting application...")
+        if hasattr(self, "status_bar"):
+            self.status_bar.showMessage("🔁 Restarting application...")
+
+        try:
+            from core.updater.app_updater import spawn_detached_relaunch
+
+            spawn_detached_relaunch(app_root=get_project_root().parent, parent_pid=os.getpid())
+        except Exception as exc:
+            self._restarting = False
+            logging.error("❌ [RESTART] Could not spawn relaunch worker: %s", exc)
+            QMessageBox.warning(
+                self,
+                "Restart Failed",
+                f"Could not launch the restart helper:\n\n{exc}",
+            )
+            return
+
+        QTimer.singleShot(0, self.close)
+        QTimer.singleShot(150, QApplication.quit)
 
     def _start_system_init_check(self):
         """Starts Visio / PlantUML engine verification independently."""

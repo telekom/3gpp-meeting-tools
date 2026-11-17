@@ -924,3 +924,65 @@ def apply_git_update(app_root: Optional[Path] = None) -> Tuple[bool, str, bool]:
             logger.warning("[Updater] pip install after git pull failed: %s", exc)
 
     return True, (out or "Updated via git pull --ff-only."), req_changed
+
+
+def spawn_detached_relaunch(
+    app_root: Optional[Path] = None,
+    parent_pid: Optional[int] = None,
+) -> Path:
+    """
+    Spawn a detached pure-stdlib watcher that waits for ``parent_pid`` to exit
+    and then relaunches the GUI directly via ``sys.executable -m main_tools``
+    without creating extra ``cmd.exe`` console windows.
+    """
+    src_root = get_project_root()
+    resolved_app_root = Path(app_root) if app_root is not None else src_root.parent
+    pid = int(os.getpid() if parent_pid is None else parent_pid)
+
+    work_root = get_temp_root() / "app_update"
+    os.makedirs(to_extended_path(work_root), exist_ok=True)
+
+    helper_code = (
+        "import ctypes, os, subprocess, sys, time\n"
+        f"pid = {pid}\n"
+        f"app_root = r'''{str(resolved_app_root)}'''\n"
+        f"src_root = r'''{str(src_root)}'''\n"
+        f"py_exe = r'''{sys.executable}'''\n"
+        "if os.name == 'nt' and pid > 0:\n"
+        "    k32 = ctypes.windll.kernel32\n"
+        "    k32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]\n"
+        "    k32.OpenProcess.restype = ctypes.c_void_p\n"
+        "    k32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]\n"
+        "    k32.CloseHandle.argtypes = [ctypes.c_void_p]\n"
+        "    h = k32.OpenProcess(0x00100000, 0, pid)\n"
+        "    if h:\n"
+        "        k32.WaitForSingleObject(h, 15000)\n"
+        "        k32.CloseHandle(h)\n"
+        "    time.sleep(0.25)\n"
+        "else:\n"
+        "    deadline = time.monotonic() + 15.0\n"
+        "    while time.monotonic() < deadline:\n"
+        "        try:\n"
+        "            os.kill(pid, 0)\n"
+        "        except OSError:\n"
+        "            break\n"
+        "        time.sleep(0.15)\n"
+        "env = os.environ.copy()\n"
+        "existing_pp = env.get('PYTHONPATH', '')\n"
+        "pp_parts = [app_root, src_root] + ([existing_pp] if existing_pp else [])\n"
+        "env['PYTHONPATH'] = os.pathsep.join(pp_parts)\n"
+        "kwargs = {'cwd': app_root, 'env': env}\n"
+        "if os.name == 'nt':\n"
+        "    kwargs['creationflags'] = 0x08000000\n"
+        "subprocess.Popen([py_exe, '-m', 'main_tools'], **kwargs)\n"
+    )
+    helper_path = work_root / "relaunch_app.py"
+    with open(to_extended_path(helper_path), "w", encoding="utf-8") as fh:
+        fh.write(helper_code)
+
+    kwargs: Dict[str, object] = {"cwd": str(work_root)}
+    if os.name == "nt":
+        kwargs["creationflags"] = 0x08000000
+    subprocess.Popen([sys.executable, str(helper_path)], **kwargs)
+    return helper_path
+

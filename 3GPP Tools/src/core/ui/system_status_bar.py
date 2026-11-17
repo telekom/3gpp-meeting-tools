@@ -67,6 +67,7 @@ class SystemStatusBar(QStatusBar):
     network_config_requested = pyqtSignal()
     java_info_requested = pyqtSignal()
     update_check_requested = pyqtSignal()
+    restart_requested = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -415,6 +416,9 @@ class SystemStatusBar(QStatusBar):
         self.system_menu.addAction("⚙️ Network...", self.network_config_requested.emit)
         self.system_menu.addAction("☕ Java...", self.java_info_requested.emit)
         self.system_menu.addAction("🤖 MCP...", self.open_mcp_monitor)
+        self.system_menu.addSeparator()
+        restart_act = self.system_menu.addAction("🔁 Restart Application", self.restart_requested.emit)
+        restart_act.setToolTip("Save session state and restart 3GPP Delegate Tools (Ctrl+Shift+R)")
 
     def _render_system_btn(self) -> None:
         self.system_btn.setText("" if self._minimal_mode else "System")

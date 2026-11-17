@@ -603,6 +603,21 @@ def build_static_command_items(window: object) -> List[CommandItem]:
             )
         )
 
+    restart_fn = getattr(window, "restart_application", None)
+    if callable(restart_fn):
+        items.append(
+            CommandItem(
+                id="sys:restart_app",
+                category="Side Panels & Actions",
+                title="Restart Application",
+                subtitle="Save workspace state and relaunch 3GPP Delegate Tools",
+                shortcut="Ctrl+Shift+R",
+                icon_name="rotate-ccw",
+                callback=restart_fn,
+                keywords="system settings restart reload reboot relaunch app",
+            )
+        )
+
     return items
 
 

@@ -972,6 +972,7 @@ The application includes both an in-app manual updater and a standalone `src/Upd
    * **Git Checkouts:** Performs a safe `git pull --ff-only` while ignoring runtime modifications to seed/config files (`3gpp_data.db`, `export_config.json`, `useful_links.json`, `*_config.json`) and preserving your local database and settings across the pull. If the working tree has uncommitted source edits or `git pull` cannot complete, an **Overwrite via ZIP Update...** fallback is available directly in the dialog.
    * **Standalone Script (`src/Update.cmd`):** You can also close the application and double-click `src\Update.cmd` (or place `Update.cmd` in `3GPP Tools\`) to download and apply the latest `master` update outside the GUI.
 4. **Your Data Is Always Preserved:** Local SQLite databases (`src/db/*.db*`), proxy/Ollama/module configs (`src/config/*_config.json`), custom user presets (`*_user.json`, `useful_links.json`, `export_config.json`), downloaded `plantuml.jar` / 3GPP templates, and `output/` files are never overwritten.
+5. **Restarting the Application Anytime:** You can cleanly save your workspace state (active tab, window geometry, open panels, and editor cache) and restart the application via **Settings ▾ → 🔁 Restart Application**, Status Bar **System ▾ → 🔁 Restart Application**, <kbd>Ctrl+K</kbd> (**Restart Application**), or the <kbd>Ctrl+Shift+R</kbd> keyboard shortcut (prompting for confirmation only if background queue jobs are active).
 
 ---
 
