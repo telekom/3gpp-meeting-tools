@@ -225,6 +225,9 @@ class TestCliLauncher(unittest.TestCase):
         self.assertTrue(ok_wt)
         self.assertEqual(spawned[0][0][0], "wt.exe")
         self.assertEqual(spawned[0][0][1], "-d")
+        self.assertIn("-EncodedCommand", spawned[0][0])
+        for arg in spawned[0][0]:
+            self.assertNotIn(";", arg)
 
         spawned.clear()
         ok_ps = launch_cli_in_terminal(

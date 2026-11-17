@@ -10,6 +10,7 @@ for Codex CLI, Claude CLI, or Gemini CLI.
 
 from __future__ import annotations
 
+import base64
 import datetime
 import logging
 import os
@@ -319,6 +320,17 @@ def build_powershell_launch_command(
     return "; ".join(parts)
 
 
+def encode_powershell_command(ps_command: str) -> str:
+    """
+    Encode a PowerShell command string as UTF-16LE Base64 for `-EncodedCommand`.
+
+    Using `-EncodedCommand` eliminates all semicolons (`;`), quotes, spaces, and
+    `&` operators from the outer command line so `wt.exe` (which treats unescaped
+    `;` as a Windows Terminal subcommand separator) never splits the command.
+    """
+    return base64.b64encode(ps_command.encode("utf-16-le")).decode("ascii")
+
+
 def launch_cli_in_terminal(
     agent_id: str,
     working_dir: Path,
@@ -359,6 +371,7 @@ def launch_cli_in_terminal(
         working_dir=clean_dir,
         bootstrap_prompt=prompt,
     )
+    encoded_cmd = encode_powershell_command(ps_command)
 
     spawn = popen_fn or subprocess.Popen
     which_lookup = which_fn or shutil.which
@@ -367,7 +380,7 @@ def launch_cli_in_terminal(
     if wt_exe:
         try:
             spawn(
-                [wt_exe, "-d", str(clean_dir), "powershell.exe", "-NoExit", "-Command", ps_command],
+                [wt_exe, "-d", str(clean_dir), "powershell.exe", "-NoExit", "-EncodedCommand", encoded_cmd],
                 cwd=str(clean_dir),
             )
             logger.info("Launched %s via Windows Terminal in %s", st.label, clean_dir)
@@ -382,7 +395,7 @@ def launch_cli_in_terminal(
         if os.name == "nt" and hasattr(subprocess, "CREATE_NEW_CONSOLE"):
             kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
         spawn(
-            ["powershell.exe", "-NoExit", "-Command", ps_command],
+            ["powershell.exe", "-NoExit", "-EncodedCommand", encoded_cmd],
             **kwargs,
         )
         logger.info("Launched %s via PowerShell in %s", st.label, clean_dir)
