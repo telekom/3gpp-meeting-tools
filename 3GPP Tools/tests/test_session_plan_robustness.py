@@ -991,6 +991,130 @@ class TestSessionPlanRobustness(unittest.TestCase):
             finally:
                 win.close()
 
+    def test_unicode_dash_ai_range_and_multi_ki_parsing(self):
+        """
+        Verifies Unicode en-dash/em-dash AI ranges like 'KI#12 – KI#16 (20.6.12 – 16)'
+        expand cleanly without spawning phantom parent AI '20.6', and multi-KI lists
+        extract all listed KI items on a single line.
+        """
+        for raw in (
+            "KI#12 – KI#16 (20.6.12 – 16)",
+            "KI#12 – KI#16 (20.6.12 — 20.6.16)",
+            "KI#12 – KI#16 (20.6.12 -\n16)",
+        ):
+            _, items = SessionPlanParser._extract_agenda_items(raw)
+            ai_nums = [it.ai_number for it in items]
+            self.assertEqual(ai_nums, ["20.6.12", "20.6.13", "20.6.14", "20.6.15", "20.6.16"])
+            self.assertNotIn("20.6", ai_nums)
+            self.assertTrue(all(it.topic_label == "KI#12 – KI#16" for it in items))
+
+        _, multi_ki = SessionPlanParser._extract_agenda_items(
+            "Main: Drafting for SoH questions: KI#3, KI#5, KI#11, KI#17?/KI#22?"
+        )
+        self.assertEqual(
+            [it.ai_number for it in multi_ki],
+            ["20.6.3", "20.6.5", "20.6.11", "20.6.17", "20.6.22"],
+        )
+
+    def test_range_delegation_union_and_db_auto_repair(self):
+        """
+        Verifies:
+        1. Range slot allocation resolves the union of delegates following any topic in the range.
+        2. ai_number_in_text and expand_ai_number handle ranges and unlisted parent prefixes.
+        3. SessionPlanDatabase.get_active_snapshot() auto-repairs stale cached slot_agenda_items
+           (e.g., legacy '20.6' -> '20.6.12'..'20.6.16') and removes phantom '20.6' from Team Allocations.
+        """
+        from types import SimpleNamespace
+        from modules.meetings.core.session_plan.session_plan_models import (
+            AgendaSlotItem,
+            DelegationMember,
+            SessionPlanSnapshot,
+            ai_number_in_text,
+            expand_ai_number,
+            resolve_slot_effective_delegates,
+        )
+        from modules.meetings.ui.session_plan.session_plan_window import SessionPlanWindow
+
+        self.assertTrue(ai_number_in_text("20.6.14", "KI#12 – KI#16 (20.6.12 – 16)"))
+        agenda_map = {
+            f"20.6.{i}": SimpleNamespace(ai_number=f"20.6.{i}", description=f"Study KI#{i}")
+            for i in range(12, 17)
+        }
+        self.assertEqual(
+            expand_ai_number("20.6", agenda_map),
+            ["20.6.12", "20.6.13", "20.6.14", "20.6.15", "20.6.16"],
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            # Simulate an older DB snapshot containing the misparsed '20.6' item
+            legacy_snap = SessionPlanSnapshot(
+                meeting_number="178",
+                tdoc_id="S2-2611637",
+                snapshot_label="r7",
+                content_hash="legacy_hash",
+                slots=[
+                    SessionSlot(
+                        day_index=1, day_name="Tuesday", quarter="Q2", sub_slot=1,
+                        start_time_local="11:00", end_time_local="11:45", stream_number=2,
+                        raw_text="KI#12 – KI#16 (20.6.12 – 16)",
+                        items=[
+                            AgendaSlotItem(
+                                ai_number="20.6",
+                                display_expr="KI#12 – KI#16 (20.6.12 – 16)",
+                                topic_label="KI#12 – KI#16 (20.6.12 – 16)",
+                            )
+                        ],
+                    )
+                ],
+            )
+
+            win = SessionPlanWindow(
+                meeting_dir=td_path,
+                mtg_info={"meeting_number": "178", "location": "Calgary", "start_date": "2099-01-05"},
+                agenda_map=agenda_map,
+                tracked_tokens=set(),
+            )
+            try:
+                win.db.save_snapshot(legacy_snap)
+                win.db.save_delegation_member("178", DelegationMember("Dieter", "#047857"))
+                win.db.save_delegation_member("178", DelegationMember("Piotr", "#C2410C"))
+                win.db.set_topic_owner("178", "20.6.12", "Dieter")
+                win.db.set_topic_owner("178", "20.6.15", "Piotr")
+                win.delegation_plan = win.db.get_delegation_plan("178")
+                win._load_data()
+
+                # Auto-repair fixed both active_snapshot in memory and SQLite persistence
+                tue_slot = win.active_snapshot.slots[0]
+                self.assertEqual(
+                    [it.ai_number for it in tue_slot.items],
+                    ["20.6.12", "20.6.13", "20.6.14", "20.6.15", "20.6.16"],
+                )
+                reloaded = win.db.get_active_snapshot("178")
+                self.assertEqual(
+                    [it.ai_number for it in reloaded.slots[0].items],
+                    ["20.6.12", "20.6.13", "20.6.14", "20.6.15", "20.6.16"],
+                )
+
+                # Slot allocates to the union of all delegates following topics in the range
+                dels, is_cov, is_all = resolve_slot_effective_delegates(
+                    tue_slot, win.delegation_plan, agenda_map=agenda_map
+                )
+                self.assertFalse(is_cov)
+                self.assertFalse(is_all)
+                self.assertEqual(dels, ["Dieter", "Piotr"])
+
+                # Team Allocations must NOT contain phantom row '20.6'
+                table_ais = [
+                    win.team_topics_table.item(r, 0).text()
+                    for r in range(win.team_topics_table.rowCount())
+                ]
+                self.assertNotIn("20.6", table_ais)
+                self.assertEqual(table_ais, ["20.6.12", "20.6.13", "20.6.14", "20.6.15", "20.6.16"])
+                self.assertIn("Tue Q2", win.team_topics_table.item(0, 2).text())
+            finally:
+                win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

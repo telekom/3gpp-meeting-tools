@@ -272,10 +272,43 @@ def ai_sort_key(ai_str: str) -> List[Any]:
     return [int(p) if p.isdigit() else p.lower() for p in re.split(r"(\d+)", str(ai_str or ""))]
 
 
+_RANGE_DASH_RE = re.compile(r"[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\-]")
+_AI_RANGE_TOKEN_RE = re.compile(
+    r"(\d{1,2}(?:\.\d+)+)\s*[\u2010-\u2015\u2212\-]\s*(?:(\d{1,2}(?:\.\d+)*)\.)?(\d+)\b"
+)
+
+
+def expand_numeric_ai_range(range_str: str) -> List[str]:
+    """
+    Expands shorthand or full AI ranges (supporting ASCII hyphen and Unicode dashes):
+    - '20.6.12 - 16' / '20.6.12 – 16' -> ['20.6.12', '20.6.13', '20.6.14', '20.6.15', '20.6.16']
+    - '20.6.12 – 20.6.16' -> ['20.6.12', '20.6.13', '20.6.14', '20.6.15', '20.6.16']
+    """
+    clean = _RANGE_DASH_RE.sub("-", (range_str or "").strip())
+    m = re.match(r"^(\d+(?:\.\d+)*)\s*-\s*(?:(\d+(?:\.\d+)*)\.)?(\d+)$", clean)
+    if not m:
+        return [range_str.strip()] if (range_str or "").strip() else []
+    prefix_part, right_base, end_num_str = m.group(1), m.group(2), m.group(3)
+    parts = prefix_part.split(".")
+    if len(parts) < 2:
+        return [range_str.strip()]
+
+    start_num = int(parts[-1])
+    end_num = int(end_num_str)
+    base = ".".join(parts[:-1])
+    if right_base and right_base != base:
+        return [range_str.strip()]
+
+    if start_num <= end_num and end_num - start_num <= 50:
+        return [f"{base}.{i}" for i in range(start_num, end_num + 1)]
+    return [range_str.strip()]
+
+
 def expand_ai_number(ai_num: str, agenda_map: Optional[Dict[str, Any]] = None) -> List[str]:
     """
-    Expands a ``.x`` wildcard AI number (e.g. ``30.x``, ``20.6.x``) into concrete
-    AI keys from ``agenda_map``.
+    Expands a range (e.g. ``20.6.12 – 16``), ``.x`` wildcard (e.g. ``30.x``, ``20.6.x``),
+    or unlisted parent prefix (e.g. ``20.6`` when only ``20.6.*`` exist in ``agenda_map``)
+    into concrete AI keys.
 
     Prefers strict child AIs under ``<prefix>.`` (ignoring the bare chapter/section
     header row ``<prefix>`` when child items exist); falls back to ``<prefix>`` if
@@ -285,19 +318,30 @@ def expand_ai_number(ai_num: str, agenda_map: Optional[Dict[str, Any]] = None) -
     clean = (ai_num or "").strip()
     if not clean:
         return []
-    if not clean.lower().endswith(".x") or not agenda_map:
+    if _RANGE_DASH_RE.search(clean) and re.search(r"\d\s*[\u2010-\u2015\u2212\-]\s*\d", clean):
+        return expand_numeric_ai_range(clean)
+    if not agenda_map:
         return [clean]
-    prefix = clean[:-2].strip()
-    if not prefix:
+    if clean.lower().endswith(".x"):
+        prefix = clean[:-2].strip()
+        if not prefix:
+            return [clean]
+        prefix_dot = prefix.lower() + "."
+        children = [k for k in agenda_map if str(k).strip().lower().startswith(prefix_dot)]
+        if children:
+            return sorted(children, key=ai_sort_key)
+        prefix_low = prefix.lower()
+        parents = [k for k in agenda_map if str(k).strip().lower() == prefix_low]
+        if parents:
+            return parents
         return [clean]
-    prefix_dot = prefix.lower() + "."
-    children = [k for k in agenda_map if str(k).strip().lower().startswith(prefix_dot)]
+
+    clean_low = clean.lower()
+    if any(str(k).strip().lower() == clean_low for k in agenda_map):
+        return [clean]
+    children = [k for k in agenda_map if str(k).strip().lower().startswith(clean_low + ".")]
     if children:
         return sorted(children, key=ai_sort_key)
-    prefix_low = prefix.lower()
-    parents = [k for k in agenda_map if str(k).strip().lower() == prefix_low]
-    if parents:
-        return parents
     return [clean]
 
 
@@ -397,6 +441,12 @@ def ai_number_in_text(ai_number: str, text: str) -> bool:
         wild_in_text = r"(?<![\d.])" + re.escape(parent) + r"\.[xX](?![\d\w])"
         if re.search(wild_in_text, text) is not None:
             return True
+
+    # Concrete AI (e.g. '20.6.14') matches numeric AI ranges in text (e.g. '20.6.12 – 16')
+    for m_rng in _AI_RANGE_TOKEN_RE.finditer(text):
+        for expanded_ai in expand_numeric_ai_range(m_rng.group(0)):
+            if expanded_ai.strip().lower() == ai_clean.lower():
+                return True
     return False
 
 

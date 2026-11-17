@@ -108,6 +108,7 @@ from modules.meetings.core.session_plan.session_plan_models import (
     MeetingStreamInfo,
     SessionPlanSnapshot,
     SessionSlot,
+    expand_numeric_ai_range,
 )
 
 logger = logging.getLogger(__name__)
@@ -715,12 +716,14 @@ class SessionPlanParser:
             else:
                 clean_tokens.append(tok_s)
 
-        # Join continuation lines: e.g. "Pre-Rel-19 maintenance" + "(5.x, 6.x, 7.x )"
+        # Join continuation lines: e.g. "Pre-Rel-19 maintenance" + "(5.x, 6.x, 7.x )" or split "(20.6.12 -" + "16)"
         merged: List[str] = []
         for tok_s in clean_tokens:
             if ADMIN_NOTE_RE.search(tok_s):
                 continue
-            if merged and tok_s.startswith("(") and re.search(r"\d", tok_s) and not re.search(r"\(\d", merged[-1]):
+            if merged and merged[-1].count("(") > merged[-1].count(")"):
+                merged[-1] = f"{merged[-1]} {tok_s}"
+            elif merged and tok_s.startswith("(") and re.search(r"\d", tok_s) and not re.search(r"\(\d", merged[-1]):
                 merged[-1] = f"{merged[-1]} {tok_s}"
             elif merged and (tok_s.startswith("(") or not re.search(r"\(|\b(?:KI#|FS_|AIML_|\d{1,2}\.(?:\d+|[xX]))", tok_s)):
                 merged[-1] = f"{merged[-1]} {tok_s}"
@@ -833,51 +836,73 @@ class SessionPlanParser:
             if m_count:
                 tdoc_count = m_count.group(1).strip()
 
-            # 2. Extract AI Number: (20.6.18), (20.6.12 - 16), (30.x), (5.x, 6.x, 7.x ), (20.6.x)
+            # 2. Extract AI Number: (20.6.18), (20.6.12 - 16), (20.6.12 – 16), (20.6.12 – 20.6.16), (30.x), (5.x, 6.x, 7.x )
+            _D = r"[\u2010-\u2015\u2212\-]"
+            _NUM_OR_WILD = r"\d{1,2}(?:\.(?:\d+(?:[a-z](?![a-z]))?|[xX]))+"
+            _RANGE_SEG = rf"{_NUM_OR_WILD}(?:\s*{_D}\s*(?:{_NUM_OR_WILD}|\d+))?"
+
             paren_ai_matches = list(
                 re.finditer(
-                    r"\(\s*(\d{1,2}(?:\.\d+|\.[xX]|\s*-\s*\d+)+(?:,\s*(?:\d{1,2}(?:\.\d+|\.[xX])+))*)\s*\)",
+                    rf"\(\s*({_RANGE_SEG}(?:\s*,\s*{_RANGE_SEG})*)\s*\)",
                     tok_clean,
                 )
             )
             ai_str = ", ".join(m.group(1).strip() for m in paren_ai_matches) if paren_ai_matches else ""
 
             if not ai_str:
-                # Look for standalone AI lists (numeric or .x wildcard): e.g. "20.48, 20.49", "30.x", "20.6.x", "5.x, 6.x"
+                # Look for standalone AI lists/ranges: e.g. "20.48, 20.49", "20.6.12 – 16", "30.x", "5.x, 6.x"
                 standalone_matches = re.findall(
-                    r"\b(\d{1,2}(?:\.(?:\d+(?:[a-z](?![a-z]))?|[xX]))+(?:,\s*\d{1,2}(?:\.(?:\d+(?:[a-z](?![a-z]))?|[xX]))+)*)\b",
+                    rf"\b({_RANGE_SEG}(?:,\s*{_RANGE_SEG})*)\b",
                     tok_clean,
                 )
                 if standalone_matches:
                     ai_str = ", ".join(m.strip() for m in standalone_matches if m.strip())
 
-            # 3. Check KI# mapping if ai_str is still empty: e.g. "KI#21 (Data Framework)" or "KI#12 – KI#16"
-            m_ki_range = re.search(r"\bKI\s*#?\s*(\d+)\s*(?:-|–|—)\s*(?:KI\s*#?)?(\d+)\b", tok_clean, re.I)
-            if not ai_str and m_ki_range:
-                start_k, end_k = int(m_ki_range.group(1)), int(m_ki_range.group(2))
-                ai_str = f"20.6.{start_k} - 20.6.{end_k}"
-            else:
-                m_ki = re.search(r"\bKI\s*#?\s*(\d+(?:\.\d+)?)\b", tok_clean, re.I)
-                ki_num = m_ki.group(1) if m_ki else ""
-                if not ai_str and ki_num:
-                    if ki_num in ki_map:
-                        ai_str = ki_map[ki_num]
-                    elif "." in ki_num:
-                        ai_str = f"20.6.{ki_num.split('.')[0]}"
+            # 3. Check KI# ranges & multi-KI lists if ai_str is empty: e.g. "KI#12 – KI#16" or "KI#3, KI#5, KI#11, KI#17?/KI#22?"
+            if not ai_str:
+                ki_resolved: List[str] = []
+                covered_spans: List[Tuple[int, int]] = []
+                for m_kr in re.finditer(rf"\b(?:KI|K)\s*#?\s*(\d+)\s*{_D}\s*(?:(?:KI|K)\s*#?)?(\d+)\b", tok_clean, re.I):
+                    start_k, end_k = int(m_kr.group(1)), int(m_kr.group(2))
+                    if start_k <= end_k and end_k - start_k <= 50:
+                        ki_resolved.append(f"20.6.{start_k} - 20.6.{end_k}")
+                        covered_spans.append((m_kr.start(), m_kr.end()))
+                for m_ki in re.finditer(r"\b(?:KI|K)\s*#?\s*(\d+(?:\.\d+)?)\b", tok_clean, re.I):
+                    if any(s <= m_ki.start() < e for s, e in covered_spans):
+                        continue
+                    k_num = m_ki.group(1)
+                    if k_num in ki_map:
+                        val = ki_map[k_num]
+                    elif "." in k_num:
+                        val = f"20.6.{k_num.split('.')[0]}"
                     else:
-                        ai_str = f"20.6.{ki_num}"
-                elif ki_num and ai_str:
-                    ki_map[ki_num] = ai_str
+                        val = f"20.6.{k_num}"
+                    if val not in ki_resolved:
+                        ki_resolved.append(val)
+                if ki_resolved:
+                    ai_str = ", ".join(ki_resolved)
+            else:
+                # Populate ki_map from explicit AI bindings in this slot
+                m_kr = re.search(rf"\b(?:KI|K)\s*#?\s*(\d+)\s*{_D}\s*(?:(?:KI|K)\s*#?)?(\d+)\b", tok_clean, re.I)
+                if m_kr:
+                    sk, ek = int(m_kr.group(1)), int(m_kr.group(2))
+                    for kv in range(sk, min(ek, sk + 50) + 1):
+                        ki_map.setdefault(str(kv), f"20.6.{kv}")
+                else:
+                    m_ki = re.search(r"\b(?:KI|K)\s*#?\s*(\d+(?:\.\d+)?)\b", tok_clean, re.I)
+                    if m_ki:
+                        ki_map[m_ki.group(1)] = ai_str
 
-            # Normalize .X wildcards to canonical lowercase .x
+            # Normalize all Unicode dash variants & .X wildcards cleanly
             if ai_str:
+                ai_str = re.sub(_D, "-", ai_str)
                 ai_str = re.sub(r"\.[xX]\b", ".x", ai_str)
 
             # 4. Clean topic label
             clean_label = re.sub(r"\bK#(\d+)", r"KI#\1", tok_clean)
             clean_label = re.sub(r"\[.*?\]", "", clean_label)
             for pm in paren_ai_matches:
-                clean_label = re.sub(r"\(\s*" + re.escape(pm.group(1).strip()) + r"\s*\)", "", clean_label, flags=re.I)
+                clean_label = clean_label.replace(pm.group(0), "")
             if ai_str and not paren_ai_matches:
                 clean_label = re.sub(r"\(\s*" + re.escape(ai_str) + r"\s*\)", "", clean_label, flags=re.I)
             clean_label = re.sub(r"\s+,", ",", clean_label)
@@ -892,7 +917,7 @@ class SessionPlanParser:
                 expanded_ais: List[str] = []
                 has_range = False
                 for part in raw_parts:
-                    if "-" in part or "–" in part or "—" in part:
+                    if "-" in part or re.search(_D, part):
                         has_range = True
                         expanded_ais.extend(cls._expand_numeric_range(part))
                     else:
@@ -928,23 +953,8 @@ class SessionPlanParser:
 
     @staticmethod
     def _expand_numeric_range(range_str: str) -> List[str]:
-        """Expands '20.6.12 - 16' or '20.6.12 - 20.6.16' to ['20.6.12', '20.6.13', '20.6.14', '20.6.15', '20.6.16']."""
-        clean = re.sub(r"[–—]", "-", range_str)
-        m = re.match(r"^(\d+(?:\.\d+)*)\s*-\s*(?:.*?\.)?(\d+)$", clean.strip())
-        if not m:
-            return [range_str]
-        prefix_part, end_num_str = m.group(1), m.group(2)
-        parts = prefix_part.split(".")
-        if len(parts) < 2:
-            return [range_str]
-
-        start_num = int(parts[-1])
-        end_num = int(end_num_str)
-        base = ".".join(parts[:-1])
-
-        if start_num <= end_num and end_num - start_num <= 30:
-            return [f"{base}.{i}" for i in range(start_num, end_num + 1)]
-        return [range_str]
+        """Expands '20.6.12 - 16', '20.6.12 – 16', or '20.6.12 – 20.6.16' to concrete AI list."""
+        return expand_numeric_ai_range(range_str)
 
     @staticmethod
     def _compute_content_hash(slots: List[SessionSlot]) -> str:

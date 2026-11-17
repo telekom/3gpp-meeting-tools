@@ -691,7 +691,75 @@ class SessionPlanDatabase:
                 )
                 snapshot.slots.append(s)
 
+            self._repair_stale_slot_items(conn, snapshot)
             return snapshot
+
+    @staticmethod
+    def _repair_stale_slot_items(conn, snapshot: SessionPlanSnapshot):
+        """
+        Re-parses cached slot_agenda_items when parser improvements (e.g. Unicode dash
+        ranges like `(20.6.12 – 16)` or multi-KI lists) extract richer or corrected AIs
+        compared to an earlier import stored in SQLite. Runs idempotently once per revision.
+        """
+        if not snapshot.slots:
+            return
+        try:
+            from modules.meetings.core.session_plan.session_plan_parser import PERIOD_ORDER, SessionPlanParser
+        except Exception:
+            return
+
+        period_rank = {p: idx for idx, p in enumerate(PERIOD_ORDER)}
+        chronological = sorted(
+            snapshot.slots,
+            key=lambda sl: (sl.day_index, period_rank.get(sl.quarter, 99), sl.sub_slot, sl.stream_number),
+        )
+
+        def _items_sig(items_list: List[AgendaSlotItem]) -> List[Tuple[str, str, str]]:
+            return [(it.ai_number or "", it.topic_label or "", it.tdoc_count_str or "") for it in items_list]
+
+        ki_map: Dict[str, str] = {}
+        repaired_count = 0
+        for s in chronological:
+            if not s.items or not s.raw_text or s.raw_text.strip() in ("-", "—", "Revisions", "Revisions (tbd)"):
+                continue
+            fresh_room_ov, fresh_items = SessionPlanParser._extract_agenda_items(
+                s.raw_text,
+                default_drafting=s.is_drafting,
+                default_tentative=s.is_tentative,
+                ki_map=ki_map,
+            )
+            if _items_sig(s.items) != _items_sig(fresh_items):
+                s.items = fresh_items
+                if fresh_room_ov and not s.room_override:
+                    s.room_override = fresh_room_ov
+                    if s.id is not None:
+                        conn.execute(
+                            "UPDATE session_slots SET room_override = ? WHERE id = ?",
+                            (fresh_room_ov, s.id),
+                        )
+                if s.id is not None:
+                    conn.execute("DELETE FROM slot_agenda_items WHERE slot_id = ?", (s.id,))
+                    for item in fresh_items:
+                        conn.execute(
+                            """
+                            INSERT INTO slot_agenda_items (slot_id, ai_number, display_expr, topic_label, tdoc_count_str, is_drafting)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                s.id,
+                                item.ai_number,
+                                item.display_expr,
+                                item.topic_label,
+                                item.tdoc_count_str,
+                                1 if item.is_drafting else 0,
+                            ),
+                        )
+                repaired_count += 1
+
+        if repaired_count:
+            logger.info(
+                f"[SessionPlanDB] Auto-repaired {repaired_count} stale slot item list(s) in snapshot {snapshot.id}."
+            )
 
     # --- User Annotations ---
 
