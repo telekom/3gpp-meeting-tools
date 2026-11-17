@@ -3,7 +3,7 @@ import datetime
 import logging
 import re
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional
 
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import QDialog, QFileDialog, QInputDialog, QMenu, QMessageBox
@@ -14,7 +14,7 @@ from modules.meetings.core.exporters.excel_exporter import ExcelExporterThread
 from modules.meetings.core.exporters.tdocs_package_exporter import TDocsPackageExporterThread
 from modules.meetings.core.exporters.llm_exporter import TDocMarkdownExporterThread
 from modules.meetings.core.exporters.dossier_exporter import DossierExporterThread
-from modules.meetings.core.tdocs.tdoc_markdown_converter import sanitize_filename
+from modules.meetings.core.tdocs.tdoc_markdown_converter import is_canonical_tdoc_markdown_ready
 from modules.meetings.ui.dialogs.excel_export_dialog import ALL_AVAILABLE_COLUMNS, ExcelExportDialog
 from modules.meetings.ui.dialogs.dossier_export_dialog import DossierExportDialog
 from core.utils.folder_opener import open_folder as _open_folder
@@ -629,24 +629,39 @@ def _expand_revision_rows(window: Any, rows_data: List[dict]) -> List[dict]:
     return expanded
 
 
-def launch_cli_for_tdocs(
-    window: Any,
+def prepare_and_launch_cli_session(
+    *,
+    parent: Any,
+    meeting_dir: Path,
     rows_data: List[dict],
     agent_id: str,
     task_mode: str = "interactive",
     custom_question: str = "",
+    docs_ftp_url: str = "",
+    revisions_url: str = "",
+    local_triage_summary: str = "",
+    briefing_title: str = "",
+    status_button: Optional[Any] = None,
+    idle_button_text: str = "📤 Export ▾",
+    busy_button_text: str = "⏳ Preparing CLI Markdown...",
+    progress_slot: Optional[Callable[[str], None]] = None,
+    thread_owner: Optional[Any] = None,
+    thread_attr: str = "cli_md_export_thread",
+    terminal_launcher: Optional[Callable[..., bool]] = None,
 ) -> None:
     """
-    Pre-convert the given TDoc row(s) to Markdown in an isolated CLI workspace folder,
-    write `_CLI_CONTEXT.md`, and launch the requested interactive LLM CLI terminal.
+    Prepare Markdown + `_CLI_CONTEXT.md` for one or more TDocs and launch an interactive LLM CLI.
+
+    - **Single TDoc:** Works directly inside the canonical ``{meeting_dir}/{base_tdoc}/``
+      folder (launching immediately if ``{tdoc_id}.md`` is already ready, or converting in-place
+      with ``stage_copies=False`` without creating an ``Export/`` subfolder).
+    - **Multiple TDocs / Revision Comparison:** Stages documents side-by-side under
+      ``{meeting_dir}/Export/CLI_Batch_{timestamp}/`` with an ``index.md`` manifest.
     """
     rows = [dict(r) for r in (rows_data or []) if r and str(r.get("TDoc", "")).strip()]
     if not rows:
-        QMessageBox.warning(window, "No TDocs", "There are no TDocs selected to send to the CLI agent.")
+        QMessageBox.warning(parent, "No TDocs", "There are no TDocs selected to send to the CLI agent.")
         return
-
-    if task_mode == "compare":
-        rows = _expand_revision_rows(window, rows)
 
     spec = CLI_AGENT_SPECS.get((agent_id or "").strip().lower())
     agent_label = spec.label if spec else agent_id
@@ -656,7 +671,7 @@ def launch_cli_for_tdocs(
         if len(rows) > 5:
             tdoc_preview += f" (+{len(rows) - 5} more)"
         question, ok = QInputDialog.getMultiLineText(
-            window,
+            parent,
             f"Ask {agent_label}",
             f"Enter your question or analysis instruction for {tdoc_preview}:",
             "",
@@ -665,58 +680,128 @@ def launch_cli_for_tdocs(
             return
         custom_question = question.strip()
 
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    if len(rows) == 1:
-        single_tid = sanitize_filename(str(rows[0].get("TDoc", "")).strip())
-        target_dir = Path(window.meeting_dir) / "Export" / f"CLI_{single_tid}_{timestamp}"
-    else:
-        target_dir = Path(window.meeting_dir) / "Export" / f"CLI_Batch_{timestamp}"
+    launcher = terminal_launcher or launch_cli_in_terminal
+    is_single = len(rows) == 1
 
-    has_export_btn = hasattr(window, "export_btn") and window.export_btn is not None
-    if has_export_btn:
-        window.export_btn.setText("⏳ Preparing CLI Markdown...")
-        window.export_btn.setEnabled(False)
+    if is_single:
+        row = rows[0]
+        has_urls = bool((docs_ftp_url or "").strip() or (revisions_url or "").strip() or row.get("3gpp_url"))
+        target_dir, local_md, md_ready = is_canonical_tdoc_markdown_ready(
+            meeting_dir,
+            row,
+            has_download_urls=has_urls,
+        )
+        if md_ready:
+            write_cli_context_file(
+                target_dir,
+                task_mode=task_mode,
+                custom_question=custom_question,
+                tdocs_meta=rows,
+                markdown_files=[local_md],
+                local_triage_summary=local_triage_summary,
+                briefing_title=briefing_title,
+            )
+            launcher(agent_id, target_dir, parent=parent)
+            return
+        stage_copies = False
+        is_bulk = False
+    else:
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        target_dir = Path(meeting_dir) / "Export" / f"CLI_Batch_{timestamp}"
+        local_md = None
+        stage_copies = True
+        is_bulk = True
+
+    if status_button is not None:
+        status_button.setText(busy_button_text)
+        status_button.setEnabled(False)
 
     thread = TDocMarkdownExporterThread(
-        window.meeting_dir,
+        meeting_dir,
         rows,
-        window.docs_ftp_url,
-        window.revisions_url,
-        is_bulk=(len(rows) > 1),
+        docs_ftp_url,
+        revisions_url,
+        is_bulk=is_bulk,
         output_dir=target_dir,
+        stage_copies=stage_copies,
     )
-    window.cli_md_export_thread = thread
-    if has_export_btn:
-        thread.progress.connect(window._on_md_progress)
+    if thread_owner is not None:
+        setattr(thread_owner, thread_attr, thread)
+    if progress_slot is not None:
+        thread.progress.connect(progress_slot)
 
     def _on_finished(success: bool, msg: str) -> None:
-        if has_export_btn:
-            window.export_btn.setText("📤 Export ▾")
-            window.export_btn.setEnabled(True)
-        if not success:
-            QMessageBox.warning(window, "CLI Pre-Conversion Failed", msg)
+        if status_button is not None:
+            status_button.setText(idle_button_text)
+            status_button.setEnabled(True)
+        if not success or (local_md is not None and not local_md.is_file()):
+            QMessageBox.warning(parent, "CLI Pre-Conversion Failed", msg)
             return
 
-        md_files = [
-            p for p in sorted(target_dir.glob("*/*.md"))
-            if p.name != "_CLI_CONTEXT.md"
-        ]
-        if (target_dir / "index.md").is_file():
-            md_files.insert(0, target_dir / "index.md")
+        if local_md is not None:
+            md_files = [local_md]
+        else:
+            md_files = [
+                p for p in sorted(target_dir.glob("*/*.md"))
+                if p.name != "_CLI_CONTEXT.md"
+            ]
+            if (target_dir / "index.md").is_file():
+                md_files.insert(0, target_dir / "index.md")
 
-        wg = str(window.mtg_info.get("wg_name", "")).strip()
-        mtg = str(window.mtg_info.get("meeting_number", "")).strip()
         write_cli_context_file(
             target_dir,
             task_mode=task_mode,
             custom_question=custom_question,
             tdocs_meta=rows,
             markdown_files=md_files,
-            briefing_title=f"{wg} {mtg} TDoc CLI Session".strip(),
+            local_triage_summary=local_triage_summary,
+            briefing_title=briefing_title,
         )
-        launch_cli_in_terminal(agent_id, target_dir, parent=window)
+        launcher(agent_id, target_dir, parent=parent)
 
     thread.finished.connect(_on_finished)
     thread.start()
+
+
+def launch_cli_for_tdocs(
+    window: Any,
+    rows_data: List[dict],
+    agent_id: str,
+    task_mode: str = "interactive",
+    custom_question: str = "",
+) -> None:
+    """
+    Prepare Markdown + `_CLI_CONTEXT.md` for TDoc row(s) from `TDocsWindow` and launch
+    the requested interactive LLM CLI terminal.
+    """
+    rows = [dict(r) for r in (rows_data or []) if r and str(r.get("TDoc", "")).strip()]
+    if not rows:
+        QMessageBox.warning(window, "No TDocs", "There are no TDocs selected to send to the CLI agent.")
+        return
+
+    if task_mode == "compare":
+        rows = _expand_revision_rows(window, rows)
+
+    has_export_btn = hasattr(window, "export_btn") and window.export_btn is not None
+    wg = str(window.mtg_info.get("wg_name", "")).strip()
+    mtg = str(window.mtg_info.get("meeting_number", "")).strip()
+
+    prepare_and_launch_cli_session(
+        parent=window,
+        meeting_dir=Path(window.meeting_dir),
+        rows_data=rows,
+        agent_id=agent_id,
+        task_mode=task_mode,
+        custom_question=custom_question,
+        docs_ftp_url=getattr(window, "docs_ftp_url", ""),
+        revisions_url=getattr(window, "revisions_url", ""),
+        briefing_title=f"{wg} {mtg} TDoc CLI Session".strip(),
+        status_button=window.export_btn if has_export_btn else None,
+        idle_button_text="📤 Export ▾",
+        busy_button_text="⏳ Preparing CLI Markdown...",
+        progress_slot=window._on_md_progress if has_export_btn else None,
+        thread_owner=window,
+        thread_attr="cli_md_export_thread",
+    )
 
 

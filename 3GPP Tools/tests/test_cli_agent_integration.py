@@ -385,6 +385,136 @@ class TestCliUiIntegration(unittest.TestCase):
         self.assertEqual(set(dlg._cli_status_widgets.keys()), {"codex", "claude", "gemini"})
         dlg.close()
 
+    def test_single_tdoc_cli_launch_uses_canonical_folder_without_export_dir(self):
+        from PyQt5.QtWidgets import QWidget
+        from modules.meetings.core.tdocs.tdoc_markdown_converter import CONVERTER_VERSION
+        from modules.meetings.ui.dialogs.tdocs_export_controller import launch_cli_for_tdocs
+
+        meeting_dir = self.tmp_path / "SA2_173"
+        base_dir = meeting_dir / "S2-2601720"
+        base_dir.mkdir(parents=True)
+        rev_md = base_dir / "S2-2601720r01.md"
+        rev_md.write_text(
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=markup --->\n"
+            "# S2-2601720r01: URSP clarification\n\nBody text long enough for completeness check." + ("x" * 120),
+            encoding="utf-8",
+        )
+
+        win = QWidget()
+        win.meeting_dir = meeting_dir
+        win.docs_ftp_url = ""
+        win.revisions_url = ""
+        win.mtg_info = {"wg_name": "SA2", "meeting_number": "173"}
+        win.model = MagicMock()
+        win.model.revisions = {}
+
+        with patch("modules.meetings.ui.dialogs.tdocs_export_controller.TDocMarkdownExporterThread") as mock_thread_cls, \
+             patch("modules.meetings.ui.dialogs.tdocs_export_controller.launch_cli_in_terminal", return_value=True) as mock_launch:
+            launch_cli_for_tdocs(
+                win,
+                [{"TDoc": "S2-2601720r01", "Title": "URSP clarification", "Type": "pCR"}],
+                "codex",
+                task_mode="summarize",
+            )
+
+        # Instant canonical fast-path: no background exporter thread, no Export/ folder
+        mock_thread_cls.assert_not_called()
+        mock_launch.assert_called_once()
+        launched_dir = mock_launch.call_args.args[1]
+        self.assertEqual(launched_dir, base_dir)
+        self.assertFalse((meeting_dir / "Export").exists())
+
+        ctx_file = base_dir / CLI_CONTEXT_FILENAME
+        self.assertTrue(ctx_file.is_file())
+        self.assertIn("S2-2601720r01.md", ctx_file.read_text(encoding="utf-8"))
+        win.close()
+
+    def test_single_tdoc_cli_conversion_stays_in_canonical_folder_and_batch_uses_export(self):
+        from PyQt5.QtWidgets import QWidget
+        from modules.meetings.core.exporters.llm_exporter import TDocMarkdownExporterThread
+        from modules.meetings.core.tdocs.tdoc_markdown_converter import CONVERTER_VERSION
+        from modules.meetings.ui.dialogs.tdocs_export_controller import launch_cli_for_tdocs
+
+        meeting_dir = self.tmp_path / "SA2_174"
+        tdoc_id = "S2-2602222"
+        base_dir = meeting_dir / tdoc_id
+        base_dir.mkdir(parents=True)
+
+        # Fake existing Word doc so Phase 2 converts locally without network
+        (base_dir / f"{tdoc_id}.docx").write_bytes(b"dummy")
+
+        def fake_convert(doc_path, out_dir=None, tdoc_id=None, **_kwargs):
+            md_path = Path(out_dir) / f"{tdoc_id}.md"
+            text = (
+                f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=markup --->\n"
+                f"# {tdoc_id}: Generated\n\n" + ("content " * 30)
+            )
+            md_path.write_text(text, encoding="utf-8")
+            return MagicMock(md_path=md_path, text=text)
+
+        # 1) Single-TDoc conversion via stage_copies=False must NOT create Export/ or index.md
+        exporter = TDocMarkdownExporterThread(
+            meeting_dir,
+            [{"TDoc": tdoc_id, "Title": "Generated", "Type": "pCR"}],
+            "",
+            "",
+            is_bulk=False,
+            stage_copies=False,
+        )
+        results = []
+        exporter.finished.connect(lambda ok, msg: results.append((ok, msg)))
+        with patch("modules.meetings.core.tdocs.tdoc_markdown_converter.convert_document_to_markdown", side_effect=fake_convert):
+            exporter.run()
+
+        self.assertEqual(results[0][0], True)
+        self.assertTrue((base_dir / f"{tdoc_id}.md").is_file())
+        self.assertFalse((base_dir / tdoc_id).exists())
+        self.assertFalse((base_dir / "index.md").exists())
+        self.assertFalse((meeting_dir / "Export").exists())
+
+        # 2) Multi-TDoc / compare mode DOES stage under Export/CLI_Batch_*
+        win = QWidget()
+        win.meeting_dir = meeting_dir
+        win.docs_ftp_url = ""
+        win.revisions_url = ""
+        win.mtg_info = {"wg_name": "SA2", "meeting_number": "174"}
+        win.model = MagicMock()
+        win.model.revisions = {tdoc_id: [f"{tdoc_id}r01"]}
+
+        (base_dir / f"{tdoc_id}r01.md").write_text(
+            f"<!--- tdoc_converter: version={CONVERTER_VERSION}; mode=markup --->\n# {tdoc_id}r01\n\n" + ("rev " * 40),
+            encoding="utf-8",
+        )
+
+        class _SyncThread:
+            def __init__(self, m_dir, rows, docs_url, rev_url, is_bulk=True, output_dir=None, stage_copies=True):
+                self._real = TDocMarkdownExporterThread(
+                    m_dir, rows, docs_url, rev_url,
+                    is_bulk=is_bulk, output_dir=output_dir, stage_copies=stage_copies,
+                )
+                self.progress = self._real.progress
+                self.finished = self._real.finished
+
+            def start(self):
+                self._real.run()
+
+        with patch("modules.meetings.ui.dialogs.tdocs_export_controller.TDocMarkdownExporterThread", _SyncThread), \
+             patch("modules.meetings.ui.dialogs.tdocs_export_controller.launch_cli_in_terminal", return_value=True) as mock_launch:
+            launch_cli_for_tdocs(
+                win,
+                [{"TDoc": tdoc_id, "Title": "Compare test", "Type": "pCR"}],
+                "codex",
+                task_mode="compare",
+            )
+
+        mock_launch.assert_called_once()
+        batch_dir = mock_launch.call_args.args[1]
+        self.assertEqual(batch_dir.parent, meeting_dir / "Export")
+        self.assertTrue(batch_dir.name.startswith("CLI_Batch_"))
+        self.assertTrue((batch_dir / "index.md").is_file())
+        self.assertTrue((batch_dir / CLI_CONTEXT_FILENAME).is_file())
+        win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

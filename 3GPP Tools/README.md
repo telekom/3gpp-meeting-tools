@@ -780,7 +780,7 @@ py -3.14 -m main_tools
 ### 🔌 Connecting & Launching External CLI Agents (Codex CLI, Claude CLI & Gemini CLI)
 1. **Interactive Launch from 3GPP Tools UI:**
    * Open `🤖 MCP Server & AI Agent Cockpit` (`Help` menu or status bar `🤖 MCP` pill) → **AI Agent Client Setup** to verify live detection badges (`🟢 Codex CLI`, `🟢 Claude CLI`, `🟢 Gemini CLI`) and test-launch terminals.
-   * **Single / Multi-TDoc Analysis:** Right-click any TDoc row (or multi-selection) → **`💬 Ask AI Agent (CLI)`**, or click **`💬 Continue in CLI`** inside the AI Technical Triage window to pre-convert TDocs to Markdown and open an interactive CLI session with `_CLI_CONTEXT.md`.
+   * **Single / Multi-TDoc Analysis:** Right-click any TDoc row (or multi-selection) → **`💬 Ask AI Agent (CLI)`**, or click **`💬 Continue in CLI`** inside the AI Technical Triage window. Single-TDoc sessions run directly inside the TDoc's canonical meeting folder (instantly when Markdown is already converted, without extra `Export/` folders), while multi-TDoc selections and revision comparisons stage cleanly in a batch `Export/` workspace with `_CLI_CONTEXT.md`.
    * **Cross-WG Topic Dossiers & Briefings:** In `TopicDossierDialog`, click **`💬 Launch CLI Agent`** on an exported topic folder for Interactive Q&A, Stage-1 Pending/Stale Meeting Analysis, or Stage-2 E2E Cross-WG Synthesis.
 2. **Register with Claude CLI (`claude`):**
    ```powershell

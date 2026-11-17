@@ -347,6 +347,70 @@ def is_conversion_stale(
     return False
 
 
+def resolve_canonical_tdoc_paths(meeting_dir: Union[str, Path], tdoc_id: str) -> Tuple[Path, Path]:
+    """Return ``(tdoc_folder, local_md_file)`` inside the canonical meeting TDoc directory."""
+    clean_tid = (tdoc_id or "").strip()
+    base_tdoc = base_tdoc_id(clean_tid) if clean_tid else ""
+    tdoc_folder = Path(meeting_dir) / sanitize_filename(base_tdoc)
+    local_md_file = tdoc_folder / f"{sanitize_filename(clean_tid)}.md"
+    return tdoc_folder, local_md_file
+
+
+def find_tdoc_source_doc(folder: Union[str, Path], tdoc_id: str) -> Optional[Path]:
+    """Locate the primary downloaded document (.docx/.docm/.pptx/.doc/.ppt/.pdf) in ``folder``."""
+    p_folder = Path(folder)
+    if not p_folder.exists():
+        return None
+    needle = (tdoc_id or "").strip().lower()
+    for ext in [".docx", ".docm", ".pptx", ".doc", ".ppt", ".pdf"]:
+        files = list(p_folder.glob(f"*{ext}"))
+        if files:
+            for f in files:
+                if needle and needle in f.name.lower():
+                    return f
+            return files[0]
+    return None
+
+
+def is_canonical_tdoc_markdown_ready(
+    meeting_dir: Union[str, Path],
+    tdoc_data: Dict[str, str],
+    *,
+    has_download_urls: bool = True,
+) -> Tuple[Path, Path, bool]:
+    """
+    Check whether a TDoc's canonical ``{meeting_dir}/{base_tdoc}/{tdoc_id}.md`` file
+    is already present and up-to-date.
+
+    Returns ``(tdoc_folder, local_md_file, is_ready)``.
+    """
+    tdoc_id = str((tdoc_data or {}).get("TDoc", "")).strip()
+    tdoc_folder, local_md_file = resolve_canonical_tdoc_paths(meeting_dir, tdoc_id)
+    if not tdoc_id or not local_md_file.is_file():
+        return tdoc_folder, local_md_file, False
+
+    doc_path = find_tdoc_source_doc(tdoc_folder, tdoc_id)
+    doc_type = str((tdoc_data or {}).get("Type", "Other"))
+    expected_mode = resolve_revision_mode_for_type(doc_type, default_mode="markup")
+    if not is_conversion_stale(
+        doc_path,
+        local_md_file,
+        expected_version=CONVERTER_VERSION,
+        expected_mode=expected_mode,
+    ):
+        return tdoc_folder, local_md_file, True
+
+    # Offline/manual Markdown without a source file or download URLs cannot be regenerated
+    if doc_path is None and not has_download_urls:
+        try:
+            if local_md_file.stat().st_size > 0:
+                return tdoc_folder, local_md_file, True
+        except OSError:
+            pass
+
+    return tdoc_folder, local_md_file, False
+
+
 def write_index(out_dir: Path, docs: List[ExportedDoc]) -> Path:
     """Generate index.md manifest supporting relative paths to subfolder dossiers and 3GPP server download links."""
     out_dir = Path(to_extended_path(out_dir))

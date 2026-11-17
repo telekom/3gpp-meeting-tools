@@ -20,6 +20,8 @@ from modules.meetings.core.tdocs.tdoc_markdown_converter import (
     write_index,
     is_conversion_stale,
     resolve_revision_mode_for_type,
+    resolve_canonical_tdoc_paths,
+    find_tdoc_source_doc,
     CONVERTER_VERSION,
     ExportedDoc,
 )
@@ -32,7 +34,10 @@ class TDocMarkdownExporterThread(QThread):
     """
     Asynchronous worker to convert and export 3GPP Technical Documents (.docx/.doc)
     into high-fidelity, standalone Markdown (.md) dossiers and an index.md manifest.
-    Each export round is isolated in Export/Markdown_YYYY-MM-DD_HHMMSS/.
+    When ``stage_copies=True`` (default), each export round is isolated in
+    ``Export/Markdown_YYYY-MM-DD_HHMMSS/`` (or ``output_dir``). When ``stage_copies=False``,
+    documents are converted directly inside their canonical ``{meeting_dir}/{base_tdoc}/``
+    folder without creating an ``Export/`` subfolder copy or ``index.md``.
     """
     finished = pyqtSignal(bool, str)
     progress = pyqtSignal(str)
@@ -46,6 +51,7 @@ class TDocMarkdownExporterThread(QThread):
         is_bulk: bool = True,
         output_dir: Optional[Path] = None,
         force_reconvert: bool = False,
+        stage_copies: bool = True,
         *args,
         **kwargs,
     ):
@@ -56,8 +62,13 @@ class TDocMarkdownExporterThread(QThread):
         self.revisions_url = revisions_url
         self.is_bulk = is_bulk
         self.force_reconvert = force_reconvert
+        self.stage_copies = stage_copies
 
-        if output_dir:
+        if not self.stage_copies and len(tdocs_list) == 1:
+            single_tid = str(tdocs_list[0].get("TDoc", "")).strip()
+            tdoc_folder, _ = resolve_canonical_tdoc_paths(self.meeting_dir, single_tid)
+            self.export_dir = Path(output_dir) if output_dir else tdoc_folder
+        elif output_dir:
             self.export_dir = Path(output_dir)
         else:
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -67,7 +78,8 @@ class TDocMarkdownExporterThread(QThread):
         word_app = None
         try:
             pythoncom.CoInitialize()
-            os.makedirs(to_extended_path(self.export_dir), exist_ok=True)
+            if self.stage_copies:
+                os.makedirs(to_extended_path(self.export_dir), exist_ok=True)
 
             exported_docs: List[ExportedDoc] = []
             failed_tdocs: List[str] = []
@@ -272,45 +284,33 @@ class TDocMarkdownExporterThread(QThread):
                                     pass
 
                 # 3. Copy the ready, self-contained dossier into the export round folder
+                #    (or keep it directly inside the canonical TDoc folder when stage_copies=False)
                 if os.path.exists(to_extended_path(local_md_file)):
-                    target_dossier_dir = self.export_dir / sanitize_filename(tdoc_id)
-                    os.makedirs(to_extended_path(target_dossier_dir), exist_ok=True)
-                    target_md_file = target_dossier_dir / f"{sanitize_filename(tdoc_id)}.md"
-
                     try:
-                        shutil.copy2(to_extended_path(local_md_file), to_extended_path(target_md_file))
-
-                        images_count = 0
+                        media_files: List[Path] = []
                         if local_media_dir.is_dir():
-                            target_media_dir = target_dossier_dir / "media"
-                            # Identify images belonging to this TDoc
                             media_files = list(local_media_dir.glob(f"{tdoc_id}_*"))
                             if not media_files:
                                 media_files = [p for p in local_media_dir.iterdir() if p.is_file()]
 
+                        if self.stage_copies:
+                            target_dossier_dir = self.export_dir / sanitize_filename(tdoc_id)
+                            os.makedirs(to_extended_path(target_dossier_dir), exist_ok=True)
+                            target_md_file = target_dossier_dir / f"{sanitize_filename(tdoc_id)}.md"
+                            shutil.copy2(to_extended_path(local_md_file), to_extended_path(target_md_file))
+
+                            images_count = 0
+                            target_media_dir = target_dossier_dir / "media"
                             for img in media_files:
                                 if img.is_file():
                                     images_count += 1
                                     os.makedirs(to_extended_path(target_media_dir), exist_ok=True)
-                                    dst = target_media_dir / img.name
-                                    shutil.copy2(to_extended_path(img), to_extended_path(dst))
+                                    shutil.copy2(to_extended_path(img), to_extended_path(target_media_dir / img.name))
+                        else:
+                            target_md_file = local_md_file
+                            images_count = sum(1 for img in media_files if img.is_file())
 
-                        with open(to_extended_path(target_md_file), "r", encoding="utf-8") as f:
-                            md_content = f.read()
-
-                        if tdoc_download_url and "- **3GPP Server URL:**" not in md_content:
-                            url_bullet = f"- **3GPP Server URL:** [{tdoc_download_url}]({tdoc_download_url})\n"
-                            if "- **Original file:**" in md_content:
-                                md_content = md_content.replace("- **Original file:**", f"{url_bullet}- **Original file:**", 1)
-                            elif "- **Exporter:**" in md_content:
-                                md_content = md_content.replace("- **Exporter:**", f"{url_bullet}- **Exporter:**", 1)
-                            elif "\n---\n" in md_content:
-                                md_content = md_content.replace("\n---\n", f"\n{url_bullet}\n---\n", 1)
-                            try:
-                                with open(to_extended_path(target_md_file), "w", encoding="utf-8") as f:
-                                    f.write(md_content)
-                            except Exception:
-                                pass
+                        md_content = self._read_and_enrich_md(target_md_file, tdoc_download_url)
 
                         exported_docs.append(
                             ExportedDoc(
@@ -328,15 +328,15 @@ class TDocMarkdownExporterThread(QThread):
                             )
                         )
                     except Exception as copy_err:
-                        logging.error(f"[Markdown Exporter] Failed copying dossier for {tdoc_id}: {copy_err}")
+                        logging.error(f"[Markdown Exporter] Failed packaging dossier for {tdoc_id}: {copy_err}")
                         failed_tdocs.append(tdoc_id)
                 else:
                     warn_msg = f"Could not convert {tdoc_id} (missing or invalid Word document)."
                     logging.warning(f"[Markdown Exporter] {warn_msg}")
                     failed_tdocs.append(tdoc_id)
 
-            # 4. Create index.md manifest linking to each subfolder dossier
-            if exported_docs:
+            # 4. Create index.md manifest linking to each subfolder dossier when staging exports
+            if self.stage_copies and exported_docs:
                 try:
                     write_index(self.export_dir, exported_docs)
                     logging.info(f"[Markdown Exporter] Wrote index manifest in {self.export_dir}")
@@ -345,6 +345,13 @@ class TDocMarkdownExporterThread(QThread):
 
             if self.is_bulk:
                 msg = f"Successfully exported {len(exported_docs)} Markdown dossier(s) and index manifest to:\n{self.export_dir}"
+            elif not self.stage_copies:
+                names = ", ".join(d.name for d in exported_docs)
+                msg = (
+                    f"Successfully prepared {names} in:\n{self.export_dir}"
+                    if exported_docs
+                    else "Could not prepare TDoc Markdown."
+                )
             else:
                 names = ", ".join(d.name for d in exported_docs)
                 msg = f"Successfully exported {names} to:\n{self.export_dir}"
@@ -353,7 +360,8 @@ class TDocMarkdownExporterThread(QThread):
                 sample_failed = ", ".join(failed_tdocs[:5])
                 msg += f"\n\n⚠️ Failed to convert ({len(failed_tdocs)} document(s)): {sample_failed}{'...' if len(failed_tdocs) > 5 else ''}"
 
-            self.finished.emit(True, msg)
+            overall_success = True if self.stage_copies else bool(exported_docs)
+            self.finished.emit(overall_success, msg)
 
         except Exception as e:
             logging.error(f"[Markdown Exporter] Critical thread failure: {e}", exc_info=True)
@@ -368,17 +376,28 @@ class TDocMarkdownExporterThread(QThread):
                 del word_app
             pythoncom.CoUninitialize()
 
+    @staticmethod
+    def _read_and_enrich_md(target_md_file: Path, tdoc_download_url: Optional[str]) -> str:
+        with open(to_extended_path(target_md_file), "r", encoding="utf-8") as f:
+            md_content = f.read()
+
+        if tdoc_download_url and "- **3GPP Server URL:**" not in md_content:
+            url_bullet = f"- **3GPP Server URL:** [{tdoc_download_url}]({tdoc_download_url})\n"
+            if "- **Original file:**" in md_content:
+                md_content = md_content.replace("- **Original file:**", f"{url_bullet}- **Original file:**", 1)
+            elif "- **Exporter:**" in md_content:
+                md_content = md_content.replace("- **Exporter:**", f"{url_bullet}- **Exporter:**", 1)
+            elif "\n---\n" in md_content:
+                md_content = md_content.replace("\n---\n", f"\n{url_bullet}\n---\n", 1)
+            try:
+                with open(to_extended_path(target_md_file), "w", encoding="utf-8") as f:
+                    f.write(md_content)
+            except Exception:
+                pass
+        return md_content
+
     def _find_word_doc(self, folder: Path, tdoc_id: str) -> Optional[Path]:
-        if not folder.exists():
-            return None
-        for ext in [".docx", ".docm", ".pptx", ".doc", ".ppt", ".pdf"]:
-            files = list(folder.glob(f"*{ext}"))
-            if files:
-                for f in files:
-                    if tdoc_id.lower() in f.name.lower():
-                        return f
-                return files[0]
-        return None
+        return find_tdoc_source_doc(folder, tdoc_id)
 
     def _download_and_extract_tdoc(self, tdoc_id: str, tdoc_folder: Path) -> Optional[Path]:
         base_match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
