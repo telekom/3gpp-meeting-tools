@@ -44,6 +44,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ai.cli_detector import detect_cli_agents
+from core.ai.cli_launcher import launch_cli_in_terminal
 from core.ai.mcp_activity import (
     clear_mcp_activity_log,
     get_active_mcp_sessions,
@@ -51,11 +53,13 @@ from core.ai.mcp_activity import (
     get_mcp_client_configurations,
     get_recent_mcp_events,
 )
+from core.ui.theme import C
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_DANGER,
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     create_app_icon,
 )
+from core.utils.paths import get_project_root
 from modules.assistant.core.tools.external_agent_tools import (
     PROFILE_TOOLS,
     build_external_agent_tool_registry,
@@ -426,6 +430,40 @@ class McpMonitorDialog(QDialog):
         info_box.setStyleSheet("background: #F1F5F9; border: 1px solid #CBD5E1; border-radius: 5px; padding: 8px;")
         layout.addWidget(info_box)
 
+        # Installed LLM CLIs live detection strip
+        cli_strip = QFrame()
+        cli_strip.setStyleSheet(
+            f"QFrame {{ background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px; padding: 4px; }}"
+        )
+        cli_strip_layout = QHBoxLayout(cli_strip)
+        cli_strip_layout.setContentsMargins(10, 6, 10, 6)
+        cli_strip_layout.setSpacing(10)
+        cli_strip_title = QLabel("<b>Installed LLM CLIs:</b>")
+        cli_strip_title.setStyleSheet(f"color: {C.TEXT_STRONG}; border: none;")
+        cli_strip_layout.addWidget(cli_strip_title)
+
+        self._cli_status_widgets: Dict[str, tuple] = {}
+        for aid in ("codex", "claude", "gemini"):
+            badge = QLabel("...")
+            badge.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {C.TEXT_MUTED}; border: none;")
+            cli_strip_layout.addWidget(badge)
+
+            launch_btn = QPushButton("🚀 Launch")
+            launch_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+            launch_btn.setVisible(False)
+            launch_btn.clicked.connect(lambda _=False, target_aid=aid: self._launch_cli_from_cockpit(target_aid))
+            cli_strip_layout.addWidget(launch_btn)
+            self._cli_status_widgets[aid] = (badge, launch_btn)
+
+        cli_strip_layout.addStretch()
+        self.cli_rescan_btn = QPushButton("🔄 Re-scan")
+        self.cli_rescan_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.cli_rescan_btn.setToolTip("Re-scan PATH and user directories for codex, claude, and gemini CLIs.")
+        self.cli_rescan_btn.clicked.connect(lambda _=False: self._refresh_cli_agents_status(force_refresh=True))
+        cli_strip_layout.addWidget(self.cli_rescan_btn)
+        layout.addWidget(cli_strip)
+        self._refresh_cli_agents_status(force_refresh=False)
+
         cfg_tabs = QTabWidget()
 
         # Generate configuration dictionary
@@ -460,6 +498,17 @@ class McpMonitorDialog(QDialog):
             is_json=False,
         )
         cfg_tabs.addTab(claude_cli_card, "Claude CLI")
+
+        # 3b. Google Gemini CLI Card
+        gemini_cli_card = self._create_client_card(
+            title="Google Gemini CLI",
+            snippet=cfgs["gemini_cli"]["config_json"],
+            instructions=cfgs["gemini_cli"]["instructions"],
+            target_path=cfgs["gemini_cli"]["target_file"],
+            command_line=cfgs["gemini_cli"]["cli_command"],
+            is_json=True,
+        )
+        cfg_tabs.addTab(gemini_cli_card, "Gemini CLI")
 
         # 4. Cursor / Windsurf Card
         cursor_card = self._create_client_card(
@@ -542,6 +591,30 @@ class McpMonitorDialog(QDialog):
         btn_row.addStretch()
         layout.addLayout(btn_row)
         return widget
+
+    def _refresh_cli_agents_status(self, force_refresh: bool = False):
+        statuses = detect_cli_agents(force_refresh=force_refresh)
+        for aid, (badge, launch_btn) in getattr(self, "_cli_status_widgets", {}).items():
+            st = statuses.get(aid)
+            if not st:
+                continue
+            if st.installed:
+                mcp_tag = " · MCP ✓" if st.mcp_configured else ""
+                badge.setText(f"🟢 {st.label}{mcp_tag}")
+                badge.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {C.SUCCESS_DARK}; border: none;")
+                badge.setToolTip(f"Executable: {st.executable_path}\nSource: {st.source}\nMCP configured: {st.mcp_configured}")
+                launch_btn.setVisible(True)
+                launch_btn.setToolTip(f"Launch {st.label} in an interactive terminal.")
+            else:
+                badge.setText(f"⚪ {st.label}: Not Found")
+                badge.setStyleSheet(f"font-size: 11px; font-weight: 500; color: {C.TEXT_MUTED}; border: none;")
+                badge.setToolTip(f"Not detected.\nInstall: {st.install_hint}")
+                launch_btn.setVisible(False)
+
+    def _launch_cli_from_cockpit(self, agent_id: str):
+        proj = get_project_root()
+        target_dir = proj.parent if proj.name == "src" else proj
+        launch_cli_in_terminal(agent_id, target_dir, bootstrap_prompt="", parent=self)
 
     def _open_in_explorer(self, target_path: str):
         try:

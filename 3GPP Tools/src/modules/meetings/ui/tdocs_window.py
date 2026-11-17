@@ -67,7 +67,9 @@ from modules.meetings.ui.dialogs.tdocs_export_controller import (
     export_markdown_single,
     open_post_meeting_export_dialog,
     open_pre_meeting_export_dialog,
+    launch_cli_for_tdocs,
 )
+from core.ai.cli_launcher import populate_cli_agent_menu
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
 from modules.emails.core.general_email_db import GeneralEmailDatabase
 from modules.emails.core.general_email_sync import GeneralEmailSyncThread
@@ -346,6 +348,12 @@ class TDocsWindow(QWidget):
             "Compile selected or visible TDocs into an interactive HTML dossier and a bookmarked vector PDF with companion AI citation prompt."
         )
         act_export_dossier.setStatusTip(act_export_dossier.toolTip())
+
+        self.cli_export_submenu = export_menu.addMenu("💬 Export && Open in CLI Agent")
+        self.cli_export_submenu.setToolTip(
+            "Pre-convert selected (or visible) TDocs to Markdown and launch Codex, Claude, or Gemini CLI."
+        )
+        self.cli_export_submenu.aboutToShow.connect(self._populate_export_cli_submenu)
 
         self.export_menu = export_menu
         self.export_menu_sep = export_menu.addSeparator()
@@ -1810,6 +1818,7 @@ class TDocsWindow(QWidget):
             pos,
             triage_callback=self._open_tdoc_triage,
             compare_active_word_callback=self._compare_tdoc_with_active_word,
+            launch_cli_callback=self._launch_cli_for_tdocs,
         )
 
     def _compose_email_draft(self, tdoc_id: str):
@@ -2362,6 +2371,19 @@ class TDocsWindow(QWidget):
         from modules.meetings.ui.dialogs.tdocs_export_controller import open_dossier_export_dialog
         open_dossier_export_dialog(self, target_rows)
 
+    def _launch_cli_for_tdocs(self, rows_data, agent_id: str, task_mode: str = "interactive", custom_question: str = ""):
+        launch_cli_for_tdocs(self, rows_data, agent_id, task_mode=task_mode, custom_question=custom_question)
+
+    def _populate_export_cli_submenu(self):
+        rows = get_package_export_rows(self)
+        populate_cli_agent_menu(
+            self.cli_export_submenu,
+            on_launch_callback=lambda aid, mode, r=rows: self._launch_cli_for_tdocs(r, aid, mode),
+            has_multiple_or_revs=(len(rows) > 1),
+            multi_count=len(rows),
+            parent=self,
+        )
+
     def _on_md_single_finished(self, success: bool, msg: str):
         self.export_btn.setText("📤 Export ▾")
         self.export_btn.setEnabled(True)
@@ -2886,6 +2908,7 @@ class TDocsWindow(QWidget):
             getattr(self, 'word_import_thread', None),
             getattr(self, 'chair_notes_thread', None),
             getattr(self, 'cacher_thread', None),
+            getattr(self, 'cli_md_export_thread', None),
         ]
         if hasattr(self, 'active_threads'):
             all_threads.extend(self.active_threads.values())

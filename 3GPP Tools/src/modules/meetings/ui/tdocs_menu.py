@@ -3,6 +3,7 @@ from typing import Any
 
 from PyQt5.QtCore import QPoint
 
+from modules.meetings.ui.dialogs.tdocs_export_controller import get_package_export_rows
 from modules.meetings.ui.tdoc_info_dialog import TDocInfoDialog
 from modules.meetings.ui.tdocs_menus import build_row_context_menu
 
@@ -35,6 +36,13 @@ def handle_table_context_menu(window: Any, pos: QPoint) -> None:
             unread_count = counts[1]
         elif isinstance(counts, dict):
             unread_count = counts.get("unread", 0)
+
+    selected_rows = [row_data]
+    sel_model = window.table.selectionModel() if hasattr(window, "table") else None
+    if sel_model and sel_model.selectedIndexes():
+        pkg_rows = get_package_export_rows(window)
+        if len(pkg_rows) > 1 and any(str(r.get("TDoc", "")).strip() == tdoc_id for r in pkg_rows):
+            selected_rows = pkg_rows
 
     build_row_context_menu(
         parent=window.table,
@@ -70,4 +78,6 @@ def handle_table_context_menu(window: Any, pos: QPoint) -> None:
         compare_active_word_callback=getattr(window, "_compare_tdoc_with_active_word", None),
         export_dossier_callback=window._export_dossier,
         load_session_plan_callback=getattr(window, "_load_tdoc_as_session_plan", None),
+        launch_cli_callback=getattr(window, "_launch_cli_for_tdocs", None),
+        selected_rows=selected_rows,
     )

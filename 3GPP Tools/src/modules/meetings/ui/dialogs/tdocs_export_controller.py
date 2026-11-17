@@ -1,15 +1,20 @@
 # --- File: src/modules/meetings/ui/tdocs_export_controller.py ---
+import datetime
 import logging
 import re
 from pathlib import Path
 from typing import Any, List, Optional
 
-from PyQt5.QtWidgets import QDialog, QFileDialog, QMessageBox
+from PyQt5.QtGui import QCursor
+from PyQt5.QtWidgets import QDialog, QFileDialog, QInputDialog, QMenu, QMessageBox
 
+from core.ai.cli_detector import CLI_AGENT_SPECS, get_installed_cli_agents
+from core.ai.cli_launcher import launch_cli_in_terminal, write_cli_context_file
 from modules.meetings.core.exporters.excel_exporter import ExcelExporterThread
 from modules.meetings.core.exporters.tdocs_package_exporter import TDocsPackageExporterThread
 from modules.meetings.core.exporters.llm_exporter import TDocMarkdownExporterThread
 from modules.meetings.core.exporters.dossier_exporter import DossierExporterThread
+from modules.meetings.core.tdocs.tdoc_markdown_converter import sanitize_filename
 from modules.meetings.ui.dialogs.excel_export_dialog import ALL_AVAILABLE_COLUMNS, ExcelExportDialog
 from modules.meetings.ui.dialogs.dossier_export_dialog import DossierExportDialog
 from core.utils.folder_opener import open_folder as _open_folder
@@ -360,14 +365,67 @@ def open_post_meeting_export_dialog(window: Any) -> None:
     thread.start()
 
 
+def _show_export_complete_with_cli_prompt(
+    parent: Any,
+    title: str,
+    msg: str,
+    target_dir: Optional[Path],
+    briefing_title: str,
+    auto_open: bool = True,
+) -> None:
+    """Show export completion message and optionally launch an installed LLM CLI in `target_dir`."""
+    installed = get_installed_cli_agents() if (target_dir and target_dir.is_dir()) else []
+    if not installed:
+        QMessageBox.information(parent, title, msg)
+        if auto_open and target_dir and target_dir.is_dir():
+            _open_folder(target_dir)
+        return
+
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Information)
+    box.setWindowTitle(title)
+    box.setText(msg)
+    btn_ok = box.addButton(QMessageBox.Ok)
+    btn_cli = box.addButton("💬 Launch CLI Agent...", QMessageBox.ActionRole)
+    box.setDefaultButton(btn_ok)
+    box.exec_()
+
+    if box.clickedButton() == btn_cli and target_dir and target_dir.is_dir():
+        def _launch(agent_id: str) -> None:
+            write_cli_context_file(
+                target_dir,
+                task_mode="briefing_qa",
+                briefing_title=briefing_title,
+            )
+            launch_cli_in_terminal(agent_id, target_dir, parent=parent)
+
+        if len(installed) == 1:
+            _launch(installed[0].agent_id)
+        else:
+            menu = QMenu(parent)
+            for st in installed:
+                act = menu.addAction(f"{st.icon} {st.label}")
+                act.triggered.connect(lambda _=False, aid=st.agent_id: _launch(aid))
+            menu.exec_(QCursor.pos())
+    elif auto_open and target_dir and target_dir.is_dir():
+        _open_folder(target_dir)
+
+
 def on_post_meeting_export_finished(window: Any, success: bool, msg: str, auto_open: bool = True) -> None:
     window.export_btn.setText("📤 Export ▾")
     window.export_btn.setEnabled(True)
     if success:
-        QMessageBox.information(window, "Post-Meeting Export Complete", msg)
         target = getattr(window.md_export_thread, "export_dir", None)
-        if auto_open and target and target.is_dir():
-            _open_folder(target)
+        wg = str(window.mtg_info.get("wg_name", "")).strip()
+        mtg = str(window.mtg_info.get("meeting_number", "")).strip()
+        _show_export_complete_with_cli_prompt(
+            window,
+            "Post-Meeting Export Complete",
+            msg,
+            target,
+            briefing_title=f"Post-Meeting Dossier ({wg} {mtg})".strip(),
+            auto_open=auto_open,
+        )
     else:
         QMessageBox.warning(window, "Post-Meeting Export Failed", msg)
 
@@ -451,10 +509,17 @@ def on_pre_meeting_export_finished(window: Any, success: bool, msg: str, auto_op
     window.export_btn.setText("📤 Export ▾")
     window.export_btn.setEnabled(True)
     if success:
-        QMessageBox.information(window, "Pre-Meeting Export Complete", msg)
         target = getattr(window.md_export_thread, "export_dir", None)
-        if auto_open and target and target.is_dir():
-            _open_folder(target)
+        wg = str(window.mtg_info.get("wg_name", "")).strip()
+        mtg = str(window.mtg_info.get("meeting_number", "")).strip()
+        _show_export_complete_with_cli_prompt(
+            window,
+            "Pre-Meeting Export Complete",
+            msg,
+            target,
+            briefing_title=f"Pre-Meeting Briefing ({wg} {mtg})".strip(),
+            auto_open=auto_open,
+        )
     else:
         QMessageBox.warning(window, "Pre-Meeting Export Failed", msg)
 
@@ -533,4 +598,125 @@ def on_dossier_export_finished(
             _open_folder(target_dir)
     else:
         QMessageBox.warning(window, "Dossier Export Failed", msg)
+
+
+def _expand_revision_rows(window: Any, rows_data: List[dict]) -> List[dict]:
+    """Expand a single-TDoc row to include its known revisions for side-by-side comparison."""
+    if len(rows_data) != 1:
+        return list(rows_data)
+
+    base_row = rows_data[0]
+    tdoc_id = str(base_row.get("TDoc", "")).strip()
+    if not tdoc_id:
+        return list(rows_data)
+
+    model = getattr(window, "model", None)
+    revs_map = getattr(model, "revisions", {}) if model else {}
+    revisions = list(revs_map.get(tdoc_id, []) or [])
+    if not revisions:
+        return list(rows_data)
+
+    expanded = [base_row]
+    seen = {tdoc_id.upper()}
+    for rev in revisions:
+        rev_str = str(rev).strip()
+        if not rev_str or rev_str.upper() in seen:
+            continue
+        seen.add(rev_str.upper())
+        rev_row = dict(base_row)
+        rev_row["TDoc"] = rev_str
+        expanded.append(rev_row)
+    return expanded
+
+
+def launch_cli_for_tdocs(
+    window: Any,
+    rows_data: List[dict],
+    agent_id: str,
+    task_mode: str = "interactive",
+    custom_question: str = "",
+) -> None:
+    """
+    Pre-convert the given TDoc row(s) to Markdown in an isolated CLI workspace folder,
+    write `_CLI_CONTEXT.md`, and launch the requested interactive LLM CLI terminal.
+    """
+    rows = [dict(r) for r in (rows_data or []) if r and str(r.get("TDoc", "")).strip()]
+    if not rows:
+        QMessageBox.warning(window, "No TDocs", "There are no TDocs selected to send to the CLI agent.")
+        return
+
+    if task_mode == "compare":
+        rows = _expand_revision_rows(window, rows)
+
+    spec = CLI_AGENT_SPECS.get((agent_id or "").strip().lower())
+    agent_label = spec.label if spec else agent_id
+
+    if task_mode == "custom" and not (custom_question or "").strip():
+        tdoc_preview = ", ".join(str(r.get("TDoc", "")).strip() for r in rows[:5])
+        if len(rows) > 5:
+            tdoc_preview += f" (+{len(rows) - 5} more)"
+        question, ok = QInputDialog.getMultiLineText(
+            window,
+            f"Ask {agent_label}",
+            f"Enter your question or analysis instruction for {tdoc_preview}:",
+            "",
+        )
+        if not ok or not question.strip():
+            return
+        custom_question = question.strip()
+
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    if len(rows) == 1:
+        single_tid = sanitize_filename(str(rows[0].get("TDoc", "")).strip())
+        target_dir = Path(window.meeting_dir) / "Export" / f"CLI_{single_tid}_{timestamp}"
+    else:
+        target_dir = Path(window.meeting_dir) / "Export" / f"CLI_Batch_{timestamp}"
+
+    has_export_btn = hasattr(window, "export_btn") and window.export_btn is not None
+    if has_export_btn:
+        window.export_btn.setText("⏳ Preparing CLI Markdown...")
+        window.export_btn.setEnabled(False)
+
+    thread = TDocMarkdownExporterThread(
+        window.meeting_dir,
+        rows,
+        window.docs_ftp_url,
+        window.revisions_url,
+        is_bulk=(len(rows) > 1),
+        output_dir=target_dir,
+    )
+    window.cli_md_export_thread = thread
+    if has_export_btn:
+        thread.progress.connect(window._on_md_progress)
+
+    def _on_finished(success: bool, msg: str) -> None:
+        if has_export_btn:
+            window.export_btn.setText("📤 Export ▾")
+            window.export_btn.setEnabled(True)
+        if not success:
+            QMessageBox.warning(window, "CLI Pre-Conversion Failed", msg)
+            return
+
+        md_files = [
+            p for p in sorted(target_dir.glob("*/*.md"))
+            if p.name != "_CLI_CONTEXT.md"
+        ]
+        if (target_dir / "index.md").is_file():
+            md_files.insert(0, target_dir / "index.md")
+
+        wg = str(window.mtg_info.get("wg_name", "")).strip()
+        mtg = str(window.mtg_info.get("meeting_number", "")).strip()
+        write_cli_context_file(
+            target_dir,
+            task_mode=task_mode,
+            custom_question=custom_question,
+            tdocs_meta=rows,
+            markdown_files=md_files,
+            briefing_title=f"{wg} {mtg} TDoc CLI Session".strip(),
+        )
+        launch_cli_in_terminal(agent_id, target_dir, parent=window)
+
+    thread.finished.connect(_on_finished)
+    thread.start()
+
 

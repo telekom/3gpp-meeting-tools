@@ -10,6 +10,7 @@ from PyQt5.QtCore import QPoint, QMimeData
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import QApplication, QMenu, QToolTip, QWidget
 
+from core.ai.cli_launcher import populate_cli_agent_menu
 from core.utils.portal_utils import get_portal_tdoc_url, open_portal_tdoc
 from modules.meetings.core.tdocs.tdoc_url_resolver import is_tdoc_revision, resolve_tdoc_download_url
 
@@ -406,6 +407,8 @@ def build_row_context_menu(
     compare_active_word_callback=None,
     export_dossier_callback=None,
     load_session_plan_callback=None,
+    launch_cli_callback=None,
+    selected_rows=None,
 ):
     """Complete command center menu for row-level operations."""
     menu = QMenu(parent)
@@ -422,6 +425,22 @@ def build_row_context_menu(
         act_triage = menu.addAction(f"🤖 AI Technical Triage for {tdoc_id}...")
         act_triage.setToolTip('Run the local-LLM technical triage for this TDoc.')
         act_triage.triggered.connect(lambda: triage_callback(tdoc_id))
+
+    if launch_cli_callback:
+        cli_rows = list(selected_rows) if (selected_rows and len(selected_rows) > 1) else [row_data]
+        cli_label = (
+            f"💬 Ask AI Agent (CLI) about {len(cli_rows)} Selected TDocs"
+            if len(cli_rows) > 1
+            else f"💬 Ask AI Agent (CLI) about {tdoc_id}"
+        )
+        cli_sub = menu.addMenu(cli_label)
+        populate_cli_agent_menu(
+            cli_sub,
+            on_launch_callback=lambda aid, mode, rows=cli_rows: launch_cli_callback(rows, aid, mode),
+            has_multiple_or_revs=(len(cli_rows) > 1 or bool(revisions)),
+            multi_count=len(cli_rows),
+            parent=parent,
+        )
 
     if draft_cr_callback:
         act_draft_cr = menu.addAction(f"📝 Draft CR / pCR from Spec...")
@@ -637,6 +656,7 @@ def build_related_menu(
     pos: QPoint,
     triage_callback=None,  # <--- Added parameter
     compare_active_word_callback=None,
+    launch_cli_callback=None,
 ):
     """Context menu triggered when right-clicking hyperlinked TDoc tags."""
     menu = QMenu(parent)
@@ -683,6 +703,15 @@ def build_related_menu(
             act_triage = menu.addAction(f"🤖 AI Technical Triage ({clean_tdoc})")
             act_triage.setToolTip('Run the local-LLM technical triage for this TDoc.')
             act_triage.triggered.connect(lambda: triage_callback(clean_tdoc))
+
+        if launch_cli_callback:
+            cli_sub = menu.addMenu(f"💬 Ask AI Agent (CLI) ({clean_tdoc})")
+            populate_cli_agent_menu(
+                cli_sub,
+                on_launch_callback=lambda aid, mode, t=clean_tdoc: launch_cli_callback([{"TDoc": t}], aid, mode),
+                has_multiple_or_revs=False,
+                parent=parent,
+            )
 
         if compose_email_callback:
             act_email = menu.addAction(f"✉️ Draft Email ({clean_tdoc})")

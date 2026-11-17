@@ -19,9 +19,15 @@ from PyQt5.QtWidgets import (
     QRadioButton, QCheckBox, QPushButton, QLineEdit, QFileDialog,
     QListWidget, QListWidgetItem, QStackedWidget, QFrame, QScrollArea,
     QWidget, QButtonGroup, QMessageBox, QProgressBar, QComboBox, QTextEdit,
-    QDateEdit,
+    QDateEdit, QMenu, QInputDialog,
 )
 
+from core.ai.cli_detector import CLI_AGENT_SPECS, detect_cli_agents
+from core.ai.cli_launcher import (
+    launch_cli_in_terminal,
+    open_mcp_agent_setup_dialog,
+    write_cli_context_file,
+)
 from core.ui.flow_layout import FlowLayout
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 from core.utils.folder_opener import open_folder as _open_folder
@@ -620,6 +626,15 @@ class TopicDossierDialog(QDialog):
         self.btn_open_folder.clicked.connect(self._on_open_output)
         action_layout.addWidget(self.btn_open_folder)
 
+        self.btn_launch_cli = QPushButton("💬 Launch CLI Agent")
+        self.btn_launch_cli.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_launch_cli.setEnabled(False)
+        self.btn_launch_cli.setToolTip("Open Codex CLI, Claude CLI, or Gemini CLI directly inside the exported Cross-WG Topic Dossier.")
+        self.cli_menu = QMenu(self)
+        self.cli_menu.aboutToShow.connect(self._populate_cli_menu)
+        self.btn_launch_cli.setMenu(self.cli_menu)
+        action_layout.addWidget(self.btn_launch_cli)
+
         self.btn_export = QPushButton("🚀 Export / Update Topic Dossier")
         self.btn_export.setStyleSheet(STYLE_PRIMARY_BTN)
         self.btn_export.clicked.connect(self._on_start_export)
@@ -766,11 +781,13 @@ class TopicDossierDialog(QDialog):
             self.lbl_inc_status.setText("⚠️ Please specify a destination folder.")
             self.btn_open_folder.setEnabled(False)
             self.btn_open_folder.setToolTip("Destination folder is empty.")
+            self.btn_launch_cli.setEnabled(False)
             self.btn_check_status.setEnabled(False)
             return
 
         folder_exists = os.path.isdir(to_extended_path(folder_str))
         self.btn_open_folder.setEnabled(folder_exists)
+        self.btn_launch_cli.setEnabled(folder_exists)
         self.btn_open_folder.setToolTip(
             f"Open in File Explorer: {folder_str}"
             if folder_exists
@@ -1130,6 +1147,7 @@ class TopicDossierDialog(QDialog):
             self._check_incremental_status()
             if target_dir and os.path.isdir(to_extended_path(target_dir)):
                 self.btn_open_folder.setEnabled(True)
+                self.btn_launch_cli.setEnabled(True)
             QMessageBox.information(self, "Export Complete", msg)
         else:
             self.lbl_status.setText("Export failed.")
@@ -1147,8 +1165,124 @@ class TopicDossierDialog(QDialog):
             _open_folder(Path(clean_target))
         else:
             self.btn_open_folder.setEnabled(False)
+            self.btn_launch_cli.setEnabled(False)
             QMessageBox.information(
                 self,
                 "Folder Not Found",
                 f"Output folder does not exist yet:\n{clean_target}\n\nPlease run 'Export / Update Topic Dossier' first.",
             )
+
+    def _collect_topic_manifest_summary(self, folder: Path) -> Dict[str, object]:
+        """Inspect `.export_manifest.json` in `folder` for Stage-1 and Stage-2 status."""
+        summary: Dict[str, object] = {
+            "analyzed_meetings": [],
+            "stale_meetings": [],
+            "pending_meetings": [],
+            "synthesis_status": "pending",
+        }
+        manifest = load_manifest(folder)
+        if not manifest or not manifest.exported_meetings:
+            return summary
+
+        for m_key, m_state in manifest.exported_meetings.items():
+            if not isinstance(m_state, dict):
+                continue
+            lc = str(m_state.get("lifecycle", "") or "").strip().lower()
+            d_c = int(m_state.get("decision_count", 0) or 0)
+            t_c = int(m_state.get("tdoc_count", 0) or 0)
+            if lc == "no_activity" or (d_c == 0 and t_c == 0):
+                continue
+
+            a_file = Path(to_extended_path(folder / m_key / "_company_positions_analysis.md"))
+            st = str(m_state.get("analysis_status") or "").strip().lower()
+            if not a_file.is_file():
+                summary["pending_meetings"].append(m_key)
+            elif st == "stale":
+                summary["stale_meetings"].append(m_key)
+            else:
+                summary["analyzed_meetings"].append(m_key)
+
+        syn_state = manifest.synthesis_state or {}
+        summary["synthesis_status"] = str(syn_state.get("status") or "pending").lower()
+        return summary
+
+    def _populate_cli_menu(self):
+        self.cli_menu.clear()
+        self.cli_menu.setToolTipsVisible(True)
+
+        folder_str = self.edit_dest_folder.text().strip()
+        summary = self._collect_topic_manifest_summary(Path(folder_str)) if folder_str else {}
+        pending_cnt = len(summary.get("pending_meetings", []))
+        stale_cnt = len(summary.get("stale_meetings", []))
+        stage1_hint = f" ({pending_cnt} pending, {stale_cnt} stale)" if (pending_cnt or stale_cnt) else ""
+
+        statuses = detect_cli_agents()
+        installed = [st for st in statuses.values() if st.installed]
+        missing = [st for st in statuses.values() if not st.installed]
+
+        if installed:
+            for st in installed:
+                sub = self.cli_menu.addMenu(f"{st.icon} {st.label}")
+                sub.setToolTipsVisible(True)
+
+                act_qa = sub.addAction("💬 Interactive Q&&A on Topic Corpus")
+                act_qa.setToolTip(f"Launch {st.label} inside the topic dossier folder.")
+                act_qa.triggered.connect(lambda _=False, aid=st.agent_id: self._launch_cli_for_topic(aid, "topic_qa"))
+
+                act_s1 = sub.addAction(f"🧪 Run Stage-1 Meeting Analysis{stage1_hint}")
+                act_s1.setToolTip(f"Launch {st.label} focused on pending/stale per-meeting analysis files.")
+                act_s1.triggered.connect(lambda _=False, aid=st.agent_id: self._launch_cli_for_topic(aid, "topic_stage1"))
+
+                act_s2 = sub.addAction("🌐 Run Stage-2 E2E Cross-WG Synthesis")
+                act_s2.setToolTip(f"Launch {st.label} to run or update company_positions_e2e_synthesis.md.")
+                act_s2.triggered.connect(lambda _=False, aid=st.agent_id: self._launch_cli_for_topic(aid, "topic_stage2"))
+
+                sub.addSeparator()
+                act_custom = sub.addAction("✏️ Custom Question on Topic Corpus...")
+                act_custom.triggered.connect(lambda _=False, aid=st.agent_id: self._launch_cli_for_topic(aid, "custom"))
+        else:
+            no_cli = self.cli_menu.addAction("⚪ No LLM CLI Detected (codex / claude / gemini)")
+            no_cli.setEnabled(False)
+
+        if missing:
+            self.cli_menu.addSeparator()
+            for st in missing:
+                act_miss = self.cli_menu.addAction(f"⚪ {st.label} (Not Found)")
+                act_miss.setEnabled(False)
+                act_miss.setToolTip(f"Not detected.\nInstall: {st.install_hint}")
+
+        self.cli_menu.addSeparator()
+        act_cfg = self.cli_menu.addAction("⚙️ Configure CLI Agents && MCP...")
+        act_cfg.triggered.connect(lambda _=False: open_mcp_agent_setup_dialog(self))
+
+    def _launch_cli_for_topic(self, agent_id: str, task_mode: str):
+        dest_text = self.edit_dest_folder.text().strip()
+        if not dest_text or not os.path.isdir(to_extended_path(dest_text)):
+            QMessageBox.warning(self, "Folder Not Found", "Please export the topic dossier before launching a CLI agent.")
+            return
+
+        target_dir = Path(strip_extended_path(dest_text))
+        topic_name = self.active_topic.name if self.active_topic else target_dir.name
+        custom_question = ""
+        if task_mode == "custom":
+            spec = CLI_AGENT_SPECS.get((agent_id or "").strip().lower())
+            agent_label = spec.label if spec else agent_id
+            q_text, ok = QInputDialog.getMultiLineText(
+                self,
+                f"Ask {agent_label}",
+                f"Enter your question about topic '{topic_name}':",
+                "",
+            )
+            if not ok or not q_text.strip():
+                return
+            custom_question = q_text.strip()
+
+        summary = self._collect_topic_manifest_summary(target_dir)
+        write_cli_context_file(
+            target_dir,
+            task_mode=task_mode,
+            custom_question=custom_question,
+            topic_name=topic_name,
+            manifest_summary=summary,
+        )
+        launch_cli_in_terminal(agent_id, target_dir, parent=self)

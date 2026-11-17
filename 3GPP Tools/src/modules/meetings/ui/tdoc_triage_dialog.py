@@ -2,16 +2,26 @@
 import datetime
 import logging
 import json
+import re
 from pathlib import Path
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QCursor, QTextCursor
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPlainTextEdit,
-    QPushButton, QComboBox, QMessageBox, QFrame, QApplication, QToolTip
+    QPushButton, QComboBox, QMessageBox, QFrame, QApplication, QToolTip,
+    QMenu, QInputDialog,
 )
 
+from core.ai.cli_detector import CLI_AGENT_SPECS
+from core.ai.cli_launcher import (
+    launch_cli_in_terminal,
+    populate_cli_agent_menu,
+    write_cli_context_file,
+)
 from core.ai.ollama_client import OllamaClient, load_ollama_config
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
+from modules.meetings.core.exporters.llm_exporter import TDocMarkdownExporterThread
+from modules.meetings.core.tdocs.tdoc_markdown_converter import sanitize_filename
 from modules.meetings.core.tdocs.tdoc_triage_worker import TDocTriageWorker
 from modules.meetings.core.tdocs.tdoc_url_resolver import resolve_tdoc_download_url
 from modules.meetings.ui.tdocs_dialogs import MY_STATUS_OPTIONS
@@ -256,6 +266,15 @@ class TDocTriageDialog(QDialog):
         self.copy_btn.clicked.connect(self._copy_summary)
         btn_bar.addWidget(self.copy_btn)
 
+        # Escalate to External LLM CLI
+        self.cli_btn = QPushButton("💬 Continue in CLI")
+        self.cli_btn.setToolTip("Open this TDoc and its triage summary in Codex CLI, Claude CLI, or Gemini CLI.")
+        self.cli_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.cli_menu = QMenu(self)
+        self.cli_menu.aboutToShow.connect(self._populate_cli_menu)
+        self.cli_btn.setMenu(self.cli_menu)
+        btn_bar.addWidget(self.cli_btn)
+
         btn_bar.addStretch()
 
         # Stop / Cancel
@@ -473,7 +492,86 @@ class TDocTriageDialog(QDialog):
             QApplication.clipboard().setText(text)
             QToolTip.showText(QCursor.pos(), "📋 Copied summary with 3GPP URL to clipboard!", self)
 
+    def _populate_cli_menu(self):
+        populate_cli_agent_menu(
+            self.cli_menu,
+            on_launch_callback=self._launch_in_cli,
+            has_multiple_or_revs=False,
+            parent=self,
+        )
+
+    def _launch_in_cli(self, agent_id: str, task_mode: str = "interactive"):
+        custom_question = ""
+        if task_mode == "custom":
+            spec = CLI_AGENT_SPECS.get((agent_id or "").strip().lower())
+            agent_label = spec.label if spec else agent_id
+            q_text, ok = QInputDialog.getMultiLineText(
+                self,
+                f"Ask {agent_label}",
+                f"Enter your question about {self.tdoc_id}:",
+                "",
+            )
+            if not ok or not q_text.strip():
+                return
+            custom_question = q_text.strip()
+
+        triage_summary = self.output_text.toPlainText().strip()
+        match = re.search(r"^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$", self.tdoc_id, re.IGNORECASE)
+        base_tdoc = match.group(1).upper() if match else self.tdoc_id.upper()
+        local_dir = self.meeting_dir / base_tdoc
+        local_md = local_dir / f"{sanitize_filename(self.tdoc_id)}.md"
+
+        if local_md.is_file():
+            write_cli_context_file(
+                local_dir,
+                task_mode=task_mode,
+                custom_question=custom_question,
+                tdocs_meta=[self.tdoc_data],
+                markdown_files=[local_md],
+                local_triage_summary=triage_summary,
+            )
+            launch_cli_in_terminal(agent_id, local_dir, parent=self)
+            return
+
+        # Pre-convert into an isolated CLI Export directory if not yet cached
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        export_dir = self.meeting_dir / "Export" / f"CLI_{sanitize_filename(self.tdoc_id)}_{timestamp}"
+        self.cli_btn.setEnabled(False)
+        self.cli_btn.setText("⏳ Converting...")
+
+        self._cli_export_thread = TDocMarkdownExporterThread(
+            self.meeting_dir,
+            [self.tdoc_data],
+            self.docs_ftp_url,
+            self.revisions_url,
+            is_bulk=False,
+            output_dir=export_dir,
+        )
+
+        def _on_cli_export_done(success: bool, msg: str) -> None:
+            self.cli_btn.setEnabled(True)
+            self.cli_btn.setText("💬 Continue in CLI")
+            if not success:
+                QMessageBox.warning(self, "CLI Pre-Conversion Failed", msg)
+                return
+            md_files = [p for p in sorted(export_dir.glob("*/*.md")) if p.name != "_CLI_CONTEXT.md"]
+            write_cli_context_file(
+                export_dir,
+                task_mode=task_mode,
+                custom_question=custom_question,
+                tdocs_meta=[self.tdoc_data],
+                markdown_files=md_files,
+                local_triage_summary=triage_summary,
+            )
+            launch_cli_in_terminal(agent_id, export_dir, parent=self)
+
+        self._cli_export_thread.finished.connect(_on_cli_export_done)
+        self._cli_export_thread.start()
+
     def closeEvent(self, event):
+        if getattr(self, "_cli_export_thread", None) and self._cli_export_thread.isRunning():
+            self._cli_export_thread.requestInterruption()
+            self._cli_export_thread.wait(300)
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
             if not self.worker.wait(500):

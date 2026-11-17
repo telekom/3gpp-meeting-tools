@@ -513,10 +513,10 @@ def get_mcp_activity_stats() -> Dict[str, Any]:
 def get_mcp_client_configurations() -> Dict[str, Dict[str, Any]]:
     """
     Generate ready-to-use configuration blocks with auto-detected absolute
-    paths for Claude Desktop, Codex CLI, Claude CLI, Cursor, and Windsurf.
+    paths for Claude Desktop, Codex CLI, Claude CLI, Gemini CLI, Cursor, and Windsurf.
     """
     root_dir = get_project_root()
-    src_dir = root_dir / "src"
+    src_dir = root_dir if (root_dir / "mcp_server.py").exists() else (root_dir / "src")
     mcp_server_script = src_dir / "mcp_server.py"
     cmd_launcher = src_dir / "Launch_MCP.cmd"
     python_exe = Path(sys.executable)
@@ -558,6 +558,18 @@ def get_mcp_client_configurations() -> Dict[str, Dict[str, Any]]:
 
     # 3. Claude CLI command snippet
     claude_cli_cmd = f'claude mcp add 3gpp-tools "{python_exe_str}" "{server_script_str}" -- --profile all'
+
+    # 3b. Google Gemini CLI configuration (~/.gemini/settings.json)
+    gemini_config_file = Path.home() / ".gemini" / "settings.json"
+    gemini_cfg = {
+        "mcpServers": {
+            "3gpp-tools": {
+                "command": python_exe_str,
+                "args": [server_script_str, "--profile", "all"],
+            }
+        }
+    }
+    gemini_cli_cmd = f'gemini mcp add 3gpp-tools "{python_exe_str}" "{server_script_str}" -- --profile all'
 
     # 4. Cursor / Windsurf settings (Settings -> Features -> MCP -> Add Server)
     cursor_cfg = {
@@ -620,6 +632,15 @@ def get_mcp_client_configurations() -> Dict[str, Dict[str, Any]]:
             "title": "Anthropic Claude CLI",
             "cli_command": claude_cli_cmd,
             "instructions": "Run this command in PowerShell or cmd to permanently register 3GPP Tools with Claude CLI.",
+        },
+        "gemini_cli": {
+            "title": "Google Gemini CLI",
+            "target_file": str(gemini_config_file),
+            "config_json": json.dumps(gemini_cfg, indent=2),
+            "cli_command": gemini_cli_cmd,
+            "instructions": (
+                "Run the CLI command above or add this entry to ~/.gemini/settings.json under 'mcpServers'."
+            ),
         },
         "cursor": {
             "title": "Cursor & Windsurf IDE",
