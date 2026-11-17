@@ -97,7 +97,8 @@ class CliContextEditorDialog(QDialog):
             self._agent_id = "codex"
         self._scope_label = scope_label.strip()
         self._target_dir = Path(target_dir) if target_dir else None
-        self._task_options = list(task_options or DEFAULT_TDOC_TASK_OPTIONS)
+        self._task_options = list(DEFAULT_TDOC_TASK_OPTIONS if task_options is None else task_options)
+        self._initial_task_mode = initial_task_mode
         self._per_tdoc_notes = dict(per_tdoc_notes or {})
         self._settings_only = settings_only
         self._home_dir = home_dir
@@ -188,7 +189,7 @@ class CliContextEditorDialog(QDialog):
 
         header_layout.addLayout(model_row)
 
-        if not self._settings_only:
+        if not self._settings_only and self._task_options:
             task_row = QHBoxLayout()
             task_row.setSpacing(8)
             lbl_task = QLabel("Task Mode:")
@@ -429,7 +430,7 @@ class CliContextEditorDialog(QDialog):
             if self._target_dir is not None:
                 save_workspace_user_notes(self._target_dir, ws_notes)
 
-        task_mode = str(self.task_combo.currentData()) if self.task_combo is not None else "interactive"
+        task_mode = str(self.task_combo.currentData()) if self.task_combo is not None else self._initial_task_mode
         custom_q = (
             self.custom_prompt_edit.toPlainText().strip()
             if self.custom_prompt_edit is not None and task_mode == "custom"
@@ -460,7 +461,7 @@ class CliContextEditorDialog(QDialog):
         return CliContextDialogResult(
             launch_requested=self._launch_requested,
             agent_id=self._agent_id,
-            task_mode=str(self.task_combo.currentData()) if self.task_combo is not None else "interactive",
+            task_mode=str(self.task_combo.currentData()) if self.task_combo is not None else self._initial_task_mode,
             custom_question=(
                 self.custom_prompt_edit.toPlainText().strip()
                 if self.custom_prompt_edit is not None

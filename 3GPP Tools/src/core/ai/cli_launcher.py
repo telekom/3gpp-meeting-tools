@@ -189,18 +189,18 @@ def _build_task_instruction(
             "and each meeting's `_company_positions_analysis.md` to produce/update "
             "`company_positions_e2e_synthesis.md`."
         )
-    if mode == "topic_qa":
+    if mode in ("topic_idle", "topic_qa"):
         return (
-            f"You are inspecting the Cross-WG Topic Dossier for '{topic_name or 'this 3GPP topic'}'. "
-            "Start by reading `index.md`, `agreements_timeline.md`, and `ls_dialogue.md` (and "
-            "`company_positions_e2e_synthesis.md` if present), summarize the current landscape briefly, "
-            "and stand by for interactive questions."
+            f"You have been launched in the Cross-WG Topic Dossier for '{topic_name or 'this 3GPP topic'}'. "
+            "Do NOT automatically read or analyze all files or meetings across the folder. "
+            "Wait for the user's question first, and inspect only `index.md`, `agreements_timeline.md`, "
+            "`ls_dialogue.md`, or specific meetings/TDocs as needed to answer what the user asks."
         )
     if mode == "briefing_qa":
         return (
-            "Read `index.md` in this briefing directory to orient yourself with the Work Items, "
-            "Agenda Items, and exported TDoc dossiers, give a brief overview of what is included, "
-            "and stand by for interactive questions."
+            "You have been launched in a Pre/Post-Meeting Dossier workspace. "
+            "Do NOT automatically read or analyze all files in this directory. "
+            "Wait for the user's question first, starting with `index.md` only when asked."
         )
 
     return (

@@ -19,10 +19,10 @@ from PyQt5.QtWidgets import (
     QRadioButton, QCheckBox, QPushButton, QLineEdit, QFileDialog,
     QListWidget, QListWidgetItem, QStackedWidget, QFrame, QScrollArea,
     QWidget, QButtonGroup, QMessageBox, QProgressBar, QComboBox, QTextEdit,
-    QDateEdit, QMenu, QInputDialog, QSizePolicy,
+    QDateEdit, QMenu, QSizePolicy,
 )
 
-from core.ai.cli_detector import CLI_AGENT_SPECS, detect_cli_agents, format_active_model_badge
+from core.ai.cli_detector import detect_cli_agents, format_active_model_badge
 from core.ai.cli_launcher import (
     add_model_selector_submenu,
     launch_cli_in_terminal,
@@ -1249,12 +1249,6 @@ class TopicDossierDialog(QDialog):
         self.cli_menu.clear()
         self.cli_menu.setToolTipsVisible(True)
 
-        folder_str = self.edit_dest_folder.text().strip()
-        summary = self._collect_topic_manifest_summary(Path(folder_str)) if folder_str else {}
-        pending_cnt = len(summary.get("pending_meetings", []))
-        stale_cnt = len(summary.get("stale_meetings", []))
-        stage1_hint = f" ({pending_cnt} pending, {stale_cnt} stale)" if (pending_cnt or stale_cnt) else ""
-
         statuses = detect_cli_agents()
         installed = [st for st in statuses.values() if st.installed]
         missing = [st for st in statuses.values() if not st.installed]
@@ -1266,23 +1260,13 @@ class TopicDossierDialog(QDialog):
                 sub.setToolTipsVisible(True)
                 sub.setToolTip(f"{st.executable_path}\nModel: {badge}")
 
-                act_qa = sub.addAction("💬 Interactive Q&&A on Topic Corpus")
-                act_qa.setToolTip(f"Launch {st.label} inside the topic dossier folder.")
-                act_qa.triggered.connect(lambda _=False, aid=st.agent_id: self._launch_cli_for_topic(aid, "topic_qa"))
+                act_launch = sub.addAction(f"🚀 Launch {st.label} in Topic Folder")
+                act_launch.setToolTip(
+                    f"Open {st.label} interactively in the topic dossier folder without running any automatic analysis."
+                )
+                act_launch.triggered.connect(lambda _=False, aid=st.agent_id: self._launch_cli_for_topic(aid, "topic_idle"))
 
-                act_s1 = sub.addAction(f"🧪 Run Stage-1 Meeting Analysis{stage1_hint}")
-                act_s1.setToolTip(f"Launch {st.label} focused on pending/stale per-meeting analysis files.")
-                act_s1.triggered.connect(lambda _=False, aid=st.agent_id: self._launch_cli_for_topic(aid, "topic_stage1"))
-
-                act_s2 = sub.addAction("🌐 Run Stage-2 E2E Cross-WG Synthesis")
-                act_s2.setToolTip(f"Launch {st.label} to run or update company_positions_e2e_synthesis.md.")
-                act_s2.triggered.connect(lambda _=False, aid=st.agent_id: self._launch_cli_for_topic(aid, "topic_stage2"))
-
-                sub.addSeparator()
-                act_custom = sub.addAction("✏️ Custom Question on Topic Corpus...")
-                act_custom.triggered.connect(lambda _=False, aid=st.agent_id: self._launch_cli_for_topic(aid, "custom"))
-
-                act_ctx = sub.addAction("📝 Edit Topic Context / Notes && Launch...")
+                act_ctx = sub.addAction("📝 Edit Topic Notes && Launch...")
                 act_ctx.setToolTip(
                     "Edit persistent topic _USER_NOTES.md / standing company guidance and select Model / Reasoning Effort before launching."
                 )
@@ -1305,7 +1289,7 @@ class TopicDossierDialog(QDialog):
         act_cfg = self.cli_menu.addAction("⚙️ Configure CLI Agents && MCP...")
         act_cfg.triggered.connect(lambda _=False: open_mcp_agent_setup_dialog(self))
 
-    def _launch_cli_for_topic(self, agent_id: str, task_mode: str):
+    def _launch_cli_for_topic(self, agent_id: str, task_mode: str = "topic_idle"):
         dest_text = self.edit_dest_folder.text().strip()
         if not dest_text or not os.path.isdir(to_extended_path(dest_text)):
             QMessageBox.warning(self, "Folder Not Found", "Please export the topic dossier before launching a CLI agent.")
@@ -1313,23 +1297,16 @@ class TopicDossierDialog(QDialog):
 
         target_dir = Path(strip_extended_path(dest_text))
         topic_name = self.active_topic.name if self.active_topic else target_dir.name
-        custom_question = ""
         model_override: Optional[str] = None
         effort_override: Optional[str] = None
 
         if task_mode == "edit_context":
-            topic_tasks = [
-                ("topic_qa", "💬 Interactive Q&A on Topic Corpus"),
-                ("topic_stage1", "🧪 Run Stage-1 Meeting Analysis"),
-                ("topic_stage2", "🌐 Run Stage-2 E2E Cross-WG Synthesis"),
-                ("custom", "✏️ Custom Question on Topic Corpus"),
-            ]
             dlg = CliContextEditorDialog(
                 agent_id=agent_id,
                 scope_label=f"Topic: {topic_name}",
                 target_dir=target_dir,
-                task_options=topic_tasks,
-                initial_task_mode="topic_qa",
+                task_options=[],
+                initial_task_mode="topic_idle",
                 parent=self,
             )
             if dlg.exec_() != QDialog.Accepted:
@@ -1337,35 +1314,22 @@ class TopicDossierDialog(QDialog):
             res = dlg.get_result()
             if not res.launch_requested:
                 return
-            task_mode = res.task_mode
-            custom_question = res.custom_question
             model_override = res.model
             effort_override = res.reasoning_effort
-
-        if task_mode == "custom" and not custom_question.strip():
-            spec = CLI_AGENT_SPECS.get((agent_id or "").strip().lower())
-            agent_label = spec.label if spec else agent_id
-            q_text, ok = QInputDialog.getMultiLineText(
-                self,
-                f"Ask {agent_label}",
-                f"Enter your question about topic '{topic_name}':",
-                "",
-            )
-            if not ok or not q_text.strip():
-                return
-            custom_question = q_text.strip()
+            task_mode = "topic_idle"
 
         summary = self._collect_topic_manifest_summary(target_dir)
         write_cli_context_file(
             target_dir,
             task_mode=task_mode,
-            custom_question=custom_question,
             topic_name=topic_name,
             manifest_summary=summary,
         )
+        # Do not send an automatic bootstrap prompt on cross-WG/cross-meeting corpora
         launch_cli_in_terminal(
             agent_id,
             target_dir,
+            bootstrap_prompt="",
             parent=self,
             model=model_override,
             reasoning_effort=effort_override,

@@ -406,7 +406,8 @@ def _show_export_complete_with_cli_prompt(
                 task_mode="briefing_qa",
                 briefing_title=briefing_title,
             )
-            launch_cli_in_terminal(agent_id, target_dir, parent=parent)
+            # Launch cleanly at interactive prompt without auto-scanning the full meeting dossier
+            launch_cli_in_terminal(agent_id, target_dir, bootstrap_prompt="", parent=parent)
 
         if len(installed) == 1:
             _launch(installed[0].agent_id)

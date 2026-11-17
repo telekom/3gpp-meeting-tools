@@ -433,9 +433,12 @@ class TestCliUiIntegration(unittest.TestCase):
         self.assertEqual(summary["pending_meetings"], ["SA2_174"])
 
         with patch("modules.meetings.ui.dialogs.topic_dossier_dialog.launch_cli_in_terminal", return_value=True) as mock_launch:
-            dlg._launch_cli_for_topic("gemini", "topic_stage1")
+            dlg._launch_cli_for_topic("gemini", "topic_idle")
         mock_launch.assert_called_once()
-        self.assertTrue((export_dir / CLI_CONTEXT_FILENAME).is_file())
+        # Cross-WG / cross-meeting launches must NOT send an automatic prompt that burns credits
+        self.assertEqual(mock_launch.call_args.kwargs.get("bootstrap_prompt"), "")
+        ctx_text = (export_dir / CLI_CONTEXT_FILENAME).read_text(encoding="utf-8")
+        self.assertIn("Do NOT automatically read or analyze all files", ctx_text)
         dlg.close()
 
     def test_mcp_configs_include_gemini_and_monitor_dialog_shows_strip(self):
