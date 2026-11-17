@@ -3,18 +3,27 @@ import datetime
 import logging
 import re
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import QDialog, QFileDialog, QInputDialog, QMenu, QMessageBox
 
 from core.ai.cli_detector import CLI_AGENT_SPECS, get_installed_cli_agents
-from core.ai.cli_launcher import launch_cli_in_terminal, write_cli_context_file
+from core.ai.cli_launcher import (
+    collect_per_tdoc_user_notes,
+    launch_cli_in_terminal,
+    save_workspace_user_notes,
+    write_cli_context_file,
+)
+from core.ui.cli_context_dialog import CliContextEditorDialog, DEFAULT_TDOC_TASK_OPTIONS
 from modules.meetings.core.exporters.excel_exporter import ExcelExporterThread
 from modules.meetings.core.exporters.tdocs_package_exporter import TDocsPackageExporterThread
 from modules.meetings.core.exporters.llm_exporter import TDocMarkdownExporterThread
 from modules.meetings.core.exporters.dossier_exporter import DossierExporterThread
-from modules.meetings.core.tdocs.tdoc_markdown_converter import is_canonical_tdoc_markdown_ready
+from modules.meetings.core.tdocs.tdoc_markdown_converter import (
+    is_canonical_tdoc_markdown_ready,
+    resolve_canonical_tdoc_paths,
+)
 from modules.meetings.ui.dialogs.excel_export_dialog import ALL_AVAILABLE_COLUMNS, ExcelExportDialog
 from modules.meetings.ui.dialogs.dossier_export_dialog import DossierExportDialog
 from core.utils.folder_opener import open_folder as _open_folder
@@ -648,6 +657,7 @@ def prepare_and_launch_cli_session(
     thread_owner: Optional[Any] = None,
     thread_attr: str = "cli_md_export_thread",
     terminal_launcher: Optional[Callable[..., bool]] = None,
+    expand_compare_fn: Optional[Callable[[List[dict]], List[dict]]] = None,
 ) -> None:
     """
     Prepare Markdown + `_CLI_CONTEXT.md` for one or more TDocs and launch an interactive LLM CLI.
@@ -656,12 +666,58 @@ def prepare_and_launch_cli_session(
       folder (launching immediately if ``{tdoc_id}.md`` is already ready, or converting in-place
       with ``stage_copies=False`` without creating an ``Export/`` subfolder).
     - **Multiple TDocs / Revision Comparison:** Stages documents side-by-side under
-      ``{meeting_dir}/Export/CLI_Batch_{timestamp}/`` with an ``index.md`` manifest.
+      ``{meeting_dir}/Export/CLI_Batch_{timestamp}/`` with an ``index.md`` manifest,
+      automatically carrying over saved per-TDoc ``_USER_NOTES.md`` notes.
     """
     rows = [dict(r) for r in (rows_data or []) if r and str(r.get("TDoc", "")).strip()]
     if not rows:
         QMessageBox.warning(parent, "No TDocs", "There are no TDocs selected to send to the CLI agent.")
         return
+
+    batch_notes_override: Optional[str] = None
+    model_override: Optional[str] = None
+    effort_override: Optional[str] = None
+
+    if task_mode == "edit_context":
+        if len(rows) == 1:
+            single_tid = str(rows[0].get("TDoc", "")).strip()
+            canonical_dir, _ = resolve_canonical_tdoc_paths(meeting_dir, single_tid)
+            dlg_target_dir: Optional[Path] = canonical_dir
+            scope_lbl = single_tid
+            per_tdoc_notes: Dict[str, str] = {}
+        else:
+            dlg_target_dir = None
+            scope_lbl = f"{len(rows)} Selected TDocs"
+            per_tdoc_notes = collect_per_tdoc_user_notes(meeting_dir, rows)
+
+        task_opts = list(DEFAULT_TDOC_TASK_OPTIONS)
+        if len(rows) == 1 and expand_compare_fn is None:
+            task_opts = [opt for opt in task_opts if opt[0] != "compare"]
+
+        dlg = CliContextEditorDialog(
+            agent_id=agent_id,
+            scope_label=scope_lbl,
+            target_dir=dlg_target_dir,
+            task_options=task_opts,
+            initial_task_mode="interactive",
+            initial_custom_question=custom_question,
+            per_tdoc_notes=per_tdoc_notes,
+            parent=parent,
+        )
+        if dlg.exec_() != QDialog.Accepted:
+            return
+        res = dlg.get_result()
+        if not res.launch_requested:
+            return
+        task_mode = res.task_mode
+        custom_question = res.custom_question
+        model_override = res.model
+        effort_override = res.reasoning_effort
+        if dlg_target_dir is None:
+            batch_notes_override = res.workspace_notes
+
+    if task_mode == "compare" and expand_compare_fn is not None:
+        rows = expand_compare_fn(rows)
 
     spec = CLI_AGENT_SPECS.get((agent_id or "").strip().lower())
     agent_label = spec.label if spec else agent_id
@@ -700,8 +756,15 @@ def prepare_and_launch_cli_session(
                 markdown_files=[local_md],
                 local_triage_summary=local_triage_summary,
                 briefing_title=briefing_title,
+                meeting_dir=meeting_dir,
             )
-            launcher(agent_id, target_dir, parent=parent)
+            launcher(
+                agent_id,
+                target_dir,
+                parent=parent,
+                model=model_override,
+                reasoning_effort=effort_override,
+            )
             return
         stage_copies = False
         is_bulk = False
@@ -738,12 +801,15 @@ def prepare_and_launch_cli_session(
             QMessageBox.warning(parent, "CLI Pre-Conversion Failed", msg)
             return
 
+        if batch_notes_override:
+            save_workspace_user_notes(target_dir, batch_notes_override)
+
         if local_md is not None:
             md_files = [local_md]
         else:
             md_files = [
                 p for p in sorted(target_dir.glob("*/*.md"))
-                if p.name != "_CLI_CONTEXT.md"
+                if p.name not in {"_CLI_CONTEXT.md", "_USER_NOTES.md"}
             ]
             if (target_dir / "index.md").is_file():
                 md_files.insert(0, target_dir / "index.md")
@@ -756,8 +822,15 @@ def prepare_and_launch_cli_session(
             markdown_files=md_files,
             local_triage_summary=local_triage_summary,
             briefing_title=briefing_title,
+            meeting_dir=meeting_dir,
         )
-        launcher(agent_id, target_dir, parent=parent)
+        launcher(
+            agent_id,
+            target_dir,
+            parent=parent,
+            model=model_override,
+            reasoning_effort=effort_override,
+        )
 
     thread.finished.connect(_on_finished)
     thread.start()
@@ -779,9 +852,6 @@ def launch_cli_for_tdocs(
         QMessageBox.warning(window, "No TDocs", "There are no TDocs selected to send to the CLI agent.")
         return
 
-    if task_mode == "compare":
-        rows = _expand_revision_rows(window, rows)
-
     has_export_btn = hasattr(window, "export_btn") and window.export_btn is not None
     wg = str(window.mtg_info.get("wg_name", "")).strip()
     mtg = str(window.mtg_info.get("meeting_number", "")).strip()
@@ -802,6 +872,7 @@ def launch_cli_for_tdocs(
         progress_slot=window._on_md_progress if has_export_btn else None,
         thread_owner=window,
         thread_attr="cli_md_export_thread",
+        expand_compare_fn=lambda r: _expand_revision_rows(window, r),
     )
 
 

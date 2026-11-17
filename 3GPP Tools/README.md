@@ -778,10 +778,10 @@ py -3.14 -m main_tools
 ---
 
 ### 🔌 Connecting & Launching External CLI Agents (Codex CLI, Claude CLI & Gemini CLI)
-1. **Interactive Launch from 3GPP Tools UI:**
-   * Open `🤖 MCP Server & AI Agent Cockpit` (`Help` menu or status bar `🤖 MCP` pill) → **AI Agent Client Setup** to verify live detection badges (`🟢 Codex CLI`, `🟢 Claude CLI`, `🟢 Gemini CLI`) and test-launch terminals.
-   * **Single / Multi-TDoc Analysis:** Right-click any TDoc row (or multi-selection) → **`💬 Ask AI Agent (CLI)`**, or click **`💬 Continue in CLI`** inside the AI Technical Triage window. Single-TDoc sessions run directly inside the TDoc's canonical meeting folder (instantly when Markdown is already converted, without extra `Export/` folders), while multi-TDoc selections and revision comparisons stage cleanly in a batch `Export/` workspace with `_CLI_CONTEXT.md`.
-   * **Cross-WG Topic Dossiers & Briefings:** In `TopicDossierDialog`, click **`💬 Launch CLI Agent`** on an exported topic folder for Interactive Q&A, Stage-1 Pending/Stale Meeting Analysis, or Stage-2 E2E Cross-WG Synthesis.
+1. **Interactive Launch, Model Selection & Company Priorities from 3GPP Tools UI:**
+   * Open `🤖 MCP Server & AI Agent Cockpit` (`Help` menu or status bar `🤖 MCP` pill) → **AI Agent Client Setup** to verify live detection badges (`🟢 Codex CLI`, `🟢 Claude CLI`, `🟢 Gemini CLI`), click **`🧠 Models & Company Context...`** to set default models/reasoning efforts (auto-discovered from `~/.codex/models_cache.json` for Codex) and standing company guidance, or test-launch terminals.
+   * **Single / Multi-TDoc Analysis:** Right-click any TDoc row (or multi-selection) → **`💬 Ask AI Agent (CLI)`**, or click **`💬 Continue in CLI`** inside the AI Technical Triage window. Each agent submenu lets you switch models/reasoning efforts on the fly (`🧠 Model / Effort`) or choose **`📝 Edit Context / Company Notes & Launch...`** to add persistent per-TDoc `_USER_NOTES.md` and standing company guidance (`cli_user_context.md`) that survive `_CLI_CONTEXT.md` regeneration and automatically carry over into multi-TDoc batches. Single-TDoc sessions run directly inside the TDoc's canonical meeting folder (instantly when Markdown is already converted, without extra `Export/` folders), while multi-TDoc selections and revision comparisons stage cleanly in a batch `Export/` workspace with `_CLI_CONTEXT.md`.
+   * **Cross-WG Topic Dossiers & Briefings:** In `TopicDossierDialog`, click **`💬 Launch CLI Agent`** on an exported topic folder for Interactive Q&A, Stage-1 Pending/Stale Meeting Analysis, Stage-2 E2E Cross-WG Synthesis, or to edit topic `_USER_NOTES.md` and switch models before launching.
 2. **Register with Claude CLI (`claude`):**
    ```powershell
    # Full 12-tool suite (<2,000 tokens total schema):

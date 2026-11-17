@@ -48,6 +48,7 @@ PROTECTED_EXACT_PATHS: Set[str] = {
     "src/assets/plantuml.jar",
     "src/assets/plantuml.version",
     "src/assets/3gpp_70.dotx",
+    "src/config/cli_user_context.md",
 }
 
 PROTECTED_GLOB_PATTERNS: Tuple[str, ...] = (

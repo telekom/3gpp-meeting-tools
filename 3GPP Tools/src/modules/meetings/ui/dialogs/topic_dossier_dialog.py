@@ -22,12 +22,14 @@ from PyQt5.QtWidgets import (
     QDateEdit, QMenu, QInputDialog,
 )
 
-from core.ai.cli_detector import CLI_AGENT_SPECS, detect_cli_agents
+from core.ai.cli_detector import CLI_AGENT_SPECS, detect_cli_agents, format_active_model_badge
 from core.ai.cli_launcher import (
+    add_model_selector_submenu,
     launch_cli_in_terminal,
     open_mcp_agent_setup_dialog,
     write_cli_context_file,
 )
+from core.ui.cli_context_dialog import CliContextEditorDialog
 from core.ui.flow_layout import FlowLayout
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 from core.utils.folder_opener import open_folder as _open_folder
@@ -1222,8 +1224,10 @@ class TopicDossierDialog(QDialog):
 
         if installed:
             for st in installed:
-                sub = self.cli_menu.addMenu(f"{st.icon} {st.label}")
+                badge = format_active_model_badge(st.agent_id)
+                sub = self.cli_menu.addMenu(f"{st.icon} {st.label}  [{badge}]")
                 sub.setToolTipsVisible(True)
+                sub.setToolTip(f"{st.executable_path}\nModel: {badge}")
 
                 act_qa = sub.addAction("💬 Interactive Q&&A on Topic Corpus")
                 act_qa.setToolTip(f"Launch {st.label} inside the topic dossier folder.")
@@ -1240,6 +1244,15 @@ class TopicDossierDialog(QDialog):
                 sub.addSeparator()
                 act_custom = sub.addAction("✏️ Custom Question on Topic Corpus...")
                 act_custom.triggered.connect(lambda _=False, aid=st.agent_id: self._launch_cli_for_topic(aid, "custom"))
+
+                act_ctx = sub.addAction("📝 Edit Topic Context / Notes && Launch...")
+                act_ctx.setToolTip(
+                    "Edit persistent topic _USER_NOTES.md / standing company guidance and select Model / Reasoning Effort before launching."
+                )
+                act_ctx.triggered.connect(lambda _=False, aid=st.agent_id: self._launch_cli_for_topic(aid, "edit_context"))
+
+                sub.addSeparator()
+                add_model_selector_submenu(sub, st.agent_id)
         else:
             no_cli = self.cli_menu.addAction("⚪ No LLM CLI Detected (codex / claude / gemini)")
             no_cli.setEnabled(False)
@@ -1264,7 +1277,35 @@ class TopicDossierDialog(QDialog):
         target_dir = Path(strip_extended_path(dest_text))
         topic_name = self.active_topic.name if self.active_topic else target_dir.name
         custom_question = ""
-        if task_mode == "custom":
+        model_override: Optional[str] = None
+        effort_override: Optional[str] = None
+
+        if task_mode == "edit_context":
+            topic_tasks = [
+                ("topic_qa", "💬 Interactive Q&A on Topic Corpus"),
+                ("topic_stage1", "🧪 Run Stage-1 Meeting Analysis"),
+                ("topic_stage2", "🌐 Run Stage-2 E2E Cross-WG Synthesis"),
+                ("custom", "✏️ Custom Question on Topic Corpus"),
+            ]
+            dlg = CliContextEditorDialog(
+                agent_id=agent_id,
+                scope_label=f"Topic: {topic_name}",
+                target_dir=target_dir,
+                task_options=topic_tasks,
+                initial_task_mode="topic_qa",
+                parent=self,
+            )
+            if dlg.exec_() != QDialog.Accepted:
+                return
+            res = dlg.get_result()
+            if not res.launch_requested:
+                return
+            task_mode = res.task_mode
+            custom_question = res.custom_question
+            model_override = res.model
+            effort_override = res.reasoning_effort
+
+        if task_mode == "custom" and not custom_question.strip():
             spec = CLI_AGENT_SPECS.get((agent_id or "").strip().lower())
             agent_label = spec.label if spec else agent_id
             q_text, ok = QInputDialog.getMultiLineText(
@@ -1285,4 +1326,10 @@ class TopicDossierDialog(QDialog):
             topic_name=topic_name,
             manifest_summary=summary,
         )
-        launch_cli_in_terminal(agent_id, target_dir, parent=self)
+        launch_cli_in_terminal(
+            agent_id,
+            target_dir,
+            parent=self,
+            model=model_override,
+            reasoning_effort=effort_override,
+        )

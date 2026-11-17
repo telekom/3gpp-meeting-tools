@@ -106,9 +106,73 @@ class TestCliDetector(unittest.TestCase):
         self.assertEqual(pref, "gemini")
 
     def test_interactive_args_builder(self):
-        self.assertEqual(build_interactive_cli_args("codex", "codex.cmd", "hello"), ["codex.cmd", "hello"])
-        self.assertEqual(build_interactive_cli_args("claude", "claude.exe", "hello"), ["claude.exe", "hello"])
-        self.assertEqual(build_interactive_cli_args("gemini", "gemini.cmd", "hello"), ["gemini.cmd", "-i", "hello"])
+        with patch.object(cli_detector, "CONFIG_PATH", self.tmp_path / "missing_cfg.json"):
+            self.assertEqual(build_interactive_cli_args("codex", "codex.cmd", "hello"), ["codex.cmd", "hello"])
+            self.assertEqual(build_interactive_cli_args("claude", "claude.exe", "hello"), ["claude.exe", "hello"])
+            self.assertEqual(build_interactive_cli_args("gemini", "gemini.cmd", "hello"), ["gemini.cmd", "-i", "hello"])
+
+            self.assertEqual(
+                build_interactive_cli_args("codex", "codex.exe", "hello", model="gpt-6.1-sol", reasoning_effort="low"),
+                ["codex.exe", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=low", "hello"],
+            )
+            self.assertEqual(
+                build_interactive_cli_args("claude", "claude.exe", "hello", model="sonnet", reasoning_effort="high"),
+                ["claude.exe", "--model", "sonnet", "--effort", "high", "hello"],
+            )
+            self.assertEqual(
+                build_interactive_cli_args("gemini", "gemini.cmd", "hello", model="gemini-2.5-pro"),
+                ["gemini.cmd", "-m", "gemini-2.5-pro", "-i", "hello"],
+            )
+
+    def test_discover_codex_models_from_cache_and_config_toml(self):
+        codex_dir = self.tmp_path / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "config.toml").write_text(
+            'model = "gpt-6.1-sol"\nmodel_reasoning_effort = "high"\n[tui]\n',
+            encoding="utf-8",
+        )
+        (codex_dir / "models_cache.json").write_text(
+            json.dumps({
+                "models": [
+                    {
+                        "slug": "gpt-6.1-sol",
+                        "display_name": "GPT-6.1-Sol",
+                        "visibility": "list",
+                        "default_reasoning_level": "medium",
+                        "supported_reasoning_levels": [
+                            {"effort": "low"},
+                            {"effort": "medium"},
+                            {"effort": "high"},
+                        ],
+                    },
+                    {
+                        "slug": "hidden-model",
+                        "display_name": "Hidden",
+                        "visibility": "hide",
+                    },
+                ]
+            }),
+            encoding="utf-8",
+        )
+
+        with patch.object(cli_detector, "_CODEX_MODELS_CACHE", None), \
+             patch.object(cli_detector, "CONFIG_PATH", self.tmp_path / "cli_agents_config.json"):
+            models, def_model, def_effort = cli_detector.discover_cli_models("codex", home_dir=self.tmp_path)
+            self.assertEqual([m.slug for m in models], ["gpt-6.1-sol"])
+            self.assertEqual(models[0].reasoning_levels, ("low", "medium", "high"))
+            self.assertEqual(def_model, "gpt-6.1-sol")
+            self.assertEqual(def_effort, "high")
+            self.assertEqual(
+                cli_detector.format_active_model_badge("codex", home_dir=self.tmp_path),
+                "default: GPT-6.1-Sol · high",
+            )
+
+            cli_detector.set_cli_agent_model_config("codex", "gpt-6.1-sol", "low")
+            self.assertEqual(cli_detector.get_cli_agent_model_config("codex"), ("gpt-6.1-sol", "low"))
+            self.assertEqual(
+                cli_detector.format_active_model_badge("codex", home_dir=self.tmp_path),
+                "GPT-6.1-Sol · low",
+            )
 
     def test_check_mcp_configured(self):
         (self.tmp_path / ".codex").mkdir()
@@ -514,6 +578,83 @@ class TestCliUiIntegration(unittest.TestCase):
         self.assertTrue((batch_dir / "index.md").is_file())
         self.assertTrue((batch_dir / CLI_CONTEXT_FILENAME).is_file())
         win.close()
+
+    def test_standing_context_and_workspace_user_notes_in_cli_context(self):
+        from core.ai import cli_launcher
+        from core.ai.cli_launcher import (
+            USER_NOTES_FILENAME,
+            load_workspace_user_notes,
+            save_standing_cli_context,
+            save_workspace_user_notes,
+        )
+
+        meeting_dir = self.tmp_path / "SA2_175"
+        t1_dir = meeting_dir / "S2-2603001"
+        t1_dir.mkdir(parents=True)
+        (t1_dir / "S2-2603001.md").write_text("# S2-2603001", encoding="utf-8")
+
+        batch_dir = meeting_dir / "Export" / "CLI_Batch_test"
+        batch_dir.mkdir(parents=True)
+
+        standing_file = self.tmp_path / "cli_user_context.md"
+        with patch.object(cli_launcher, "STANDING_CONTEXT_PATH", standing_file):
+            save_standing_cli_context("Company rule: always inspect roaming & Rel-18 impacts.")
+            save_workspace_user_notes(t1_dir, "Points 2 and 4 in S2-2603001 are critical for DT.")
+            save_workspace_user_notes(batch_dir, "Compare overall direction across both contributions.")
+
+            ctx_path = write_cli_context_file(
+                batch_dir,
+                task_mode="compare",
+                tdocs_meta=[{"TDoc": "S2-2603001", "Title": "Roam"}, {"TDoc": "S2-2603002", "Title": "Alt"}],
+                meeting_dir=meeting_dir,
+            )
+            text = ctx_path.read_text(encoding="utf-8")
+            self.assertIn("Delegate & Company Priorities (Must Follow)", text)
+            self.assertIn("Company rule: always inspect roaming & Rel-18 impacts.", text)
+            self.assertIn("Compare overall direction across both contributions.", text)
+            self.assertIn("Points 2 and 4 in S2-2603001 are critical for DT.", text)
+
+            # Regenerating _CLI_CONTEXT.md must never clobber _USER_NOTES.md
+            write_cli_context_file(t1_dir, task_mode="summarize", tdocs_meta=[{"TDoc": "S2-2603001"}])
+            self.assertEqual(load_workspace_user_notes(t1_dir), "Points 2 and 4 in S2-2603001 are critical for DT.")
+            self.assertTrue((t1_dir / USER_NOTES_FILENAME).is_file())
+
+    def test_cli_context_editor_dialog_save_and_launch(self):
+        from core.ai import cli_launcher
+        from core.ui.cli_context_dialog import CliContextEditorDialog
+
+        tdoc_dir = self.tmp_path / "S2-2604000"
+        tdoc_dir.mkdir(parents=True)
+
+        standing_file = self.tmp_path / "cli_user_context.md"
+        cfg_file = self.tmp_path / "cli_agents_config.json"
+
+        with patch.object(cli_detector, "CONFIG_PATH", cfg_file), \
+             patch.object(cli_launcher, "STANDING_CONTEXT_PATH", standing_file):
+            dlg = CliContextEditorDialog(
+                agent_id="codex",
+                scope_label="S2-2604000",
+                target_dir=tdoc_dir,
+                home_dir=self.tmp_path,
+            )
+            dlg.workspace_notes_edit.setPlainText("Focus on section 5.3 urgency.")
+            dlg.standing_edit.setPlainText("We are Deutsche Telekom.")
+            idx_m = dlg.model_combo.findData("gpt-6.1-sol")
+            if idx_m >= 0:
+                dlg.model_combo.setCurrentIndex(idx_m)
+            idx_e = dlg.effort_combo.findData("low")
+            if idx_e >= 0:
+                dlg.effort_combo.setCurrentIndex(idx_e)
+
+            dlg._on_save_and_launch()
+            res = dlg.get_result()
+            self.assertTrue(res.launch_requested)
+            self.assertEqual(res.model, "gpt-6.1-sol")
+            self.assertEqual(res.reasoning_effort, "low")
+            self.assertEqual(cli_launcher.load_workspace_user_notes(tdoc_dir), "Focus on section 5.3 urgency.")
+            self.assertEqual(cli_launcher.load_standing_cli_context(), "We are Deutsche Telekom.")
+            self.assertEqual(cli_detector.get_cli_agent_model_config("codex"), ("gpt-6.1-sol", "low"))
+            dlg.close()
 
 
 if __name__ == "__main__":

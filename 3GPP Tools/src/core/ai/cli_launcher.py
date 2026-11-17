@@ -14,6 +14,7 @@ import base64
 import datetime
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -25,13 +26,108 @@ from core.ai.cli_detector import (
     CliAgentStatus,
     build_interactive_cli_args,
     detect_cli_agents,
+    discover_cli_models,
+    format_active_model_badge,
+    get_cli_agent_model_config,
+    set_cli_agent_model_config,
 )
 from core.utils.paths import get_project_root, strip_extended_path, to_extended_path
 
 logger = logging.getLogger(__name__)
 
 CLI_CONTEXT_FILENAME = "_CLI_CONTEXT.md"
+USER_NOTES_FILENAME = "_USER_NOTES.md"
+STANDING_CONTEXT_PATH = get_project_root() / "config" / "cli_user_context.md"
 DEFAULT_BOOTSTRAP_PROMPT = "Read _CLI_CONTEXT.md in this directory and follow its instructions."
+_BASE_TDOC_RE = re.compile(r"^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$", re.IGNORECASE)
+
+
+def load_standing_cli_context() -> str:
+    """Read global standing company / delegate guidance from ``src/config/cli_user_context.md``."""
+    try:
+        if STANDING_CONTEXT_PATH.is_file():
+            return STANDING_CONTEXT_PATH.read_text(encoding="utf-8").strip()
+    except Exception as exc:
+        logger.debug("Could not read standing CLI context: %s", exc)
+    return ""
+
+
+def save_standing_cli_context(text: str) -> Path:
+    """Persist global standing company / delegate guidance to ``src/config/cli_user_context.md``."""
+    clean = (text or "").strip()
+    STANDING_CONTEXT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if clean:
+        STANDING_CONTEXT_PATH.write_text(clean + "\n", encoding="utf-8")
+    elif STANDING_CONTEXT_PATH.exists():
+        try:
+            STANDING_CONTEXT_PATH.unlink()
+        except OSError:
+            STANDING_CONTEXT_PATH.write_text("", encoding="utf-8")
+    return STANDING_CONTEXT_PATH
+
+
+def load_workspace_user_notes(target_dir: Path) -> str:
+    """Read persistent workspace/TDoc user notes from ``{target_dir}/_USER_NOTES.md``."""
+    notes_path = Path(strip_extended_path(target_dir)) / USER_NOTES_FILENAME
+    try:
+        ext_path = Path(to_extended_path(notes_path))
+        if ext_path.is_file():
+            return ext_path.read_text(encoding="utf-8").strip()
+    except Exception as exc:
+        logger.debug("Could not read workspace user notes in %s: %s", target_dir, exc)
+    return ""
+
+
+def save_workspace_user_notes(target_dir: Path, text: str) -> Path:
+    """Write or clear ``{target_dir}/_USER_NOTES.md`` without disturbing converted artifacts."""
+    clean_dir = Path(strip_extended_path(target_dir))
+    notes_path = clean_dir / USER_NOTES_FILENAME
+    ext_notes = Path(to_extended_path(notes_path))
+    clean_text = (text or "").strip()
+    if clean_text:
+        os.makedirs(to_extended_path(clean_dir), exist_ok=True)
+        ext_notes.write_text(clean_text + "\n", encoding="utf-8")
+    elif ext_notes.exists():
+        try:
+            ext_notes.unlink()
+        except OSError:
+            ext_notes.write_text("", encoding="utf-8")
+    return notes_path
+
+
+def collect_per_tdoc_user_notes(
+    meeting_dir: Optional[Path],
+    tdocs_meta: Optional[Sequence[Dict[str, Any]]],
+    exclude_dir: Optional[Path] = None,
+) -> Dict[str, str]:
+    """
+    Collect saved ``_USER_NOTES.md`` files across canonical ``{meeting_dir}/{base_tdoc}/``
+    folders for multi-TDoc batches so per-TDoc guidance automatically carries over.
+    """
+    if not meeting_dir or not tdocs_meta:
+        return {}
+    clean_meeting = Path(strip_extended_path(meeting_dir))
+    clean_exclude = os.path.normcase(str(Path(strip_extended_path(exclude_dir)))) if exclude_dir else ""
+    collected: Dict[str, str] = {}
+    seen_bases: set = set()
+
+    for row in tdocs_meta:
+        tid = str((row or {}).get("TDoc", "")).strip()
+        if not tid:
+            continue
+        m = _BASE_TDOC_RE.match(tid)
+        base_tdoc = (m.group(1) if m else tid).upper()
+        if base_tdoc in seen_bases:
+            continue
+        seen_bases.add(base_tdoc)
+
+        tdoc_dir = clean_meeting / base_tdoc
+        if clean_exclude and os.path.normcase(str(tdoc_dir)) == clean_exclude:
+            continue
+        notes = load_workspace_user_notes(tdoc_dir)
+        if notes:
+            collected[base_tdoc] = notes
+    return collected
 
 
 def _ps_quote(value: str) -> str:
@@ -125,10 +221,14 @@ def write_cli_context_file(
     topic_name: str = "",
     manifest_summary: Optional[Dict[str, Any]] = None,
     briefing_title: str = "",
+    meeting_dir: Optional[Path] = None,
+    user_notes_override: Optional[str] = None,
+    standing_context_override: Optional[str] = None,
 ) -> Path:
     """
     Generate `_CLI_CONTEXT.md` inside `target_dir` with workspace files,
-    TDoc/Topic metadata, optional local Ollama triage output, and 3GPP domain rules.
+    TDoc/Topic metadata, persistent company/TDoc `_USER_NOTES.md` priorities,
+    optional local Ollama triage output, and 3GPP domain rules.
     """
     clean_dir = Path(strip_extended_path(target_dir))
     os.makedirs(to_extended_path(clean_dir), exist_ok=True)
@@ -160,11 +260,57 @@ def write_cli_context_file(
             tdoc_ids=tdoc_ids,
         ),
         "",
-        "## 2. Workspace Documents & Metadata",
+    ])
+
+    # Layer persistent Delegate & Company Priorities right after the primary instruction
+    standing_ctx = (
+        standing_context_override.strip()
+        if standing_context_override is not None
+        else load_standing_cli_context()
+    )
+    workspace_notes = (
+        user_notes_override.strip()
+        if user_notes_override is not None
+        else load_workspace_user_notes(clean_dir)
+    )
+    per_tdoc_notes = collect_per_tdoc_user_notes(meeting_dir, tdocs_list, exclude_dir=clean_dir)
+
+    if standing_ctx or workspace_notes or per_tdoc_notes:
+        lines.extend([
+            "## 2. Delegate & Company Priorities (Must Follow)",
+            "",
+        ])
+        if standing_ctx:
+            lines.extend([
+                "### Standing Company / Delegate Context (`cli_user_context.md`)",
+                "",
+                standing_ctx,
+                "",
+            ])
+        if workspace_notes:
+            lines.extend([
+                f"### Workspace Notes (`{USER_NOTES_FILENAME}` — re-read if edited mid-session)",
+                "",
+                workspace_notes,
+                "",
+            ])
+        if per_tdoc_notes:
+            lines.extend([
+                "### Per-TDoc Saved Delegate Notes (from canonical TDoc folders)",
+                "",
+            ])
+            for b_tid, b_notes in per_tdoc_notes.items():
+                lines.append(f"#### {b_tid}")
+                lines.append(b_notes)
+                lines.append("")
+
+    lines.extend([
+        "## Workspace Documents & Metadata",
         "",
     ])
 
     # Workspace Markdown files
+    excluded_md_names = {CLI_CONTEXT_FILENAME, USER_NOTES_FILENAME}
     rel_files: List[str] = []
     if markdown_files:
         for p in markdown_files:
@@ -187,11 +333,13 @@ def write_cli_context_file(
             if (clean_dir / candidate).is_file():
                 rel_files.append(candidate)
         for md_path in sorted(clean_dir.glob("*.md")):
-            if md_path.name == CLI_CONTEXT_FILENAME:
+            if md_path.name in excluded_md_names:
                 continue
             if md_path.name not in rel_files:
                 rel_files.append(md_path.name)
         for md_path in sorted(clean_dir.glob("*/*.md")):
+            if md_path.name in excluded_md_names:
+                continue
             rel = os.path.relpath(md_path, clean_dir).replace("\\", "/")
             if rel not in rel_files and len(rel_files) < 60:
                 rel_files.append(rel)
@@ -296,16 +444,25 @@ def build_powershell_launch_command(
     executable: str,
     working_dir: Path,
     bootstrap_prompt: str = DEFAULT_BOOTSTRAP_PROMPT,
+    *,
+    model: Optional[str] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> str:
     """
     Construct a quote-safe PowerShell command string that moves into `working_dir`,
     prepends `executable`'s parent directory to `$env:PATH`, and invokes the CLI
-    in interactive mode.
+    in interactive mode (applying configured or explicit model/reasoning overrides).
     """
     clean_dir = strip_extended_path(working_dir)
     clean_exe = strip_extended_path(executable)
     exe_dir = str(Path(clean_exe).parent)
-    cli_args = build_interactive_cli_args(agent_id, clean_exe, bootstrap_prompt)
+    cli_args = build_interactive_cli_args(
+        agent_id,
+        clean_exe,
+        bootstrap_prompt,
+        model=model,
+        reasoning_effort=reasoning_effort,
+    )
 
     quoted_exe = _ps_quote(cli_args[0])
     quoted_rest = " ".join(_ps_quote(a) for a in cli_args[1:])
@@ -337,6 +494,8 @@ def launch_cli_in_terminal(
     bootstrap_prompt: Optional[str] = None,
     parent: Optional[Any] = None,
     *,
+    model: Optional[str] = None,
+    reasoning_effort: Optional[str] = None,
     statuses: Optional[Dict[str, CliAgentStatus]] = None,
     popen_fn: Optional[Callable[..., Any]] = None,
     which_fn: Optional[Callable[[str], Optional[str]]] = None,
@@ -370,6 +529,8 @@ def launch_cli_in_terminal(
         executable=st.executable_path,
         working_dir=clean_dir,
         bootstrap_prompt=prompt,
+        model=model,
+        reasoning_effort=reasoning_effort,
     )
     encoded_cmd = encode_powershell_command(ps_command)
 
@@ -441,6 +602,75 @@ def open_mcp_agent_setup_dialog(parent: Any = None) -> None:
         logger.warning("Could not open MCP & AI Agent Cockpit: %s", exc)
 
 
+def add_model_selector_submenu(
+    agent_submenu: Any,
+    agent_id: str,
+    *,
+    home_dir: Optional[Path] = None,
+) -> Any:
+    """
+    Append a nested ``🧠 Model / Reasoning Effort ▸`` selector menu inside an agent's QMenu.
+    Selecting an item updates ``cli_agents_config.json`` immediately via ``set_cli_agent_model_config``.
+    """
+    active_model, active_effort = get_cli_agent_model_config(agent_id)
+    models, cli_def_model, cli_def_effort = discover_cli_models(agent_id, home_dir=home_dir)
+    badge = format_active_model_badge(agent_id, home_dir=home_dir)
+
+    model_menu = agent_submenu.addMenu(f"🧠 Model / Effort ({badge})")
+    model_menu.setToolTipsVisible(True)
+
+    def_hint = (
+        f" ({cli_def_model}" + (f" · {cli_def_effort}" if cli_def_effort else "") + ")"
+        if cli_def_model
+        else ""
+    )
+    act_default = model_menu.addAction(f"🔄 Use CLI Default{def_hint}")
+    act_default.setCheckable(True)
+    act_default.setChecked(not active_model and not active_effort)
+    act_default.setToolTip("Clear any 3GPP Tools override and inherit the CLI's own configured default.")
+    act_default.triggered.connect(
+        lambda _=False, aid=agent_id: set_cli_agent_model_config(aid, "", "")
+    )
+    model_menu.addSeparator()
+
+    for opt in models:
+        is_this_model = active_model == opt.slug
+        if opt.reasoning_levels:
+            label = f"{opt.display_name} ({opt.slug})" if opt.display_name != opt.slug else opt.slug
+            if is_this_model and active_effort:
+                label = f"✓ {label} [{active_effort}]"
+            m_sub = model_menu.addMenu(label)
+            if opt.description:
+                m_sub.setToolTip(opt.description)
+
+            act_m_def = m_sub.addAction(
+                f"Default Effort" + (f" ({opt.default_reasoning_level})" if opt.default_reasoning_level else "")
+            )
+            act_m_def.setCheckable(True)
+            act_m_def.setChecked(is_this_model and not active_effort)
+            act_m_def.triggered.connect(
+                lambda _=False, aid=agent_id, slug=opt.slug: set_cli_agent_model_config(aid, slug, "")
+            )
+            m_sub.addSeparator()
+            for lvl in opt.reasoning_levels:
+                act_lvl = m_sub.addAction(lvl)
+                act_lvl.setCheckable(True)
+                act_lvl.setChecked(is_this_model and active_effort == lvl)
+                act_lvl.triggered.connect(
+                    lambda _=False, aid=agent_id, slug=opt.slug, eff=lvl: set_cli_agent_model_config(aid, slug, eff)
+                )
+        else:
+            label = f"{opt.display_name} ({opt.slug})" if opt.display_name != opt.slug else opt.slug
+            act_m = model_menu.addAction(label)
+            act_m.setCheckable(True)
+            act_m.setChecked(is_this_model)
+            act_m.triggered.connect(
+                lambda _=False, aid=agent_id, slug=opt.slug: set_cli_agent_model_config(aid, slug, "")
+            )
+
+    return model_menu
+
+
 def populate_cli_agent_menu(
     menu: Any,
     on_launch_callback: Callable[[str, str], None],
@@ -452,8 +682,8 @@ def populate_cli_agent_menu(
 ) -> Any:
     """
     Populate a QMenu with detected CLI agents (`Codex CLI`, `Claude CLI`, `Gemini CLI`)
-    and task presets (`interactive`, `summarize`, optional `compare`, `custom`),
-    plus disabled entries for missing CLIs and a link to MCP/CLI configuration.
+    and task presets (`interactive`, `summarize`, optional `compare`, `custom`, `edit_context`),
+    quick Model / Reasoning Effort switchers, disabled entries for missing CLIs, and Cockpit link.
     """
     menu.clear()
     menu.setToolTipsVisible(True)
@@ -464,13 +694,14 @@ def populate_cli_agent_menu(
 
     if installed_agents:
         for st in installed_agents:
-            sub = menu.addMenu(f"{st.icon} {st.label}")
+            badge = format_active_model_badge(st.agent_id)
+            sub = menu.addMenu(f"{st.icon} {st.label}  [{badge}]")
             sub.setToolTipsVisible(True)
             mcp_note = "MCP configured" if st.mcp_configured else "MCP not yet registered (local Markdown + cli_tools.py ready)"
-            sub.setToolTip(f"{st.executable_path}\n{mcp_note}")
+            sub.setToolTip(f"{st.executable_path}\nModel: {badge}\n{mcp_note}")
 
             act_inter = sub.addAction("💬 Interactive Session (Read && Stand By)")
-            act_inter.setToolTip(f"Pre-convert to Markdown and start an interactive {st.label} session.")
+            act_inter.setToolTip(f"Prepare Markdown and start an interactive {st.label} session.")
             act_inter.triggered.connect(lambda _=False, aid=st.agent_id: on_launch_callback(aid, "interactive"))
 
             act_sum = sub.addAction("⚡ Summarize && Check Spec Impact")
@@ -491,6 +722,15 @@ def populate_cli_agent_menu(
             act_custom = sub.addAction("✏️ Ask Custom Question...")
             act_custom.setToolTip(f"Enter a custom question before launching {st.label}.")
             act_custom.triggered.connect(lambda _=False, aid=st.agent_id: on_launch_callback(aid, "custom"))
+
+            act_ctx = sub.addAction("📝 Edit Context / Company Notes && Launch...")
+            act_ctx.setToolTip(
+                "Edit persistent _USER_NOTES.md / standing company guidance and select Model / Reasoning Effort before launching."
+            )
+            act_ctx.triggered.connect(lambda _=False, aid=st.agent_id: on_launch_callback(aid, "edit_context"))
+
+            sub.addSeparator()
+            add_model_selector_submenu(sub, st.agent_id)
     else:
         no_cli = menu.addAction("⚪ No LLM CLI Detected (codex / claude / gemini)")
         no_cli.setEnabled(False)
@@ -505,7 +745,7 @@ def populate_cli_agent_menu(
 
     menu.addSeparator()
     act_cfg = menu.addAction("⚙️ Configure CLI Agents && MCP...")
-    act_cfg.setToolTip("Open the MCP Server & External AI Agent Cockpit to inspect CLI detection and MCP setup.")
+    act_cfg.setToolTip("Open the MCP Server & External AI Agent Cockpit to inspect CLI detection, default models, and MCP setup.")
     act_cfg.triggered.connect(lambda _=False: open_mcp_agent_setup_dialog(parent))
 
     return menu

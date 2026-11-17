@@ -24,5 +24,6 @@ src/db/*.db*
 # User-defined presets & local configurations (not committed to git)
 src/config/*_user.json
 src/config/*_config.json
+src/config/cli_user_context.md
 src/config/plantuml_presets_user.json
 

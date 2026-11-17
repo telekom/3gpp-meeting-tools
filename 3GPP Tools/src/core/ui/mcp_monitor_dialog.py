@@ -44,8 +44,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from core.ai.cli_detector import detect_cli_agents
+from core.ai.cli_detector import detect_cli_agents, format_active_model_badge
 from core.ai.cli_launcher import launch_cli_in_terminal
+from core.ui.cli_context_dialog import CliContextEditorDialog
 from core.ai.mcp_activity import (
     clear_mcp_activity_log,
     get_active_mcp_sessions,
@@ -456,6 +457,15 @@ class McpMonitorDialog(QDialog):
             self._cli_status_widgets[aid] = (badge, launch_btn)
 
         cli_strip_layout.addStretch()
+        self.cli_settings_btn = QPushButton("🧠 Models && Company Context...")
+        self.cli_settings_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.cli_settings_btn.setToolTip(
+            "Configure default Model & Reasoning Effort for Codex, Claude, and Gemini CLIs, "
+            "and edit standing company/delegate context."
+        )
+        self.cli_settings_btn.clicked.connect(self._open_cli_models_and_context_dialog)
+        cli_strip_layout.addWidget(self.cli_settings_btn)
+
         self.cli_rescan_btn = QPushButton("🔄 Re-scan")
         self.cli_rescan_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.cli_rescan_btn.setToolTip("Re-scan PATH and user directories for codex, claude, and gemini CLIs.")
@@ -600,16 +610,31 @@ class McpMonitorDialog(QDialog):
                 continue
             if st.installed:
                 mcp_tag = " · MCP ✓" if st.mcp_configured else ""
-                badge.setText(f"🟢 {st.label}{mcp_tag}")
+                model_badge = format_active_model_badge(aid)
+                badge.setText(f"🟢 {st.label} ({model_badge}){mcp_tag}")
                 badge.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {C.SUCCESS_DARK}; border: none;")
-                badge.setToolTip(f"Executable: {st.executable_path}\nSource: {st.source}\nMCP configured: {st.mcp_configured}")
+                badge.setToolTip(
+                    f"Executable: {st.executable_path}\nModel: {model_badge}\n"
+                    f"Source: {st.source}\nMCP configured: {st.mcp_configured}"
+                )
                 launch_btn.setVisible(True)
-                launch_btn.setToolTip(f"Launch {st.label} in an interactive terminal.")
+                launch_btn.setToolTip(f"Launch {st.label} [{model_badge}] in an interactive terminal.")
             else:
                 badge.setText(f"⚪ {st.label}: Not Found")
                 badge.setStyleSheet(f"font-size: 11px; font-weight: 500; color: {C.TEXT_MUTED}; border: none;")
                 badge.setToolTip(f"Not detected.\nInstall: {st.install_hint}")
                 launch_btn.setVisible(False)
+
+    def _open_cli_models_and_context_dialog(self):
+        statuses = detect_cli_agents()
+        first_installed = next((aid for aid, st in statuses.items() if st.installed), "codex")
+        dlg = CliContextEditorDialog(
+            agent_id=first_installed,
+            settings_only=True,
+            parent=self,
+        )
+        dlg.exec_()
+        self._refresh_cli_agents_status(force_refresh=False)
 
     def _launch_cli_from_cockpit(self, agent_id: str):
         proj = get_project_root()

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import time
 from dataclasses import dataclass
@@ -33,7 +34,45 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "claude": "",
         "gemini": "",
     },
+    "agent_models": {
+        "codex": {"model": "", "reasoning_effort": ""},
+        "claude": {"model": "", "reasoning_effort": ""},
+        "gemini": {"model": "", "reasoning_effort": ""},
+    },
 }
+
+_FALLBACK_CODEX_MODELS: Tuple[Tuple[str, str, Tuple[str, ...], str], ...] = (
+    ("gpt-6.1-sol", "GPT-6.1-Sol", ("low", "medium", "high", "xhigh", "max", "ultra"), "medium"),
+    ("gpt-6-astra", "GPT-6-Astra", ("low", "medium", "high", "xhigh", "max", "ultra"), "low"),
+    ("gpt-6.1-terra", "GPT-6.1 Terra", ("low", "medium", "high", "xhigh", "max", "ultra"), "low"),
+    ("gpt-6-sol", "GPT-6-Sol", ("low", "medium", "high", "xhigh", "max", "ultra"), "medium"),
+    ("gpt-5.6-sol", "GPT-5.6-Sol", ("low", "medium", "high", "xhigh", "max", "ultra"), "medium"),
+)
+
+_CURATED_CLAUDE_MODELS: Tuple[Tuple[str, str, Tuple[str, ...], str], ...] = (
+    ("sonnet", "Claude Sonnet (alias)", ("low", "medium", "high"), "medium"),
+    ("opus", "Claude Opus (alias)", ("low", "medium", "high"), "medium"),
+    ("haiku", "Claude Haiku (alias)", ("low", "medium"), "low"),
+    ("claude-sonnet-4-5", "Claude Sonnet 4.5", ("low", "medium", "high"), "medium"),
+    ("claude-opus-4-5", "Claude Opus 4.5", ("low", "medium", "high"), "medium"),
+)
+
+_CURATED_GEMINI_MODELS: Tuple[Tuple[str, str, Tuple[str, ...], str], ...] = (
+    ("gemini-2.5-pro", "Gemini 2.5 Pro", (), ""),
+    ("gemini-2.5-flash", "Gemini 2.5 Flash", (), ""),
+    ("gemini-2.0-flash", "Gemini 2.0 Flash", (), ""),
+)
+
+
+@dataclass(frozen=True)
+class CliModelOption:
+    """Selectable model and supported reasoning effort levels for an LLM CLI."""
+
+    slug: str
+    display_name: str
+    reasoning_levels: Tuple[str, ...] = ()
+    default_reasoning_level: str = ""
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -64,16 +103,50 @@ class CliAgentStatus:
     install_hint: str = ""
 
 
-def _build_codex_args(executable: str, prompt: str) -> List[str]:
-    return [executable, prompt] if prompt else [executable]
+def _build_codex_args(
+    executable: str,
+    prompt: str,
+    model: str = "",
+    reasoning_effort: str = "",
+) -> List[str]:
+    args = [executable]
+    if model:
+        args.extend(["-m", model])
+    if reasoning_effort:
+        args.extend(["-c", f"model_reasoning_effort={reasoning_effort}"])
+    if prompt:
+        args.append(prompt)
+    return args
 
 
-def _build_claude_args(executable: str, prompt: str) -> List[str]:
-    return [executable, prompt] if prompt else [executable]
+def _build_claude_args(
+    executable: str,
+    prompt: str,
+    model: str = "",
+    reasoning_effort: str = "",
+) -> List[str]:
+    args = [executable]
+    if model:
+        args.extend(["--model", model])
+    if reasoning_effort:
+        args.extend(["--effort", reasoning_effort])
+    if prompt:
+        args.append(prompt)
+    return args
 
 
-def _build_gemini_args(executable: str, prompt: str) -> List[str]:
-    return [executable, "-i", prompt] if prompt else [executable]
+def _build_gemini_args(
+    executable: str,
+    prompt: str,
+    model: str = "",
+    reasoning_effort: str = "",  # Gemini CLI encodes thinking tier in model slug
+) -> List[str]:
+    args = [executable]
+    if model:
+        args.extend(["-m", model])
+    if prompt:
+        args.extend(["-i", prompt])
+    return args
 
 
 CLI_AGENT_SPECS: Dict[str, CliAgentSpec] = {
@@ -122,6 +195,7 @@ def load_cli_agents_config() -> Dict[str, Any]:
     cfg: Dict[str, Any] = {
         "preferred_agent": DEFAULT_CONFIG["preferred_agent"],
         "custom_paths": dict(DEFAULT_CONFIG["custom_paths"]),
+        "agent_models": {aid: dict(vals) for aid, vals in DEFAULT_CONFIG["agent_models"].items()},
     }
     if CONFIG_PATH.exists():
         try:
@@ -134,6 +208,14 @@ def load_cli_agents_config() -> Dict[str, Any]:
                     for k, v in loaded["custom_paths"].items():
                         if isinstance(k, str) and isinstance(v, str):
                             cfg["custom_paths"][k.strip().lower()] = v.strip()
+                if isinstance(loaded.get("agent_models"), dict):
+                    for k, v in loaded["agent_models"].items():
+                        if isinstance(k, str) and isinstance(v, dict):
+                            aid = k.strip().lower()
+                            cfg["agent_models"][aid] = {
+                                "model": str(v.get("model", "") or "").strip(),
+                                "reasoning_effort": str(v.get("reasoning_effort", "") or "").strip().lower(),
+                            }
         except Exception as exc:
             logger.debug("Could not load cli_agents_config.json: %s", exc)
     return cfg
@@ -161,6 +243,31 @@ def set_preferred_cli_agent(agent_id: str) -> None:
     cfg = load_cli_agents_config()
     clean_id = (agent_id or "").strip().lower()
     cfg["preferred_agent"] = clean_id if clean_id in CLI_AGENT_SPECS else ""
+    save_cli_agents_config(cfg)
+
+
+def get_cli_agent_model_config(agent_id: str) -> Tuple[str, str]:
+    """Return configured ``(model, reasoning_effort)`` override for ``agent_id``."""
+    clean_id = (agent_id or "").strip().lower()
+    models_map = load_cli_agents_config().get("agent_models", {})
+    entry = models_map.get(clean_id, {}) if isinstance(models_map, dict) else {}
+    return (
+        str(entry.get("model", "") or "").strip(),
+        str(entry.get("reasoning_effort", "") or "").strip().lower(),
+    )
+
+
+def set_cli_agent_model_config(agent_id: str, model: str = "", reasoning_effort: str = "") -> None:
+    """Persist per-CLI ``model`` and ``reasoning_effort`` override in `cli_agents_config.json`."""
+    clean_id = (agent_id or "").strip().lower()
+    if clean_id not in CLI_AGENT_SPECS:
+        return
+    cfg = load_cli_agents_config()
+    models_map = cfg.setdefault("agent_models", {})
+    models_map[clean_id] = {
+        "model": (model or "").strip(),
+        "reasoning_effort": (reasoning_effort or "").strip().lower(),
+    }
     save_cli_agents_config(cfg)
 
 
@@ -284,12 +391,197 @@ def check_mcp_configured(agent_id: str, home_dir: Optional[Path] = None) -> bool
     return False
 
 
-def build_interactive_cli_args(agent_id: str, executable: str, prompt: str) -> List[str]:
-    """Build interactive-mode CLI arguments for the given agent ID."""
-    spec = CLI_AGENT_SPECS.get((agent_id or "").strip().lower())
+_CODEX_MODELS_CACHE: Optional[Tuple[str, float, List[CliModelOption]]] = None
+
+
+def _parse_codex_config_defaults(home: Path) -> Tuple[str, str]:
+    """Read top-level ``model`` and ``model_reasoning_effort`` from ``~/.codex/config.toml``."""
+    cfg_toml = home / ".codex" / "config.toml"
+    if not cfg_toml.is_file():
+        return "", ""
+    default_model = ""
+    default_effort = ""
+    try:
+        for raw_line in cfg_toml.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("["):
+                break
+            m_mod = re.match(r'^model\s*=\s*["\']([^"\']+)["\']', line)
+            if m_mod:
+                default_model = m_mod.group(1).strip()
+                continue
+            m_eff = re.match(r'^model_reasoning_effort\s*=\s*["\']([^"\']+)["\']', line)
+            if m_eff:
+                default_effort = m_eff.group(1).strip().lower()
+    except Exception as exc:
+        logger.debug("Could not parse .codex/config.toml defaults: %s", exc)
+    return default_model, default_effort
+
+
+def _load_codex_cached_models(home: Path) -> List[CliModelOption]:
+    """Read selectable models and reasoning efforts from ``~/.codex/models_cache.json`` (<1 ms)."""
+    global _CODEX_MODELS_CACHE
+    cache_file = home / ".codex" / "models_cache.json"
+    if not cache_file.is_file():
+        return []
+    try:
+        mtime = cache_file.stat().st_mtime
+        key = str(cache_file)
+        if _CODEX_MODELS_CACHE and _CODEX_MODELS_CACHE[0] == key and _CODEX_MODELS_CACHE[1] == mtime:
+            return list(_CODEX_MODELS_CACHE[2])
+        raw = json.loads(cache_file.read_text(encoding="utf-8", errors="ignore"))
+        raw_models = raw.get("models", raw) if isinstance(raw, dict) else raw
+        parsed: List[CliModelOption] = []
+        if isinstance(raw_models, list):
+            for entry in raw_models:
+                if not isinstance(entry, dict):
+                    continue
+                if str(entry.get("visibility", "list")).strip().lower() == "hide":
+                    continue
+                slug = str(entry.get("slug") or entry.get("id") or "").strip()
+                if not slug:
+                    continue
+                display_name = str(entry.get("display_name") or entry.get("name") or slug).strip()
+                levels: List[str] = []
+                for lvl in entry.get("supported_reasoning_levels", []) or []:
+                    if isinstance(lvl, dict) and lvl.get("effort"):
+                        eff = str(lvl["effort"]).strip().lower()
+                        if eff and eff not in levels:
+                            levels.append(eff)
+                    elif isinstance(lvl, str) and lvl.strip():
+                        eff = lvl.strip().lower()
+                        if eff not in levels:
+                            levels.append(eff)
+                parsed.append(
+                    CliModelOption(
+                        slug=slug,
+                        display_name=display_name,
+                        reasoning_levels=tuple(levels),
+                        default_reasoning_level=str(entry.get("default_reasoning_level") or "").strip().lower(),
+                        description=str(entry.get("description") or "").strip(),
+                    )
+                )
+        if parsed:
+            _CODEX_MODELS_CACHE = (key, mtime, parsed)
+            return list(parsed)
+    except Exception as exc:
+        logger.debug("Could not parse .codex/models_cache.json: %s", exc)
+    return []
+
+
+def discover_cli_models(
+    agent_id: str,
+    *,
+    home_dir: Optional[Path] = None,
+) -> Tuple[List[CliModelOption], str, str]:
+    """
+    Return ``(models, cli_default_model, cli_default_effort)`` for ``agent_id``.
+
+    Uses `~/.codex/models_cache.json` + `~/.codex/config.toml` for Codex (with zero
+    subprocess lag) and inspects local settings / curated presets for Claude & Gemini.
+    """
+    home = home_dir or Path.home()
+    cid = (agent_id or "").strip().lower()
+
+    if cid == "codex":
+        default_model, default_effort = _parse_codex_config_defaults(home)
+        models = _load_codex_cached_models(home)
+        if not models:
+            models = [CliModelOption(s, d, lvls, deff) for s, d, lvls, deff in _FALLBACK_CODEX_MODELS]
+        if default_model and not any(m.slug == default_model for m in models):
+            models.insert(
+                0,
+                CliModelOption(
+                    default_model,
+                    default_model,
+                    ("low", "medium", "high", "xhigh", "max", "ultra"),
+                    default_effort or "medium",
+                ),
+            )
+        return models, default_model, default_effort
+
+    if cid == "claude":
+        default_model = ""
+        default_effort = ""
+        cfg_file = home / ".claude" / "settings.json"
+        if cfg_file.is_file():
+            try:
+                data = json.loads(cfg_file.read_text(encoding="utf-8", errors="ignore"))
+                if isinstance(data, dict):
+                    default_model = str(data.get("model") or "").strip()
+                    default_effort = str(data.get("effortLevel") or data.get("effort") or "").strip().lower()
+            except Exception:
+                pass
+        models = [CliModelOption(s, d, lvls, deff) for s, d, lvls, deff in _CURATED_CLAUDE_MODELS]
+        if default_model and not any(m.slug == default_model for m in models):
+            models.insert(0, CliModelOption(default_model, default_model, ("low", "medium", "high"), default_effort))
+        return models, default_model, default_effort
+
+    if cid == "gemini":
+        default_model = ""
+        cfg_file = home / ".gemini" / "settings.json"
+        if cfg_file.is_file():
+            try:
+                data = json.loads(cfg_file.read_text(encoding="utf-8", errors="ignore"))
+                if isinstance(data, dict):
+                    m_val = data.get("model")
+                    if isinstance(m_val, dict):
+                        default_model = str(m_val.get("name") or "").strip()
+                    elif isinstance(m_val, str):
+                        default_model = m_val.strip()
+            except Exception:
+                pass
+        models = [CliModelOption(s, d, lvls, deff) for s, d, lvls, deff in _CURATED_GEMINI_MODELS]
+        if default_model and not any(m.slug == default_model for m in models):
+            models.insert(0, CliModelOption(default_model, default_model, (), ""))
+        return models, default_model, ""
+
+    return [], "", ""
+
+
+def format_active_model_badge(agent_id: str, *, home_dir: Optional[Path] = None) -> str:
+    """Format a compact UI label describing the active or CLI-default model and effort."""
+    cid = (agent_id or "").strip().lower()
+    cfg_model, cfg_effort = get_cli_agent_model_config(cid)
+    models, cli_def_model, cli_def_effort = discover_cli_models(cid, home_dir=home_dir)
+    display_lookup = {m.slug: m.display_name for m in models}
+
+    if cfg_model or cfg_effort:
+        model_disp = display_lookup.get(cfg_model, cfg_model) if cfg_model else (
+            display_lookup.get(cli_def_model, cli_def_model) or "CLI Default"
+        )
+        eff = cfg_effort or cli_def_effort
+        return f"{model_disp} · {eff}" if eff else model_disp
+
+    if cli_def_model:
+        model_disp = display_lookup.get(cli_def_model, cli_def_model)
+        eff = cli_def_effort
+        return f"default: {model_disp}" + (f" · {eff}" if eff else "")
+    return "CLI Default"
+
+
+def build_interactive_cli_args(
+    agent_id: str,
+    executable: str,
+    prompt: str,
+    *,
+    model: Optional[str] = None,
+    reasoning_effort: Optional[str] = None,
+) -> List[str]:
+    """Build interactive-mode CLI arguments for the given agent ID with optional model/effort overrides."""
+    clean_id = (agent_id or "").strip().lower()
+    spec = CLI_AGENT_SPECS.get(clean_id)
     if spec is None:
         raise ValueError(f"Unsupported CLI agent: {agent_id}")
-    return spec.args_builder(executable, prompt)
+    if model is None or reasoning_effort is None:
+        cfg_model, cfg_effort = get_cli_agent_model_config(clean_id)
+        eff_model = cfg_model if model is None else model
+        eff_level = cfg_effort if reasoning_effort is None else reasoning_effort
+    else:
+        eff_model, eff_level = model, reasoning_effort
+    return spec.args_builder(executable, prompt, (eff_model or "").strip(), (eff_level or "").strip().lower())
 
 
 def detect_cli_agents(

@@ -109,6 +109,7 @@ PROTECTED_EXACT_PATHS = {
     "src/assets/plantuml.jar",
     "src/assets/plantuml.version",
     "src/assets/3gpp_70.dotx",
+    "src/config/cli_user_context.md",
 }
 PROTECTED_GLOB_PATTERNS = (
     "src/config/*_config.json",
