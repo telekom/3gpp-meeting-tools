@@ -2474,14 +2474,35 @@ def _handle_word_sanitizer_and_compliance(args: Dict[str, Any]) -> Dict[str, Any
         from modules.word_tools.core.word_config import WordConfig
 
         preset_name = str(args.get("label_preset") or "").strip()
+        labels = WordConfig.get_sensitivity_labels()
         label_id = None
         label_name = None
         if preset_name:
-            for p in WordConfig.get_sensitivity_presets():
-                if p.get("name", "").lower() == preset_name.lower():
+            needle = preset_name.lower()
+            for p in labels:
+                if (
+                    (p.get("name") or "").strip().lower() == needle
+                    or (p.get("display_name") or "").strip().lower() == needle
+                    or (p.get("id") or "").strip().lower() == needle
+                ):
                     label_id = p.get("id")
                     label_name = p.get("name")
                     break
+            if not label_id:
+                available = [p.get("name") for p in labels if p.get("name")]
+                return {
+                    "error": f"Sensitivity label '{preset_name}' not found in configured/Windows policy labels.",
+                    "available_labels": available,
+                }
+        else:
+            active = WordConfig.get_active_sensitivity_label()
+            label_id = active.get("id")
+            label_name = active.get("name")
+            if not label_id or not label_name:
+                return {
+                    "error": "No sensitivity label configured or detected in local Windows policy.",
+                }
+
         _disable_faulthandler_for_com()
         with _COM_LOCK:
             summary = batch_set_sensitivity_label(
@@ -2492,6 +2513,7 @@ def _handle_word_sanitizer_and_compliance(args: Dict[str, Any]) -> Dict[str, Any
             )
         return {
             "file_path": str(input_path),
+            "applied_label": {"id": label_id, "name": label_name},
             "summary": summary,
         }
 
@@ -3129,7 +3151,7 @@ def build_external_agent_tool_registry(
                 ToolArgumentSpec("output_path", "string", ""),
                 ToolArgumentSpec("target_language", "string", "Default 'en-GB'"),
                 ToolArgumentSpec("target_author", "string", ""),
-                ToolArgumentSpec("label_preset", "string", "'OFFEN'|'INTERN'"),
+                ToolArgumentSpec("label_preset", "string", "Sensitivity label name, display name, or GUID from user policy (defaults to active configured label)"),
             ),
             handler=_wrap_handler(_handle_word_sanitizer_and_compliance),
         ),

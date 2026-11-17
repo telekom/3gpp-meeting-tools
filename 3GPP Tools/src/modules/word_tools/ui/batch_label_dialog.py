@@ -2,7 +2,7 @@
 """
 Batch Sensitivity Label Dialog.
 Allows delegates to batch-apply configured Microsoft Purview / MIP sensitivity labels
-(e.g., OFFEN, INTERN, VERTRAULICH) across an arbitrary set of Word documents or an entire folder.
+discovered from their Windows/Office policy across an arbitrary set of Word documents or an entire folder.
 """
 import os
 import platform
@@ -251,7 +251,6 @@ class BatchSensitivityLabelDialog(QDialog):
 
         self.combo_label = QComboBox()
         self.combo_label.setStyleSheet(SEARCH_INPUT_STYLE)
-        self._populate_labels()
         cfg_layout.addRow("<b>Target Sensitivity Level:</b>", self.combo_label)
 
         self.chk_unlabeled_only = QCheckBox("Only apply to unlabeled documents (recommended - skips already classified files)")
@@ -298,21 +297,32 @@ class BatchSensitivityLabelDialog(QDialog):
         btn_row.addWidget(self.btn_apply)
 
         main_layout.addLayout(btn_row)
+        self._populate_labels()
 
     def _populate_labels(self):
         self.combo_label.clear()
         labels = WordConfig.get_sensitivity_labels()
+        if not labels:
+            self.combo_label.addItem("No sensitivity labels configured or detected in Windows policy", None)
+            self.combo_label.setEnabled(False)
+            self.btn_apply.setEnabled(False)
+            return
+
+        self.combo_label.setEnabled(True)
+        self.btn_apply.setEnabled(True)
         active = WordConfig.get_active_sensitivity_label()
-        active_id = active.get("id", "")
+        active_id = (active.get("id") or "").lower()
 
         sel_idx = 0
         for idx, lbl in enumerate(labels):
             name = lbl.get("name", "Unknown")
             lid = lbl.get("id", "")
             desc = lbl.get("description", "")
-            label_text = f"{name} ({desc})" if desc else name
+            label_text = WordConfig.format_label_display(lbl)
             self.combo_label.addItem(label_text, (lid, name))
-            if lid == active_id:
+            if desc:
+                self.combo_label.setItemData(idx, desc, Qt.ToolTipRole)
+            if lid.lower() == active_id:
                 sel_idx = idx
 
         self.combo_label.setCurrentIndex(sel_idx)

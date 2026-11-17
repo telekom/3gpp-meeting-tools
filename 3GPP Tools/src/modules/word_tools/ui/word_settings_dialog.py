@@ -50,11 +50,20 @@ from modules.word_tools.core.word_excerpt_naming import NAMING_SCHEMES, CR_NAMIN
 class SensitivityLabelEditDialog(QDialog):
     """Dialog to edit or create a sensitivity label configuration."""
 
-    def __init__(self, parent=None, name: str = "", guid: str = "", description: str = ""):
+    def __init__(
+        self,
+        parent=None,
+        name: str = "",
+        guid: str = "",
+        description: str = "",
+        display_name: str = "",
+        is_encrypted: bool = False,
+    ):
         super().__init__(parent)
         self.setWindowTitle("✏️ Edit Sensitivity Label" if name else "➕ Add Sensitivity Label")
         self.setMinimumWidth(480)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self._display_name = display_name
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -65,18 +74,22 @@ class SensitivityLabelEditDialog(QDialog):
 
         self.edit_name = QLineEdit(name)
         self.edit_name.setStyleSheet(SEARCH_INPUT_STYLE)
-        self.edit_name.setPlaceholderText("e.g. VERTRAULICH - unverschlüsselt")
+        self.edit_name.setPlaceholderText("e.g. PUBLIC or INTERNAL")
         form.addRow("Label Name:", self.edit_name)
 
         self.edit_guid = QLineEdit(guid)
         self.edit_guid.setStyleSheet(SEARCH_INPUT_STYLE)
-        self.edit_guid.setPlaceholderText("e.g. 5d95d744-d996-4a3c-a104-fbf2486a4c52")
+        self.edit_guid.setPlaceholderText("e.g. 00000000-0000-0000-0000-000000000000")
         form.addRow("Label GUID / ID:", self.edit_guid)
 
         self.edit_desc = QLineEdit(description)
         self.edit_desc.setStyleSheet(SEARCH_INPUT_STYLE)
-        self.edit_desc.setPlaceholderText("e.g. Confidential - unencrypted")
+        self.edit_desc.setPlaceholderText("e.g. Public / Unclassified")
         form.addRow("Description:", self.edit_desc)
+
+        self.chk_encrypted = QCheckBox("RMS Encrypted label (🔒 warns when selected)")
+        self.chk_encrypted.setChecked(bool(is_encrypted))
+        form.addRow("", self.chk_encrypted)
 
         layout.addLayout(form)
 
@@ -103,10 +116,14 @@ class SensitivityLabelEditDialog(QDialog):
         self.accept()
 
     def get_data(self) -> dict:
+        name = self.edit_name.text().strip()
         return {
-            "name": self.edit_name.text().strip(),
+            "name": name,
+            "display_name": self._display_name or name,
             "id": self.edit_guid.text().strip(),
             "description": self.edit_desc.text().strip(),
+            "is_encrypted": self.chk_encrypted.isChecked(),
+            "source": "custom",
         }
 
 
@@ -119,6 +136,8 @@ class WordSettingsDialog(QDialog):
         self.setMinimumWidth(640)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self._labels_cache: List[dict] = []
+        self._tenant_id: str = ""
+        self._policy_upn: str = ""
         self._setup_ui()
         self._load_values()
 
@@ -190,6 +209,20 @@ class WordSettingsDialog(QDialog):
         sens_layout = QVBoxLayout(grp_sensitivity)
         sens_layout.setSpacing(8)
 
+        policy_row = QHBoxLayout()
+        self.lbl_policy_status = QLabel()
+        self.lbl_policy_status.setStyleSheet("font-size: 11px; color: #475569;")
+        policy_row.addWidget(self.lbl_policy_status, 1)
+
+        self.btn_sync_policy = QPushButton("🔄 Sync from Windows Policy")
+        self.btn_sync_policy.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_sync_policy.setToolTip(
+            "Discover sensitivity labels from your local Windows/Office Purview CLP policy cache."
+        )
+        self.btn_sync_policy.clicked.connect(self._on_sync_policy_clicked)
+        policy_row.addWidget(self.btn_sync_policy)
+        sens_layout.addLayout(policy_row)
+
         self.chk_enable_sensitivity = QCheckBox(
             "Apply Sensitivity Label to programmatically modified Word documents (bypasses save prompt)"
         )
@@ -222,21 +255,22 @@ class WordSettingsDialog(QDialog):
         self.btn_del_label.setToolTip("Remove selected sensitivity label preset.")
         self.btn_del_label.clicked.connect(self._on_del_label_clicked)
         preset_row.addWidget(self.btn_del_label)
-        sens_form.addRow("Active Sensitivity Level:", preset_row)
+        sens_form.addRow("Default Sensitivity Level:", preset_row)
 
         self.edit_label_name = QLineEdit()
         self.edit_label_name.setStyleSheet(SEARCH_INPUT_STYLE)
-        self.edit_label_name.setPlaceholderText("Label display name (e.g. OFFEN)")
+        self.edit_label_name.setPlaceholderText("Label policy name (e.g. PUBLIC)")
         self.edit_label_name.textChanged.connect(self._on_label_field_edited)
         sens_form.addRow("Label Name:", self.edit_label_name)
 
         self.edit_label_id = QLineEdit()
         self.edit_label_id.setStyleSheet(SEARCH_INPUT_STYLE)
-        self.edit_label_id.setPlaceholderText("GUID (e.g. 55339bf0-f345-473a-9ec8-6ca7c8197055)")
+        self.edit_label_id.setPlaceholderText("GUID (e.g. 00000000-0000-0000-0000-000000000000)")
         self.edit_label_id.textChanged.connect(self._on_label_field_edited)
         sens_form.addRow("Label GUID / ID:", self.edit_label_id)
 
         self.lbl_label_desc = QLabel()
+        self.lbl_label_desc.setWordWrap(True)
         self.lbl_label_desc.setStyleSheet("font-size: 11px; color: #64748B; font-style: italic;")
         sens_form.addRow("", self.lbl_label_desc)
 
@@ -332,25 +366,77 @@ class WordSettingsDialog(QDialog):
         if cr_idx >= 0:
             self.combo_cr_naming.setCurrentIndex(cr_idx)
 
-        self._labels_cache = [dict(l) for l in cfg.get("sensitivity_labels", WordConfig.DEFAULT_SENSITIVITY_LABELS)]
+        self._tenant_id = cfg.get("sensitivity_tenant_id", "")
+        self._policy_upn = cfg.get("sensitivity_policy_upn", "")
+        self._labels_cache = [dict(l) for l in cfg.get("sensitivity_labels", [])]
         active_id = cfg.get("active_sensitivity_label_id") or cfg.get("sensitivity_level_label_id", "")
 
+        self._refresh_policy_status()
         self._populate_presets(active_id=active_id)
         self._on_sensitivity_toggled(self.chk_enable_sensitivity.isChecked())
         self._refresh_dotx_status()
         self._refresh_lo_status()
 
+    def _refresh_policy_status(self, policy: Optional[dict] = None):
+        from modules.word_tools.core.sensitivity_label import discover_windows_sensitivity_policy
+
+        if policy is None:
+            policy = discover_windows_sensitivity_policy()
+
+        if policy and policy.get("labels"):
+            upn = policy.get("upn") or self._policy_upn or "Corporate Account"
+            tid = policy.get("tenant_id") or self._tenant_id
+            short_tid = f"...{tid[-8:]}" if len(tid) > 8 else tid
+            tid_info = f", Tenant {short_tid}" if short_tid else ""
+            self.lbl_policy_status.setText(
+                f"🟢 Windows Policy: {upn} ({len(policy['labels'])} File labels{tid_info})"
+            )
+            self.lbl_policy_status.setStyleSheet("font-size: 11px; color: #065F46; font-weight: 600;")
+        else:
+            self.lbl_policy_status.setText(
+                "⚪ No Windows / Office sensitivity policy detected on this machine"
+            )
+            self.lbl_policy_status.setStyleSheet("font-size: 11px; color: #64748B;")
+
+    def _update_label_description(self, lbl: Optional[dict]):
+        if not lbl:
+            self.lbl_label_desc.setText("")
+            self.lbl_label_desc.setStyleSheet("font-size: 11px; color: #64748B; font-style: italic;")
+            return
+
+        desc = (lbl.get("description") or "").strip()
+        if lbl.get("is_encrypted"):
+            warn = "🔒 Encrypted label (RMS Rights Protection) — may restrict external 3GPP sharing and headless ZIP inspection."
+            text = f"{warn}\n{desc}" if desc else warn
+            self.lbl_label_desc.setText(text)
+            self.lbl_label_desc.setStyleSheet("font-size: 11px; color: #B45309; font-weight: 500;")
+        else:
+            self.lbl_label_desc.setText(desc)
+            self.lbl_label_desc.setStyleSheet("font-size: 11px; color: #64748B; font-style: italic;")
+
     def _populate_presets(self, active_id: Optional[str] = None):
         self.combo_label_presets.blockSignals(True)
         self.combo_label_presets.clear()
 
+        if not self._labels_cache:
+            self.combo_label_presets.addItem("No sensitivity labels detected or configured", "")
+            self.combo_label_presets.setCurrentIndex(0)
+            self.combo_label_presets.blockSignals(False)
+
+            self.edit_label_id.blockSignals(True)
+            self.edit_label_name.blockSignals(True)
+            self.edit_label_id.setText("")
+            self.edit_label_name.setText("")
+            self._update_label_description(None)
+            self.edit_label_id.blockSignals(False)
+            self.edit_label_name.blockSignals(False)
+            self._on_sensitivity_toggled(self.chk_enable_sensitivity.isChecked())
+            return
+
         select_idx = 0
         for idx, lbl in enumerate(self._labels_cache):
-            name = lbl.get("name", "Unknown")
             lid = lbl.get("id", "")
-            desc = lbl.get("description", "")
-            short_guid = f"...{lid[-8:]}" if len(lid) > 8 else lid
-            display_text = f"{name} ({short_guid})" if short_guid else name
+            display_text = WordConfig.format_label_display(lbl, include_guid=True)
             self.combo_label_presets.addItem(display_text, lid)
             if active_id and lid.lower() == active_id.lower():
                 select_idx = idx
@@ -358,15 +444,43 @@ class WordSettingsDialog(QDialog):
         self.combo_label_presets.setCurrentIndex(select_idx)
         self.combo_label_presets.blockSignals(False)
 
-        if self._labels_cache:
-            cur = self._labels_cache[select_idx]
-            self.edit_label_id.blockSignals(True)
-            self.edit_label_name.blockSignals(True)
-            self.edit_label_id.setText(cur.get("id", ""))
-            self.edit_label_name.setText(cur.get("name", ""))
-            self.lbl_label_desc.setText(cur.get("description", ""))
-            self.edit_label_id.blockSignals(False)
-            self.edit_label_name.blockSignals(False)
+        cur = self._labels_cache[select_idx]
+        self.edit_label_id.blockSignals(True)
+        self.edit_label_name.blockSignals(True)
+        self.edit_label_id.setText(cur.get("id", ""))
+        self.edit_label_name.setText(cur.get("name", ""))
+        self._update_label_description(cur)
+        self.edit_label_id.blockSignals(False)
+        self.edit_label_name.blockSignals(False)
+        self._on_sensitivity_toggled(self.chk_enable_sensitivity.isChecked())
+
+    def _on_sync_policy_clicked(self):
+        temp_cfg = {
+            "sensitivity_labels": [dict(l) for l in self._labels_cache],
+            "active_sensitivity_label_id": self.edit_label_id.text().strip(),
+        }
+        policy = WordConfig.sync_from_windows_policy(temp_cfg, overwrite_active=False)
+        self._refresh_policy_status(policy=policy)
+
+        if policy and policy.get("labels"):
+            self._labels_cache = temp_cfg.get("sensitivity_labels", [])
+            self._tenant_id = temp_cfg.get("sensitivity_tenant_id", "")
+            self._policy_upn = temp_cfg.get("sensitivity_policy_upn", "")
+            self._populate_presets(active_id=temp_cfg.get("active_sensitivity_label_id", ""))
+            QMessageBox.information(
+                self,
+                "Windows Sensitivity Policy Synced",
+                f"Detected {len(policy['labels'])} File-scoped label(s) for {policy.get('upn') or 'current user'}.\n\n"
+                f"Click 'Save Preferences' to persist your selection.",
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "No Windows Policy Detected",
+                "No local Microsoft Office / Purview CLP sensitivity policy was found under "
+                "%LOCALAPPDATA%\\Microsoft\\Office\\CLP.\n\n"
+                "Sensitivity labeling will remain inactive unless you add custom label presets manually.",
+            )
 
     def _on_preset_changed(self, index: int):
         if 0 <= index < len(self._labels_cache):
@@ -375,7 +489,7 @@ class WordSettingsDialog(QDialog):
             self.edit_label_name.blockSignals(True)
             self.edit_label_id.setText(lbl.get("id", ""))
             self.edit_label_name.setText(lbl.get("name", ""))
-            self.lbl_label_desc.setText(lbl.get("description", ""))
+            self._update_label_description(lbl)
             self.edit_label_id.blockSignals(False)
             self.edit_label_name.blockSignals(False)
 
@@ -403,17 +517,17 @@ class WordSettingsDialog(QDialog):
             name=cur.get("name", ""),
             guid=cur.get("id", ""),
             description=cur.get("description", ""),
+            display_name=cur.get("display_name", ""),
+            is_encrypted=bool(cur.get("is_encrypted", False)),
         )
         if dlg.exec_() == QDialog.Accepted:
             data = dlg.get_data()
-            self._labels_cache[idx] = data
-            self._populate_presets(active_id=data["id"])
+            updated = dict(cur)
+            updated.update(data)
+            self._labels_cache[idx] = updated
+            self._populate_presets(active_id=updated["id"])
 
     def _on_del_label_clicked(self):
-        if len(self._labels_cache) <= 1:
-            QMessageBox.warning(self, "Cannot Remove", "At least one sensitivity label preset must be configured.")
-            return
-
         idx = self.combo_label_presets.currentIndex()
         if 0 <= idx < len(self._labels_cache):
             target = self._labels_cache[idx]
@@ -564,15 +678,17 @@ class WordSettingsDialog(QDialog):
         webbrowser.open(OFFICIAL_CR_TEMPLATE_URL)
 
     def _on_sensitivity_toggled(self, checked: bool):
-        self.combo_label_presets.setEnabled(checked)
+        has_labels = bool(self._labels_cache)
+        self.btn_sync_policy.setEnabled(checked)
+        self.combo_label_presets.setEnabled(checked and has_labels)
         self.btn_add_label.setEnabled(checked)
-        self.btn_edit_label.setEnabled(checked)
-        self.btn_del_label.setEnabled(checked)
-        self.edit_label_id.setEnabled(checked)
-        self.edit_label_name.setEnabled(checked)
+        self.btn_edit_label.setEnabled(checked and has_labels)
+        self.btn_del_label.setEnabled(checked and has_labels)
+        self.edit_label_id.setEnabled(checked and has_labels)
+        self.edit_label_name.setEnabled(checked and has_labels)
         self.chk_save_after_label.setEnabled(checked)
         self.btn_inspect_doc.setEnabled(checked)
-        self.btn_test_active.setEnabled(checked)
+        self.btn_test_active.setEnabled(checked and has_labels)
         self.btn_launch_batch.setEnabled(checked)
 
     def _browse_lo(self):
@@ -590,12 +706,15 @@ class WordSettingsDialog(QDialog):
     def _save_values(self):
         cfg = WordConfig.load()
         cfg["enable_sensitivity_labels"] = self.chk_enable_sensitivity.isChecked()
-        active_lid = self.edit_label_id.text().strip()
-        active_name = self.edit_label_name.text().strip()
+        active_lid = self.edit_label_id.text().strip() if self._labels_cache else ""
+        active_name = self.edit_label_name.text().strip() if self._labels_cache else ""
 
         cfg["active_sensitivity_label_id"] = active_lid
         cfg["sensitivity_level_label_id"] = active_lid
         cfg["sensitivity_level_label_name"] = active_name
+        cfg["sensitivity_tenant_id"] = self._tenant_id
+        cfg["sensitivity_policy_upn"] = self._policy_upn
+        cfg["sensitivity_policy_initialized"] = True
         cfg["save_document_after_setting_sensitivity_label"] = self.chk_save_after_label.isChecked()
         cfg["sensitivity_labels"] = self._labels_cache
         cfg["default_source_company"] = self.edit_company.text().strip()

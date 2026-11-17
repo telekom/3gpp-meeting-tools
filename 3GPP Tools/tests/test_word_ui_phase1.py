@@ -83,7 +83,7 @@ class TestWordUiPhase1(unittest.TestCase):
         self.assertTrue(hasattr(dlg, "edit_lo_path"))
 
         cfg = WordConfig.load()
-        self.assertEqual(dlg.edit_label_name.text(), cfg.get("sensitivity_level_label_name", "OFFEN"))
+        self.assertEqual(dlg.edit_label_name.text(), cfg.get("sensitivity_level_label_name", ""))
         dlg.close()
 
     @patch("modules.word_tools.ui.word_tabs.get_active_word_document")

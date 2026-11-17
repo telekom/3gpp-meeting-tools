@@ -11,7 +11,7 @@ Because 3GPP contributions are public, unclassified international standards docu
 
 The legacy application provided a dedicated utility and background hook that leveraged Microsoft Office's native COM `SensitivityLabel` API to automatically apply a single hardcoded label (`"OFFEN"` / Public, GUID `55339bf0-f345-473a-9ec8-6ca7c8197055`) to Word documents in a folder.
 
-In **3GPP Tools**, **F-06 is fully implemented and superseded**: it provides multi-level sensitivity preset configuration (`OFFEN`, `INTERN`, `VERTRAULICH - unverschlüsselt`, or custom tenants), full in-UI label editing (`SensitivityLabelEditDialog`), dual-mode batch labeling for both entire folders and arbitrary sets of documents (`BatchSensitivityLabelDialog`), sub-millisecond headless OpenXML classification inspection, active Word COM live testing, and automated background labeling across all opening/exporting pipelines.
+In **3GPP Tools**, **F-06 is fully implemented and superseded**: instead of hardcoded reverse-engineered GUIDs, it automatically discovers the active user's Microsoft Purview / MIP sensitivity labels and `TenantId` directly from Windows (`%LOCALAPPDATA%\Microsoft\Office\CLP\policy*.gz`), filters to enabled `File`-scoped labels, badges RMS-encrypted labels with `🔒 [Encrypted]`, defaults to the lowest-order unencrypted label (or cleanly no-ops when no policy exists), supports custom in-UI label editing (`SensitivityLabelEditDialog`), dual-mode batch labeling (`BatchSensitivityLabelDialog`), sub-millisecond headless OpenXML classification inspection, active Word COM live testing, and automated background labeling across all opening/exporting pipelines.
 
 ---
 
@@ -83,9 +83,9 @@ for doc_file in doc_files:
 ## 3. Current State in 3GPP Tools
 
 * Fully implemented and integrated:
-  * **Core Engine:** `src/modules/word_tools/core/sensitivity_label.py` supporting `set_sensitivity_label()`, headless OpenXML inspection `get_document_sensitivity_label()`, and asynchronous `batch_set_sensitivity_label()`.
-  * **Multi-Level Configuration:** `src/modules/word_tools/core/word_config.py` and `src/config/word_config.json` supporting multiple enterprise presets (`OFFEN`, `INTERN`, `VERTRAULICH - unverschlüsselt`) with active level selection.
-  * **Settings UI:** `WordSettingsDialog` (`src/modules/word_tools/ui/word_settings_dialog.py`) with preset combobox, in-place label adding/removing, file label inspector, and test button for active Word documents.
+  * **Core Engine & Policy Discovery:** `src/modules/word_tools/core/sensitivity_label.py` supporting `discover_windows_sensitivity_policy()` (reading `%LOCALAPPDATA%\Microsoft\Office\CLP\policy*.gz`), `set_sensitivity_label()` (using the policy's `TenantId` as `SiteId`), headless OpenXML inspection `get_document_sensitivity_label()`, and asynchronous `batch_set_sensitivity_label()`.
+  * **Dynamic Multi-Level Configuration:** `src/modules/word_tools/core/word_config.py` and `src/config/word_config.json` auto-populating from the user's Windows CLP policy (with empty/no-op behavior if no policy exists on the machine) and persisting the user-selected default label.
+  * **Settings UI:** `WordSettingsDialog` (`src/modules/word_tools/ui/word_settings_dialog.py`) with Windows policy status banner, **🔄 Sync from Windows Policy** button, preset combobox showing `🔒 ... [Encrypted]` badges on RMS-protected labels, in-place label adding/editing/removing, file label inspector, and test button for active Word documents.
   * **Batch Tool:** `BatchSensitivityLabelDialog` (`src/modules/word_tools/ui/batch_label_dialog.py`) integrated into `WordExtractorTab` settings menu (`🛡️ Batch Apply Sensitivity Label to Folder...`).
   * **Pipeline Integration:** Active across `document_opener.py` (when opening TDocs or specs), `word_comparator.py`, `docx_splitter.py`, `cr_pcr_generator.py`, and `DocumentSelectorPane`.
 
@@ -97,48 +97,52 @@ for doc_file in doc_files:
 
 ```mermaid
 flowchart TD
-    Config["Preferences > Office & Security:
-    - Multi-Level Presets: 'OFFEN', 'INTERN', 'VERTRAULICH'
-    - Active Selection: 'OFFEN'
-    - Headless Fast Inspection (docProps/custom.xml)"] --> Settings["Stored in word_config.json"]
+    CLP["Windows Office CLP Cache
+    (%LOCALAPPDATA%\\Microsoft\\Office\\CLP\\policy*.gz)"] --> Discover["discover_windows_sensitivity_policy()
+    - TenantId -> SiteId
+    - Enabled File-scoped labels
+    - RMS encryption detection (🔒)"]
+    Discover --> Config["WordConfig.load() / WordSettingsDialog
+    - Auto-selects lowest-order unencrypted label
+    - User picks default from policy list
+    - Clean no-op if no policy exists"]
+    Config --> Settings["Stored in word_config.json (git-ignored)"]
 
     Settings --> Trigger1["Trigger 1: Word Comparison Exporter"]
     Settings --> Trigger2["Trigger 2: BatchSensitivityLabelDialog"]
     Settings --> Trigger3["Trigger 3: Central Document Opener (TDoc/Spec)"]
 
-    Trigger1 --> Guard{"MIP Enabled & on Windows?"}
+    Trigger1 --> Guard{"MIP Enabled, Label Set & on Windows?"}
     Trigger2 --> Guard
     Trigger3 --> Guard
 
     Guard -- Yes --> COM["win32com: document.SensitivityLabel.GetLabel()"]
-    COM --> Apply["Apply LabelInfo(LabelId, LabelName)"]
+    COM --> Apply["Apply LabelInfo(LabelId, LabelName, SiteId=TenantId)"]
     Apply --> Save["Save Document"]
-    Guard -- No --> Skip["Bypass / No Action"]
+    Guard -- No --> Skip["Bypass / Clean No-Op"]
 ```
 
 ### Active Configuration Schema (`src/config/word_config.json`)
 ```json
 {
   "enable_sensitivity_labels": true,
-  "active_sensitivity_label_id": "55339bf0-f345-473a-9ec8-6ca7c8197055",
-  "sensitivity_level_label_id": "55339bf0-f345-473a-9ec8-6ca7c8197055",
-  "sensitivity_level_label_name": "OFFEN",
+  "active_sensitivity_label_id": "<auto-discovered-or-user-selected-guid>",
+  "sensitivity_level_label_id": "<auto-discovered-or-user-selected-guid>",
+  "sensitivity_level_label_name": "<auto-discovered-label-name>",
+  "sensitivity_tenant_id": "<discovered-tenant-guid>",
+  "sensitivity_policy_upn": "<user@company.com>",
+  "sensitivity_policy_initialized": true,
   "save_document_after_setting_sensitivity_label": false,
   "sensitivity_labels": [
     {
-      "id": "55339bf0-f345-473a-9ec8-6ca7c8197055",
-      "name": "OFFEN",
-      "description": "Public / Non-confidential (Default for 3GPP Contributions)"
-    },
-    {
-      "id": "5c6efe59-7e7c-4bd6-ba39-1850710f2efa",
-      "name": "INTERN",
-      "description": "Internal / Company-wide"
-    },
-    {
-      "id": "5d95d744-d996-4a3c-a104-fbf2486a4c52",
-      "name": "VERTRAULICH - unverschlüsselt",
-      "description": "Confidential - unencrypted"
+      "id": "<label-guid>",
+      "name": "<policy-label-name>",
+      "display_name": "<localized-display-name>",
+      "description": "<policy-tooltip>",
+      "order": 0,
+      "is_encrypted": false,
+      "tenant_id": "<discovered-tenant-guid>",
+      "source": "windows_policy"
     }
   ]
 }
@@ -146,24 +150,25 @@ flowchart TD
 
 ### UI Integration
 1. **Settings Dialog (`src/modules/word_tools/ui/word_settings_dialog.py`):**
-   * Multi-level preset dropdown with Add/Remove custom presets.
+   * Live Windows policy status banner + **🔄 Sync from Windows Policy** button.
+   * Multi-level preset dropdown populated from the user's policy (with `🔒 ... [Encrypted]` indicators and RMS warnings for encrypted labels), plus Add/Edit/Remove custom presets.
    * "🔍 Inspect Document Label..." button to inspect any `.docx`/`.doc` file.
    * "🧪 Test on Active Word" button to verify corporate COM compatibility.
 2. **Tools Action:** Menu item under `⚙️ Word Settings ▾` -> `"🛡️ Batch Apply Sensitivity Label to Folder..."` launching `BatchSensitivityLabelDialog`.
-3. **Document Selector Pane:** Automatically renders detected sensitivity badge (e.g. `| 🛡️ OFFEN`) upon dropping or browsing documents.
+3. **Document Selector Pane:** Automatically renders detected sensitivity badge (e.g. `| 🛡️ <LabelName>`) upon dropping or browsing documents.
 
 ---
 
 ## 5. Implementation Roadmap & Acceptance Criteria
 
 ### Step-by-Step Implementation Tasks
-1. [x] Implement `src/modules/word_tools/core/sensitivity_label.py` with `set_sensitivity_label(document, label_id, label_name)`, headless `get_document_sensitivity_label()`, and `batch_set_sensitivity_label(folder_path)`.
-2. [x] Add multi-level `sensitivity_labels` schema and active label selection to `word_config.json` and `word_config.py`.
-3. [x] Integrate label application into Word comparison exports, document opener, CR generator, and docx splitter.
-4. [x] Build `BatchSensitivityLabelDialog` in `src/modules/word_tools/ui/batch_label_dialog.py` and connect to `WordExtractorTab`.
-5. [x] Implement headless OpenXML inspection in `DocumentSelectorPane` and `WordSettingsDialog`.
+1. [x] Implement `src/modules/word_tools/core/sensitivity_label.py` with `discover_windows_sensitivity_policy()`, `set_sensitivity_label()` (using policy `TenantId` for `SiteId`), headless `get_document_sensitivity_label()`, and asynchronous `batch_set_sensitivity_label()`.
+2. [x] Remove all hardcoded tenant GUIDs from `word_config.py`, auto-populating from Windows CLP policy on load/sync and returning empty/no-op when no policy exists.
+3. [x] Integrate label application into Word comparison exports, document opener, CR generator, docx splitter, and `external_agent_tools.py`.
+4. [x] Build `BatchSensitivityLabelDialog` in `src/modules/word_tools/ui/batch_label_dialog.py` and connect to `WordExtractorTab`, including `🔒 [Encrypted]` indicators.
+5. [x] Implement headless OpenXML inspection in `DocumentSelectorPane` and `WordSettingsDialog` with policy sync controls.
 
 ### Acceptance Criteria
-* [x] Completely transparent and non-blocking for users whose organizations do not use Microsoft Purview.
-* [x] For users with Purview policies, prevents DLP save/email blocks by automatically assigning the Public/Unclassified label.
+* [x] Completely transparent and non-blocking (clean no-op) for users whose machines have no Microsoft Purview CLP policy.
+* [x] For users with Purview policies, automatically discovers all enabled `File`-scoped labels, clearly flags RMS-encrypted labels (`🔒`), and prevents DLP save/email blocks.
 * [x] Batch folder processor labels 50 documents in under 15 seconds.
