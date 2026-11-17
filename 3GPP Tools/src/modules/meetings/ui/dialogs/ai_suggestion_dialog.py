@@ -183,30 +183,38 @@ class AiSuggestionDialog(QDialog):
         # Inferred Topic Banner (if seeded from known AI)
         if self.inferred_summary:
             banner_frame = QFrame()
+            banner_frame.setObjectName("AiInferredBanner")
             banner_frame.setStyleSheet(
-                f"background-color: {C.WG_RAN_BG}; border: 1px solid {C.WG_RAN_BORDER}; border-radius: 6px; padding: 6px 10px;"
+                f"QFrame#AiInferredBanner {{ background-color: {C.WG_RAN_BG}; border: 1px solid {C.WG_RAN_BORDER}; border-radius: 6px; }}"
             )
             b_layout = QHBoxLayout(banner_frame)
-            b_layout.setContentsMargins(6, 4, 6, 4)
+            b_layout.setContentsMargins(10, 6, 10, 6)
             lbl_banner = QLabel(f"💡 <b>Inferred from known AI:</b> {self.inferred_summary}")
-            lbl_banner.setStyleSheet(f"color: {C.WG_RAN_TEXT}; font-size: 11px;")
+            lbl_banner.setStyleSheet(f"color: {C.WG_RAN_TEXT}; font-size: 11px; background: transparent; border: none;")
             lbl_banner.setWordWrap(True)
             b_layout.addWidget(lbl_banner)
             layout.addWidget(banner_frame)
 
         # Query Parameter Strip
         param_frame = QFrame()
-        param_frame.setStyleSheet(f"background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px;")
+        param_frame.setObjectName("AiParamFrame")
+        param_frame.setStyleSheet(
+            f"QFrame#AiParamFrame {{ background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; }}"
+        )
         p_layout = QHBoxLayout(param_frame)
         p_layout.setContentsMargins(10, 8, 10, 8)
         p_layout.setSpacing(10)
 
-        p_layout.addWidget(QLabel("<b>Keywords:</b>"))
+        lbl_kw_hdr = QLabel("<b>Keywords:</b>")
+        lbl_kw_hdr.setStyleSheet("background: transparent; border: none;")
+        p_layout.addWidget(lbl_kw_hdr)
         self.edit_keywords = QLineEdit(", ".join(self.initial_keywords))
         self.edit_keywords.setPlaceholderText("e.g. data framework, data transfer")
         p_layout.addWidget(self.edit_keywords, 2)
 
-        p_layout.addWidget(QLabel("<b>WI Tokens:</b>"))
+        lbl_wi_hdr = QLabel("<b>WI Tokens:</b>")
+        lbl_wi_hdr.setStyleSheet("background: transparent; border: none;")
+        p_layout.addWidget(lbl_wi_hdr)
         self.edit_wis = QLineEdit(", ".join(self.initial_wis))
         self.edit_wis.setPlaceholderText("e.g. fs_6g_arc, 6g_df")
         p_layout.addWidget(self.edit_wis, 2)
@@ -220,12 +228,17 @@ class AiSuggestionDialog(QDialog):
 
         # Progress bar strip (asynchronous scanning)
         self.prog_frame = QFrame()
-        self.prog_frame.setStyleSheet(f"background-color: {C.INFO_SOFT}; border: 1px solid {C.INFO_BORDER}; border-radius: 6px;")
+        self.prog_frame.setObjectName("AiProgFrame")
+        self.prog_frame.setStyleSheet(
+            f"QFrame#AiProgFrame {{ background-color: {C.INFO_SOFT}; border: 1px solid {C.INFO_BORDER}; border-radius: 6px; }}"
+        )
         prog_layout = QHBoxLayout(self.prog_frame)
         prog_layout.setContentsMargins(10, 6, 10, 6)
         prog_layout.setSpacing(10)
         self.lbl_scan_status = QLabel("Ready to scan.")
-        self.lbl_scan_status.setStyleSheet(f"color: {C.INFO_DARK}; font-size: 11px; font-weight: bold;")
+        self.lbl_scan_status.setStyleSheet(
+            f"color: {C.INFO_DARK}; font-size: 11px; font-weight: bold; background: transparent; border: none;"
+        )
         prog_layout.addWidget(self.lbl_scan_status, 1)
         self.prog_bar = QProgressBar()
         self.prog_bar.setFixedHeight(14)
@@ -271,11 +284,14 @@ class AiSuggestionDialog(QDialog):
 
         # Bottom Preview Bar
         preview_frame = QFrame()
-        preview_frame.setStyleSheet(f"background-color: {C.BG_CANVAS}; border-radius: 6px; padding: 6px 10px;")
+        preview_frame.setObjectName("AiPreviewFrame")
+        preview_frame.setStyleSheet(
+            f"QFrame#AiPreviewFrame {{ background-color: {C.BG_CANVAS}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; }}"
+        )
         pv_layout = QVBoxLayout(preview_frame)
-        pv_layout.setContentsMargins(6, 4, 6, 4)
+        pv_layout.setContentsMargins(10, 6, 10, 6)
         self.lbl_preview = QLabel("<b>Generated Rule:</b> <i>Select AIs above to preview...</i>")
-        self.lbl_preview.setStyleSheet(f"color: {C.TEXT_STRONG}; font-size: 11px;")
+        self.lbl_preview.setStyleSheet(f"color: {C.TEXT_STRONG}; font-size: 11px; background: transparent; border: none;")
         self.lbl_preview.setWordWrap(True)
         pv_layout.addWidget(self.lbl_preview)
         layout.addWidget(preview_frame)

@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
     QRadioButton, QCheckBox, QPushButton, QLineEdit, QFileDialog,
     QListWidget, QListWidgetItem, QStackedWidget, QFrame, QScrollArea,
     QWidget, QButtonGroup, QMessageBox, QProgressBar, QComboBox, QTextEdit,
-    QDateEdit, QMenu, QInputDialog,
+    QDateEdit, QMenu, QInputDialog, QSizePolicy,
 )
 
 from core.ai.cli_detector import CLI_AGENT_SPECS, detect_cli_agents, format_active_model_badge
@@ -124,13 +124,27 @@ class TopicEditorDialog(QDialog):
         super().__init__(parent)
         self.setWindowModality(Qt.WindowModal)
         self.setWindowTitle("Edit Meta-Topic Definition" if topic else "New Meta-Topic")
-        self.resize(700, 660)
+        self.resize(720, 750)
         self.topic = topic
         self.meetings_db = meetings_db
         self._init_ui()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(12, 12, 12, 12)
+        outer_layout.setSpacing(10)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+
+        body = QWidget()
+        body.setObjectName("TopicEditorScrollBody")
+        body.setStyleSheet("QWidget#TopicEditorScrollBody { background: transparent; }")
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(0, 0, 4, 0)
         layout.setSpacing(12)
 
         # Basic Info
@@ -164,7 +178,7 @@ class TopicEditorDialog(QDialog):
         r_layout.setSpacing(8)
 
         r_layout.addWidget(QLabel("Work Item / Study Item Tokens (Tag Cloud):"))
-        self.edit_wi = TagCloudWidget(placeholder="Type WI/SI token and press Enter or comma (e.g. ambientiot, fs_6g_df)...")
+        self.edit_wi = TagCloudWidget(placeholder="Add WI/SI token (Enter or ,)...")
         if self.topic and self.topic.rules.wi_tokens:
             self.edit_wi.setText(", ".join(self.topic.rules.wi_tokens))
         r_layout.addWidget(self.edit_wi)
@@ -191,14 +205,18 @@ class TopicEditorDialog(QDialog):
         r_layout.addWidget(self.edit_ai)
 
         r_layout.addWidget(QLabel("Keywords in Title / Abstract (Tag Cloud):"))
-        self.edit_kw = TagCloudWidget(placeholder="Type keyword and press Enter or comma (e.g. data framework, zero power)...")
+        self.edit_kw = TagCloudWidget(placeholder="Add keyword (Enter or ,)...")
         if self.topic and self.topic.rules.keywords:
             self.edit_kw.setText(", ".join(self.topic.rules.keywords))
         r_layout.addWidget(self.edit_kw)
 
         layout.addWidget(rules_box)
+        layout.addStretch()
 
-        # Buttons
+        scroll.setWidget(body)
+        outer_layout.addWidget(scroll, 1)
+
+        # Fixed Dialog Footer Buttons
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
         btn_cancel = QPushButton("Cancel")
@@ -210,7 +228,7 @@ class TopicEditorDialog(QDialog):
         btn_save.setStyleSheet(STYLE_PRIMARY_BTN)
         btn_save.clicked.connect(self._on_save)
         btn_layout.addWidget(btn_save)
-        layout.addLayout(btn_layout)
+        outer_layout.addLayout(btn_layout)
 
     def _on_wg_toggled(self, checked: bool):
         active_wgs = [wg for wg, p in self.wg_checks.items() if p.isChecked()]
@@ -414,7 +432,7 @@ class TopicDossierDialog(QDialog):
         # LEFT PANE: Topics Navigation & Management
         # ==========================================
         left_frame = QFrame()
-        left_frame.setFixedWidth(280)
+        left_frame.setFixedWidth(260)
         left_layout = QVBoxLayout(left_frame)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(8)
@@ -424,8 +442,11 @@ class TopicDossierDialog(QDialog):
         left_layout.addWidget(lbl_topics)
 
         self.list_topics = QListWidget()
+        self.list_topics.setTextElideMode(Qt.ElideRight)
+        self.list_topics.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list_topics.setStyleSheet(f"""
             QListWidget {{
+                outline: none;
                 background-color: {C.BG_CARD};
                 border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
@@ -433,8 +454,12 @@ class TopicDossierDialog(QDialog):
             }}
             QListWidget::item {{
                 padding: 8px 10px;
-                border-radius: 4px;
+                border: 1px solid transparent;
+                border-radius: 5px;
                 margin-bottom: 2px;
+            }}
+            QListWidget::item:hover:!selected {{
+                background-color: {C.BG_SURFACE};
             }}
             QListWidget::item:selected {{
                 background-color: {C.INFO_SOFT};
@@ -490,6 +515,7 @@ class TopicDossierDialog(QDialog):
 
         # 1. Topic Header
         self.lbl_topic_title = QLabel("Select a Topic")
+        self.lbl_topic_title.setWordWrap(True)
         self.lbl_topic_title.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {C.TEXT_PRIMARY};")
         right_layout.addWidget(self.lbl_topic_title)
 
@@ -544,6 +570,7 @@ class TopicDossierDialog(QDialog):
         cycle_layout.addWidget(self.date_range_widget, 1, 1)
 
         self.lbl_cohorts_summary = QLabel("Covering: SA2, RAN2, CT1 across 4 meeting rounds")
+        self.lbl_cohorts_summary.setWordWrap(True)
         self.lbl_cohorts_summary.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px;")
         cycle_layout.addWidget(self.lbl_cohorts_summary, 2, 0, 1, 2)
         right_layout.addWidget(cycle_box)
@@ -568,29 +595,31 @@ class TopicDossierDialog(QDialog):
         dest_layout.addWidget(self.lbl_inc_status, 1, 0, 1, 3)
         right_layout.addWidget(dest_box)
 
-        # 4. Conversion Options
+        # 4. Conversion Options (2x2 grid prevents excessive minimum dialog width)
         opt_box = QGroupBox("Dossier Content && Options")
-        opt_layout = QHBoxLayout(opt_box)
+        opt_layout = QGridLayout(opt_box)
+        opt_layout.setHorizontalSpacing(12)
+        opt_layout.setVerticalSpacing(6)
         self.chk_discussions = QCheckBox("Include Discussion Papers && WFs")
         self.chk_discussions.setChecked(True)
         self.chk_discussions.setToolTip(
             "Include non-agreed Discussion papers and Way Forwards alongside binding decisions and LSs "
             "(recommended for E2E company position tracking; uncheck for a lightweight Decisions/CRs/LSs baseline)."
         )
-        opt_layout.addWidget(self.chk_discussions)
+        opt_layout.addWidget(self.chk_discussions, 0, 0)
 
         self.chk_dedup = QCheckBox("Deduplicate Revisions")
         self.chk_dedup.setChecked(True)
-        opt_layout.addWidget(self.chk_dedup)
+        opt_layout.addWidget(self.chk_dedup, 0, 1)
 
         self.chk_consolidated = QCheckBox("Generate Consolidated Single .md")
         self.chk_consolidated.setChecked(True)
-        opt_layout.addWidget(self.chk_consolidated)
+        opt_layout.addWidget(self.chk_consolidated, 1, 0)
 
         self.chk_download = QCheckBox("Download missing documents from 3GPP FTP")
         self.chk_download.setChecked(True)
         self.chk_download.setToolTip("Always downloads missing TDoc documents and meeting archives from 3GPP FTP to ensure complete dossier export.")
-        opt_layout.addWidget(self.chk_download)
+        opt_layout.addWidget(self.chk_download, 1, 1)
         right_layout.addWidget(opt_box)
 
         # 6. Progress & Actions
@@ -604,13 +633,19 @@ class TopicDossierDialog(QDialog):
         right_layout.addWidget(self.lbl_status)
 
         action_layout = QHBoxLayout()
-        action_layout.addStretch()
+        action_layout.setSpacing(8)
+
+        actions_flow_widget = QWidget()
+        flow_sp = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        flow_sp.setHeightForWidth(True)
+        actions_flow_widget.setSizePolicy(flow_sp)
+        actions_flow = FlowLayout(actions_flow_widget, margin=0, h_spacing=6, v_spacing=6)
 
         self.btn_view_inputs = QPushButton("👁️ View Considered Inputs...")
         self.btn_view_inputs.setStyleSheet(STYLE_SECONDARY_BTN)
         self.btn_view_inputs.setToolTip("Open interactive visual inspector of all candidate decisions, pCRs, CRs, agreements, and liaison statements")
         self.btn_view_inputs.clicked.connect(self._on_view_considered_inputs)
-        action_layout.addWidget(self.btn_view_inputs)
+        actions_flow.addWidget(self.btn_view_inputs)
 
         self.btn_check_status = QPushButton("🔍 Check Status && Refresh Index")
         self.btn_check_status.setStyleSheet(STYLE_SECONDARY_BTN)
@@ -620,13 +655,13 @@ class TopicDossierDialog(QDialog):
             "company_positions_e2e_synthesis.md, flag stale deltas, and refresh index.md without re-exporting documents."
         )
         self.btn_check_status.clicked.connect(lambda: self._on_check_status(silent=False))
-        action_layout.addWidget(self.btn_check_status)
+        actions_flow.addWidget(self.btn_check_status)
 
         self.btn_open_folder = QPushButton("📂 Open Output Folder")
         self.btn_open_folder.setStyleSheet(STYLE_SECONDARY_BTN)
         self.btn_open_folder.setEnabled(False)
         self.btn_open_folder.clicked.connect(self._on_open_output)
-        action_layout.addWidget(self.btn_open_folder)
+        actions_flow.addWidget(self.btn_open_folder)
 
         self.btn_launch_cli = QPushButton("💬 Launch CLI Agent")
         self.btn_launch_cli.setStyleSheet(STYLE_SECONDARY_BTN)
@@ -635,12 +670,14 @@ class TopicDossierDialog(QDialog):
         self.cli_menu = QMenu(self)
         self.cli_menu.aboutToShow.connect(self._populate_cli_menu)
         self.btn_launch_cli.setMenu(self.cli_menu)
-        action_layout.addWidget(self.btn_launch_cli)
+        actions_flow.addWidget(self.btn_launch_cli)
+
+        action_layout.addWidget(actions_flow_widget, 1)
 
         self.btn_export = QPushButton("🚀 Export / Update Topic Dossier")
         self.btn_export.setStyleSheet(STYLE_PRIMARY_BTN)
         self.btn_export.clicked.connect(self._on_start_export)
-        action_layout.addWidget(self.btn_export)
+        action_layout.addWidget(self.btn_export, 0, Qt.AlignBottom | Qt.AlignRight)
 
         right_layout.addLayout(action_layout)
         root_layout.addWidget(right_frame)

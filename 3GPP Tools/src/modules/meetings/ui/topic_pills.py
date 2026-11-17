@@ -198,8 +198,13 @@ class TagCloudWidget(QFrame):
         self.flow_layout = FlowLayout(self, margin=2, h_spacing=6, v_spacing=4)
 
         self.input_edit = _TagLineEdit()
+        self.input_edit.setObjectName("TagCloudInput")
         self.input_edit.setPlaceholderText(placeholder)
-        self.input_edit.setStyleSheet("border: none; background: transparent; font-size: 11px; padding: 2px 4px;")
+        self.input_edit.setMinimumWidth(190)
+        self.input_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.input_edit.setStyleSheet(
+            "QLineEdit#TagCloudInput { border: none; background: transparent; font-size: 11px; padding: 2px 4px; }"
+        )
         self.input_edit.returnPressed.connect(self._on_enter_pressed)
         self.input_edit.textChanged.connect(self._on_text_changed)
         self.input_edit.backspace_pressed.connect(self._on_backspace_pressed)
@@ -350,7 +355,10 @@ class AgendaItemPillsWidget(QFrame):
         self.main_layout.setSpacing(6)
 
         self.lbl_empty = QLabel("No Agenda Items defined. Use '🔍 Auto-Suggest AIs...' or click '+ Add AI' below.")
-        self.lbl_empty.setStyleSheet(f"color: {C.TEXT_FAINT}; font-size: 11px; font-style: italic; padding: 4px;")
+        self.lbl_empty.setWordWrap(True)
+        self.lbl_empty.setStyleSheet(
+            f"color: {C.TEXT_FAINT}; font-size: 11px; font-style: italic; padding: 4px; background: transparent; border: none;"
+        )
         self.main_layout.addWidget(self.lbl_empty)
 
         self._rows_container = QWidget()
@@ -399,11 +407,14 @@ class AgendaItemPillsWidget(QFrame):
                     self.add_pattern(wg, p_c)
 
     def _rebuild_rows(self):
-        # Clear existing rows
+        # Clear existing rows immediately so back-to-back rebuilds never overlap visually
         while self._rows_layout.count():
             item = self._rows_layout.takeAt(0)
             if item and item.widget():
-                item.widget().deleteLater()
+                w = item.widget()
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
 
         has_any_pills = False
         # Display rows for all active WGs that either have patterns or are in active_wgs
@@ -420,8 +431,10 @@ class AgendaItemPillsWidget(QFrame):
             colors = get_wg_colors(wg)
             lbl_wg = QLabel(f"<b>{wg}:</b>")
             lbl_wg.setFixedWidth(50)
-            lbl_wg.setStyleSheet(f"color: {colors['fg_active']}; font-size: 11px;")
-            row_layout.addWidget(lbl_wg)
+            lbl_wg.setStyleSheet(
+                f"color: {colors['fg_active']}; font-size: 11px; padding-top: 3px; background: transparent; border: none;"
+            )
+            row_layout.addWidget(lbl_wg, 0, Qt.AlignTop)
 
             # Pills in a FlowLayout
             flow_container = QWidget()

@@ -660,20 +660,25 @@ class SessionPlanTrackedTopicsDialog(QDialog):
 
         # Header info
         hdr_frame = QFrame()
-        hdr_frame.setStyleSheet(f"background: {C.VIOLET_SURFACE}; border: 1px solid {C.VIOLET_BORDER}; border-radius: 8px; padding: 10px;")
+        hdr_frame.setObjectName("TrackedTopicsHeader")
+        hdr_frame.setStyleSheet(
+            f"QFrame#TrackedTopicsHeader {{ background: {C.VIOLET_SURFACE}; border: 1px solid {C.VIOLET_BORDER}; border-radius: 8px; }}"
+        )
         hdr_layout = QVBoxLayout(hdr_frame)
+        hdr_layout.setContentsMargins(12, 10, 12, 10)
         hdr_layout.setSpacing(4)
         t_lbl = QLabel("<b>Tracked Topics & Followed Agenda Items</b>")
-        t_lbl.setStyleSheet(f"color: {C.VIOLET_DARK}; font-size: 13px;")
+        t_lbl.setStyleSheet(f"color: {C.VIOLET_DARK}; font-size: 13px; background: transparent; border: none;")
         hdr_layout.addWidget(t_lbl)
         desc_lbl = QLabel("Tracked topics are highlighted in purple across the Overview Grid and populate your personal <b>'My Topics'</b> schedule and parallel conflict detector.")
-        desc_lbl.setStyleSheet(f"color: {C.VIOLET_PRIMARY}; font-size: 11px;")
+        desc_lbl.setStyleSheet(f"color: {C.VIOLET_PRIMARY}; font-size: 11px; background: transparent; border: none;")
         desc_lbl.setWordWrap(True)
         hdr_layout.addWidget(desc_lbl)
         layout.addWidget(hdr_frame)
 
         # Filter bar & quick action buttons
         filter_layout = QHBoxLayout()
+        filter_layout.setSpacing(6)
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText("🔍 Filter by AI #, acronym, or topic title...")
         self.search_box.setClearButtonEnabled(True)
@@ -698,7 +703,10 @@ class SessionPlanTrackedTopicsDialog(QDialog):
 
         # Checklist
         self.list_widget = QListWidget()
-        self.list_widget.setStyleSheet(f"QListWidget::item {{ padding: 4px; border-bottom: 1px solid {C.BG_CANVAS}; }}")
+        self.list_widget.setStyleSheet(
+            f"QListWidget {{ outline: none; background: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px; }}"
+            f"QListWidget::item {{ padding: 5px 6px; border-bottom: 1px solid {C.BG_CANVAS}; }}"
+        )
 
         # Populate with agenda items
         import re

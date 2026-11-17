@@ -2250,5 +2250,160 @@ class TestTopicDossierRefactorAndDigests(unittest.TestCase):
         dlg.close()
 
 
+class TestTopicDialogsVisualRegression(unittest.TestCase):
+    """Regression checks preventing QSS cascading borders, oversized min-width, and HTML escaping artifacts."""
+
+    _qapp = None
+
+    @classmethod
+    def _ensure_qapp(cls):
+        from PyQt5.QtWidgets import QApplication
+        app = QApplication.instance() or QApplication([])
+        cls._qapp = app
+        return app
+
+    @staticmethod
+    def _assert_scoped_frame_qss(container_frame, expected_id: str):
+        from PyQt5.QtWidgets import QLabel
+        ss = container_frame.styleSheet()
+        assert f"QFrame#{expected_id}" in ss, f"Expected scoped selector QFrame#{expected_id}, got: {ss!r}"
+        for lbl in container_frame.findChildren(QLabel):
+            # Intentional pill badge in detail drawer header has explicit border+radius; plain labels must never inherit borders
+            if lbl.objectName() or ("border-radius" in lbl.styleSheet() and "background-color" in lbl.styleSheet()):
+                continue
+            assert "border: none" in lbl.styleSheet(), f"Label {lbl.text()!r} inside {expected_id} missing border: none"
+
+    def test_topic_dossier_dialog_compact_width_and_list_elision(self):
+        from unittest.mock import MagicMock
+        from PyQt5.QtCore import Qt
+        from PyQt5.QtWidgets import QGridLayout
+        from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
+
+        app = self._ensure_qapp()
+        mdb = MagicMock()
+        mdb.list_meetings.return_value = []
+        dlg = TopicDossierDialog(meetings_db=mdb, parent=None)
+        min_hint = dlg.minimumSizeHint()
+        self.assertLessEqual(min_hint.width(), 1020)
+        self.assertEqual(dlg.list_topics.textElideMode(), Qt.ElideRight)
+        self.assertEqual(dlg.list_topics.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOff)
+        self.assertIn("outline: none", dlg.list_topics.styleSheet())
+        self.assertIsInstance(dlg.chk_discussions.parentWidget().layout(), QGridLayout)
+        dlg.close()
+
+    def test_topic_editor_scrollable_and_non_overlapping_ai_rows(self):
+        from PyQt5.QtWidgets import QScrollArea
+        from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicEditorDialog
+
+        app = self._ensure_qapp()
+        topic = MetaTopicDefinition(
+            id="scroll_test",
+            name="6G Architecture",
+            target_wgs=["SA1", "SA2", "SA3", "RAN1", "RAN2", "RAN3", "CT1", "CT3", "CT4"],
+            rules=MetaTopicRules(
+                wi_tokens=["fs_6g_arc"],
+                ai_patterns={"SA2": ["20.6.1*"], "CT4": ["21.5*"]},
+                keywords=["6g"],
+            ),
+        )
+        dlg = TopicEditorDialog(topic=topic, parent=None)
+        scrolls = dlg.findChildren(QScrollArea)
+        self.assertTrue(len(scrolls) >= 1)
+        # Active rows layout count must equal display WGs (detached rows must not remain in layout or parented)
+        self.assertEqual(dlg.edit_ai._rows_layout.count(), 9)
+        direct_row_children = [w for w in dlg.edit_ai._rows_container.findChildren(type(dlg.edit_ai._rows_container)) if w.parent() is dlg.edit_ai._rows_container]
+        self.assertEqual(len(direct_row_children), 9)
+        self.assertGreaterEqual(dlg.edit_wi.input_edit.minimumWidth(), 180)
+        dlg.close()
+
+    def test_topic_inputs_viewer_scoped_frames_wrapping_and_tab4_bold(self):
+        from unittest.mock import MagicMock, patch
+        from PyQt5.QtWidgets import QFrame
+        from modules.meetings.ui.dialogs.topic_inputs_dialog import TopicInputsViewerDialog
+
+        app = self._ensure_qapp()
+        mdb = MagicMock()
+        topic = MetaTopicDefinition(
+            id="test_12_wgs",
+            name="All-WG Test",
+            target_wgs=["SA1", "SA2", "SA3", "SA4", "SA5", "RAN1", "RAN2", "RAN3", "RAN4", "CT1", "CT3", "CT4"],
+        )
+        round_1 = MeetingCohort(key="2026-Q1", year=2026, quarter=1, label="2026 Q1", meetings=[])
+        with patch.object(TopicInputsViewerDialog, "_start_collection"):
+            dlg = TopicInputsViewerDialog(meetings_db=mdb, topic=topic, selected_rounds=[round_1], parent=None)
+
+        for obj_id in (
+            "TopicInputsHeaderCard",
+            "TopicInputsKpiFrame",
+            "TopicInputsProgFrame",
+            "TopicInputsFilterFrame",
+            "TopicInputsDrawerCard",
+        ):
+            frame = dlg.findChild(QFrame, obj_id)
+            self.assertIsNotNone(frame, f"Missing QFrame#{obj_id}")
+            self._assert_scoped_frame_qss(frame, obj_id)
+
+        dlg.show()
+        app.processEvents()
+        self.assertLessEqual(dlg.minimumSizeHint().width(), 1020)
+        self.assertLessEqual(dlg.minimumSizeHint().height(), 720)
+
+        # Tab 4 distribution total column must render plain bold text, never literal <b> tags
+        dlg.all_contributions = [
+            {"tdoc_id": "S2-1", "wg": "SA2", "meeting_number": "178", "date": "2026-02-16", "ai": "20.6.1", "type": "pCR", "status": "Agreed", "title": "T", "source": "Nokia", "round_key": "2026-Q1", "round_label": "2026 Q1"}
+        ]
+        dlg._populate_distribution_table()
+        tot_col = dlg.table_dist.columnCount() - 1
+        for r in range(dlg.table_dist.rowCount() - 1):
+            cell = dlg.table_dist.item(r, tot_col)
+            self.assertIsNotNone(cell)
+            self.assertNotIn("<b>", cell.text())
+            self.assertTrue(cell.font().bold())
+        dlg.close()
+
+    def test_ai_suggestion_dialog_scoped_frames(self):
+        from unittest.mock import MagicMock, patch
+        from PyQt5.QtWidgets import QFrame
+        from modules.meetings.ui.dialogs.ai_suggestion_dialog import AiSuggestionDialog
+
+        app = self._ensure_qapp()
+        with patch.object(AiSuggestionDialog, "_trigger_scan"):
+            dlg = AiSuggestionDialog(
+                meetings_db=MagicMock(),
+                target_wgs=["SA2", "RAN2"],
+                initial_keywords=["6g"],
+                initial_wis=["fs_6g_arc"],
+                inferred_summary="SA2 AI 20.6.1: 6G",
+                parent=None,
+            )
+        for obj_id in ("AiInferredBanner", "AiParamFrame", "AiProgFrame", "AiPreviewFrame"):
+            frame = dlg.findChild(QFrame, obj_id)
+            self.assertIsNotNone(frame, f"Missing QFrame#{obj_id}")
+            self._assert_scoped_frame_qss(frame, obj_id)
+        dlg.close()
+
+    def test_session_plan_tracked_topics_header_scoped(self):
+        from PyQt5.QtWidgets import QFrame
+        from modules.meetings.ui.session_plan.session_plan_dialogs import SessionPlanTrackedTopicsDialog
+
+        app = self._ensure_qapp()
+
+        class _FakeAI:
+            def __init__(self, d, ac=None):
+                self.description = d
+                self.acronym = ac
+
+        dlg = SessionPlanTrackedTopicsDialog(
+            agenda_map={"20.6.1": _FakeAI("KI#1.1 NAS", "NAS")},
+            currently_tracked={"20.6.1": "AI 20.6.1 (NAS)"},
+            parent=None,
+        )
+        hdr = dlg.findChild(QFrame, "TrackedTopicsHeader")
+        self.assertIsNotNone(hdr)
+        self._assert_scoped_frame_qss(hdr, "TrackedTopicsHeader")
+        self.assertIn("outline: none", dlg.list_widget.styleSheet())
+        dlg.close()
+
+
 if __name__ == "__main__":
     unittest.main()
