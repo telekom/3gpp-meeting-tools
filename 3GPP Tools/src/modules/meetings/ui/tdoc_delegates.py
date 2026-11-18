@@ -2,8 +2,8 @@
 from PyQt5.QtCore import pyqtSignal, QRectF, QSize, QEvent, Qt, QPoint
 from PyQt5.QtGui import QTextDocument, QPainter, QColor, QPen
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem, QStyle
-from core.ui.font_scale import scale_pt, scale_px
-from core.ui.theme import C
+from core.ui.font_scale import scaled_font, scale_px
+from core.ui.theme import C, T
 
 
 class HtmlDelegate(QStyledItemDelegate):
@@ -118,10 +118,7 @@ class TDocActionDelegate(QStyledItemDelegate):
         painter.drawRoundedRect(rect, 10, 10)
 
         painter.setPen(text_color)
-        font = painter.font()
-        font.setBold(True)
-        font.setPointSize(scale_pt(8))
-        painter.setFont(font)
+        painter.setFont(scaled_font(painter.font(), T.SIZE_CAPTION, bold=True))
         painter.drawText(rect, Qt.AlignCenter, text)
         painter.restore()
 
@@ -207,12 +204,10 @@ class AgendaItemDelegate(QStyledItemDelegate):
 
                 pill_font = painter.font()
                 pill_font.setBold(False)
-                if pill_font.pointSize() > 8:
-                    pill_font.setPointSize(pill_font.pointSize() - 2)
-                elif pill_font.pixelSize() > 10:
-                    pill_font.setPixelSize(pill_font.pixelSize() - 2)
-                else:
-                    pill_font.setPointSize(8)
+                base_px = pill_font.pixelSize()
+                if base_px <= 0:
+                    base_px = scale_px(T.SIZE_TABLE)
+                pill_font.setPixelSize(max(8, base_px - scale_px(2, minimum=2)))
                 painter.setFont(pill_font)
                 painter.setPen(text_color)
 

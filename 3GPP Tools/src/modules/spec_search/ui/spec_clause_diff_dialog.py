@@ -32,6 +32,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.font_scale import scaled_font
+from core.ui.theme import T
 from modules.spec_search.core.spec_clause_diff import build_llm_clause_prompt, generate_unified_diff
 from modules.spec_search.core.spec_search_db import SpecSearchDatabase
 from core.ui.theme import C
@@ -951,7 +953,7 @@ class SpecClauseDiffDialog(QDialog):
             # Col 1: TDoc
             item_tdoc = QTableWidgetItem(tdoc_display)
             item_tdoc.setFlags(item_tdoc.flags() & ~Qt.ItemIsEditable)
-            item_tdoc.setFont(QFont("Consolas", 9, QFont.Bold))
+            item_tdoc.setFont(scaled_font(base_px=T.SIZE_TABLE, bold=True, family="Consolas"))
             self.attr_table.setItem(row_idx, 1, item_tdoc)
 
             # Col 2: Source

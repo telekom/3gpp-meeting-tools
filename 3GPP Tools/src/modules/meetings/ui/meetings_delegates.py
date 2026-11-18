@@ -5,9 +5,9 @@ from PyQt5.QtCore import Qt, QEvent
 from PyQt5.QtGui import QBrush, QColor, QPen
 from PyQt5.QtWidgets import QMenu, QStyle, QStyledItemDelegate
 
-from core.ui.font_scale import scale_pt
+from core.ui.font_scale import scaled_font
 from core.ui.ui_components import get_wg_colors
-from core.ui.theme import C
+from core.ui.theme import C, T
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +47,7 @@ class WGTagDelegate(QStyledItemDelegate):
         painter.setPen(border_pen)
         painter.drawRoundedRect(badge_rect, 4, 4)
 
-        font = painter.font()
-        font.setPointSize(scale_pt(9))
-        font.setBold(True)
-        painter.setFont(font)
+        painter.setFont(scaled_font(painter.font(), T.SIZE_TABLE, bold=True))
         painter.setPen(QPen(QColor(text_col)))
         painter.drawText(badge_rect, Qt.AlignCenter, wg)
 
@@ -91,10 +88,7 @@ class TDocsButtonDelegate(QStyledItemDelegate):
         painter.setPen(QPen(QColor(border), 1))
         painter.drawRoundedRect(btn_rect, 6, 6)
 
-        font = painter.font()
-        font.setPointSize(scale_pt(8))
-        font.setBold(True)
-        painter.setFont(font)
+        painter.setFont(scaled_font(painter.font(), T.SIZE_CAPTION, bold=True))
         painter.setPen(QPen(QColor(text_col)))
         painter.drawText(btn_rect, Qt.AlignCenter, text)
 
@@ -124,10 +118,7 @@ class DynamicHoverMenuDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         super().paint(painter, option, index)
         painter.save()
-        font = painter.font()
-        font.setPointSize(scale_pt(16))
-        font.setBold(True)
-        painter.setFont(font)
+        painter.setFont(scaled_font(painter.font(), 20, bold=True))
 
         if option.state & QStyle.State_MouseOver:
             painter.setPen(QColor(C.ACCENT_PRIMARY))

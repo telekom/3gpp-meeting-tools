@@ -21,6 +21,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.font_scale import scaled_font
+from core.ui.theme import T
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     TABLE_STYLE_CLEAN,
@@ -174,7 +176,7 @@ class StencilsCard(QWidget):
             cat_item = QTableWidgetItem(s.category)
             display_name = f"⭐ {s.label} [User]" if s.is_user_defined else s.label
             name_item = QTableWidgetItem(display_name)
-            name_item.setFont(QFont("Segoe UI", 9, QFont.Bold))
+            name_item.setFont(scaled_font(base_px=T.SIZE_TABLE, bold=True))
             if s.is_user_defined:
                 name_item.setForeground(QColor(C.WARNING))
 

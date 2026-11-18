@@ -10,9 +10,9 @@ from PyQt5.QtWidgets import (
     QMenu,
 )
 
-from core.ui.font_scale import scale_pt, scale_px
+from core.ui.font_scale import scaled_font, scale_px
 from core.ui.ui_components import WG_DESCRIPTIONS, get_wg_colors
-from core.ui.theme import C
+from core.ui.theme import C, T
 
 logger = logging.getLogger(__name__)
 
@@ -36,20 +36,17 @@ class TrackingDelegate(QStyledItemDelegate):
         painter.setRenderHint(painter.Antialiasing)
 
         # Draw Starred pill/icon
+        icon_font = scaled_font(option.font, T.SIZE_TABLE)
         if is_starred:
             painter.setBrush(QColor(C.WARNING_SOFT_ALT))
             painter.setPen(QColor(C.WARNING_ACCENT))
             painter.drawRoundedRect(star_rect, 4, 4)
             painter.setPen(QColor(C.WARNING))
-            font = option.font
-            font.setPointSize(font.pointSize() if font.pointSize() > 8 else 9)
-            painter.setFont(font)
+            painter.setFont(icon_font)
             painter.drawText(star_rect, Qt.AlignCenter, "⭐")
         else:
             painter.setPen(QColor(C.TEXT_FAINT))
-            font = option.font
-            font.setPointSize(font.pointSize() if font.pointSize() > 8 else 9)
-            painter.setFont(font)
+            painter.setFont(icon_font)
             painter.drawText(star_rect, Qt.AlignCenter, "☆")
 
         # Draw Following pill/icon
@@ -58,9 +55,7 @@ class TrackingDelegate(QStyledItemDelegate):
             painter.setPen(QColor(C.INFO_ACCENT))
             painter.drawRoundedRect(follow_rect, 4, 4)
             painter.setPen(QColor(C.INFO_DARK))
-            font = option.font
-            font.setPointSize(font.pointSize() if font.pointSize() > 8 else 9)
-            painter.setFont(font)
+            painter.setFont(icon_font)
             painter.drawText(follow_rect, Qt.AlignCenter, "🎯")
         else:
             # Concentric circular target outline (avoids red Windows emoji glyphs when unfollowed)
@@ -103,10 +98,7 @@ class WgBadgeDelegate(QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(painter.Antialiasing)
 
-        font = option.font
-        font.setBold(True)
-        font.setPointSize(scale_pt(9))
-        painter.setFont(font)
+        painter.setFont(scaled_font(option.font, T.SIZE_TABLE, bold=True))
         fm = painter.fontMetrics()
 
         badges = []
@@ -116,7 +108,7 @@ class WgBadgeDelegate(QStyledItemDelegate):
 
         for wg in wgs:
             tw = fm.horizontalAdvance(wg) if hasattr(fm, 'horizontalAdvance') else fm.width(wg)
-            w = max(tw + 12, 34)
+            w = max(tw + scale_px(12), scale_px(34))
             badges.append((wg, w))
             total_width += w
         total_width += spacing * (len(badges) - 1)
@@ -175,10 +167,7 @@ class WidDelegate(QStyledItemDelegate):
         painter.drawRoundedRect(badge_rect, 4, 4)
 
         painter.setPen(QColor(C.INFO_DARK if is_selected else C.ACCENT_PRIMARY))
-        font = option.font
-        font.setBold(True)
-        font.setPointSize(scale_pt(9))
-        painter.setFont(font)
+        painter.setFont(scaled_font(option.font, T.SIZE_TABLE, bold=True))
         painter.drawText(badge_rect, Qt.AlignCenter, f"📄 {text}")
         painter.restore()
 
@@ -200,7 +189,7 @@ class ReleaseBadgeDelegate(QStyledItemDelegate):
         if not text or text == "-":
             return
 
-        badge_w = min(max(58, option.rect.width() - 8), 66)
+        badge_w = min(max(scale_px(58), option.rect.width() - 8), scale_px(66))
         badge_h = scale_px(22, minimum=20)
         badge_rect = QRect(
             option.rect.left() + (option.rect.width() - badge_w) // 2,
@@ -216,10 +205,7 @@ class ReleaseBadgeDelegate(QStyledItemDelegate):
         painter.drawRoundedRect(badge_rect, 4, 4)
 
         painter.setPen(QColor(C.TEXT_BODY))
-        font = option.font
-        font.setBold(True)
-        font.setPointSize(scale_pt(9))
-        painter.setFont(font)
+        painter.setFont(scaled_font(option.font, T.SIZE_TABLE, bold=True))
         painter.drawText(badge_rect, Qt.AlignCenter, text)
         painter.restore()
 
@@ -260,10 +246,7 @@ class StatusBadgeDelegate(QStyledItemDelegate):
         painter.drawRoundedRect(badge_rect, 11, 11)
 
         painter.setPen(text_color)
-        font = option.font
-        font.setBold(True)
-        font.setPointSize(scale_pt(9))
-        painter.setFont(font)
+        painter.setFont(scaled_font(option.font, T.SIZE_TABLE, bold=True))
         painter.drawText(badge_rect, Qt.AlignCenter, label)
         painter.restore()
 
@@ -282,7 +265,7 @@ class SpecsDelegate(QStyledItemDelegate):
             painter.restore()
             return
 
-        badge_w = min(max(44, option.rect.width() - 8), 52)
+        badge_w = min(max(scale_px(44), option.rect.width() - 8), scale_px(52))
         badge_h = scale_px(22, minimum=20)
         badge_rect = QRect(
             option.rect.left() + (option.rect.width() - badge_w) // 2,
@@ -298,10 +281,7 @@ class SpecsDelegate(QStyledItemDelegate):
         painter.drawRoundedRect(badge_rect, 11, 11)
 
         painter.setPen(QColor(C.ACCENT_PRIMARY))
-        font = option.font
-        font.setBold(True)
-        font.setPointSize(scale_pt(9))
-        painter.setFont(font)
+        painter.setFont(scaled_font(option.font, T.SIZE_TABLE, bold=True))
         painter.drawText(badge_rect, Qt.AlignCenter, text)
         painter.restore()
 
@@ -332,9 +312,7 @@ class TimelineDelegate(QStyledItemDelegate):
             painter.setPen(option.palette.color(QPalette.HighlightedText))
         else:
             painter.setPen(QColor(C.TEXT_BODY))
-        font = option.font
-        font.setPointSize(scale_pt(9))
-        painter.setFont(font)
+        painter.setFont(scaled_font(option.font, T.SIZE_TABLE))
         text_rect = option.rect.adjusted(4, 0, -4, 0)
         elided = painter.fontMetrics().elidedText(text, Qt.ElideRight, text_rect.width())
         painter.drawText(text_rect, Qt.AlignCenter, elided)

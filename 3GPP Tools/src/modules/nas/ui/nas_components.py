@@ -29,12 +29,12 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.flow_layout import FlowLayout
-from core.ui.font_scale import scale_px
+from core.ui.font_scale import scaled_font, scale_px
 from core.ui.ui_components import get_wg_colors
 from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
 from modules.nas.core.nas_exporter import copy_definition_to_clipboard
 from modules.nas.ui.nas_dialogs import get_spec_metadata, get_spec_title, get_spec_tooltip
-from core.ui.theme import C
+from core.ui.theme import C, T
 
 
 def _extract_major_release(version: str) -> str:
@@ -109,8 +109,7 @@ class NASMessageItemDelegate(QStyledItemDelegate):
         right_limit = rect.right() - 8
 
         # 3. Line 1: Message / IE Name (regular when unselected; semibold when selected)
-        name_font = QFont(option.font)
-        name_font.setPointSize(9)
+        name_font = scaled_font(option.font, T.SIZE_TABLE)
         name_font.setWeight(QFont.DemiBold if is_selected else QFont.Normal)
         painter.setFont(name_font)
         if is_selected:
@@ -120,17 +119,16 @@ class NASMessageItemDelegate(QStyledItemDelegate):
         else:
             painter.setPen(QColor(C.TEXT_BODY))
 
-        line1_h = max(17, (rect.height() - 6) // 2)
+        line1_h = max(scale_px(17), (rect.height() - 6) // 2)
         line1_rect = QRect(left_x, rect.y() + 3, max(40, right_limit - left_x), line1_h)
         elided_text = QFontMetrics(name_font).elidedText(msg_name, Qt.ElideRight, line1_rect.width())
         painter.drawText(line1_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_text)
 
         # 4. Line 2: Compact WG chip + clean 'Spec · Acronym' subtitle, Right-aligned Clause
         chip_y = rect.y() + 3 + line1_h + 1
-        chip_h = max(15, min(16, rect.bottom() - chip_y - 3))
+        chip_h = max(scale_px(15), min(scale_px(16), rect.bottom() - chip_y - 3))
 
-        sub_font = QFont(option.font)
-        sub_font.setPointSize(8)
+        sub_font = scaled_font(option.font, T.SIZE_CAPTION)
         sub_font.setWeight(QFont.Normal)
         sub_fm = QFontMetrics(sub_font)
 
@@ -148,8 +146,7 @@ class NASMessageItemDelegate(QStyledItemDelegate):
         cur_x = left_x
         if wg:
             wg_colors = get_wg_colors(wg)
-            wg_font = QFont(option.font)
-            wg_font.setPointSizeF(7.5)
+            wg_font = scaled_font(option.font, 10)
             wg_font.setWeight(QFont.DemiBold)
             wg_fm = QFontMetrics(wg_font)
             wg_w = wg_fm.horizontalAdvance(wg) + 8
@@ -788,10 +785,7 @@ class NASSpecCardWidget(QFrame):
         hdr.addWidget(wg_badge)
 
         lbl_spec = QLabel(f"TS {spec_number}")
-        font_spec = QFont()
-        font_spec.setBold(True)
-        font_spec.setPointSize(9)
-        lbl_spec.setFont(font_spec)
+        lbl_spec.setFont(scaled_font(base_px=T.SIZE_TABLE, bold=True))
         lbl_spec.setStyleSheet(f"color: {C.TEXT_PRIMARY};")
         lbl_spec.setToolTip(get_spec_tooltip(spec_number))
         hdr.addWidget(lbl_spec)

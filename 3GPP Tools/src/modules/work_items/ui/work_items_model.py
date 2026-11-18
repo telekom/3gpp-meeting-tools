@@ -5,8 +5,9 @@ import logging
 from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex
 from PyQt5.QtGui import QBrush, QColor, QFont
 
+from core.ui.font_scale import scaled_font
 from core.ui.ui_components import WG_DESCRIPTIONS
-from core.ui.theme import C
+from core.ui.theme import C, T
 
 logger = logging.getLogger(__name__)
 
@@ -126,9 +127,7 @@ class WorkItemsTableModel(QAbstractTableModel):
                 font.setBold(True)
                 return font
             elif col_name == "Code":
-                font = QFont("Consolas", 10)
-                font.setBold(True)
-                return font
+                return scaled_font(base_px=T.SIZE_TABLE, bold=True, family="Consolas")
 
         elif role == Qt.ToolTipRole:
             if col_name == "Track":

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import QEvent, QObject, QSettings, Qt, pyqtSignal
+from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
     QApplication,
     QComboBox,
@@ -142,6 +143,25 @@ def scale_pt(base_pt: int, minimum: int = 7, scale: Optional[float] = None) -> i
     """Scale an integer point font size using the active (or specified) font scale."""
     s = _CURRENT_SCALE if scale is None else clamp_font_scale(scale)
     return max(int(minimum), int(round(base_pt * s)))
+
+
+def scaled_font(
+    base_font: Optional[QFont] = None,
+    base_px: int = 12,
+    *,
+    bold: Optional[bool] = None,
+    family: Optional[str] = None,
+    minimum: int = 7,
+    scale: Optional[float] = None,
+) -> QFont:
+    """Return a copy of `base_font` sized strictly in scaled logical pixels."""
+    f = QFont(base_font) if base_font is not None else QFont()
+    if family:
+        f.setFamily(family)
+    if bold is not None:
+        f.setBold(bool(bold))
+    f.setPixelSize(scale_px(base_px, minimum=minimum, scale=scale))
+    return f
 
 
 def scale_row_height(base_px: int, minimum: Optional[int] = None, scale: Optional[float] = None) -> int:

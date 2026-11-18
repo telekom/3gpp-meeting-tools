@@ -34,8 +34,9 @@ from PyQt5.QtWidgets import (
 
 from modules.spec_search.core.spec_clause_exporter import copy_clause_to_clipboard
 from core.ui.flow_layout import FlowLayout
+from core.ui.font_scale import scaled_font, scale_px
 from modules.spec_search.core.spec_search_db import extract_major_release, parse_version_tuple
-from core.ui.theme import C
+from core.ui.theme import C, T
 
 
 # -----------------------------------------------------------------------------
@@ -195,19 +196,19 @@ class SpecEvolutionStatusDelegate(QStyledItemDelegate):
         if col == 0:
             val = str(index.data(Qt.DisplayRole) or "")
             text_rect = option.rect.adjusted(8, 0, -8, 0)
-            painter.setFont(QFont("Segoe UI", 9, QFont.Bold))
+            painter.setFont(scaled_font(option.font, T.SIZE_TABLE, bold=True))
             painter.setPen(QColor(C.ACCENT_SKY if not is_selected else C.ACCENT_SKY_DARK))
             painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, val)
         elif col == 1:
             val = str(index.data(Qt.DisplayRole) or "")
             text_rect = option.rect.adjusted(8, 0, -8, 0)
-            painter.setFont(QFont("Segoe UI", 9, QFont.Normal))
+            painter.setFont(scaled_font(option.font, T.SIZE_TABLE, bold=False))
             painter.setPen(QColor(C.TEXT_PRIMARY if not is_selected else C.TEXT_STRONG))
             painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, val)
         else:
             display_text = str(index.data(Qt.DisplayRole) or "").strip()
             if not display_text or display_text in ("-", "—"):
-                painter.setFont(QFont("Segoe UI", 10, QFont.Normal))
+                painter.setFont(scaled_font(option.font, T.SIZE_BODY, bold=False))
                 painter.setPen(QColor(C.BORDER_STRONG))
                 painter.drawText(option.rect, Qt.AlignCenter, "—")
             else:
@@ -232,11 +233,11 @@ class SpecEvolutionStatusDelegate(QStyledItemDelegate):
                     pill_fg = QColor(C.TEXT_BODY)
                     badge_label = display_text
 
-                pill_font = QFont("Segoe UI", 8, QFont.Bold)
+                pill_font = scaled_font(option.font, T.SIZE_CAPTION, bold=True)
                 fm = QFontMetrics(pill_font)
                 text_w = fm.horizontalAdvance(badge_label)
-                pill_h = 20
-                pill_w = max(68, min(option.rect.width() - 8, text_w + 14))
+                pill_h = scale_px(20)
+                pill_w = max(scale_px(68), min(option.rect.width() - 8, text_w + scale_px(14)))
 
                 cx = option.rect.center().x()
                 cy = option.rect.center().y()
@@ -373,10 +374,7 @@ class SpecCardWidget(QFrame):
         hdr.addWidget(self.chk_all)
 
         lbl_spec = QLabel(f"TS {spec_number}")
-        font_spec = QFont()
-        font_spec.setBold(True)
-        font_spec.setPointSize(9)
-        lbl_spec.setFont(font_spec)
+        lbl_spec.setFont(scaled_font(base_px=T.SIZE_TABLE, bold=True))
         lbl_spec.setStyleSheet(f"color: {C.TEXT_PRIMARY};")
         hdr.addWidget(lbl_spec)
 

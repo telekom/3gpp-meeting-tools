@@ -33,6 +33,7 @@ from core.ui.font_scale import (
     scale_px,
     scale_row_height,
     scale_stylesheet,
+    scaled_font,
     zoom_text_widget,
 )
 
@@ -182,6 +183,92 @@ class TestFontScale(unittest.TestCase):
         self.assertEqual(zoom_text_widget(browser, -1), 2)
         self.assertEqual(zoom_text_widget(browser, 0, reset=True), 0)
         self.assertIsNone(zoom_text_widget(QLabel("not zoomable"), 1))
+
+    def test_scaled_font_uses_pixel_size_consistently(self) -> None:
+        from PyQt5.QtGui import QFont
+
+        f_100 = scaled_font(base_px=12, bold=True, scale=1.00)
+        self.assertEqual(f_100.pixelSize(), 12)
+        self.assertEqual(f_100.pointSize(), -1)
+        self.assertTrue(f_100.bold())
+
+        f_140 = scaled_font(QFont(), base_px=12, family="Consolas", scale=1.40)
+        self.assertEqual(f_140.pixelSize(), 17)
+        self.assertEqual(f_140.pointSize(), -1)
+        self.assertEqual(f_140.family(), "Consolas")
+
+    def test_table_delegates_and_models_stay_pixel_proportional(self) -> None:
+        import ast
+        from core.ui.theme import T
+        from modules.meetings.ui.meetings_delegates import (
+            DynamicHoverMenuDelegate,
+            TDocsButtonDelegate,
+            WGTagDelegate,
+        )
+        from modules.meetings.ui.tdoc_delegates import AgendaItemDelegate, TDocActionDelegate
+        from modules.work_items.ui.work_items_model import WorkItemsTableModel
+        from PyQt5.QtCore import Qt
+        from PyQt5.QtGui import QImage, QPainter
+        from PyQt5.QtWidgets import QStyleOptionViewItem
+
+        # Source invariant: UI delegate/model painters must not reintroduce DPI-sensitive setPointSize / QFont(..., N)
+        checked_paths = (
+            SRC_DIR / "modules" / "meetings" / "ui" / "meetings_delegates.py",
+            SRC_DIR / "modules" / "meetings" / "ui" / "tdoc_delegates.py",
+            SRC_DIR / "modules" / "work_items" / "ui" / "work_items_delegates.py",
+            SRC_DIR / "modules" / "work_items" / "ui" / "work_items_model.py",
+            SRC_DIR / "modules" / "nas" / "ui" / "nas_components.py",
+            SRC_DIR / "modules" / "spec_search" / "ui" / "spec_search_components.py",
+        )
+        for src_path in checked_paths:
+            src_text = src_path.read_text(encoding="utf-8")
+            self.assertNotIn("setPointSize", src_text, f"{src_path.name} must use setPixelSize/scaled_font, not setPointSize")
+            tree = ast.parse(src_text)
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "QFont"
+                    and len(node.args) >= 2
+                ):
+                    self.fail(f"{src_path.name}:{node.lineno} calls multi-arg QFont(..., pointSize); use scaled_font()")
+
+        # Live runtime check: Meetings delegates & WorkItems Code font match T.SIZE_TABLE / T.SIZE_CAPTION pixel scale
+        wi_model = WorkItemsTableModel([{"code": "990012", "acronym": "6G", "name": "Test"}])
+        apply_font_scale(0.90, app=self.app, save=False)
+        wi_font_90 = wi_model.data(wi_model.index(0, 1), Qt.FontRole)
+        self.assertEqual(wi_font_90.pointSize(), -1)
+        self.assertEqual(wi_font_90.pixelSize(), scale_px(T.SIZE_TABLE, scale=0.90))
+
+        apply_font_scale(1.40, app=self.app, save=False)
+        wi_font_140 = wi_model.data(wi_model.index(0, 1), Qt.FontRole)
+        self.assertEqual(wi_font_140.pointSize(), -1)
+        self.assertEqual(wi_font_140.pixelSize(), scale_px(T.SIZE_TABLE, scale=1.40))
+
+        # Smoke-paint Meetings & TDocs delegates under active scaling with pixel-sized app font
+        class _DummyParent:
+            def __init__(self, tbl):
+                self.table = tbl
+
+        tbl = QTableWidget(1, 3)
+        dummy_parent = _DummyParent(tbl)
+        img = QImage(160, 48, QImage.Format_ARGB32)
+        painter = QPainter(img)
+        opt = QStyleOptionViewItem()
+        opt.rect = img.rect()
+        opt.widget = tbl
+        opt.font = self.app.font()
+
+        for delegate in (
+            WGTagDelegate(dummy_parent),
+            TDocsButtonDelegate(dummy_parent),
+            DynamicHoverMenuDelegate(dummy_parent),
+            TDocActionDelegate(tbl),
+            AgendaItemDelegate(tbl),
+        ):
+            delegate.paint(painter, opt, tbl.model().index(0, 0))
+            self.assertEqual(painter.font().pointSize(), -1)
+        painter.end()
 
 
 if __name__ == "__main__":

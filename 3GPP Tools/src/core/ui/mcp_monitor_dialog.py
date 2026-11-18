@@ -54,7 +54,8 @@ from core.ai.mcp_activity import (
     get_mcp_client_configurations,
     get_recent_mcp_events,
 )
-from core.ui.theme import C
+from core.ui.font_scale import scaled_font
+from core.ui.theme import C, T
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_DANGER,
     BUTTON_STYLE_TOOLBAR_SECONDARY,
@@ -390,7 +391,7 @@ class McpMonitorDialog(QDialog):
         lp_layout.addWidget(QLabel("Request Arguments:"))
         self.args_view = QTextEdit()
         self.args_view.setReadOnly(True)
-        self.args_view.setFont(QFont("Consolas", 10))
+        self.args_view.setFont(scaled_font(base_px=T.SIZE_BODY, family="Consolas"))
         self.args_view.setPlaceholderText("No arguments")
         lp_layout.addWidget(self.args_view)
         text_splitter.addWidget(left_pane)
@@ -401,7 +402,7 @@ class McpMonitorDialog(QDialog):
         rp_layout.addWidget(QLabel("Response Payload / Preview:"))
         self.resp_view = QTextEdit()
         self.resp_view.setReadOnly(True)
-        self.resp_view.setFont(QFont("Consolas", 10))
+        self.resp_view.setFont(scaled_font(base_px=T.SIZE_BODY, family="Consolas"))
         self.resp_view.setPlaceholderText("No response preview")
         rp_layout.addWidget(self.resp_view)
         text_splitter.addWidget(right_pane)
@@ -575,7 +576,7 @@ class McpMonitorDialog(QDialog):
 
         snippet_edit = QTextEdit()
         snippet_edit.setReadOnly(True)
-        snippet_edit.setFont(QFont("Consolas", 10))
+        snippet_edit.setFont(scaled_font(base_px=T.SIZE_BODY, family="Consolas"))
         snippet_edit.setText(snippet)
         snippet_edit.setStyleSheet("background: #0F172A; color: #E2E8F0; border-radius: 4px; padding: 6px;")
         layout.addWidget(snippet_edit, stretch=1)
@@ -713,7 +714,7 @@ class McpMonitorDialog(QDialog):
         in_layout.setContentsMargins(0, 0, 0, 0)
         in_layout.addWidget(QLabel("Arguments JSON:"))
         self.play_args_edit = QTextEdit()
-        self.play_args_edit.setFont(QFont("Consolas", 10))
+        self.play_args_edit.setFont(scaled_font(base_px=T.SIZE_BODY, family="Consolas"))
         self.play_args_edit.setText("{\n  \"action\": \"search_text\"\n}")
         in_layout.addWidget(self.play_args_edit)
         play_splitter.addWidget(in_widget)
@@ -725,7 +726,7 @@ class McpMonitorDialog(QDialog):
         out_layout.addWidget(self.play_out_title)
         self.play_output_edit = QTextEdit()
         self.play_output_edit.setReadOnly(True)
-        self.play_output_edit.setFont(QFont("Consolas", 10))
+        self.play_output_edit.setFont(scaled_font(base_px=T.SIZE_BODY, family="Consolas"))
         self.play_output_edit.setPlaceholderText("Execution result will appear here...")
         out_layout.addWidget(self.play_output_edit)
         play_splitter.addWidget(out_widget)
@@ -889,7 +890,7 @@ class McpMonitorDialog(QDialog):
             ]
 
             items[7].setForeground(QBrush(st_color))
-            items[7].setFont(QFont("Segoe UI", 9, QFont.Bold))
+            items[7].setFont(scaled_font(base_px=T.SIZE_TABLE, bold=True))
 
             # Store full event dictionary on the first item for easy retrieval
             items[0].setData(Qt.UserRole, ev)

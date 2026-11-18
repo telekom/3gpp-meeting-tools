@@ -48,7 +48,8 @@ from core.ui.ui_components import (
 from core.utils.paths import get_project_root
 from modules.specifications.core.spec_tdoc_opener import SpecTDocOpener
 from modules.specifications.core.spec_tdoc_report import SpecTDocReportGenerator
-from core.ui.theme import C
+from core.ui.font_scale import scaled_font
+from core.ui.theme import C, T
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +310,7 @@ class SpecTDocReportDialog(QDialog):
 
         self.md_browser = QTextEdit()
         self.md_browser.setReadOnly(True)
-        self.md_browser.setFont(QFont("Consolas", 10))
+        self.md_browser.setFont(scaled_font(base_px=T.SIZE_BODY, family="Consolas"))
         self.md_browser.setPlainText(self.markdown_report)
         self.md_browser.setStyleSheet(f"""
             QTextEdit {{
@@ -445,7 +446,7 @@ class SpecTDocReportDialog(QDialog):
             # 0. TDoc ID
             tdoc_str = r.get("tdoc", "")
             tdoc_item = QTableWidgetItem(tdoc_str)
-            tdoc_item.setFont(QFont("Segoe UI", 9, QFont.Bold))
+            tdoc_item.setFont(scaled_font(base_px=T.SIZE_TABLE, bold=True))
             tdoc_item.setForeground(QBrush(QColor(C.ACCENT_SKY_DARK)))
             tdoc_item.setData(Qt.UserRole, r)
             self.table.setItem(row_idx, 0, tdoc_item)
