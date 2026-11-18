@@ -168,3 +168,24 @@ def test_safelinks_unwrapping_and_clickable_links():
     linked = linkify_markdown_urls(raw)
     assert "[https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178/Docs/S2-2612673.zip](https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178/Docs/S2-2612673.zip)" in linked
     assert "[https://portal.3gpp.org/Home.aspx](https://portal.3gpp.org/Home.aspx)." in linked
+
+    thread = {"thread_id": "THR-1", "title": "Test", "normalized_subject": "Test"}
+    msgs = [
+        {
+            "id": "00000000ABCD1234",
+            "subject": "Test",
+            "sender_name": "Alice",
+            "company": "Nokia",
+            "date_sent": "2026-11-18 12:00:00",
+            "body_text": "See attached.",
+            "clean_body": "See attached.",
+            "attachments": ["S2-2612673_draft.docx"],
+        }
+    ]
+    md_ui = export_thread_to_markdown(thread, msgs, interactive_links=True)
+    assert "[📧 Open in Outlook](outlook://msg/00000000ABCD1234)" in md_ui
+    assert "[📎 S2-2612673_draft.docx](outlook://att/00000000ABCD1234/S2-2612673_draft.docx)" in md_ui
+
+    md_export = export_thread_to_markdown(thread, msgs, interactive_links=False)
+    assert "outlook://" not in md_export
+    assert "**Attachments:** S2-2612673_draft.docx" in md_export

@@ -76,6 +76,7 @@ def export_thread_to_markdown(
     thread: Dict[str, Any],
     messages: List[Dict[str, Any]],
     deduplicate_quotes: bool = True,
+    interactive_links: bool = False,
 ) -> str:
     """
     Exports a tracked email thread to a lossless, human- and LLM-readable Markdown document.
@@ -125,12 +126,26 @@ def export_thread_to_markdown(
         sender_disp = f"{sender} ({comp})" if comp else sender
         date_str = msg.get("date_sent", "Unknown Date")
         subj = (msg.get("subject") or "").strip()
+        msg_id = str(msg.get("id") or "").strip()
+        can_open_outlook = interactive_links and msg_id and not msg_id.startswith("MSG-")
 
-        lines.append(f"### {idx}. [{date_str}] {sender_disp}")
+        if can_open_outlook:
+            enc_id = urllib.parse.quote(msg_id, safe="")
+            lines.append(f"### {idx}. [{date_str}] {sender_disp} · [📧 Open in Outlook](outlook://msg/{enc_id})")
+        else:
+            lines.append(f"### {idx}. [{date_str}] {sender_disp}")
         if subj and subj.lower() != base_subject:
             lines.append(f"**Subject:** {subj}  ")
         if msg.get("attachments"):
-            lines.append(f"**Attachments:** {', '.join(msg['attachments'])}  ")
+            if can_open_outlook:
+                enc_id = urllib.parse.quote(msg_id, safe="")
+                att_links = [
+                    f"[📎 {a}](outlook://att/{enc_id}/{urllib.parse.quote(str(a), safe='')})"
+                    for a in msg["attachments"]
+                ]
+                lines.append(f"**Attachments:** {' · '.join(att_links)}  ")
+            else:
+                lines.append(f"**Attachments:** {', '.join(msg['attachments'])}  ")
         lines.append("")
 
         body = (msg.get("clean_body") if deduplicate_quotes and msg.get("clean_body") else msg.get("body_text")) or ""

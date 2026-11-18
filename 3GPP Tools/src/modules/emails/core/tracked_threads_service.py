@@ -471,3 +471,56 @@ def pin_thread_by_subject_or_cid(
     refresh_thread(db, thread_id)
     return thread_id
 
+
+def open_outlook_message(entry_id: str) -> bool:
+    """Opens a specific Outlook MailItem in its native Outlook inspector window by EntryID."""
+    if not entry_id or str(entry_id).startswith("MSG-"):
+        return False
+    from modules.emails.core.outlook_client import OutlookClient
+
+    ns = OutlookClient.get_namespace()
+    if not ns:
+        return False
+    try:
+        item = ns.GetItemFromID(str(entry_id).strip())
+        if item:
+            item.Display()
+            return True
+    except Exception as e:
+        logger.error(f"Failed to display Outlook message {entry_id}: {e}")
+    return False
+
+
+def open_outlook_attachment(entry_id: str, filename: str, save_dir: Optional[Path] = None) -> Optional[Path]:
+    """Saves an attachment from an Outlook MailItem to disk and opens it via os.startfile."""
+    import os
+
+    if not entry_id or not filename or str(entry_id).startswith("MSG-"):
+        return None
+    from modules.emails.core.outlook_client import OutlookClient
+
+    ns = OutlookClient.get_namespace()
+    if not ns:
+        return None
+    try:
+        item = ns.GetItemFromID(str(entry_id).strip())
+        atts = getattr(item, "Attachments", None)
+        if not atts:
+            return None
+        target_dir = Path(save_dir) if save_dir else (Path.home() / ".3gpp_tools_tmp" / "email_attachments")
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(1, atts.Count + 1):
+            att = atts.Item(i)
+            fname = getattr(att, "FileName", "") or ""
+            if fname.lower() == filename.lower():
+                safe_name = "".join(c for c in fname if c not in '<>:"/\\|?*').strip() or "attachment.bin"
+                out_path = target_dir / safe_name
+                att.SaveAsFile(str(out_path.resolve()))
+                if hasattr(os, "startfile"):
+                    os.startfile(str(out_path.resolve()))
+                return out_path
+    except Exception as e:
+        logger.error(f"Failed to open attachment '{filename}' from {entry_id}: {e}")
+    return None
+
+

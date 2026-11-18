@@ -2,8 +2,10 @@
 import subprocess
 from pathlib import Path
 from typing import Callable, List, Optional
+import urllib.parse
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -29,6 +31,8 @@ from modules.emails.core.thread_markdown_exporter import export_thread_to_markdo
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.emails.core.tracked_threads_service import (
     list_recent_threads_in_folders,
+    open_outlook_attachment,
+    open_outlook_message,
     pin_thread_by_subject_or_cid,
     refresh_thread,
 )
@@ -155,7 +159,8 @@ class TrackedThreadDialog(QDialog):
 
         # Timeline browser
         self.browser = QTextBrowser()
-        self.browser.setOpenExternalLinks(True)
+        self.browser.setOpenLinks(False)
+        self.browser.anchorClicked.connect(self._on_anchor_clicked)
         layout.addWidget(self.browser, 1)
 
     def _load_data(self):
@@ -183,8 +188,28 @@ class TrackedThreadDialog(QDialog):
         messages = self.db.get_thread_messages(self.thread_id)
         if not thread:
             return
-        md = export_thread_to_markdown(thread, messages, deduplicate_quotes=self.dedup_check.isChecked())
+        md = export_thread_to_markdown(
+            thread,
+            messages,
+            deduplicate_quotes=self.dedup_check.isChecked(),
+            interactive_links=True,
+        )
         self.browser.setMarkdown(md)
+
+    def _on_anchor_clicked(self, url: QUrl):
+        scheme = url.scheme().lower()
+        if scheme == "outlook":
+            host = url.host().lower()
+            path_parts = [urllib.parse.unquote(p) for p in url.path().strip("/").split("/") if p]
+            if host == "msg" and path_parts:
+                if not open_outlook_message(path_parts[0]):
+                    QMessageBox.warning(self, "Outlook Message", "Could not open the selected message in Microsoft Outlook.")
+            elif host == "att" and len(path_parts) >= 2:
+                out_dir = self.db.db_path.parent / "ThreadAttachments" / self.thread_id
+                if not open_outlook_attachment(path_parts[0], path_parts[1], save_dir=out_dir):
+                    QMessageBox.warning(self, "Attachment", f"Could not open attachment '{path_parts[1]}' from Outlook.")
+            return
+        QDesktopServices.openUrl(url)
 
     def _on_links_changed(self):
         if self._loading:
