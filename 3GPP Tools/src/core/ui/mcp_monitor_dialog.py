@@ -391,7 +391,7 @@ class McpMonitorDialog(QDialog):
         lp_layout.addWidget(QLabel("Request Arguments:"))
         self.args_view = QTextEdit()
         self.args_view.setReadOnly(True)
-        self.args_view.setFont(scaled_font(base_px=T.SIZE_BODY, family="Consolas"))
+        self.args_view.setStyleSheet(f"font-family: Consolas, 'Courier New', monospace; font-size: {T.SIZE_BODY}px;")
         self.args_view.setPlaceholderText("No arguments")
         lp_layout.addWidget(self.args_view)
         text_splitter.addWidget(left_pane)
@@ -402,7 +402,7 @@ class McpMonitorDialog(QDialog):
         rp_layout.addWidget(QLabel("Response Payload / Preview:"))
         self.resp_view = QTextEdit()
         self.resp_view.setReadOnly(True)
-        self.resp_view.setFont(scaled_font(base_px=T.SIZE_BODY, family="Consolas"))
+        self.resp_view.setStyleSheet(f"font-family: Consolas, 'Courier New', monospace; font-size: {T.SIZE_BODY}px;")
         self.resp_view.setPlaceholderText("No response preview")
         rp_layout.addWidget(self.resp_view)
         text_splitter.addWidget(right_pane)
@@ -576,9 +576,11 @@ class McpMonitorDialog(QDialog):
 
         snippet_edit = QTextEdit()
         snippet_edit.setReadOnly(True)
-        snippet_edit.setFont(scaled_font(base_px=T.SIZE_BODY, family="Consolas"))
         snippet_edit.setText(snippet)
-        snippet_edit.setStyleSheet("background: #0F172A; color: #E2E8F0; border-radius: 4px; padding: 6px;")
+        snippet_edit.setStyleSheet(
+            f"background: {C.TEXT_PRIMARY}; color: {C.BORDER_SUBTLE}; border-radius: 4px; padding: 6px; "
+            f"font-family: Consolas, 'Courier New', monospace; font-size: {T.SIZE_BODY}px;"
+        )
         layout.addWidget(snippet_edit, stretch=1)
 
         btn_row = QHBoxLayout()
@@ -714,7 +716,7 @@ class McpMonitorDialog(QDialog):
         in_layout.setContentsMargins(0, 0, 0, 0)
         in_layout.addWidget(QLabel("Arguments JSON:"))
         self.play_args_edit = QTextEdit()
-        self.play_args_edit.setFont(scaled_font(base_px=T.SIZE_BODY, family="Consolas"))
+        self.play_args_edit.setStyleSheet(f"font-family: Consolas, 'Courier New', monospace; font-size: {T.SIZE_BODY}px;")
         self.play_args_edit.setText("{\n  \"action\": \"search_text\"\n}")
         in_layout.addWidget(self.play_args_edit)
         play_splitter.addWidget(in_widget)
@@ -726,7 +728,7 @@ class McpMonitorDialog(QDialog):
         out_layout.addWidget(self.play_out_title)
         self.play_output_edit = QTextEdit()
         self.play_output_edit.setReadOnly(True)
-        self.play_output_edit.setFont(scaled_font(base_px=T.SIZE_BODY, family="Consolas"))
+        self.play_output_edit.setStyleSheet(f"font-family: Consolas, 'Courier New', monospace; font-size: {T.SIZE_BODY}px;")
         self.play_output_edit.setPlaceholderText("Execution result will appear here...")
         out_layout.addWidget(self.play_output_edit)
         play_splitter.addWidget(out_widget)
@@ -890,7 +892,9 @@ class McpMonitorDialog(QDialog):
             ]
 
             items[7].setForeground(QBrush(st_color))
-            items[7].setFont(scaled_font(base_px=T.SIZE_TABLE, bold=True))
+            f_st = items[7].font()
+            f_st.setBold(True)
+            items[7].setFont(f_st)
 
             # Store full event dictionary on the first item for easy retrieval
             items[0].setData(Qt.UserRole, ev)

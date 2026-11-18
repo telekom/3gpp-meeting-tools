@@ -35,7 +35,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from core.ui.font_scale import get_font_scale_notifier, scale_px
+from core.ui.font_scale import get_font_scale_notifier, register_scaled_row_height, scale_px
 from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon
 from core.ui.theme import C, R, S, T
 from core.ui.toast import notify_info, notify_success
@@ -849,7 +849,7 @@ class SpecSearchTab(QWidget):
             table.setAlternatingRowColors(False)
             table.setSelectionBehavior(QTableView.SelectRows)
             table.setSelectionMode(QTableView.SingleSelection)
-            table.verticalHeader().setDefaultSectionSize(26)
+            register_scaled_row_height(table, 26)
             table.verticalHeader().setVisible(False)
             table.setItemDelegate(SpecEvolutionStatusDelegate(table))
             table.setModel(model)

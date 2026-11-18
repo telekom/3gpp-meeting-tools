@@ -29,6 +29,7 @@ from core.ui.font_scale import (
     preset_for_scale,
     register_scaled_row_height,
     save_font_scale,
+    scale_html_fonts,
     scale_pt,
     scale_px,
     scale_row_height,
@@ -269,6 +270,67 @@ class TestFontScale(unittest.TestCase):
             delegate.paint(painter, opt, tbl.model().index(0, 0))
             self.assertEqual(painter.font().pointSize(), -1)
         painter.end()
+
+    def test_inline_html_font_scaling_and_live_refresh(self) -> None:
+        from PyQt5.QtGui import QTextDocument
+        from PyQt5.QtWidgets import QStyleOptionViewItem, QTableWidgetItem, QTextEdit
+
+        apply_font_scale(1.25, app=self.app, save=False)
+
+        # 1. QLabel constructor & setText with inline HTML font-size
+        lbl = QLabel("<span style='color:#334155; font-size: 12px;'>Rich Label</span>")
+        self.assertIn("font-size: 15px;", lbl.text())
+        # Passing lbl.text() to another label must not double-scale
+        lbl_copy = QLabel(lbl.text())
+        self.assertIn("font-size: 15px;", lbl_copy.text())
+
+        # 2. QTextBrowser & QTextEdit setHtml
+        browser = QTextBrowser()
+        browser.setHtml("<div style='font-size: 12px;'>Clause Text</div>")
+        self.assertEqual(
+            scale_html_fonts(browser.property("_font_scale_base_html"), 1.25),
+            "<div style='font-size: 15px;'>Clause Text</div>",
+        )
+
+        editor = QTextEdit()
+        editor.setHtml("<p style='font-size: 11px;'>Notes</p>")
+        self.assertIsNotNone(editor.property("_font_scale_base_html"))
+        editor.setPlainText("Plain")
+        self.assertIsNone(editor.property("_font_scale_base_html"))
+
+        # 3. QTextDocument setHtml (used by custom delegates)
+        doc = QTextDocument()
+        doc.setHtml("<div style='font-size: 12px;'>Delegate Cell</div>")
+        self.assertIn("font-size:15px", doc.toHtml().replace(" ", ""))
+
+        # 4. Live scale switch to 1.40 and back to 0.90 updates QLabel, QTextBrowser, and bold QTableWidgetItems
+        tbl = QTableWidget(1, 2)
+        tbl.setStyleSheet("QTableWidget { font-size: 11px; }")
+        it_plain = QTableWidgetItem("Plain")
+        it_bold = QTableWidgetItem("Bold")
+        f_bold = it_bold.font()
+        f_bold.setBold(True)
+        it_bold.setFont(f_bold)
+        tbl.setItem(0, 0, it_plain)
+        tbl.setItem(0, 1, it_bold)
+
+        apply_font_scale(1.40, app=self.app, save=False)
+        self.assertIn("font-size: 17px;", lbl.text())
+        self.assertIn("font-size:17px", browser.toHtml().replace(" ", ""))
+
+        apply_font_scale(0.90, app=self.app, save=False)
+        self.assertIn("font-size: 11px;", lbl.text())
+        self.assertIn("font-size:11px", browser.toHtml().replace(" ", ""))
+
+        delg = tbl.itemDelegate()
+        opt0 = QStyleOptionViewItem()
+        opt0.font = tbl.font()
+        delg.initStyleOption(opt0, tbl.model().index(0, 0))
+        opt1 = QStyleOptionViewItem()
+        opt1.font = tbl.font()
+        delg.initStyleOption(opt1, tbl.model().index(0, 1))
+        self.assertEqual(opt0.font.pixelSize(), opt1.font.pixelSize())
+        self.assertTrue(opt1.font.bold())
 
 
 if __name__ == "__main__":

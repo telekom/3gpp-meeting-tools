@@ -176,7 +176,9 @@ class StencilsCard(QWidget):
             cat_item = QTableWidgetItem(s.category)
             display_name = f"⭐ {s.label} [User]" if s.is_user_defined else s.label
             name_item = QTableWidgetItem(display_name)
-            name_item.setFont(scaled_font(base_px=T.SIZE_TABLE, bold=True))
+            f_name = name_item.font()
+            f_name.setBold(True)
+            name_item.setFont(f_name)
             if s.is_user_defined:
                 name_item.setForeground(QColor(C.WARNING))
 

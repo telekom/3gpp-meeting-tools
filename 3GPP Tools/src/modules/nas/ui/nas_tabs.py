@@ -31,7 +31,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from core.ui.font_scale import get_font_scale_notifier, scale_px
+from core.ui.font_scale import get_font_scale_notifier, register_scaled_row_height, scale_px
 from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon
 from core.ui.toast import notify_info
 from core.ui.ui_components import (
@@ -620,7 +620,7 @@ class NASTab(QWidget):
         self.mode_messages_btn.setCheckable(True)
         self.mode_messages_btn.setChecked(True)
         self.mode_messages_btn.setCursor(Qt.PointingHandCursor)
-        self.mode_messages_btn.setFixedHeight(24)
+        self.mode_messages_btn.setMinimumHeight(scale_px(24))
         self.mode_messages_btn.setToolTip("Browse Protocol Messages & SIBs (Clause 8 / ASN.1 PDUs)")
         self.mode_messages_btn.setStyleSheet(SEGMENTED_MODE_STYLE)
         self.mode_messages_btn.clicked.connect(lambda: self._set_browse_mode("messages"))
@@ -630,7 +630,7 @@ class NASTab(QWidget):
         self.mode_ies_btn.setCheckable(True)
         self.mode_ies_btn.setChecked(False)
         self.mode_ies_btn.setCursor(Qt.PointingHandCursor)
-        self.mode_ies_btn.setFixedHeight(24)
+        self.mode_ies_btn.setMinimumHeight(scale_px(24))
         self.mode_ies_btn.setToolTip(
             "Browse all parsed Information Elements & Types directly (including standalone & nested Clause 9 containers)"
         )
@@ -661,7 +661,7 @@ class NASTab(QWidget):
         self.deep_search_btn = QPushButton("📖 Desc")
         self.deep_search_btn.setCheckable(True)
         self.deep_search_btn.setToolTip("Extended Search: Also search inside Clause 9 / ASN.1 field descriptions")
-        self.deep_search_btn.setFixedHeight(26)
+        self.deep_search_btn.setMinimumHeight(scale_px(26))
         self.deep_search_btn.setStyleSheet(TOGGLE_BUTTON_STYLE)
         self.deep_search_btn.toggled.connect(self._on_deep_search_toggled)
         ie_search_bar_layout.addWidget(self.deep_search_btn)
@@ -983,7 +983,7 @@ class NASTab(QWidget):
         self.matrix_table.setAlternatingRowColors(True)
         self.matrix_table.setSelectionBehavior(QTableView.SelectRows)
         self.matrix_table.setSelectionMode(QTableView.SingleSelection)
-        self.matrix_table.verticalHeader().setDefaultSectionSize(24)
+        register_scaled_row_height(self.matrix_table, 24)
         self.matrix_table.verticalHeader().setVisible(False)
         self.matrix_table.setStyleSheet(f"""
             QTableView {{

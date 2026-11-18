@@ -273,7 +273,7 @@ class ReleasePillWidget(QPushButton):
         self.setText(f"{short_rel}: {self.version}")
         self.setCheckable(True)
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedHeight(22)
+        self.setMinimumHeight(scale_px(22, minimum=20))
 
         # Build informative tooltip
         date_str = f"Date: {self.release_date}\n" if self.release_date else ""
@@ -374,8 +374,7 @@ class SpecCardWidget(QFrame):
         hdr.addWidget(self.chk_all)
 
         lbl_spec = QLabel(f"TS {spec_number}")
-        lbl_spec.setFont(scaled_font(base_px=T.SIZE_TABLE, bold=True))
-        lbl_spec.setStyleSheet(f"color: {C.TEXT_PRIMARY};")
+        lbl_spec.setStyleSheet(f"color: {C.TEXT_PRIMARY}; font-size: {T.SIZE_TABLE}px; font-weight: bold;")
         hdr.addWidget(lbl_spec)
 
         clean_title = re.sub(r'^(NR;\s*|LTE;\s*|Universal Mobile Telecommunications System \(UMTS\);\s*)', '', title, flags=re.IGNORECASE).strip()

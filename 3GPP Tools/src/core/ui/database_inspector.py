@@ -25,6 +25,9 @@ from PyQt5.QtWidgets import (
 )
 
 
+from core.ui.font_scale import register_scaled_row_height
+
+
 class DatabaseInspectorDialog(QDialog):
     """Read-only SQLite browser and diagnostics dialog."""
 
@@ -143,7 +146,7 @@ class DatabaseInspectorDialog(QDialog):
         self.data_table.setSelectionBehavior(QTableWidget.SelectItems)
         self.data_table.setAlternatingRowColors(True)
         self.data_table.setSortingEnabled(False)
-        self.data_table.verticalHeader().setDefaultSectionSize(23)
+        register_scaled_row_height(self.data_table, 23)
         self.data_table.horizontalHeader().setStretchLastSection(False)
         layout.addWidget(self.data_table, 1)
 

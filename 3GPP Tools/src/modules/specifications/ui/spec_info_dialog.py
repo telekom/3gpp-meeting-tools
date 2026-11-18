@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.font_scale import register_scaled_row_height
 from core.ui.ui_components import (
     BADGE_STYLE_INFO,
     BADGE_STYLE_MUTED,
@@ -357,7 +358,7 @@ class SpecInfoDialog(QDialog):
         self.wi_table.setColumnWidth(4, 65)
 
         self.wi_table.verticalHeader().setVisible(False)
-        self.wi_table.verticalHeader().setDefaultSectionSize(32)
+        register_scaled_row_height(self.wi_table, 32)
         self.wi_table.setAlternatingRowColors(True)
         self.wi_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.wi_table.setSelectionMode(QAbstractItemView.SingleSelection)

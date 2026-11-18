@@ -202,7 +202,6 @@ class UserPresetDialog(QDialog):
             "' {selection}  : Selected text block if wrapping\n"
             "' {p1}, {p2}   : Auto-detected first/second participant"
         )
-        self.code_edit.setFont(QFont("Consolas", 10))
         self.code_edit.setStyleSheet(f"""
             QPlainTextEdit {{
                 background-color: {C.BG_CARD};

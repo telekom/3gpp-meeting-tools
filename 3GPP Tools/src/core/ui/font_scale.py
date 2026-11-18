@@ -15,11 +15,13 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import QEvent, QObject, QSettings, Qt, pyqtSignal
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QTextDocument
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QComboBox,
     QHeaderView,
+    QLabel,
     QPlainTextEdit,
     QTableView,
     QTextBrowser,
@@ -89,6 +91,13 @@ _SCALED_TO_BASE: Dict[str, str] = {}
 _APP_BASE_QSS: Optional[str] = None
 _ORIG_WIDGET_SET_STYLESHEET = None
 _ORIG_APP_SET_STYLESHEET = None
+_ORIG_LABEL_INIT = None
+_ORIG_LABEL_SET_TEXT = None
+_ORIG_TEXTEDIT_SET_HTML = None
+_ORIG_TEXTEDIT_SET_PLAIN = None
+_ORIG_TEXTEDIT_CLEAR = None
+_ORIG_TEXTBROWSER_SET_HTML = None
+_ORIG_TEXTDOC_SET_HTML = None
 _NOTIFIER: Optional["_FontScaleNotifier"] = None
 
 
@@ -209,6 +218,25 @@ def scale_stylesheet(qss: str, scale: Optional[float] = None) -> str:
     return updated
 
 
+def scale_html_fonts(html_text: str, scale: Optional[float] = None) -> str:
+    """Scale inline CSS `font-size: Npx|Npt` declarations inside rich-text HTML strings."""
+    if not html_text or "font-size" not in html_text.lower():
+        return html_text
+    s = _CURRENT_SCALE if scale is None else clamp_font_scale(scale)
+    if abs(s - 1.0) < 0.005:
+        return html_text
+
+    def _replace_font(match: re.Match) -> str:
+        prefix, num_str, unit = match.group(1), match.group(2), match.group(3)
+        val = float(num_str)
+        if val < 6.0:
+            return match.group(0)
+        scaled = max(6, int(round(val * s)))
+        return f"{prefix}{scaled}{unit}"
+
+    return _FONT_SIZE_RE.sub(_replace_font, html_text)
+
+
 def load_font_scale(settings: Optional[QSettings] = None) -> float:
     """Load persisted UI font scale from per-user QSettings."""
     cfg = settings or create_shell_settings()
@@ -241,10 +269,15 @@ def _record_scaled_pair(base_qss: str, scaled_qss: str) -> None:
 
 def install_font_scaling(app: Optional[QApplication]) -> None:
     """
-    Hook `QWidget.setStyleSheet` and `QApplication.setStyleSheet` once so every
-    stylesheet automatically respects `_CURRENT_SCALE` without double-scaling.
+    Hook `QWidget.setStyleSheet`, `QApplication.setStyleSheet`, and rich-text HTML
+    setters (`QLabel`, `QTextEdit`, `QTextBrowser`, `QTextDocument`) once so both QSS
+    and inline HTML `font-size: Npx` rules automatically respect `_CURRENT_SCALE`
+    without double-scaling.
     """
     global _ORIG_WIDGET_SET_STYLESHEET, _ORIG_APP_SET_STYLESHEET
+    global _ORIG_LABEL_INIT, _ORIG_LABEL_SET_TEXT
+    global _ORIG_TEXTEDIT_SET_HTML, _ORIG_TEXTEDIT_SET_PLAIN, _ORIG_TEXTEDIT_CLEAR
+    global _ORIG_TEXTBROWSER_SET_HTML, _ORIG_TEXTDOC_SET_HTML
     if app is None:
         return
 
@@ -276,6 +309,79 @@ def install_font_scaling(app: Optional[QApplication]) -> None:
             _ORIG_APP_SET_STYLESHEET(self_app, scaled)
 
         QApplication.setStyleSheet = _scaled_app_set_stylesheet  # type: ignore[method-assign]
+
+    if _ORIG_LABEL_SET_TEXT is None:
+        _ORIG_LABEL_SET_TEXT = QLabel.setText
+        _ORIG_LABEL_INIT = QLabel.__init__
+
+        def _scaled_label_set_text(self_label: QLabel, text: str) -> None:
+            raw_text = text or ""
+            if self_label.property("_font_scale_ignore") or "font-size" not in raw_text.lower():
+                self_label.setProperty("_font_scale_base_html", None)
+                _ORIG_LABEL_SET_TEXT(self_label, raw_text)
+                return
+            base_html = _resolve_unscaled_qss(raw_text)
+            self_label.setProperty("_font_scale_base_html", base_html)
+            scaled = scale_html_fonts(base_html, _CURRENT_SCALE)
+            _record_scaled_pair(base_html, scaled)
+            _ORIG_LABEL_SET_TEXT(self_label, scaled)
+
+        def _scaled_label_init(self_label: QLabel, *args, **kwargs) -> None:
+            _ORIG_LABEL_INIT(self_label, *args, **kwargs)
+            if args and isinstance(args[0], str) and "font-size" in args[0].lower():
+                _scaled_label_set_text(self_label, args[0])
+
+        QLabel.setText = _scaled_label_set_text  # type: ignore[method-assign]
+        QLabel.__init__ = _scaled_label_init  # type: ignore[method-assign]
+
+    if _ORIG_TEXTEDIT_SET_HTML is None:
+        _ORIG_TEXTEDIT_SET_HTML = QTextEdit.setHtml
+        _ORIG_TEXTEDIT_SET_PLAIN = QTextEdit.setPlainText
+        _ORIG_TEXTEDIT_CLEAR = QTextEdit.clear
+        _ORIG_TEXTBROWSER_SET_HTML = QTextBrowser.setHtml
+
+        def _make_html_setter(orig_fn):
+            def _scaled_set_html(self_edit: QTextEdit, html_text: str) -> None:
+                raw_text = html_text or ""
+                if self_edit.property("_font_scale_ignore") or "font-size" not in raw_text.lower():
+                    self_edit.setProperty("_font_scale_base_html", None)
+                    orig_fn(self_edit, raw_text)
+                    return
+                base_html = _resolve_unscaled_qss(raw_text)
+                self_edit.setProperty("_font_scale_base_html", base_html)
+                scaled = scale_html_fonts(base_html, _CURRENT_SCALE)
+                _record_scaled_pair(base_html, scaled)
+                orig_fn(self_edit, scaled)
+
+            return _scaled_set_html
+
+        def _wrapped_set_plain(self_edit: QTextEdit, text: str) -> None:
+            self_edit.setProperty("_font_scale_base_html", None)
+            _ORIG_TEXTEDIT_SET_PLAIN(self_edit, text)
+
+        def _wrapped_clear(self_edit: QTextEdit) -> None:
+            self_edit.setProperty("_font_scale_base_html", None)
+            _ORIG_TEXTEDIT_CLEAR(self_edit)
+
+        QTextEdit.setHtml = _make_html_setter(_ORIG_TEXTEDIT_SET_HTML)  # type: ignore[method-assign]
+        QTextBrowser.setHtml = _make_html_setter(_ORIG_TEXTBROWSER_SET_HTML)  # type: ignore[method-assign]
+        QTextEdit.setPlainText = _wrapped_set_plain  # type: ignore[method-assign]
+        QTextEdit.clear = _wrapped_clear  # type: ignore[method-assign]
+
+    if _ORIG_TEXTDOC_SET_HTML is None:
+        _ORIG_TEXTDOC_SET_HTML = QTextDocument.setHtml
+
+        def _scaled_doc_set_html(self_doc: QTextDocument, html_text: str) -> None:
+            raw_text = html_text or ""
+            if "font-size" not in raw_text.lower():
+                _ORIG_TEXTDOC_SET_HTML(self_doc, raw_text)
+                return
+            base_html = _resolve_unscaled_qss(raw_text)
+            scaled = scale_html_fonts(base_html, _CURRENT_SCALE)
+            _record_scaled_pair(base_html, scaled)
+            _ORIG_TEXTDOC_SET_HTML(self_doc, scaled)
+
+        QTextDocument.setHtml = _scaled_doc_set_html  # type: ignore[method-assign]
 
     install_reader_zoom(app)
 
@@ -334,6 +440,32 @@ def _refresh_registered_widgets(app: QApplication) -> None:
                     widget.style().unpolish(widget)
                     widget.style().polish(widget)
 
+                base_html = widget.property("_font_scale_base_html")
+                if isinstance(widget, QLabel):
+                    if not isinstance(base_html, str):
+                        cur_txt = widget.text()
+                        if cur_txt and "font-size" in cur_txt.lower():
+                            base_html = _resolve_unscaled_qss(cur_txt)
+                            widget.setProperty("_font_scale_base_html", base_html)
+                    if isinstance(base_html, str) and _ORIG_LABEL_SET_TEXT is not None:
+                        scaled_html = scale_html_fonts(base_html, _CURRENT_SCALE)
+                        _record_scaled_pair(base_html, scaled_html)
+                        _ORIG_LABEL_SET_TEXT(widget, scaled_html)
+                elif isinstance(widget, QTextEdit) and isinstance(base_html, str):
+                    sb = widget.verticalScrollBar()
+                    scroll_pos = sb.value() if sb is not None else 0
+                    scaled_html = scale_html_fonts(base_html, _CURRENT_SCALE)
+                    _record_scaled_pair(base_html, scaled_html)
+                    orig_html_fn = (
+                        _ORIG_TEXTBROWSER_SET_HTML
+                        if isinstance(widget, QTextBrowser) and _ORIG_TEXTBROWSER_SET_HTML is not None
+                        else _ORIG_TEXTEDIT_SET_HTML
+                    )
+                    if orig_html_fn is not None:
+                        orig_html_fn(widget, scaled_html)
+                    if sb is not None:
+                        sb.setValue(scroll_pos)
+
             if isinstance(widget, QComboBox):
                 # Force Qt to invalidate cached AdjustToContentsOnFirstShow size hints.
                 if widget.sizeAdjustPolicy() == QComboBox.AdjustToContentsOnFirstShow:
@@ -350,7 +482,8 @@ def _refresh_registered_widgets(app: QApplication) -> None:
                     widget.setDefaultSectionSize(
                         scale_row_height(int(base_h), minimum=(int(min_h) if min_h is not None else None))
                     )
-            elif isinstance(widget, (QTableView, QTreeView)):
+            elif isinstance(widget, QAbstractItemView):
+                widget.scheduleDelayedItemsLayout()
                 widget.viewport().update()
 
             if widget.layout() is not None:

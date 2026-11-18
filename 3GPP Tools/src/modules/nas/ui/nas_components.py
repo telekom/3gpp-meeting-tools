@@ -661,7 +661,7 @@ class NASReleasePillWidget(QPushButton):
         self.setText(f"{short_rel}: {self.version}")
         self.setCheckable(True)
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedHeight(scale_px(20, minimum=18))
+        self.setMinimumHeight(scale_px(20, minimum=18))
 
         self.setToolTip(
             f"TS {self.spec_number} v{self.version} ({meta.get('title', '')})\n"
@@ -785,8 +785,7 @@ class NASSpecCardWidget(QFrame):
         hdr.addWidget(wg_badge)
 
         lbl_spec = QLabel(f"TS {spec_number}")
-        lbl_spec.setFont(scaled_font(base_px=T.SIZE_TABLE, bold=True))
-        lbl_spec.setStyleSheet(f"color: {C.TEXT_PRIMARY};")
+        lbl_spec.setStyleSheet(f"color: {C.TEXT_PRIMARY}; font-size: {T.SIZE_TABLE}px; font-weight: bold;")
         lbl_spec.setToolTip(get_spec_tooltip(spec_number))
         hdr.addWidget(lbl_spec)
 

@@ -715,7 +715,7 @@ class ComparisonCartWidget(QFrame):
         """
         btn = QPushButton("⚖️ Stage Active Word ▾", parent or self.parentWidget())
         btn.setCursor(Qt.PointingHandCursor)
-        btn.setFixedHeight(24)
+        btn.setMinimumHeight(scale_px(24))
         btn.setToolTip(
             "Stage your currently active Microsoft Word document (or any open Word document) into the Comparison Cart."
         )

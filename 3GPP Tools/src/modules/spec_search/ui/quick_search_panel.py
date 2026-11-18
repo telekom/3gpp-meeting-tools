@@ -35,6 +35,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.font_scale import scale_px
 from core.ui.icons import lucide_icon
 from core.ui.theme import C, R, S, T
 from core.ui.toast import notify_success
@@ -96,8 +97,8 @@ class _QuickSearchResultDelegate(QStyledItemDelegate):
         width = max(240, option.rect.width() - 24) if option.rect.width() > 60 else 320
         doc.setTextWidth(width)
         doc.setHtml(html_text)
-        height = int(doc.size().height()) + 18
-        return QSize(width, max(54, min(110, height)))
+        height = int(doc.size().height()) + scale_px(18)
+        return QSize(width, max(scale_px(54), min(scale_px(130), height)))
 
 
 def _format_snippet_html(snippet: str) -> str:

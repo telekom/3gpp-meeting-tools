@@ -38,6 +38,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.font_scale import register_scaled_row_height
 from core.ui.ui_components import (
     BADGE_STYLE_INFO,
     BADGE_STYLE_MUTED,
@@ -334,7 +335,7 @@ class SpecVersionHistoryDialog(QDialog):
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
-        self.table.verticalHeader().setDefaultSectionSize(26)
+        register_scaled_row_height(self.table, 26)
         self.table.verticalHeader().setVisible(False)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)

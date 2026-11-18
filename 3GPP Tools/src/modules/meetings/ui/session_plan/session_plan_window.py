@@ -41,7 +41,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.flow_layout import FlowLayout
-from core.ui.font_scale import scale_px
+from core.ui.font_scale import register_scaled_row_height, scale_px
 from core.utils.folder_opener import open_folder
 from modules.meetings.core.agenda_manager import AgendaManager
 from modules.meetings.core.session_plan.session_plan_db import SessionPlanDatabase
@@ -1228,7 +1228,7 @@ class SessionPlanWindow(QWidget):
         self.vertical_time_header = SessionPlanVerticalHeader(self, self.grid_table)
         self.grid_table.setVerticalHeader(self.vertical_time_header)
         self.grid_table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.grid_table.verticalHeader().setDefaultSectionSize(scale_px(46))
+        register_scaled_row_height(self.grid_table, 46)
         self.grid_table.setAlternatingRowColors(False)
         self.grid_table.setStyleSheet(
             f"QTableWidget {{ border: 1px solid {C.BORDER_STRONG}; selection-background-color: {C.INDIGO_SOFT}; }}"
@@ -1563,7 +1563,7 @@ class SessionPlanWindow(QWidget):
                 "Coverage status across scheduled sessions, including any session-level collision overrides."
             )
 
-        self.team_topics_table.verticalHeader().setDefaultSectionSize(36)
+        register_scaled_row_height(self.team_topics_table, 36)
         self.team_topics_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.team_topics_table.setAlternatingRowColors(True)
         self.team_topics_table.setStyleSheet(f"""
@@ -1620,7 +1620,7 @@ class SessionPlanWindow(QWidget):
         self.team_clashes_table.setColumnWidth(5, 165)
         self.team_clashes_table.setColumnWidth(6, 185)
 
-        self.team_clashes_table.verticalHeader().setDefaultSectionSize(42)
+        register_scaled_row_height(self.team_clashes_table, 42)
         self.team_clashes_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.team_clashes_table.setAlternatingRowColors(True)
         self.team_clashes_table.cellDoubleClicked.connect(self._on_clash_cell_double_clicked)

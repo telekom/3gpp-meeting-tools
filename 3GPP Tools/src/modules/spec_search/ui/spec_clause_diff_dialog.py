@@ -953,7 +953,9 @@ class SpecClauseDiffDialog(QDialog):
             # Col 1: TDoc
             item_tdoc = QTableWidgetItem(tdoc_display)
             item_tdoc.setFlags(item_tdoc.flags() & ~Qt.ItemIsEditable)
-            item_tdoc.setFont(scaled_font(base_px=T.SIZE_TABLE, bold=True, family="Consolas"))
+            f_tdoc = QFont("Consolas")
+            f_tdoc.setBold(True)
+            item_tdoc.setFont(f_tdoc)
             self.attr_table.setItem(row_idx, 1, item_tdoc)
 
             # Col 2: Source

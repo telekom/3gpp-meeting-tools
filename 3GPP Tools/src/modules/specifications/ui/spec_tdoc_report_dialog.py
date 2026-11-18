@@ -48,7 +48,7 @@ from core.ui.ui_components import (
 from core.utils.paths import get_project_root
 from modules.specifications.core.spec_tdoc_opener import SpecTDocOpener
 from modules.specifications.core.spec_tdoc_report import SpecTDocReportGenerator
-from core.ui.font_scale import scaled_font
+from core.ui.font_scale import scale_px
 from core.ui.theme import C, T
 
 logger = logging.getLogger(__name__)
@@ -158,7 +158,7 @@ class SpecTDocReportDialog(QDialog):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("🔍 Filter by TDoc, title, company, agenda item, keyword...")
         self.search_input.setClearButtonEnabled(True)
-        self.search_input.setFixedHeight(28)
+        self.search_input.setMinimumHeight(scale_px(28))
         self.search_input.setStyleSheet(f"""
             QLineEdit {{
                 background-color: {C.BG_CARD};
@@ -176,19 +176,19 @@ class SpecTDocReportDialog(QDialog):
 
         filter_row.addWidget(QLabel("<b>Company:</b>"))
         self.company_combo = QComboBox()
-        self.company_combo.setFixedHeight(28)
+        self.company_combo.setMinimumHeight(scale_px(28))
         self.company_combo.currentIndexChanged.connect(self._apply_filters)
         filter_row.addWidget(self.company_combo, stretch=1)
 
         filter_row.addWidget(QLabel("<b>Type:</b>"))
         self.type_combo = QComboBox()
-        self.type_combo.setFixedHeight(28)
+        self.type_combo.setMinimumHeight(scale_px(28))
         self.type_combo.currentIndexChanged.connect(self._apply_filters)
         filter_row.addWidget(self.type_combo)
 
         filter_row.addWidget(QLabel("<b>Status:</b>"))
         self.status_combo = QComboBox()
-        self.status_combo.setFixedHeight(28)
+        self.status_combo.setMinimumHeight(scale_px(28))
         self.status_combo.currentIndexChanged.connect(self._apply_filters)
         filter_row.addWidget(self.status_combo)
 
@@ -310,7 +310,6 @@ class SpecTDocReportDialog(QDialog):
 
         self.md_browser = QTextEdit()
         self.md_browser.setReadOnly(True)
-        self.md_browser.setFont(scaled_font(base_px=T.SIZE_BODY, family="Consolas"))
         self.md_browser.setPlainText(self.markdown_report)
         self.md_browser.setStyleSheet(f"""
             QTextEdit {{
@@ -446,7 +445,9 @@ class SpecTDocReportDialog(QDialog):
             # 0. TDoc ID
             tdoc_str = r.get("tdoc", "")
             tdoc_item = QTableWidgetItem(tdoc_str)
-            tdoc_item.setFont(scaled_font(base_px=T.SIZE_TABLE, bold=True))
+            f_tdoc = tdoc_item.font()
+            f_tdoc.setBold(True)
+            tdoc_item.setFont(f_tdoc)
             tdoc_item.setForeground(QBrush(QColor(C.ACCENT_SKY_DARK)))
             tdoc_item.setData(Qt.UserRole, r)
             self.table.setItem(row_idx, 0, tdoc_item)
