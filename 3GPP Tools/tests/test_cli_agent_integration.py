@@ -304,6 +304,31 @@ class TestCliLauncher(unittest.TestCase):
         self.assertTrue(ok_ps)
         self.assertEqual(spawned[0][0][0], "powershell.exe")
 
+        # Default launch starts idle (zero auto-execution) and stages prompt onto clipboard
+        import base64
+        encoded_idx = spawned[0][0].index("-EncodedCommand") + 1
+        decoded_ps = base64.b64decode(spawned[0][0][encoded_idx]).decode("utf-16-le")
+        self.assertIn("Set-Clipboard -Value", decoded_ps)
+        self.assertIn("Read _CLI_CONTEXT.md", decoded_ps)
+        self.assertTrue(decoded_ps.rstrip().endswith("& 'C:/npm/codex.cmd'"))
+
+        # Explicit auto_execute=True passes prompt directly as CLI argument
+        spawned.clear()
+        ok_exec = launch_cli_in_terminal(
+            "codex",
+            self.tmp_path,
+            bootstrap_prompt="Run immediately",
+            auto_execute=True,
+            statuses=statuses,
+            popen_fn=fake_popen,
+            which_fn=lambda _n: None,
+        )
+        self.assertTrue(ok_exec)
+        enc_idx2 = spawned[0][0].index("-EncodedCommand") + 1
+        decoded_exec = base64.b64decode(spawned[0][0][enc_idx2]).decode("utf-16-le")
+        self.assertNotIn("Set-Clipboard -Value", decoded_exec)
+        self.assertIn("'Run immediately'", decoded_exec)
+
         # Missing directory returns False
         self.assertFalse(
             launch_cli_in_terminal(
@@ -658,6 +683,55 @@ class TestCliUiIntegration(unittest.TestCase):
             self.assertEqual(cli_launcher.load_standing_cli_context(), "We are Deutsche Telekom.")
             self.assertEqual(cli_detector.get_cli_agent_model_config("codex"), ("gpt-6.1-sol", "low"))
             dlg.close()
+
+    def test_cli_context_model_combo_is_clickable_dropdown_and_supports_custom_slug(self):
+        from PyQt5.QtWidgets import QInputDialog
+        from core.ai import cli_launcher
+        from core.ui.cli_context_dialog import CliContextEditorDialog
+
+        standing_file = self.tmp_path / "cli_user_context.md"
+        cfg_file = self.tmp_path / "cli_agents_config.json"
+
+        with patch.object(cli_detector, "CONFIG_PATH", cfg_file), \
+             patch.object(cli_launcher, "STANDING_CONTEXT_PATH", standing_file):
+            dlg = CliContextEditorDialog(
+                agent_id="codex",
+                settings_only=True,
+                home_dir=self.tmp_path,
+            )
+            # Must be a standard non-editable dropdown so clicking anywhere opens the list
+            self.assertFalse(dlg.model_combo.isEditable())
+            self.assertEqual(dlg.model_combo.itemData(0), "")
+
+            custom_idx = dlg.model_combo.findData("__custom__")
+            self.assertGreater(custom_idx, 0)
+
+            # Cancel custom prompt -> restores previous selection
+            prev_idx = dlg.model_combo.currentIndex()
+            with patch.object(QInputDialog, "getText", return_value=("", False)):
+                dlg.model_combo.setCurrentIndex(custom_idx)
+                dlg._on_model_activated(custom_idx)
+            self.assertEqual(dlg.model_combo.currentIndex(), prev_idx)
+            self.assertEqual(dlg._current_model_slug(), "")
+
+            # Confirm custom slug -> inserts, selects, and persists cleanly
+            with patch.object(QInputDialog, "getText", return_value=("gpt-custom-test", True)):
+                dlg.model_combo.setCurrentIndex(custom_idx)
+                dlg._on_model_activated(custom_idx)
+            self.assertEqual(dlg._current_model_slug(), "gpt-custom-test")
+            dlg._on_save_only()
+            self.assertEqual(cli_detector.get_cli_agent_model_config("codex")[0], "gpt-custom-test")
+            dlg.close()
+
+            # Reopening restores the saved custom model slug as a selectable dropdown entry
+            dlg2 = CliContextEditorDialog(
+                agent_id="codex",
+                settings_only=True,
+                home_dir=self.tmp_path,
+            )
+            self.assertEqual(dlg2._current_model_slug(), "gpt-custom-test")
+            self.assertGreater(dlg2.model_combo.findData("gpt-custom-test"), 0)
+            dlg2.close()
 
 
 if __name__ == "__main__":

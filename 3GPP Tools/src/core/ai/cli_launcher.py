@@ -447,11 +447,12 @@ def build_powershell_launch_command(
     *,
     model: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
+    stage_clipboard_prompt: Optional[str] = None,
 ) -> str:
     """
     Construct a quote-safe PowerShell command string that moves into `working_dir`,
-    prepends `executable`'s parent directory to `$env:PATH`, and invokes the CLI
-    in interactive mode (applying configured or explicit model/reasoning overrides).
+    prepends `executable`'s parent directory to `$env:PATH`, optionally stages a prompt
+    on the Windows clipboard, and invokes the CLI in interactive mode.
     """
     clean_dir = strip_extended_path(working_dir)
     clean_exe = strip_extended_path(executable)
@@ -473,6 +474,14 @@ def build_powershell_launch_command(
     ]
     if exe_dir:
         parts.append(f"$env:PATH = {_ps_quote(exe_dir)} + ';' + $env:PATH")
+    staged = (stage_clipboard_prompt or "").strip()
+    if staged:
+        preview = staged.replace("\r", " ").replace("\n", " ")
+        if len(preview) > 140:
+            preview = preview[:137] + "..."
+        parts.append(f"try {{ Set-Clipboard -Value {_ps_quote(staged)} }} catch {{}}")
+        parts.append("Write-Host '[3GPP Tools] Prompt copied to clipboard (press Ctrl+V to paste when ready):' -ForegroundColor Cyan")
+        parts.append(f"Write-Host {_ps_quote('  ' + preview)} -ForegroundColor DarkGray")
     parts.append(invoke_expr)
     return "; ".join(parts)
 
@@ -496,6 +505,7 @@ def launch_cli_in_terminal(
     *,
     model: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
+    auto_execute: bool = False,
     statuses: Optional[Dict[str, CliAgentStatus]] = None,
     popen_fn: Optional[Callable[..., Any]] = None,
     which_fn: Optional[Callable[[str], Optional[str]]] = None,
@@ -503,6 +513,10 @@ def launch_cli_in_terminal(
     """
     Open Windows Terminal (`wt.exe`) or PowerShell (`powershell.exe`) in `working_dir`
     and launch the requested interactive LLM CLI (`codex`, `claude`, or `gemini`).
+
+    When ``auto_execute`` is ``False`` (default), the CLI starts idle with zero
+    automatic prompt submission (preventing unintended token burn), and any
+    prepared prompt is staged onto the Windows clipboard for ``Ctrl+V``.
     """
     clean_dir = Path(strip_extended_path(working_dir))
     if not clean_dir.is_dir():
@@ -523,14 +537,22 @@ def launch_cli_in_terminal(
         )
         return False
 
-    prompt = bootstrap_prompt if bootstrap_prompt is not None else DEFAULT_BOOTSTRAP_PROMPT
+    raw_prompt = bootstrap_prompt if bootstrap_prompt is not None else DEFAULT_BOOTSTRAP_PROMPT
+    if auto_execute:
+        exec_prompt = raw_prompt
+        staged_prompt = None
+    else:
+        exec_prompt = ""
+        staged_prompt = raw_prompt.strip() or None
+
     ps_command = build_powershell_launch_command(
         agent_id=agent_key,
         executable=st.executable_path,
         working_dir=clean_dir,
-        bootstrap_prompt=prompt,
+        bootstrap_prompt=exec_prompt,
         model=model,
         reasoning_effort=reasoning_effort,
+        stage_clipboard_prompt=staged_prompt,
     )
     encoded_cmd = encode_powershell_command(ps_command)
 

@@ -649,3 +649,46 @@ def test_per_message_read_unread_and_flag_sync(tmp_path):
         edlg._toggle_selected_flag()
         assert fake_items["EID-GEN-1"].FlagStatus == 0
         edlg.close()
+
+
+def test_lean_thread_dialog_and_idle_cli_launch(tmp_path):
+    from unittest.mock import patch
+    from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+    from modules.emails.core.thread_markdown_exporter import export_thread_to_markdown
+    from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
+
+    db = TrackedThreadsDatabase(tmp_path / "threads.db")
+    tid = db.create_or_get_thread("Lean Dialog Test", "Lean Dialog Test", meeting_id="SA2#178", linked_ais=["20.6.1"])
+    db.upsert_messages(
+        tid,
+        [{"id": "EID-L1", "sender_name": "Alice", "company": "Samsung", "date_sent": "2026-11-18 10:00:00", "body_text": "Proposal body text", "is_read": 0}],
+    )
+    t_row = db.get_thread(tid)
+    msgs = db.get_thread_messages(tid)
+
+    md_compact = export_thread_to_markdown(t_row, msgs, interactive_links=True, include_metadata=False)
+    assert "## Thread Metadata" not in md_compact
+    assert "Proposal body text" in md_compact
+
+    md_full = export_thread_to_markdown(t_row, msgs, interactive_links=False, include_metadata=True)
+    assert "## Thread Metadata" in md_full
+
+    dlg = TrackedThreadDialog(db, tid)
+    dlg._settings.setValue("links_panel_expanded", False)
+    dlg._settings.setValue("show_metadata_header", False)
+    dlg.links_toggle_btn.setChecked(False)
+    dlg.show_meta_action.setChecked(False)
+    assert not dlg.links_panel.isVisible()
+    assert "Links & Tags (1)" in dlg.links_toggle_btn.text()
+    assert "## Thread Metadata" not in dlg.browser.toPlainText()
+
+    dlg.links_toggle_btn.setChecked(True)
+    assert not dlg.links_panel.isHidden()
+
+    with patch("modules.emails.ui.tracked_thread_dialog.launch_cli_in_terminal", return_value=True) as mock_launch:
+        dlg._on_launch_cli("codex")
+        mock_launch.assert_called_once()
+        assert mock_launch.call_args.kwargs.get("auto_execute") is False
+        assert mock_launch.call_args.args[0] == "codex"
+        assert (mock_launch.call_args.args[1] / "_CLI_CONTEXT.md").is_file()
+    dlg.close()

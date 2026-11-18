@@ -186,6 +186,7 @@ def export_thread_to_markdown(
     deduplicate_quotes: bool = True,
     interactive_links: bool = False,
     newest_first: bool = False,
+    include_metadata: bool = True,
 ) -> str:
     """
     Exports a tracked email thread to a lossless, human- and LLM-readable Markdown document.
@@ -210,45 +211,42 @@ def export_thread_to_markdown(
     date_range = f"{min(dates)} to {max(dates)}" if dates else "N/A"
     doc_urls = extract_thread_document_urls(messages)
 
-    lines = [
-        f"# Email Thread: {thread.get('title', 'Untitled Thread')}",
-        "",
-        "## Thread Metadata",
-        f"- **Thread ID:** `{thread.get('thread_id', '')}`",
-        f"- **Meeting:** `{thread.get('meeting_id', '') or 'N/A'}` ({thread.get('wg', '') or 'N/A'})",
-        f"- **Linked AIs:** {', '.join(thread.get('linked_ais') or []) or 'None'}",
-        f"- **Linked Sub-Topics:** {', '.join(thread.get('linked_sub_items') or []) or 'None'}",
-        f"- **Linked WIs:** {', '.join(thread.get('linked_wis') or []) or 'None'}",
-        f"- **Linked / Mentioned TDocs:** {', '.join(sorted(tdocs_mentioned)) or 'None'}",
-        f"- **Date Range:** {date_range}",
-        f"- **Messages:** {len(messages)}",
-        f"- **Participants:** {', '.join(participants) or 'None'}",
-    ]
-    user_status = str(thread.get("user_status") or "").strip()
-    user_tags = [str(x).strip() for x in (thread.get("user_tags") or []) if str(x).strip()]
-    user_notes = str(thread.get("user_notes") or "").strip()
-    if user_status and user_status != "⚪ Neutral":
-        lines.append(f"- **My Status:** {user_status}")
-    if user_tags:
-        lines.append(f"- **My Tags:** {', '.join(user_tags)}")
-    if doc_urls:
-        lines.append(f"- **Linked Documents ({len(doc_urls)}):**")
-        for u in doc_urls:
-            fname = urllib.parse.unquote(urllib.parse.urlsplit(u).path.rsplit("/", 1)[-1]) or u
-            lines.append(f"  - [📄 {fname}]({u})")
-    if user_notes:
-        lines.append("")
-        lines.append("> [!NOTE] Delegate Notes")
-        for nline in user_notes.splitlines():
-            lines.append(f"> {nline}" if nline.strip() else ">")
     disc_heading = "## Discussion (Newest First)" if newest_first else "## Chronological Discussion"
-    lines.extend([
-        "",
-        "---",
-        "",
-        disc_heading,
-        "",
-    ])
+    lines: List[str] = []
+    if include_metadata:
+        lines.extend([
+            f"# Email Thread: {thread.get('title', 'Untitled Thread')}",
+            "",
+            "## Thread Metadata",
+            f"- **Thread ID:** `{thread.get('thread_id', '')}`",
+            f"- **Meeting:** `{thread.get('meeting_id', '') or 'N/A'}` ({thread.get('wg', '') or 'N/A'})",
+            f"- **Linked AIs:** {', '.join(thread.get('linked_ais') or []) or 'None'}",
+            f"- **Linked Sub-Topics:** {', '.join(thread.get('linked_sub_items') or []) or 'None'}",
+            f"- **Linked WIs:** {', '.join(thread.get('linked_wis') or []) or 'None'}",
+            f"- **Linked / Mentioned TDocs:** {', '.join(sorted(tdocs_mentioned)) or 'None'}",
+            f"- **Date Range:** {date_range}",
+            f"- **Messages:** {len(messages)}",
+            f"- **Participants:** {', '.join(participants) or 'None'}",
+        ])
+        user_status = str(thread.get("user_status") or "").strip()
+        user_tags = [str(x).strip() for x in (thread.get("user_tags") or []) if str(x).strip()]
+        user_notes = str(thread.get("user_notes") or "").strip()
+        if user_status and user_status != "⚪ Neutral":
+            lines.append(f"- **My Status:** {user_status}")
+        if user_tags:
+            lines.append(f"- **My Tags:** {', '.join(user_tags)}")
+        if doc_urls:
+            lines.append(f"- **Linked Documents ({len(doc_urls)}):**")
+            for u in doc_urls:
+                fname = urllib.parse.unquote(urllib.parse.urlsplit(u).path.rsplit("/", 1)[-1]) or u
+                lines.append(f"  - [📄 {fname}]({u})")
+        if user_notes:
+            lines.append("")
+            lines.append("> [!NOTE] Delegate Notes")
+            for nline in user_notes.splitlines():
+                lines.append(f"> {nline}" if nline.strip() else ">")
+        lines.extend(["", "---", ""])
+    lines.extend([disc_heading, ""])
 
     base_subject = thread.get("normalized_subject", "").lower()
     indexed_msgs = list(enumerate(messages, 1))
