@@ -745,6 +745,8 @@ class TDocsTableModel(QAbstractTableModel):
             if role == Qt.UserRole:
                 return row.get("TDoc", "")
             if role == Qt.UserRole + 1:
+                if row.get("_is_tracked_thread"):
+                    return "THREAD"
                 tdoc = row.get("TDoc", "")
                 if tdoc in self.loading_tdocs:
                     return "LOADING"

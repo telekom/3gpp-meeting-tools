@@ -97,7 +97,10 @@ class TDocActionDelegate(QStyledItemDelegate):
         painter.setRenderHint(QPainter.Antialiasing)
         rect = self._button_rect(option.rect)
 
-        if state == 'EXISTS':
+        if state == 'THREAD':
+            bg_color, border_color, text_color = QColor("#EEF2FF"), QColor("#A5B4FC"), QColor("#4338CA")
+            text = "📧 View"
+        elif state == 'EXISTS':
             bg_color, border_color, text_color = QColor("#E6F4E6"), QColor("#A3DDA3"), QColor("#0C6B0C")
             text = "✓ Open"
         elif state == 'LOADING':
