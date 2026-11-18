@@ -217,6 +217,7 @@ def export_thread_to_markdown(
         f"- **Thread ID:** `{thread.get('thread_id', '')}`",
         f"- **Meeting:** `{thread.get('meeting_id', '') or 'N/A'}` ({thread.get('wg', '') or 'N/A'})",
         f"- **Linked AIs:** {', '.join(thread.get('linked_ais') or []) or 'None'}",
+        f"- **Linked Sub-Topics:** {', '.join(thread.get('linked_sub_items') or []) or 'None'}",
         f"- **Linked WIs:** {', '.join(thread.get('linked_wis') or []) or 'None'}",
         f"- **Linked / Mentioned TDocs:** {', '.join(sorted(tdocs_mentioned)) or 'None'}",
         f"- **Date Range:** {date_range}",

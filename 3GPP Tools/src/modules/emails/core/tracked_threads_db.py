@@ -45,6 +45,7 @@ class TrackedThreadsDatabase:
                     linked_ais TEXT DEFAULT '[]',
                     linked_wis TEXT DEFAULT '[]',
                     linked_tdocs TEXT DEFAULT '[]',
+                    linked_sub_items TEXT DEFAULT '[]',
                     unread_count INTEGER DEFAULT 0,
                     message_count INTEGER DEFAULT 0,
                     last_message_date TEXT DEFAULT '',
@@ -75,12 +76,18 @@ class TrackedThreadsDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tt_norm_subj ON tracked_threads(normalized_subject)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ttm_thread ON tracked_thread_messages(thread_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ttm_date ON tracked_thread_messages(date_sent)")
+
+            # Schema migration: add linked_sub_items for existing DBs
+            cursor.execute("PRAGMA table_info(tracked_threads)")
+            cols = [info[1] for info in cursor.fetchall()]
+            if "linked_sub_items" not in cols:
+                cursor.execute("ALTER TABLE tracked_threads ADD COLUMN linked_sub_items TEXT DEFAULT '[]'")
             conn.commit()
 
     @staticmethod
     def _row_to_thread(row: sqlite3.Row) -> Dict[str, Any]:
         d = dict(row)
-        for key in ("conversation_ids", "subject_patterns", "outlook_folders", "linked_ais", "linked_wis", "linked_tdocs"):
+        for key in ("conversation_ids", "subject_patterns", "outlook_folders", "linked_ais", "linked_wis", "linked_tdocs", "linked_sub_items"):
             try:
                 d[key] = json.loads(d.get(key) or "[]")
             except Exception:
@@ -266,6 +273,7 @@ class TrackedThreadsDatabase:
         linked_ais: Optional[List[str]] = None,
         linked_wis: Optional[List[str]] = None,
         linked_tdocs: Optional[List[str]] = None,
+        linked_sub_items: Optional[List[str]] = None,
     ):
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -275,6 +283,8 @@ class TrackedThreadsDatabase:
                 cursor.execute("UPDATE tracked_threads SET linked_wis = ? WHERE thread_id = ?", (json.dumps(linked_wis), thread_id))
             if linked_tdocs is not None:
                 cursor.execute("UPDATE tracked_threads SET linked_tdocs = ? WHERE thread_id = ?", (json.dumps(linked_tdocs), thread_id))
+            if linked_sub_items is not None:
+                cursor.execute("UPDATE tracked_threads SET linked_sub_items = ? WHERE thread_id = ?", (json.dumps(linked_sub_items), thread_id))
             conn.commit()
 
     def add_conversation_ids(self, thread_id: str, cids: List[str]):
@@ -321,6 +331,7 @@ class TrackedThreadsDatabase:
             ais = set(target["linked_ais"])
             wis = set(target["linked_wis"])
             tdocs = set(target["linked_tdocs"])
+            sub_items = set(target.get("linked_sub_items") or [])
 
             for src_id in source_thread_ids:
                 if src_id == target_thread_id:
@@ -333,6 +344,7 @@ class TrackedThreadsDatabase:
                 ais.update(src["linked_ais"])
                 wis.update(src["linked_wis"])
                 tdocs.update(src["linked_tdocs"])
+                sub_items.update(src.get("linked_sub_items") or [])
                 cursor.execute(
                     "UPDATE tracked_thread_messages SET thread_id = ? WHERE thread_id = ?",
                     (target_thread_id, src_id),
@@ -342,7 +354,7 @@ class TrackedThreadsDatabase:
             cursor.execute(
                 """
                 UPDATE tracked_threads
-                SET conversation_ids = ?, subject_patterns = ?, linked_ais = ?, linked_wis = ?, linked_tdocs = ?
+                SET conversation_ids = ?, subject_patterns = ?, linked_ais = ?, linked_wis = ?, linked_tdocs = ?, linked_sub_items = ?
                 WHERE thread_id = ?
                 """,
                 (
@@ -351,6 +363,7 @@ class TrackedThreadsDatabase:
                     json.dumps(sorted(ais)),
                     json.dumps(sorted(wis)),
                     json.dumps(sorted(tdocs)),
+                    json.dumps(sorted(sub_items)),
                     target_thread_id,
                 ),
             )

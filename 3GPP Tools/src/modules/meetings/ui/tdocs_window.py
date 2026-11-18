@@ -1625,9 +1625,12 @@ class TDocsWindow(QWidget):
                 else:
                     facets["ai"].add(str(row.get("Agenda Item", "") or "").strip())
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="sub_item"):
-                sub_val = str(row.get("Sub-Item", "") or "").strip()
-                if sub_val:
-                    facets["sub_item"].add(sub_val)
+                if row.get("_linked_sub_items"):
+                    facets["sub_item"].update(row["_linked_sub_items"])
+                else:
+                    sub_val = str(row.get("Sub-Item", "") or "").strip()
+                    if sub_val:
+                        facets["sub_item"].add(sub_val)
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="wi"):
                 facets["wi"].update(self.model.get_related_wis(row_idx))
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="status"):
@@ -1736,10 +1739,11 @@ class TDocsWindow(QWidget):
         unique_sub_items = []
         seen_subs = set()
         for r in self.model._data:
-            sub = str(r.get("Sub-Item", "") or "").strip()
-            if sub and sub not in seen_subs:
-                seen_subs.add(sub)
-                unique_sub_items.append(sub)
+            for sub in (list(r.get("_linked_sub_items") or []) or [str(r.get("Sub-Item", "") or "").strip()]):
+                sub = str(sub or "").strip()
+                if sub and sub not in seen_subs:
+                    seen_subs.add(sub)
+                    unique_sub_items.append(sub)
 
         if hasattr(self, "sub_item_combo"):
             if unique_sub_items:
@@ -3009,6 +3013,8 @@ class TDocsWindow(QWidget):
         wi_set = set()
         tdoc_items = []
         seen_tdocs = set()
+        sub_items = []
+        seen_subs = set()
         for row in (getattr(self.model, "_data", None) or []):
             if row.get("_is_tracked_thread"):
                 continue
@@ -3017,6 +3023,10 @@ class TDocsWindow(QWidget):
                 seen_ais.add(ai_val)
                 ai_desc = str(row.get("Agenda item description", "") or "").strip()
                 ai_items.append(f"{ai_val} — {ai_desc}" if ai_desc else ai_val)
+            sub_val = str(row.get("Sub-Item", "") or "").strip()
+            if sub_val and sub_val not in seen_subs:
+                seen_subs.add(sub_val)
+                sub_items.append(f"{sub_val} — AI {ai_val}" if ai_val else sub_val)
             for wi in self.model._split_related_wis(row.get("Related WIs", "")):
                 if wi and wi.lower() not in ("(no wi)", "none", "nan", "-"):
                     wi_set.add(wi)
@@ -3025,7 +3035,7 @@ class TDocsWindow(QWidget):
                 seen_tdocs.add(tid)
                 title = str(row.get("Title", "") or "").strip()
                 tdoc_items.append(f"{tid} — {title[:70]}" if title else tid)
-        return ai_items, sorted(wi_set), tdoc_items
+        return ai_items, sorted(wi_set), tdoc_items, sub_items
 
     def _sync_tracked_threads_to_table(self):
         if not hasattr(self, "tracked_threads_db") or not hasattr(self, "model"):
@@ -3067,7 +3077,7 @@ class TDocsWindow(QWidget):
             dlg.raise_()
             dlg.activateWindow()
             return
-        ai_sugg, wi_sugg, tdoc_sugg = self._build_thread_autocomplete_suggestions()
+        ai_sugg, wi_sugg, tdoc_sugg, sub_sugg = self._build_thread_autocomplete_suggestions()
         dlg = TrackedThreadDialog(
             self.tracked_threads_db,
             tid,
@@ -3076,6 +3086,7 @@ class TDocsWindow(QWidget):
             wi_suggestions=wi_sugg,
             tdoc_suggestions=tdoc_sugg,
             tdoc_family_expander=self._expand_tdoc_family_with_merges,
+            sub_item_suggestions=sub_sugg,
         )
         dlg.thread_changed.connect(self._on_tracked_thread_changed)
         self._tracked_thread_dialogs[tid] = dlg

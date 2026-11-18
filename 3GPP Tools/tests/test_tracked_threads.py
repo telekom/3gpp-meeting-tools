@@ -131,15 +131,24 @@ def test_pill_autocomplete_and_tdoc_family_expansion(tmp_path):
         wi_suggestions=["FS_6G_ARC"],
         tdoc_suggestions=["S2-2612673 — Proposal for interim agreements"],
         tdoc_family_expander=_expand,
+        sub_item_suggestions=["NAS Routing/transport — AI 20.6.1"],
     )
     dlg.ais_pills._on_completer_activated("20.6.1 — FS_6G_ARC: KI#1_1 NAS Routing")
+    dlg.sub_items_pills._on_completer_activated("NAS Routing/transport — AI 20.6.1")
     dlg.wis_pills._on_completer_activated("FS_6G_ARC")
     dlg.tdocs_pills._on_completer_activated("S2-2612673 — Proposal for interim agreements")
 
     updated = db.get_thread(tid)
     assert updated["linked_ais"] == ["20.6.1"]
+    assert updated["linked_sub_items"] == ["NAS Routing/transport"]
     assert updated["linked_wis"] == ["FS_6G_ARC"]
     assert updated["linked_tdocs"] == ["S2-2612673", "S2-2612999"]
+
+    from modules.meetings.ui.tdocs_models import TDocsTableModel
+    m = TDocsTableModel(tmp_path, [], {}, {})
+    m.sync_tracked_thread_rows([updated])
+    assert m._data[0]["Sub-Item"] == "NAS Routing/transport"
+    assert "NAS Routing/transport" in m._data[0]["_linked_sub_items"]
 
     # Verify removing a pill and processing DeferredDelete does NOT delete input_edit
     from PyQt5.QtCore import QEvent

@@ -320,6 +320,7 @@ class TDocsTableModel(QAbstractTableModel):
                 continue
             ais = [str(a).strip() for a in (t.get("linked_ais") or []) if str(a).strip()]
             primary_ai = next((a for a in ais if a in (self.agenda_map or {})), ais[0] if ais else "")
+            explicit_subs = [str(s).strip() for s in (t.get("linked_sub_items") or []) if str(s).strip()]
             wis = t.get("linked_wis") or []
             tdocs = t.get("linked_tdocs") or []
             tot = int(t.get("message_count", 0))
@@ -329,18 +330,33 @@ class TDocsTableModel(QAbstractTableModel):
             remarks_parts = [f"Tracked Email Thread ({tot} msgs" + (f", {unread} new)" if unread > 0 else ")") + f" • Last: {last_dt or 'N/A'}"]
             if ais:
                 remarks_parts.append(f"AIs: {', '.join(ais)}")
+            if explicit_subs:
+                remarks_parts.append(f"Sub-Topics: {', '.join(explicit_subs)}")
             if wis:
                 remarks_parts.append(f"WIs: {', '.join(wis)}")
             if tdocs:
                 remarks_parts.append(f"TDocs: {', '.join(tdocs)}")
 
-            # Inherit Sub-Item from any existing TDoc in the same Agenda Item so Sub-Item filters match naturally
-            inherited_sub = ""
-            if primary_ai:
-                for existing_row in self._data:
-                    if str(existing_row.get("Agenda Item", "")).strip() == primary_ai and existing_row.get("Sub-Item"):
-                        inherited_sub = str(existing_row.get("Sub-Item", "")).strip()
+            # Use explicit Sub-Topic if assigned, else inherit from an existing TDoc in the same Agenda Item
+            primary_sub = explicit_subs[0] if explicit_subs else ""
+            sub_item_order = 0
+            for existing_row in self._data:
+                if existing_row.get("_is_tracked_thread"):
+                    continue
+                ex_ai = str(existing_row.get("Agenda Item", "")).strip()
+                ex_sub = str(existing_row.get("Sub-Item", "")).strip()
+                if primary_sub and ex_sub.lower() == primary_sub.lower():
+                    if not primary_ai or ex_ai == primary_ai:
+                        sub_item_order = int(existing_row.get("_sub_item_order") or 0)
                         break
+                elif not primary_sub and primary_ai and ex_ai == primary_ai and ex_sub:
+                    primary_sub = ex_sub
+                    sub_item_order = int(existing_row.get("_sub_item_order") or 0)
+                    break
+
+            all_subs = set(explicit_subs)
+            if primary_sub:
+                all_subs.add(primary_sub)
 
             row = {
                 "TDoc": tid,
@@ -351,7 +367,7 @@ class TDocsTableModel(QAbstractTableModel):
                 "Abstract": "",
                 "Secretary Remarks": " | ".join(remarks_parts),
                 "Agenda Item": primary_ai,
-                "Sub-Item": inherited_sub,
+                "Sub-Item": primary_sub,
                 "TDoc Status": status_str,
                 "Related WIs": ", ".join(wis),
                 "Related TDocs": ", ".join(tdocs),
@@ -359,6 +375,8 @@ class TDocsTableModel(QAbstractTableModel):
                 "_is_tracked_thread": True,
                 "_thread_id": tid,
                 "_linked_ais": set(ais),
+                "_linked_sub_items": all_subs,
+                "_sub_item_order": sub_item_order,
                 "_email_tot": tot,
                 "_email_unread": unread,
                 "_email_sort_key": (tot, unread),
@@ -1220,8 +1238,12 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
             elif str(row.get("Agenda Item", "") or "").strip() not in self.ai_filters:
                 return False
         if exclude_filter != "sub_item" and self.sub_item_filters:
+            linked_subs = row.get("_linked_sub_items")
             raw_sub = str(row.get("Sub-Item", "") or "").strip()
-            if row.get("_is_tracked_thread") and not raw_sub:
+            if linked_subs:
+                if not (linked_subs & self.sub_item_filters):
+                    return False
+            elif row.get("_is_tracked_thread") and not raw_sub:
                 pass
             else:
                 row_sub = raw_sub or "(No Sub-Item)"

@@ -63,6 +63,7 @@ class TrackedThreadDialog(QDialog):
         wi_suggestions: Optional[List[str]] = None,
         tdoc_suggestions: Optional[List[str]] = None,
         tdoc_family_expander: Optional[Callable[[List[str]], List[str]]] = None,
+        sub_item_suggestions: Optional[List[str]] = None,
     ):
         super().__init__(
             parent,
@@ -73,6 +74,7 @@ class TrackedThreadDialog(QDialog):
         self._ai_suggestions = ai_suggestions or []
         self._wi_suggestions = wi_suggestions or []
         self._tdoc_suggestions = tdoc_suggestions or []
+        self._sub_item_suggestions = sub_item_suggestions or []
         self._tdoc_family_expander = tdoc_family_expander
         self._loading = False
         self._settings = QSettings("3GPP_Tools", "TrackedThreadDialog")
@@ -115,23 +117,32 @@ class TrackedThreadDialog(QDialog):
         self.ais_pills.tagsChanged.connect(self._on_links_changed)
         links_grid.addWidget(self.ais_pills, 0, 1)
 
-        links_grid.addWidget(QLabel("<b>WIs:</b>"), 1, 0, Qt.AlignTop)
+        links_grid.addWidget(QLabel("<b>Sub-Topics:</b>"), 1, 0, Qt.AlignTop)
+        self.sub_items_pills = TagCloudWidget(
+            placeholder="Type AI Sub-Topic (when available, e.g. NAS Routing/transport)...",
+            pill_colors={"bg": "#F0FDFA", "fg": "#0F766E", "border": "#99F6E4"},
+        )
+        self.sub_items_pills.set_suggestions(self._sub_item_suggestions, value_extractor=lambda s: s.split(" — ", 1)[0].strip())
+        self.sub_items_pills.tagsChanged.connect(self._on_links_changed)
+        links_grid.addWidget(self.sub_items_pills, 1, 1)
+
+        links_grid.addWidget(QLabel("<b>WIs:</b>"), 2, 0, Qt.AlignTop)
         self.wis_pills = TagCloudWidget(
             placeholder="Type Work Item (e.g. FS_6G_ARC)...",
             pill_colors={"bg": "#EEF2FF", "fg": "#4338CA", "border": "#C7D2FE"},
         )
         self.wis_pills.set_suggestions(self._wi_suggestions, value_extractor=lambda s: s.split(" — ", 1)[0].strip())
         self.wis_pills.tagsChanged.connect(self._on_links_changed)
-        links_grid.addWidget(self.wis_pills, 1, 1)
+        links_grid.addWidget(self.wis_pills, 2, 1)
 
-        links_grid.addWidget(QLabel("<b>TDocs:</b>"), 2, 0, Qt.AlignTop)
+        links_grid.addWidget(QLabel("<b>TDocs:</b>"), 3, 0, Qt.AlignTop)
         self.tdocs_pills = TagCloudWidget(
             placeholder="Type TDoc # (e.g. S2-2612673) — revisions & merges auto-included...",
             pill_colors={"bg": "#ECFDF5", "fg": "#047857", "border": "#A7F3D0"},
         )
         self.tdocs_pills.set_suggestions(self._tdoc_suggestions, value_extractor=lambda s: s.split(" — ", 1)[0].strip().upper())
         self.tdocs_pills.tagsChanged.connect(self._on_links_changed)
-        links_grid.addWidget(self.tdocs_pills, 2, 1)
+        links_grid.addWidget(self.tdocs_pills, 3, 1)
 
         layout.addLayout(links_grid)
 
@@ -280,6 +291,7 @@ class TrackedThreadDialog(QDialog):
                 f"Last synced: {thread.get('last_synced_at') or 'Never'}"
             )
             self.ais_pills.setText(", ".join(thread.get("linked_ais") or []))
+            self.sub_items_pills.setText(", ".join(thread.get("linked_sub_items") or []))
             self.wis_pills.setText(", ".join(thread.get("linked_wis") or []))
             self.tdocs_pills.setText(", ".join(thread.get("linked_tdocs") or []))
             self._populate_company_filter(self.db.get_thread_messages(self.thread_id))
@@ -382,6 +394,7 @@ class TrackedThreadDialog(QDialog):
         if self._loading:
             return
         ais = self.ais_pills.tags()
+        sub_items = self.sub_items_pills.tags()
         wis = self.wis_pills.tags()
         tdocs = self.tdocs_pills.tags()
         if self._tdoc_family_expander:
@@ -393,7 +406,13 @@ class TrackedThreadDialog(QDialog):
                 finally:
                     self._loading = False
                 tdocs = expanded
-        self.db.update_thread_links(self.thread_id, linked_ais=ais, linked_wis=wis, linked_tdocs=tdocs)
+        self.db.update_thread_links(
+            self.thread_id,
+            linked_ais=ais,
+            linked_wis=wis,
+            linked_tdocs=tdocs,
+            linked_sub_items=sub_items,
+        )
         self.thread_changed.emit()
         self._render_messages()
 
