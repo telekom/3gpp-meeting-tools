@@ -294,20 +294,33 @@ class TDocsTableModel(QAbstractTableModel):
         for row in self._data:
             tdoc = row.get('TDoc', '')
             meta = self.user_data.get(tdoc, {})
-            row['My Status'] = meta.get('status', '⚪ Neutral')
-            row['My Notes'] = meta.get('notes', '')
+            if row.get("_is_tracked_thread") and not meta:
+                status = row.get("My Status") or "⚪ Neutral"
+                notes = row.get("My Notes") or ""
+                tags_str = row.get("My Tags") or ""
+            else:
+                status = meta.get('status', row.get("My Status", '⚪ Neutral') if row.get("_is_tracked_thread") else '⚪ Neutral')
+                notes = meta.get('notes', row.get("My Notes", '') if row.get("_is_tracked_thread") else '')
+                tags_str = meta.get('tags', row.get("My Tags", '') if row.get("_is_tracked_thread") else '')
+            row['My Status'] = status or '⚪ Neutral'
+            row['My Notes'] = notes or ''
+            row['My Tags'] = tags_str or ''
+            row['_tag_list'] = [t.strip() for t in str(row['My Tags']).replace(';', ',').split(',') if t.strip()]
 
         for row in self._data:
-            if not row.get('My Notes') and row.get('My Status') == '⚪ Neutral':
+            if not row.get('My Notes') and row.get('My Status') == '⚪ Neutral' and not row.get('My Tags'):
                 parent = row.get('Is revision of', '')
                 if parent and parent in tdoc_dict:
                     parent_row = tdoc_dict[parent]
                     p_status = parent_row.get('My Status', '⚪ Neutral')
                     p_notes = parent_row.get('My Notes', '')
+                    p_tags = parent_row.get('My Tags', '')
 
-                    if p_status != '⚪ Neutral' or p_notes:
+                    if p_status != '⚪ Neutral' or p_notes or p_tags:
                         row['My Status'] = p_status
-                        row['My Notes'] = f"🔄 [From Base]: {p_notes}" if p_notes else "🔄 [From Base]"
+                        row['My Notes'] = f"🔄 [From Base]: {p_notes}" if p_notes else ("🔄 [From Base]" if p_status != '⚪ Neutral' else "")
+                        row['My Tags'] = p_tags
+                        row['_tag_list'] = list(parent_row.get('_tag_list') or [])
 
     def sync_tracked_thread_rows(self, threads: list):
         """Injects or updates pinned/tracked email threads as synthetic rows in the meeting table."""
@@ -366,6 +379,9 @@ class TDocsTableModel(QAbstractTableModel):
                 "For": "Discussion",
                 "Abstract": "",
                 "Secretary Remarks": " | ".join(remarks_parts),
+                "My Status": t.get("user_status") or "⚪ Neutral",
+                "My Notes": t.get("user_notes") or "",
+                "My Tags": ", ".join(t.get("user_tags") or []),
                 "Agenda Item": primary_ai,
                 "Sub-Item": primary_sub,
                 "TDoc Status": status_str,
@@ -808,8 +824,17 @@ class TDocsTableModel(QAbstractTableModel):
                 return "📝" if val_str else ""
             if col_name == "My Status" and val_str == "⚪ Neutral":
                 return ""
-            if col_name == "My Notes" and val_str:
-                return "📓 Note"
+            if col_name == "My Notes":
+                tag_list = row.get("_tag_list") or []
+                if tag_list and val_str:
+                    tag_preview = ", ".join(tag_list[:2]) + ("…" if len(tag_list) > 2 else "")
+                    return f"🏷️ {tag_preview} · 📓"
+                if tag_list:
+                    tag_preview = ", ".join(tag_list[:2]) + ("…" if len(tag_list) > 2 else "")
+                    return f"🏷️ {tag_preview}"
+                if val_str:
+                    return "📓 Note"
+                return ""
 
             if col_name == "Secretary Remarks":
                 if row.get('_has_agreement'):
@@ -851,7 +876,16 @@ class TDocsTableModel(QAbstractTableModel):
             if (col_name in ["Secretary Remarks", "TDoc Status"]) and row.get('_has_agreement'):
                 return self._format_agreement_tooltip_html(row)
 
-            if col_name in ["Abstract", "Secretary Remarks", "My Notes"] and val_str:
+            if col_name == "My Notes":
+                tag_list = row.get("_tag_list") or []
+                parts = []
+                if tag_list:
+                    parts.append(f"<b>🏷️ Tags:</b> {html.escape(', '.join(tag_list))}")
+                if val_str:
+                    parts.append(f"<b>📓 Notes:</b><br>{html.escape(val_str)}")
+                return f"<div style='width: 400px; white-space: pre-wrap;'>{'<br><br>'.join(parts)}</div>" if parts else None
+
+            if col_name in ["Abstract", "Secretary Remarks"] and val_str:
                 return f"<div style='width: 400px; white-space: pre-wrap;'>{val_str}</div>"
             elif col_name == "Source" and val_str:
                 if CompanySanitizer.has_tentative_sources(val_str):
@@ -1090,6 +1124,14 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.starred_wi_tokens = set()
         self.sort_mode = "AGENDA"
         self.row_mode_filter = "ALL"
+        self.tag_filters = set()
+        self.tag_filters_active = False
+
+    def setTagFilters(self, tags, active: Optional[bool] = None):
+        self.tag_filters = set(tags or [])
+        if active is not None:
+            self.tag_filters_active = bool(active)
+        self.invalidateFilter()
 
     def setRowModeFilter(self, mode: str):
         norm = str(mode or "ALL").upper()
@@ -1257,6 +1299,13 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
             return False
         if exclude_filter != "my_status" and str(row.get("My Status", "") or "").strip() not in self.my_status_filters:
             return False
+        if exclude_filter != "tags" and self.tag_filters_active:
+            row_tags = row.get("_tag_list") or []
+            if row_tags:
+                if not (set(row_tags) & self.tag_filters):
+                    return False
+            elif "(No Tags)" not in self.tag_filters:
+                return False
         if exclude_filter != "company":
             comp_key = "_All_Sanitized_Companies" if getattr(self, "include_tentative_sources", False) else "_Sanitized_Companies"
             row_companies = row.get(comp_key) or row.get("_Sanitized_Companies", ["Other"])
@@ -1265,7 +1314,7 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
 
         if self.include_terms or self.exclude_terms:
             searchable_parts = []
-            for key in ["TDoc", "Title", "Source", "Abstract", "Secretary Remarks", "My Notes", "Sub-Item"]:
+            for key in ["TDoc", "Title", "Source", "Abstract", "Secretary Remarks", "My Notes", "My Tags", "Sub-Item"]:
                 data = row.get(key, "")
                 if data:
                     searchable_parts.append(str(data).lower())

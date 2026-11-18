@@ -410,6 +410,7 @@ def build_row_context_menu(
     launch_cli_callback=None,
     selected_rows=None,
     send_tdoc_email_callback=None,
+    edit_notes_callback=None,
 ):
     """Complete command center menu for row-level operations."""
     menu = QMenu(parent)
@@ -421,6 +422,11 @@ def build_row_context_menu(
     act_details = menu.addAction(f"ℹ️ View Full Details for {tdoc_id}...")
     act_details.setToolTip('Show all stored metadata and links for this TDoc.')
     act_details.triggered.connect(open_details_callback)
+
+    if edit_notes_callback:
+        act_notes = menu.addAction("🏷️ Edit Notes, Status && Tags...")
+        act_notes.setToolTip("Edit personal stance (My Status), Tags, and Notes for this item.")
+        act_notes.triggered.connect(edit_notes_callback)
 
     if triage_callback:
         act_triage = menu.addAction(f"🤖 AI Technical Triage for {tdoc_id}...")

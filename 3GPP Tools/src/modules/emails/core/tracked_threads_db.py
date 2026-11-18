@@ -46,6 +46,9 @@ class TrackedThreadsDatabase:
                     linked_wis TEXT DEFAULT '[]',
                     linked_tdocs TEXT DEFAULT '[]',
                     linked_sub_items TEXT DEFAULT '[]',
+                    user_status TEXT DEFAULT '⚪ Neutral',
+                    user_notes TEXT DEFAULT '',
+                    user_tags TEXT DEFAULT '[]',
                     unread_count INTEGER DEFAULT 0,
                     message_count INTEGER DEFAULT 0,
                     last_message_date TEXT DEFAULT '',
@@ -77,21 +80,29 @@ class TrackedThreadsDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ttm_thread ON tracked_thread_messages(thread_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ttm_date ON tracked_thread_messages(date_sent)")
 
-            # Schema migration: add linked_sub_items for existing DBs
+            # Schema migration: add linked_sub_items and user annotations for existing DBs
             cursor.execute("PRAGMA table_info(tracked_threads)")
             cols = [info[1] for info in cursor.fetchall()]
             if "linked_sub_items" not in cols:
                 cursor.execute("ALTER TABLE tracked_threads ADD COLUMN linked_sub_items TEXT DEFAULT '[]'")
+            if "user_status" not in cols:
+                cursor.execute("ALTER TABLE tracked_threads ADD COLUMN user_status TEXT DEFAULT '⚪ Neutral'")
+            if "user_notes" not in cols:
+                cursor.execute("ALTER TABLE tracked_threads ADD COLUMN user_notes TEXT DEFAULT ''")
+            if "user_tags" not in cols:
+                cursor.execute("ALTER TABLE tracked_threads ADD COLUMN user_tags TEXT DEFAULT '[]'")
             conn.commit()
 
     @staticmethod
     def _row_to_thread(row: sqlite3.Row) -> Dict[str, Any]:
         d = dict(row)
-        for key in ("conversation_ids", "subject_patterns", "outlook_folders", "linked_ais", "linked_wis", "linked_tdocs", "linked_sub_items"):
+        for key in ("conversation_ids", "subject_patterns", "outlook_folders", "linked_ais", "linked_wis", "linked_tdocs", "linked_sub_items", "user_tags"):
             try:
                 d[key] = json.loads(d.get(key) or "[]")
             except Exception:
                 d[key] = []
+        d.setdefault("user_status", "⚪ Neutral")
+        d.setdefault("user_notes", "")
         return d
 
     @staticmethod
@@ -285,6 +296,24 @@ class TrackedThreadsDatabase:
                 cursor.execute("UPDATE tracked_threads SET linked_tdocs = ? WHERE thread_id = ?", (json.dumps(linked_tdocs), thread_id))
             if linked_sub_items is not None:
                 cursor.execute("UPDATE tracked_threads SET linked_sub_items = ? WHERE thread_id = ?", (json.dumps(linked_sub_items), thread_id))
+            conn.commit()
+
+    def update_thread_annotations(
+        self,
+        thread_id: str,
+        user_status: Optional[str] = None,
+        user_notes: Optional[str] = None,
+        user_tags: Optional[List[str]] = None,
+    ):
+        """Persists personal stance, comments, and tags onto a tracked email thread."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            if user_status is not None:
+                cursor.execute("UPDATE tracked_threads SET user_status = ? WHERE thread_id = ?", (user_status, thread_id))
+            if user_notes is not None:
+                cursor.execute("UPDATE tracked_threads SET user_notes = ? WHERE thread_id = ?", (user_notes, thread_id))
+            if user_tags is not None:
+                cursor.execute("UPDATE tracked_threads SET user_tags = ? WHERE thread_id = ?", (json.dumps(user_tags), thread_id))
             conn.commit()
 
     def add_conversation_ids(self, thread_id: str, cids: List[str]):

@@ -350,3 +350,85 @@ def test_ctrl_wheel_reader_zoom_on_thread_browser(tmp_path):
     QApplication.sendEvent(dlg.browser, ctrl_zero)
     assert int(dlg.browser.property("_reader_zoom_steps") or 0) == 0
     dlg.close()
+
+
+def test_unified_notes_status_and_tags_for_tdocs_and_threads(tmp_path):
+    import sqlite3
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+
+    from modules.meetings.core.tdocs.tdocs_db import TDocsDatabase
+    from modules.meetings.ui.tdocs_dialogs import InteractiveNotesDialog
+    from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel
+    from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
+
+    # 1. Test TDocsDatabase schema migration from legacy DB without 'tags' column
+    legacy_db_path = tmp_path / "legacy_user_tdocs.db"
+    conn = sqlite3.connect(legacy_db_path)
+    conn.execute("CREATE TABLE user_tdocs (tdoc_id TEXT PRIMARY KEY, status TEXT, notes TEXT)")
+    conn.execute("INSERT INTO user_tdocs VALUES ('S2-2612673', '🟢 Support', 'Baseline note')")
+    conn.commit()
+    conn.close()
+
+    tdb = TDocsDatabase(legacy_db_path)
+    tdb.upsert("S2-2612673", "🟢 Support", "Updated note", "Key Issue, Follow-up, key issue")
+    assert tdb.get_all()["S2-2612673"]["tags"] == "Key Issue, Follow-up"
+    # 3-arg backward-compatible upsert must preserve existing tags
+    tdb.upsert("S2-2612673", "🟢 Support", "Updated note 2")
+    assert tdb.get_all()["S2-2612673"]["tags"] == "Key Issue, Follow-up"
+    assert tdb.get_all_unique_tags() == ["Follow-up", "Key Issue"]
+
+    # 2. Test InteractiveNotesDialog with tag suggestions + TagCloudWidget
+    saved_calls = []
+    dlg_notes = InteractiveNotesDialog(
+        None,
+        "S2-2612673",
+        {"TDoc": "S2-2612673", "Secretary Remarks": "Discussed", "My Status": "⚪ Neutral", "My Notes": "", "My Tags": ""},
+        lambda tid, st, nt, tg: saved_calls.append((tid, st, nt, tg)),
+        all_existing_tags=["Key Issue", "Urgent"],
+    )
+    dlg_notes.status_combo.setCurrentText("🟡 Monitor")
+    dlg_notes.my_notes.setPlainText("Check revision tomorrow")
+    dlg_notes.tags_cloud.add_tag("Key Issue")
+    dlg_notes.tags_cloud.add_tag("Urgent")
+    dlg_notes._on_save_clicked()
+    assert saved_calls == [("S2-2612673", "🟡 Monitor", "Check revision tomorrow", "Key Issue, Urgent")]
+
+    # 3. Test TrackedThreadsDatabase annotations + Markdown export + Table display & filtering
+    ttdb = TrackedThreadsDatabase(tmp_path / "threads.db")
+    tid = ttdb.create_or_get_thread("NAS Routing", "NAS Routing", meeting_id="SA2#178", wg="SA2", linked_ais=["20.6.1"])
+    ttdb.update_thread_annotations(tid, user_status="🟢 Support", user_notes="Align with ZTE option", user_tags=["Key Issue"])
+    t_row = ttdb.get_thread(tid)
+    md = export_thread_to_markdown(t_row, [])
+    assert "- **My Status:** 🟢 Support" in md
+    assert "- **My Tags:** Key Issue" in md
+    assert "> [!NOTE] Delegate Notes" in md
+    assert "> Align with ZTE option" in md
+
+    model = TDocsTableModel(tmp_path, [{"TDoc": "S2-2612673", "Title": "Doc", "Type": "pCR", "Source": "ZTE", "Agenda Item": "20.6.1", "TDoc Status": "available"}], tdb.get_all(), {})
+    model.sync_tracked_thread_rows([t_row])
+    notes_col = model._headers.index("My Notes")
+    # Row 0 (S2-2612673) and Row 1 (THR-...) both show tag preview
+    from PyQt5.QtCore import Qt
+    assert "🏷️ Key Issue" in str(model.data(model.index(0, notes_col), Qt.DisplayRole))
+    assert "🏷️ Key Issue" in str(model.data(model.index(1, notes_col), Qt.DisplayRole))
+
+    proxy = TDocsFilterProxyModel()
+    proxy.setSourceModel(model)
+    proxy.setTypeFilters(["pCR", "📧 Email Thread"])
+    proxy.setAIFilters(["20.6.1"])
+    proxy.setWIFilters(model.get_related_wis(0) + model.get_related_wis(1))
+    proxy.setStatusFilters(["available", "📧 Active Thread"])
+    proxy.setCompanyFilters(["ZTE", "Other"])
+    proxy.setMyStatusFilters(["🟢 Support"])
+    proxy.setTagFilters(["Key Issue"], active=True)
+    assert proxy.rowCount() == 2
+    proxy.setTagFilters(["NonExistent"], active=True)
+    assert proxy.rowCount() == 0
+
+    # 4. Test TrackedThreadDialog tags pill auto-save
+    tdlg = TrackedThreadDialog(ttdb, tid, all_existing_tags=["Key Issue", "Priority"])
+    assert "🟢 Support" in tdlg.notes_btn.text()
+    tdlg.tags_pills.add_tag("Priority")
+    assert set(ttdb.get_thread(tid)["user_tags"]) == {"Key Issue", "Priority"}
+    tdlg.close()

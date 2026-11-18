@@ -34,6 +34,10 @@ def handle_table_context_menu(window: Any, pos: QPoint) -> None:
         menu = QMenu(window.table)
         menu.addAction("📧 Open Tracked Email Thread...", lambda: window._open_tracked_thread_dialog(tid))
         menu.addAction(
+            "🏷️ Edit Notes, Status && Tags...",
+            lambda: window._open_interactive_notes_for_row(row_data),
+        )
+        menu.addAction(
             "🔄 Refresh This Thread Now",
             lambda: (refresh_thread(window.tracked_threads_db, tid), window._on_tracked_thread_changed()),
         )
@@ -104,4 +108,5 @@ def handle_table_context_menu(window: Any, pos: QPoint) -> None:
         launch_cli_callback=getattr(window, "_launch_cli_for_tdocs", None),
         selected_rows=selected_rows,
         send_tdoc_email_callback=getattr(window, "_send_tdoc_via_email", None),
+        edit_notes_callback=lambda r=row_data: window._open_interactive_notes_for_row(r),
     )

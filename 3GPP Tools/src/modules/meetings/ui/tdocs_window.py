@@ -851,6 +851,13 @@ class TDocsWindow(QWidget):
         self.my_status_combo.selectionChanged.connect(self._on_my_status_changed)
         filter_layout.addWidget(self.my_status_combo)
 
+        self.tags_combo = CheckableComboBox("Tags")
+        self.tags_combo.setMaximumWidth(scale_px(145))
+        self.tags_combo.setToolTip('Filter TDocs and tracked email threads by your personal tags.')
+        self.tags_combo.selectionChanged.connect(self._on_tags_changed)
+        self.tags_combo.setVisible(False)
+        filter_layout.addWidget(self.tags_combo)
+
         tail_group = QWidget(filter_frame)
         tail_group.setStyleSheet(".QWidget { background: transparent; border: none; }")
         tail_layout = QHBoxLayout(tail_group)
@@ -1235,6 +1242,15 @@ class TDocsWindow(QWidget):
         self._update_filter_facets()
         QTimer.singleShot(0, self._update_count_label)
 
+    def _on_tags_changed(self, tags):
+        all_checked = (
+            self.tags_combo.model().rowCount() > 0
+            and self.tags_combo.model().item(0).checkState() == Qt.Checked
+        )
+        self.proxy.setTagFilters(tags, active=not all_checked)
+        self._update_filter_facets()
+        QTimer.singleShot(0, self._update_count_label)
+
     def _on_company_changed(self, companies):
         self.proxy.setCompanyFilters(companies)
         self._update_filter_facets()
@@ -1604,6 +1620,7 @@ class TDocsWindow(QWidget):
             "wi": set(),
             "status": set(),
             "my_status": set(),
+            "tags": set(),
         }
 
         followed_count = 0
@@ -1637,6 +1654,12 @@ class TDocsWindow(QWidget):
                 facets["status"].add(str(row.get("TDoc Status", "") or "").strip())
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="my_status"):
                 facets["my_status"].add(str(row.get("My Status", "") or "").strip())
+            if self.proxy.rowMatchesFilters(row_idx, exclude_filter="tags"):
+                row_tags = row.get("_tag_list") or []
+                if row_tags:
+                    facets["tags"].update(row_tags)
+                else:
+                    facets["tags"].add("(No Tags)")
 
             if has_followed_tokens or has_starred_tokens:
                 if self.proxy.rowMatchesFilters(row_idx, exclude_filter="tracked_wi"):
@@ -1667,6 +1690,8 @@ class TDocsWindow(QWidget):
         self.wi_combo.setAvailability(facets["wi"])
         self.status_combo.setAvailability(facets["status"])
         self.my_status_combo.setAvailability(facets["my_status"])
+        if hasattr(self, "tags_combo") and self.tags_combo.isVisible():
+            self.tags_combo.setAvailability(facets["tags"])
 
         ls_suffix = " (incl. unassigned LS in)" if getattr(self.proxy, "include_unassigned_ls_in", True) else ""
 
@@ -1753,6 +1778,21 @@ class TDocsWindow(QWidget):
             else:
                 self.sub_item_combo.setVisible(False)
                 self.proxy.setSubItemFilters([])
+
+        unique_tags = self.db.get_all_unique_tags() if hasattr(self, "db") else []
+        if hasattr(self, "tags_combo"):
+            if unique_tags:
+                tag_items = list(unique_tags) + ["(No Tags)"]
+                self.tags_combo.setVisible(True)
+                self.tags_combo.updateItems(tag_items)
+                all_checked = (
+                    self.tags_combo.model().rowCount() > 0
+                    and self.tags_combo.model().item(0).checkState() == Qt.Checked
+                )
+                self.proxy.setTagFilters(self.tags_combo.getCheckedItems(), active=not all_checked)
+            else:
+                self.tags_combo.setVisible(False)
+                self.proxy.setTagFilters([], active=False)
 
         self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
         self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
@@ -1843,6 +1883,16 @@ class TDocsWindow(QWidget):
                 self.sub_item_combo.updateText()
             self.sub_item_combo.blockSignals(False)
             self.proxy.setSubItemFilters(self.sub_item_combo.getCheckedItems())
+
+        if hasattr(self, 'tags_combo') and self.tags_combo.isVisible():
+            self.tags_combo.blockSignals(True)
+            if self.tags_combo.model() and self.tags_combo.model().rowCount() > 0:
+                self.tags_combo.model().item(0).setCheckState(Qt.Checked)
+                for i in range(1, self.tags_combo.model().rowCount()):
+                    self.tags_combo.model().item(i).setCheckState(Qt.Checked)
+                self.tags_combo.updateText()
+            self.tags_combo.blockSignals(False)
+            self.proxy.setTagFilters(self.tags_combo.getCheckedItems(), active=False)
 
         self.proxy.setTypeFilters(self.type_combo.getCheckedItems())
         self.proxy.setAIFilters(self.ai_combo.getCheckedItems())
@@ -2009,14 +2059,32 @@ class TDocsWindow(QWidget):
             f"The email subject has been copied to your clipboard and the local folder for {target_tdoc} was opened so you can drag-and-drop the file(s).",
         )
 
+    def _open_interactive_notes_for_row(self, row_data: dict):
+        if not row_data:
+            return
+        tdoc_id = str(row_data.get("TDoc", "") or "").strip()
+        if not tdoc_id:
+            return
+        all_tags = self.db.get_all_unique_tags() if hasattr(self, "db") else []
+        InteractiveNotesDialog(
+            self,
+            tdoc_id,
+            row_data,
+            self._save_user_data,
+            all_existing_tags=all_tags,
+        ).exec_()
+
     def _show_cell_popup(self, index):
         if not index.isValid():
             return
         row_data = self.model._data[self.proxy.mapToSource(index).row()]
-        if row_data.get("_is_tracked_thread"):
-            self._open_tracked_thread_dialog(row_data.get("_thread_id") or row_data.get("TDoc", ""))
-            return
         col_name = self.model._headers[index.column()]
+        if row_data.get("_is_tracked_thread"):
+            if col_name in ["My Notes", "My Status"]:
+                self._open_interactive_notes_for_row(row_data)
+            else:
+                self._open_tracked_thread_dialog(row_data.get("_thread_id") or row_data.get("TDoc", ""))
+            return
 
         if col_name == "Emails":
             row_data = self.model._data[self.proxy.mapToSource(index).row()]
@@ -2047,7 +2115,7 @@ class TDocsWindow(QWidget):
             if remarks.strip():
                 ReadOnlyViewerDialog(self, f"📄 Viewing: Secretary Remarks ({tdoc_id})", remarks).exec_()
             else:
-                InteractiveNotesDialog(self, tdoc_id, row_data, self._save_user_data).exec_()
+                self._open_interactive_notes_for_row(row_data)
             return
 
         if col_name == "TDoc Status" and row_data.get("_has_agreement"):
@@ -2070,12 +2138,28 @@ class TDocsWindow(QWidget):
             )
             ReadOnlyViewerDialog(self, f"📄 Viewing: {col_name} ({tdoc_id})", val).exec_()
         else:
-            InteractiveNotesDialog(self, tdoc_id, row_data, self._save_user_data).exec_()
+            self._open_interactive_notes_for_row(row_data)
 
-    def _save_user_data(self, tdoc_id: str, status: str, notes: str):
+    def _save_user_data(self, tdoc_id: str, status: str, notes: str, tags: str = None):
         vbar = self.table.verticalScrollBar() if hasattr(self, "table") else None
         prev_scroll = vbar.value() if vbar else 0
-        self.db.upsert(tdoc_id, status, notes)
+        self.db.upsert(tdoc_id, status, notes, tags=tags)
+        if str(tdoc_id or "").strip().upper().startswith("THR-") and hasattr(self, "tracked_threads_db"):
+            tag_list = None
+            if tags is not None:
+                tag_list = [t.strip() for t in str(tags).replace(";", ",").split(",") if t.strip()]
+            self.tracked_threads_db.update_thread_annotations(
+                str(tdoc_id).strip(),
+                user_status=status,
+                user_notes=notes,
+                user_tags=tag_list,
+            )
+            open_dlg = getattr(self, "_tracked_thread_dialogs", {}).get(str(tdoc_id).strip())
+            if open_dlg is not None:
+                try:
+                    open_dlg._load_data()
+                except Exception:
+                    pass
         self.model.user_data = self.db.get_all()
         self.model.apply_user_data_refresh()
         self._refresh_comboboxes()
@@ -3078,6 +3162,7 @@ class TDocsWindow(QWidget):
             dlg.activateWindow()
             return
         ai_sugg, wi_sugg, tdoc_sugg, sub_sugg = self._build_thread_autocomplete_suggestions()
+        all_tags = self.db.get_all_unique_tags() if hasattr(self, "db") else []
         dlg = TrackedThreadDialog(
             self.tracked_threads_db,
             tid,
@@ -3087,6 +3172,8 @@ class TDocsWindow(QWidget):
             tdoc_suggestions=tdoc_sugg,
             tdoc_family_expander=self._expand_tdoc_family_with_merges,
             sub_item_suggestions=sub_sugg,
+            all_existing_tags=all_tags,
+            annotations_save_callback=self._save_user_data,
         )
         dlg.thread_changed.connect(self._on_tracked_thread_changed)
         self._tracked_thread_dialogs[tid] = dlg

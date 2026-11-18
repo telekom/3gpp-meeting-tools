@@ -224,11 +224,23 @@ def export_thread_to_markdown(
         f"- **Messages:** {len(messages)}",
         f"- **Participants:** {', '.join(participants) or 'None'}",
     ]
+    user_status = str(thread.get("user_status") or "").strip()
+    user_tags = [str(x).strip() for x in (thread.get("user_tags") or []) if str(x).strip()]
+    user_notes = str(thread.get("user_notes") or "").strip()
+    if user_status and user_status != "⚪ Neutral":
+        lines.append(f"- **My Status:** {user_status}")
+    if user_tags:
+        lines.append(f"- **My Tags:** {', '.join(user_tags)}")
     if doc_urls:
         lines.append(f"- **Linked Documents ({len(doc_urls)}):**")
         for u in doc_urls:
             fname = urllib.parse.unquote(urllib.parse.urlsplit(u).path.rsplit("/", 1)[-1]) or u
             lines.append(f"  - [📄 {fname}]({u})")
+    if user_notes:
+        lines.append("")
+        lines.append("> [!NOTE] Delegate Notes")
+        for nline in user_notes.splitlines():
+            lines.append(f"> {nline}" if nline.strip() else ">")
     disc_heading = "## Discussion (Newest First)" if newest_first else "## Chronological Discussion"
     lines.extend([
         "",

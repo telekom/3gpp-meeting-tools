@@ -64,6 +64,8 @@ class TrackedThreadDialog(QDialog):
         tdoc_suggestions: Optional[List[str]] = None,
         tdoc_family_expander: Optional[Callable[[List[str]], List[str]]] = None,
         sub_item_suggestions: Optional[List[str]] = None,
+        all_existing_tags: Optional[List[str]] = None,
+        annotations_save_callback: Optional[Callable[[str, str, str, str], None]] = None,
     ):
         super().__init__(
             parent,
@@ -75,6 +77,8 @@ class TrackedThreadDialog(QDialog):
         self._wi_suggestions = wi_suggestions or []
         self._tdoc_suggestions = tdoc_suggestions or []
         self._sub_item_suggestions = sub_item_suggestions or []
+        self._all_existing_tags = all_existing_tags or []
+        self._annotations_save_callback = annotations_save_callback
         self._tdoc_family_expander = tdoc_family_expander
         self._loading = False
         self._settings = QSettings("3GPP_Tools", "TrackedThreadDialog")
@@ -144,6 +148,15 @@ class TrackedThreadDialog(QDialog):
         self.tdocs_pills.tagsChanged.connect(self._on_links_changed)
         links_grid.addWidget(self.tdocs_pills, 3, 1)
 
+        links_grid.addWidget(QLabel("<b>Tags:</b>"), 4, 0, Qt.AlignTop)
+        self.tags_pills = TagCloudWidget(
+            placeholder="Add personal tag (e.g. Key Issue, Follow-up)...",
+            pill_colors={"bg": "#FEF3C7", "fg": "#92400E", "border": "#FCD34D"},
+        )
+        self.tags_pills.set_suggestions(self._all_existing_tags)
+        self.tags_pills.tagsChanged.connect(self._on_links_changed)
+        links_grid.addWidget(self.tags_pills, 4, 1)
+
         layout.addLayout(links_grid)
 
         # Responsive wrapping action toolbar
@@ -188,6 +201,11 @@ class TrackedThreadDialog(QDialog):
         del_btn = QPushButton("Unpin")
         del_btn.clicked.connect(self._on_delete_thread)
         toolbar.addWidget(del_btn)
+
+        self.notes_btn = QPushButton("📝 Notes && Status...")
+        self.notes_btn.setToolTip("Edit personal stance (My Status), Tags, and Delegate Notes for this email thread.")
+        self.notes_btn.clicked.connect(self._on_edit_notes_and_status)
+        toolbar.addWidget(self.notes_btn)
 
         cache_docs_btn = QPushButton("📥 Cache Docs")
         cache_docs_btn.setToolTip("Download and cache all documents (e.g. 10.10.10.10 / 3GPP FTP) and attachments linked in this thread.")
@@ -294,6 +312,16 @@ class TrackedThreadDialog(QDialog):
             self.sub_items_pills.setText(", ".join(thread.get("linked_sub_items") or []))
             self.wis_pills.setText(", ".join(thread.get("linked_wis") or []))
             self.tdocs_pills.setText(", ".join(thread.get("linked_tdocs") or []))
+            self.tags_pills.setText(", ".join(thread.get("user_tags") or []))
+            status = str(thread.get("user_status") or "⚪ Neutral").strip()
+            has_notes = bool(str(thread.get("user_notes") or "").strip())
+            if hasattr(self, "notes_btn"):
+                if status and status != "⚪ Neutral":
+                    self.notes_btn.setText(f"{status} · 📝 Notes")
+                elif has_notes:
+                    self.notes_btn.setText("📓 Notes & Status...")
+                else:
+                    self.notes_btn.setText("📝 Notes && Status...")
             self._populate_company_filter(self.db.get_thread_messages(self.thread_id))
         finally:
             self._loading = False
@@ -397,6 +425,7 @@ class TrackedThreadDialog(QDialog):
         sub_items = self.sub_items_pills.tags()
         wis = self.wis_pills.tags()
         tdocs = self.tdocs_pills.tags()
+        user_tags = self.tags_pills.tags()
         if self._tdoc_family_expander:
             expanded = self._tdoc_family_expander(tdocs)
             if [t.upper() for t in expanded] != [t.upper() for t in tdocs]:
@@ -413,8 +442,42 @@ class TrackedThreadDialog(QDialog):
             linked_tdocs=tdocs,
             linked_sub_items=sub_items,
         )
+        self.db.update_thread_annotations(self.thread_id, user_tags=user_tags)
+        if self._annotations_save_callback:
+            t = self.db.get_thread(self.thread_id) or {}
+            self._annotations_save_callback(
+                self.thread_id,
+                str(t.get("user_status") or "⚪ Neutral"),
+                str(t.get("user_notes") or ""),
+                ", ".join(user_tags),
+            )
         self.thread_changed.emit()
         self._render_messages()
+
+    def _on_edit_notes_and_status(self):
+        from modules.meetings.ui.tdocs_dialogs import InteractiveNotesDialog
+
+        thread = self.db.get_thread(self.thread_id) or {}
+        row_data = {
+            "TDoc": self.thread_id,
+            "Title": thread.get("title", ""),
+            "Secretary Remarks": f"Tracked Email Thread ({thread.get('message_count', 0)} messages)",
+            "My Status": thread.get("user_status") or "⚪ Neutral",
+            "My Notes": thread.get("user_notes") or "",
+            "My Tags": ", ".join(thread.get("user_tags") or []),
+            "_is_tracked_thread": True,
+        }
+
+        def _save(tid: str, status: str, notes: str, tags_str: str = ""):
+            tag_list = [x.strip() for x in str(tags_str or "").replace(";", ",").split(",") if x.strip()]
+            self.db.update_thread_annotations(tid, user_status=status, user_notes=notes, user_tags=tag_list)
+            if self._annotations_save_callback:
+                self._annotations_save_callback(tid, status, notes, tags_str)
+            self._load_data()
+            self.thread_changed.emit()
+
+        all_tags = sorted(set(self._all_existing_tags) | set(self.tags_pills.tags()), key=str.lower)
+        InteractiveNotesDialog(self, self.thread_id, row_data, _save, all_existing_tags=all_tags).exec_()
 
     def _on_refresh(self):
         new_count = refresh_thread(self.db, self.thread_id)

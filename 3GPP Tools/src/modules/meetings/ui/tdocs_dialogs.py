@@ -1,13 +1,17 @@
+import inspect
 import json
 import logging
+from typing import List, Optional
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton, QLabel,
-    QComboBox, QApplication, QSlider, QSpinBox, QCheckBox
+    QComboBox, QApplication, QSlider, QSpinBox, QCheckBox, QWidget
 )
 
+from core.ui.flow_layout import FlowLayout
 from core.utils.paths import get_project_root
+from modules.meetings.ui.topic_pills import TagCloudWidget
 
 
 
@@ -61,21 +65,32 @@ MY_STATUS_OPTIONS = [
 ]
 
 class InteractiveNotesDialog(QDialog):
-    def __init__(self, parent, tdoc_id, row_data, db_save_callback):
+    def __init__(
+        self,
+        parent,
+        tdoc_id,
+        row_data,
+        db_save_callback,
+        all_existing_tags: Optional[List[str]] = None,
+    ):
         super().__init__(parent)
-        self.setWindowTitle(f"📝 Notes & Status: {tdoc_id}")
-        self.resize(600, 500)
+        self.setWindowTitle(f"📝 Notes, Status & Tags: {tdoc_id}")
+        self.resize(660, 580)
         self.setStyleSheet(f"QDialog {{ background-color: {C.BG_ALT_LIGHT}; }}")
         self.db_save_callback = db_save_callback
         self.tdoc_id = tdoc_id
+        self._all_existing_tags = list(all_existing_tags or [])
 
         layout = QVBoxLayout(self)
+        layout.setSpacing(8)
 
-        layout.addWidget(QLabel("<b>Secretary Remarks:</b>"))
+        is_thread = bool(row_data.get("_is_tracked_thread") or str(tdoc_id).upper().startswith("THR-"))
+        context_lbl = "<b>Thread Summary:</b>" if is_thread else "<b>Secretary Remarks:</b>"
+        layout.addWidget(QLabel(context_lbl))
         sec_remarks = QTextEdit()
-        sec_remarks.setPlainText(row_data.get("Secretary Remarks", ""))
+        sec_remarks.setPlainText(row_data.get("Secretary Remarks", "") or row_data.get("Title", ""))
         sec_remarks.setReadOnly(True)
-        sec_remarks.setMaximumHeight(100)
+        sec_remarks.setMaximumHeight(90)
         sec_remarks.setStyleSheet("background-color: #F5F5F5; border: 1px solid #CCC;")
         layout.addWidget(sec_remarks)
 
@@ -85,7 +100,7 @@ class InteractiveNotesDialog(QDialog):
         self.status_combo.addItems(MY_STATUS_OPTIONS)
         self.status_combo.setStyleSheet("padding: 4px; border: 1px solid #CCC; background: white;")
 
-        curr_status = row_data.get("My Status", "⚪ Neutral").replace("🔄 ", "").strip()
+        curr_status = str(row_data.get("My Status", "⚪ Neutral") or "⚪ Neutral").replace("🔄 ", "").strip()
         self.status_combo.setCurrentText(
             curr_status if curr_status in MY_STATUS_OPTIONS else "⚪ Neutral"
         )
@@ -94,18 +109,35 @@ class InteractiveNotesDialog(QDialog):
         status_layout.addStretch()
         layout.addLayout(status_layout)
 
+        # Tags pill editor + clickable meeting tag suggestions (modeled on EditSpecAnnotationsDialog)
+        layout.addWidget(QLabel("<b>My Tags:</b>"))
+        self.tags_cloud = TagCloudWidget(
+            placeholder="Type tag and press Enter or comma (e.g. Key Issue, Follow-up)...",
+            pill_colors={"bg": C.ACCENT_SOFT, "fg": C.INFO_DARK, "border": C.INFO_BORDER_MEDIUM},
+        )
+        raw_tags = str(row_data.get("My Tags", "") or "").replace("🔄 [From Base]: ", "").replace("🔄 [From Base]", "").strip()
+        self.tags_cloud.setText(raw_tags)
+        self.tags_cloud.set_suggestions(self._all_existing_tags)
+        self.tags_cloud.tagsChanged.connect(self._rebuild_tag_suggestions)
+        layout.addWidget(self.tags_cloud)
+
+        self._sugg_container = QWidget(self)
+        self._sugg_layout = FlowLayout(self._sugg_container, margin=0, h_spacing=6, v_spacing=4)
+        layout.addWidget(self._sugg_container)
+        self._rebuild_tag_suggestions()
+
         layout.addWidget(QLabel("<b>My Notes:</b>"))
         self.my_notes = QTextEdit()
-        clean_notes = row_data.get("My Notes", "").replace("🔄 [From Base]: ", "").replace("🔄 [From Base]", "").strip()
+        clean_notes = str(row_data.get("My Notes", "") or "").replace("🔄 [From Base]: ", "").replace("🔄 [From Base]", "").strip()
         self.my_notes.setPlainText(clean_notes)
         self.my_notes.setStyleSheet(
             f"font-size: 13px; padding: 10px; background-color: white; border: 1px solid {C.OFFICE_BLUE};"
         )
-        layout.addWidget(self.my_notes)
+        layout.addWidget(self.my_notes, 1)
 
         btn_layout = QHBoxLayout()
-        save_btn = QPushButton("💾 Save Notes")
-        save_btn.setToolTip('Save My Status and My Notes for this TDoc.')
+        save_btn = QPushButton("💾 Save Annotations")
+        save_btn.setToolTip('Save My Status, My Tags, and My Notes.')
         save_btn.setStyleSheet(
             "padding: 6px 15px; font-weight: bold; background-color: #0C6B0C; color: white; border-radius: 4px;"
         )
@@ -115,12 +147,44 @@ class InteractiveNotesDialog(QDialog):
         btn_layout.addWidget(save_btn)
         layout.addLayout(btn_layout)
 
+    def _rebuild_tag_suggestions(self):
+        self._sugg_layout.clear()
+        assigned_lower = {t.lower() for t in self.tags_cloud.tags()}
+        available = [t for t in self._all_existing_tags if t.lower() not in assigned_lower]
+        if not available:
+            self._sugg_container.setVisible(False)
+            return
+        self._sugg_container.setVisible(True)
+        lbl = QLabel("Suggested:")
+        lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
+        self._sugg_layout.addWidget(lbl)
+        for tag in available[:14]:
+            btn = QPushButton(f"+ {tag}")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(
+                f"QPushButton {{ background-color: {C.BG_SURFACE}; color: {C.TEXT_BODY}; border: 1px solid {C.BORDER_STRONG}; "
+                f"border-radius: 10px; padding: 2px 8px; font-size: 11px; }} "
+                f"QPushButton:hover {{ background-color: {C.ACCENT_SOFT}; color: {C.ACCENT_PRIMARY}; border-color: {C.INFO_BORDER_MEDIUM}; }}"
+            )
+            btn.clicked.connect(lambda _, t=tag: self.tags_cloud.add_tag(t))
+            self._sugg_layout.addWidget(btn)
+
     def _on_save_clicked(self):
         status = self.status_combo.currentText()
         notes = self.my_notes.toPlainText()
+        tags_str = self.tags_cloud.text()
 
         if self.db_save_callback:
-            self.db_save_callback(self.tdoc_id, status, notes)
+            try:
+                sig = inspect.signature(self.db_save_callback)
+                params = list(sig.parameters.values())
+                accepts_varargs = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params)
+                if accepts_varargs or len(params) >= 4:
+                    self.db_save_callback(self.tdoc_id, status, notes, tags_str)
+                else:
+                    self.db_save_callback(self.tdoc_id, status, notes)
+            except (ValueError, TypeError):
+                self.db_save_callback(self.tdoc_id, status, notes)
 
         self.accept()
 
