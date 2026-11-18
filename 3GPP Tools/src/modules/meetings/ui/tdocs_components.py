@@ -345,6 +345,11 @@ class CheckableComboBox(QComboBox):
 
     def updateItems(self, items, display_labels=None, item_tooltips=None):
         previously_checked = set(self.getCheckedItems())
+        previously_all = {
+            str(self.model().item(i).data(Qt.UserRole))
+            for i in range(1, self.model().rowCount())
+            if self.model().item(i) is not None
+        }
         display_labels = display_labels or {}
         item_tooltips = item_tooltips or {}
 
@@ -372,7 +377,7 @@ class CheckableComboBox(QComboBox):
                 item = QStandardItem(display_text)
                 item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
 
-                if was_all_checked or raw_value in previously_checked:
+                if was_all_checked or raw_value in previously_checked or (previously_all and raw_value not in previously_all):
                     item.setCheckState(Qt.Checked)
                 else:
                     item.setCheckState(Qt.Unchecked)

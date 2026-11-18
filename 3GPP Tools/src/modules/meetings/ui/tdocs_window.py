@@ -1165,6 +1165,7 @@ class TDocsWindow(QWidget):
                 agenda_data = TDocsParser.parse_tdocs_by_agenda(str(local_agenda))
                 if agenda_data:
                     self.model.merge_agenda_data(agenda_data)
+                    self._sync_tracked_threads_to_table()
                     self._refresh_comboboxes()
 
         if getattr(self, "is_ran", False):
@@ -3038,6 +3039,14 @@ class TDocsWindow(QWidget):
                     if [x.upper() for x in expanded] != [x.upper() for x in cur_tdocs]:
                         t["linked_tdocs"] = expanded
                         self.tracked_threads_db.update_thread_links(t["thread_id"], linked_tdocs=expanded)
+                msgs = self.tracked_threads_db.get_thread_messages(t["thread_id"])
+                comps = list(dict.fromkeys(
+                    str(m.get("company") or "").strip()
+                    for m in msgs
+                    if str(m.get("company") or "").strip() and str(m.get("company") or "").strip().lower() not in ("unknown", "list")
+                ))
+                if comps:
+                    t["participants_companies"] = ", ".join(comps)
             self.model.sync_tracked_thread_rows(threads)
             total_unread = sum(int(t.get("unread_count", 0)) for t in threads)
             if hasattr(self, "email_btn"):

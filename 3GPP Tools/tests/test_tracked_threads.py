@@ -5,6 +5,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from modules.emails.core.thread_markdown_exporter import (
     export_thread_to_markdown,
+    extract_thread_document_urls,
+    is_cacheable_document_url,
     linkify_markdown_urls,
     unwrap_outlook_safelinks,
 )
@@ -189,3 +191,16 @@ def test_safelinks_unwrapping_and_clickable_links():
     md_export = export_thread_to_markdown(thread, msgs, interactive_links=False)
     assert "outlook://" not in md_export
     assert "**Attachments:** S2-2612673_draft.docx" in md_export
+
+    # Test 10.10.10.10 space-containing document links & Proofpoint urldefense unwrapping
+    raw_local_doc = (
+        "Draft placed at http://10.10.10.10/ftp/SA/SA2/Inbox/Drafts/FS_6G_ARC/KI#1/S2-2612888-KK#1.1 Conclusion-6GNAS-Routing-Baseline-v2.docx "
+        "and https://urldefense.com/v3/__https:/www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178_Calgary_2026-11/Docs/S2-2611551.zip__;!!CTRNKA9wMg0ARbw!nCj6zB "
+    )
+    unwrapped_doc = unwrap_outlook_safelinks(raw_local_doc)
+    assert "http://10.10.10.10/ftp/SA/SA2/Inbox/Drafts/FS_6G_ARC/KI%231/S2-2612888-KK%231.1%20Conclusion-6GNAS-Routing-Baseline-v2.docx" in unwrapped_doc
+    assert "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178_Calgary_2026-11/Docs/S2-2611551.zip" in unwrapped_doc
+
+    doc_urls = extract_thread_document_urls([{"body_text": raw_local_doc}])
+    assert len(doc_urls) == 2
+    assert all(is_cacheable_document_url(u) for u in doc_urls)

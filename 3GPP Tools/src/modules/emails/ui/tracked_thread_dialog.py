@@ -27,9 +27,14 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from modules.emails.core.thread_markdown_exporter import export_thread_to_markdown
+from modules.emails.core.thread_markdown_exporter import (
+    export_thread_to_markdown,
+    is_cacheable_document_url,
+)
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.emails.core.tracked_threads_service import (
+    cache_all_thread_documents_and_attachments,
+    cache_and_open_thread_document_url,
     list_recent_threads_in_folders,
     open_outlook_attachment,
     open_outlook_message,
@@ -139,6 +144,16 @@ class TrackedThreadDialog(QDialog):
         del_btn.clicked.connect(self._on_delete_thread)
         toolbar.addWidget(del_btn)
 
+        cache_docs_btn = QPushButton("📥 Cache Docs")
+        cache_docs_btn.setToolTip("Download and cache all documents (e.g. 10.10.10.10 / 3GPP FTP) and attachments linked in this thread.")
+        cache_docs_btn.clicked.connect(self._on_cache_all_docs)
+        toolbar.addWidget(cache_docs_btn)
+
+        folder_btn = QPushButton("📂 Thread Folder")
+        folder_btn.setToolTip("Open the local cache directory for this email thread's documents and attachments.")
+        folder_btn.clicked.connect(self._on_open_thread_folder)
+        toolbar.addWidget(folder_btn)
+
         copy_md_btn = QPushButton("Copy Markdown")
         copy_md_btn.clicked.connect(self._on_copy_markdown)
         toolbar.addWidget(copy_md_btn)
@@ -196,6 +211,25 @@ class TrackedThreadDialog(QDialog):
         )
         self.browser.setMarkdown(md)
 
+    def _get_thread_cache_dir(self) -> Path:
+        d = self.db.db_path.parent / "ThreadAttachments" / self.thread_id
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _on_cache_all_docs(self):
+        cached = cache_all_thread_documents_and_attachments(self.db, self.thread_id, self._get_thread_cache_dir())
+        QMessageBox.information(
+            self,
+            "Thread Documents Cached",
+            f"Cached {len(cached)} document(s)/attachment(s) into:\n{self._get_thread_cache_dir()}",
+        )
+
+    def _on_open_thread_folder(self):
+        import os
+        folder = self._get_thread_cache_dir()
+        if hasattr(os, "startfile"):
+            os.startfile(str(folder.resolve()))
+
     def _on_anchor_clicked(self, url: QUrl):
         scheme = url.scheme().lower()
         if scheme == "outlook":
@@ -205,10 +239,15 @@ class TrackedThreadDialog(QDialog):
                 if not open_outlook_message(path_parts[0]):
                     QMessageBox.warning(self, "Outlook Message", "Could not open the selected message in Microsoft Outlook.")
             elif host == "att" and len(path_parts) >= 2:
-                out_dir = self.db.db_path.parent / "ThreadAttachments" / self.thread_id
+                out_dir = self._get_thread_cache_dir()
                 if not open_outlook_attachment(path_parts[0], path_parts[1], save_dir=out_dir):
                     QMessageBox.warning(self, "Attachment", f"Could not open attachment '{path_parts[1]}' from Outlook.")
             return
+        url_str = url.toString()
+        if is_cacheable_document_url(url_str):
+            cached_path = cache_and_open_thread_document_url(url_str, self._get_thread_cache_dir(), open_after=True)
+            if cached_path:
+                return
         QDesktopServices.openUrl(url)
 
     def _on_links_changed(self):

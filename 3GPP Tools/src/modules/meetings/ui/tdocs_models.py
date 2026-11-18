@@ -325,23 +325,33 @@ class TDocsTableModel(QAbstractTableModel):
             tot = int(t.get("message_count", 0))
             unread = int(t.get("unread_count", 0))
             last_dt = t.get("last_message_date") or ""
-            status_str = f"📧 {tot} msg(s)" + (f" ({unread} new)" if unread > 0 else "")
-            remarks_parts = [f"Tracked Email Thread • Last message: {last_dt or 'N/A'}"]
+            status_str = "📧 Active Thread"
+            remarks_parts = [f"Tracked Email Thread ({tot} msgs" + (f", {unread} new)" if unread > 0 else ")") + f" • Last: {last_dt or 'N/A'}"]
             if ais:
                 remarks_parts.append(f"AIs: {', '.join(ais)}")
             if wis:
                 remarks_parts.append(f"WIs: {', '.join(wis)}")
             if tdocs:
                 remarks_parts.append(f"TDocs: {', '.join(tdocs)}")
+
+            # Inherit Sub-Item from any existing TDoc in the same Agenda Item so Sub-Item filters match naturally
+            inherited_sub = ""
+            if primary_ai:
+                for existing_row in self._data:
+                    if str(existing_row.get("Agenda Item", "")).strip() == primary_ai and existing_row.get("Sub-Item"):
+                        inherited_sub = str(existing_row.get("Sub-Item", "")).strip()
+                        break
+
             row = {
                 "TDoc": tid,
                 "Title": f"📧 {t.get('title', 'Email Thread')}",
-                "Source": t.get("wg") or "Email Thread",
+                "Source": t.get("participants_companies") or t.get("wg") or "Email Thread",
                 "Type": "📧 Email Thread",
                 "For": "Discussion",
                 "Abstract": "",
                 "Secretary Remarks": " | ".join(remarks_parts),
                 "Agenda Item": primary_ai,
+                "Sub-Item": inherited_sub,
                 "TDoc Status": status_str,
                 "Related WIs": ", ".join(wis),
                 "Related TDocs": ", ".join(tdocs),
@@ -1208,9 +1218,13 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
             elif str(row.get("Agenda Item", "") or "").strip() not in self.ai_filters:
                 return False
         if exclude_filter != "sub_item" and self.sub_item_filters:
-            row_sub = str(row.get("Sub-Item", "") or "").strip() or "(No Sub-Item)"
-            if row_sub not in self.sub_item_filters:
-                return False
+            raw_sub = str(row.get("Sub-Item", "") or "").strip()
+            if row.get("_is_tracked_thread") and not raw_sub:
+                pass
+            else:
+                row_sub = raw_sub or "(No Sub-Item)"
+                if row_sub not in self.sub_item_filters:
+                    return False
         if exclude_filter != "wi":
             row_wis = model.get_related_wis(source_row)
             if not row_wis or not self.wi_filters.intersection(row_wis):

@@ -5,7 +5,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from modules.emails.core.email_config import load_wg_email_config
-from modules.emails.core.thread_markdown_exporter import unwrap_outlook_safelinks
+from modules.emails.core.thread_markdown_exporter import (
+    extract_thread_document_urls,
+    unwrap_outlook_safelinks,
+)
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 
 logger = logging.getLogger(__name__)
@@ -522,5 +525,130 @@ def open_outlook_attachment(entry_id: str, filename: str, save_dir: Optional[Pat
     except Exception as e:
         logger.error(f"Failed to open attachment '{filename}' from {entry_id}: {e}")
     return None
+
+
+def _build_candidate_document_urls(url: str) -> List[str]:
+    """Builds candidate download URLs translating between 10.10.10.10 local server and 3gpp.org/ftp."""
+    candidates = [url]
+    # 10.10.10.10/ftp/SA/SA2/Inbox/... -> https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/SA2/Inbox/...
+    m_local = re.match(r"^https?://10\.10\.10\.10/ftp/(?:SA|RAN|CT)/([A-Z0-9]+)/(.+)$", url, re.IGNORECASE)
+    if m_local:
+        wg, rest = m_local.group(1).upper(), m_local.group(2)
+        candidates.append(f"https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/{wg}/{rest}")
+    # https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178_.../INBOX/... -> http://10.10.10.10/ftp/SA/SA2/Inbox/...
+    m_remote = re.match(r"^https?://(?:www\.)?3gpp\.org/ftp/tsg_(sa|ran|ct)/[^/]+/[^/]+/(.+)$", url, re.IGNORECASE)
+    if m_remote:
+        tsg = m_remote.group(1).upper()
+        rest = m_remote.group(2)
+        if tsg == "SA":
+            candidates.insert(0, f"http://10.10.10.10/ftp/SA/SA2/{rest}")
+    return list(dict.fromkeys(candidates))
+
+
+def cache_and_open_thread_document_url(
+    url: str,
+    thread_dir: Path,
+    open_after: bool = True,
+) -> Optional[Path]:
+    """
+    Downloads and caches a document linked in an email thread (e.g. 10.10.10.10 or 3gpp.org/ftp)
+    into thread_dir (<meeting_dir>/Agenda/ThreadAttachments/<thread_id>/) and optionally opens it.
+    """
+    import os
+    import urllib.parse
+    import zipfile
+    from core.network.session import NetworkSession
+
+    if not url:
+        return None
+    thread_dir = Path(thread_dir)
+    thread_dir.mkdir(parents=True, exist_ok=True)
+
+    raw_name = urllib.parse.unquote(urllib.parse.urlsplit(url).path.rsplit("/", 1)[-1]) or "document.docx"
+    safe_name = "".join(c for c in raw_name if c not in '<>:"/\\|?*').strip() or "document.docx"
+    target_path = thread_dir / safe_name
+
+    if not (target_path.exists() and target_path.stat().st_size > 0):
+        session = NetworkSession()
+        downloaded = False
+        for cand_url in _build_candidate_document_urls(url):
+            try:
+                resp = session.get(cand_url, timeout=12)
+                if resp.status_code == 200 and resp.content:
+                    target_path.write_bytes(resp.content)
+                    downloaded = True
+                    break
+            except Exception as e:
+                logger.debug(f"Candidate URL download failed ({cand_url}): {e}")
+        if not downloaded:
+            return None
+
+    open_target = target_path
+    if target_path.suffix.lower() == ".zip" and zipfile.is_zipfile(target_path):
+        try:
+            with zipfile.ZipFile(target_path, "r") as zf:
+                for member in zf.namelist():
+                    if member.lower().endswith((".docx", ".doc", ".pptx", ".pdf", ".xlsx")) and not Path(member).name.startswith("~$"):
+                        extracted = thread_dir / Path(member).name
+                        if not extracted.exists():
+                            extracted.write_bytes(zf.read(member))
+                        open_target = extracted
+                        break
+        except Exception:
+            pass
+
+    if open_after and hasattr(os, "startfile"):
+        try:
+            os.startfile(str(open_target.resolve()))
+        except Exception as e:
+            logger.error(f"Could not open cached document {open_target}: {e}")
+    return open_target
+
+
+def cache_all_thread_documents_and_attachments(
+    db: TrackedThreadsDatabase,
+    thread_id: str,
+    thread_dir: Path,
+) -> List[Path]:
+    """Caches all linked documents (10.10.10.10 / 3GPP FTP) and Outlook attachments for a thread into thread_dir."""
+    messages = db.get_thread_messages(thread_id)
+    cached: List[Path] = []
+    thread_dir = Path(thread_dir)
+    thread_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Linked URLs in message bodies
+    for doc_url in extract_thread_document_urls(messages):
+        p = cache_and_open_thread_document_url(doc_url, thread_dir, open_after=False)
+        if p:
+            cached.append(p)
+
+    # 2. Outlook attachments
+    from modules.emails.core.outlook_client import OutlookClient
+    ns = OutlookClient.get_namespace()
+    if ns:
+        for msg in messages:
+            eid = str(msg.get("id") or "").strip()
+            atts_names = msg.get("attachments") or []
+            if not eid or eid.startswith("MSG-") or not atts_names:
+                continue
+            try:
+                item = ns.GetItemFromID(eid)
+                atts = getattr(item, "Attachments", None)
+                if not atts:
+                    continue
+                for i in range(1, atts.Count + 1):
+                    att = atts.Item(i)
+                    fname = getattr(att, "FileName", "") or ""
+                    if not fname or fname.lower().endswith((".jpg", ".jpeg", ".png", ".gif")):
+                        continue
+                    safe_name = "".join(c for c in fname if c not in '<>:"/\\|?*').strip()
+                    if safe_name:
+                        out_path = thread_dir / safe_name
+                        if not out_path.exists():
+                            att.SaveAsFile(str(out_path.resolve()))
+                        cached.append(out_path)
+            except Exception:
+                continue
+    return cached
 
 
