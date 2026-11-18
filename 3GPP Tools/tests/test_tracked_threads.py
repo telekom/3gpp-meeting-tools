@@ -133,4 +133,18 @@ def test_pill_autocomplete_and_tdoc_family_expansion(tmp_path):
     assert updated["linked_ais"] == ["20.6.1"]
     assert updated["linked_wis"] == ["FS_6G_ARC"]
     assert updated["linked_tdocs"] == ["S2-2612673", "S2-2612999"]
+
+    # Verify removing a pill and processing DeferredDelete does NOT delete input_edit
+    from PyQt5.QtCore import QEvent
+    from PyQt5.QtWidgets import QPushButton
+    from modules.meetings.ui.topic_pills import TagPillItem
+    pills = dlg.ais_pills.findChildren(TagPillItem)
+    assert len(pills) == 1
+    pills[0].findChild(QPushButton).click()
+    app.sendPostedEvents(None, QEvent.DeferredDelete)
+    app.processEvents()
+    assert dlg.ais_pills.tags() == []
+    assert dlg.ais_pills.input_edit.text() == ""
+    dlg.ais_pills._on_completer_activated("20.6.1 — FS_6G_ARC: KI#1_1 NAS Routing")
+    assert db.get_thread(tid)["linked_ais"] == ["20.6.1"]
     dlg.close()

@@ -284,7 +284,8 @@ class TagCloudWidget(QFrame):
         self.tagsChanged.emit()
 
     def _rebuild_pills(self):
-        # Remove all pill widgets from flow layout
+        # Detach input_edit first so FlowLayout.clear() never calls deleteLater() on input_edit
+        self.flow_layout.removeWidget(self.input_edit)
         self.flow_layout.clear()
 
         # Add tag pill widgets
