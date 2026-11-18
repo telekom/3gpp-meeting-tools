@@ -17,9 +17,9 @@ _FIREEYE_RE = re.compile(
     r"<?https?://protect\d*\.fireeye\.com/v1/url\?[^\s<>\"\)\]]+>?",
     re.IGNORECASE,
 )
-# Matches http(s)://10.10.10.10/... or 10.10.10.10/ftp/... or https://www.3gpp.org/ftp/... that may contain unencoded spaces up to a document extension
+# Matches http(s)://10.10.10.10/... or 10.10.10.10/ftp/... or https://www.3gpp.org/ftp/... that may contain unencoded spaces, '#', '[' or ']' up to a document extension
 _DOC_URL_WITH_SPACES_RE = re.compile(
-    r"((?:https?://)?(?:10\.10\.10\.10/ftp|(?:www\.)?3gpp\.org/ftp)/[^\r\n<>\"\)\]]+?\.(?:docx|docm|doc|zip|pptx|pdf|xlsx|vsdx))\b",
+    r"((?:https?://)?(?:10\.10\.10\.10/ftp|(?:www\.)?3gpp\.org/ftp)/(?:(?!\]\()[^\r\n<>\"\)])+?\.(?:docx|docm|doc|zip|pptx|pdf|xlsx|vsdx))\b",
     re.IGNORECASE,
 )
 _BARE_LOCAL_IP_URL_RE = re.compile(
@@ -55,7 +55,7 @@ def escape_non_html_angles(text: str) -> str:
 
 
 def _normalize_doc_url_spaces(text: str) -> str:
-    """Normalizes unencoded spaces and '#' in 10.10.10.10/ftp and 3gpp.org/ftp document URLs."""
+    """Normalizes unencoded spaces, '#', '[' and ']' in 10.10.10.10/ftp and 3gpp.org/ftp document URLs."""
     if not text:
         return ""
 
@@ -63,12 +63,24 @@ def _normalize_doc_url_spaces(text: str) -> str:
         raw = m.group(1).strip()
         if not raw.lower().startswith(("http://", "https://")):
             raw = "http://" + raw
-        raw = raw.replace(" ", "%20").replace("#", "%23")
+        raw = (
+            raw.replace(" ", "%20")
+            .replace("#", "%23")
+            .replace("[", "%5B")
+            .replace("]", "%5D")
+        )
         return raw
 
     out = _DOC_URL_WITH_SPACES_RE.sub(_fix_doc_url, text)
     out = _BARE_LOCAL_IP_URL_RE.sub(lambda m: "http://" + m.group(1), out)
     return out
+
+
+def _decode_query_param_url(target: str) -> str:
+    """Unquotes a URL extracted via parse_qs only if it remained doubly percent-encoded."""
+    if target and target.lower().startswith(("http%3a", "https%3a")):
+        return urllib.parse.unquote(target)
+    return target
 
 
 def unwrap_outlook_safelinks(text: str) -> str:
@@ -94,7 +106,7 @@ def unwrap_outlook_safelinks(text: str) -> str:
                 qs = urllib.parse.parse_qs(parsed.query)
                 target = (qs.get("url") or [""])[0]
                 if target:
-                    return urllib.parse.unquote(target) + trailing
+                    return _decode_query_param_url(target) + trailing
             except Exception:
                 pass
             return raw + trailing
@@ -119,7 +131,7 @@ def unwrap_outlook_safelinks(text: str) -> str:
                 qs = urllib.parse.parse_qs(parsed.query)
                 target = (qs.get("u") or [""])[0]
                 if target:
-                    return urllib.parse.unquote(target)
+                    return _decode_query_param_url(target)
             except Exception:
                 pass
             return raw

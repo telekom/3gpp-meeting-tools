@@ -215,6 +215,30 @@ def test_safelinks_unwrapping_and_clickable_links():
     assert len(doc_urls) == 2
     assert all(is_cacheable_document_url(u) for u in doc_urls)
 
+    # Test Safelink with doubly percent-encoded %23/%20/%5B/%5D and already-unquoted DB text with brackets
+    bracket_safelink = (
+        "Uploaded a draft <https://eur05.safelinks.protection.outlook.com/?url="
+        "http%3A%2F%2F10.10.10.10%2Fftp%2FSA%2FSA2%2FInbox%2FDrafts%2FFS_6G_ARC%2FKI%25234%2F"
+        "Draft%2520S2-2612711%2520%255BKI%25234%252C%2520bullet%25233%255D%2520Conclusion.docx"
+        "&data=05%7C02%7Cx&sdata=abc&reserved=0> for review"
+    )
+    unwrapped_bracket = linkify_markdown_urls(bracket_safelink)
+    expected_url = (
+        "http://10.10.10.10/ftp/SA/SA2/Inbox/Drafts/FS_6G_ARC/KI%234/"
+        "Draft%20S2-2612711%20%5BKI%234%2C%20bullet%233%5D%20Conclusion.docx"
+    )
+    assert f"[{expected_url}]({expected_url})" in unwrapped_bracket
+    assert extract_thread_document_urls([{"body_text": bracket_safelink}]) == [expected_url]
+
+    legacy_unquoted = (
+        "Uploaded http://10.10.10.10/ftp/SA/SA2/Inbox/Drafts/FS_6G_ARC/KI#4/"
+        "Draft S2-2612711 [KI#4, bullet#3] Conclusion.docx for review"
+    )
+    repaired = extract_thread_document_urls([{"body_text": legacy_unquoted}])
+    assert len(repaired) == 1
+    assert repaired[0].endswith("Conclusion.docx")
+    assert "%5BKI%234,%20bullet%233%5D" in repaired[0]
+
 
 def test_newest_first_ordering_filters_and_llm_workspace(tmp_path):
     from PyQt5.QtWidgets import QApplication
