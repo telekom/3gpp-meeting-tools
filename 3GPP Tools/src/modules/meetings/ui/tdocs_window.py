@@ -185,6 +185,8 @@ class TDocsWindow(QWidget):
         self._row_height_timer.setSingleShot(True)
         self._row_height_timer.setInterval(35)
         self._row_height_timer.timeout.connect(self._adjust_table_row_heights)
+        self._user_resized_cols = False
+        self._programmatic_column_resize = False
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(12, 12, 12, 12)
@@ -202,6 +204,8 @@ class TDocsWindow(QWidget):
         super().showEvent(event)
         self._load_tracked_wi_tokens()
         self._update_filter_facets()
+        if not getattr(self, "_user_resized_cols", False):
+            self._apply_scaled_table_columns()
         self._schedule_row_height_adjustment()
 
     def _setup_header(self, layout, title, is_electronic, count):
@@ -988,14 +992,13 @@ class TDocsWindow(QWidget):
         self.table.setItemDelegateForColumn(10, self.agenda_delegate)
 
         header = self.table.horizontalHeader()
-        header.setMinimumSectionSize(scale_px(28))
+        header.setMinimumSectionSize(scale_px(26))
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setSectionResizeMode(6, QHeaderView.Fixed)
-        header.setSectionResizeMode(7, QHeaderView.Stretch)
         header.setSectionResizeMode(9, QHeaderView.Fixed)
         self._apply_scaled_table_columns()
         header.sectionClicked.connect(self._on_header_section_clicked)
-        header.sectionResized.connect(lambda *_: self._schedule_row_height_adjustment())
+        header.sectionResized.connect(self._on_header_section_resized)
         get_font_scale_notifier().scale_changed.connect(self._on_font_scale_changed)
 
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -1119,25 +1122,56 @@ class TDocsWindow(QWidget):
             if self.table.rowHeight(r) != clamped:
                 self.table.setRowHeight(r, clamped)
 
+    def _on_header_section_resized(self, _logical_index: int, _old_size: int, _new_size: int):
+        """Track user-initiated column resizing so responsive relayout preserves manual widths."""
+        if not getattr(self, "_programmatic_column_resize", False):
+            self._user_resized_cols = True
+
     def _apply_scaled_table_columns(self):
-        """Scale TDocsWindow table column widths to fit maximized viewports cleanly."""
+        """Scale TDocsWindow table column widths with a guaranteed Secretary Remarks floor."""
         header = self.table.horizontalHeader()
-        header.setMinimumSectionSize(scale_px(28))
-        header.resizeSection(0, max(116, scale_px(116)))
-        header.resizeSection(1, max(96, scale_px(96)))
-        header.resizeSection(2, max(225, scale_px(225)))
-        header.resizeSection(3, max(130, scale_px(130)))
-        header.resizeSection(4, max(82, scale_px(82)))
-        header.resizeSection(5, max(84, scale_px(84)))
-        header.resizeSection(6, max(28, scale_px(28)))
-        # col 7 (Secretary Remarks) uses QHeaderView.Stretch
-        header.resizeSection(8, max(86, scale_px(86)))
-        header.resizeSection(9, max(28, scale_px(28)))
-        header.resizeSection(10, max(125, scale_px(125)))
-        header.resizeSection(11, max(86, scale_px(86)))
-        header.resizeSection(12, max(135, scale_px(135)))
-        if len(self.model._headers) > 13:
-            header.resizeSection(13, max(72, scale_px(72)))
+        col_count = len(self.model._headers)
+        base_widths = {
+            0: scale_px(98),
+            1: scale_px(86),
+            2: scale_px(200),
+            3: scale_px(112),
+            4: scale_px(64),
+            5: scale_px(70),
+            6: scale_px(26),
+            7: scale_px(225),
+            8: scale_px(70),
+            9: scale_px(26),
+            10: scale_px(116),
+            11: scale_px(86),
+            12: scale_px(114),
+        }
+        if col_count > 13:
+            base_widths[13] = scale_px(56)
+
+        widths = {col: w for col, w in base_widths.items() if col < col_count}
+        vp_w = self.table.viewport().width()
+        total_base = sum(widths.values())
+        if vp_w > total_base > 0:
+            surplus = vp_w - total_base
+            rem_extra = int(surplus * 0.55)
+            title_extra = int(surplus * 0.35)
+            source_extra = surplus - rem_extra - title_extra
+            if 7 in widths:
+                widths[7] += rem_extra
+            if 2 in widths:
+                widths[2] += title_extra
+            if 3 in widths:
+                widths[3] += source_extra
+
+        self._programmatic_column_resize = True
+        try:
+            header.setMinimumSectionSize(scale_px(26))
+            for col, width in widths.items():
+                if header.sectionSize(col) != width:
+                    header.resizeSection(col, width)
+        finally:
+            self._programmatic_column_resize = False
 
     def _on_font_scale_changed(self, _scale: float = 0.0):
         """Update filter dropdown caps, toolbar buttons, column widths, and row heights on font scale changes."""
@@ -1161,7 +1195,8 @@ class TDocsWindow(QWidget):
         for combo, base_max in caps:
             combo.setMaximumWidth(scale_px(base_max))
             combo.updateGeometry()
-        self._apply_scaled_table_columns()
+        if not getattr(self, "_user_resized_cols", False):
+            self._apply_scaled_table_columns()
         self._schedule_row_height_adjustment()
 
     def _setup_cache(self):
@@ -2833,6 +2868,8 @@ class TDocsWindow(QWidget):
         super().resizeEvent(event)
         if hasattr(self, 'drop_overlay'):
             self.drop_overlay.setGeometry(self.rect())
+        if not getattr(self, "_user_resized_cols", False):
+            self._apply_scaled_table_columns()
         self._schedule_row_height_adjustment()
 
     @staticmethod

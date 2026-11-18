@@ -158,6 +158,40 @@ class TestTDocsWindowLayoutAndChecklist(unittest.TestCase):
                 win.table.viewport().width() + 2,
                 f"Rightmost column ({last_col}) must stay inside 1920px viewport",
             )
+            self.assertGreaterEqual(
+                hdr.sectionSize(7),
+                scale_px(400),
+                "Secretary Remarks must expand generously when maximized",
+            )
+
+            # At default 1400x750 (1.0x and 1.25x scale), Secretary Remarks keeps >= scale_px(225) floor
+            win.resize(1400, 750)
+            self.app.processEvents()
+            self.assertGreaterEqual(hdr.sectionSize(7), scale_px(225))
+            self.assertGreaterEqual(hdr.sectionSize(11), scale_px(86))
+            self.assertLessEqual(
+                hdr.sectionViewportPosition(last_col) + hdr.sectionSize(last_col),
+                win.table.viewport().width() + 2,
+            )
+
+            apply_font_scale(1.25, app=self.app, save=False)
+            self.app.processEvents()
+            self.assertGreaterEqual(
+                hdr.sectionSize(7),
+                scale_px(225),
+                "Secretary Remarks must stay readable under scaled fonts instead of collapsing",
+            )
+            apply_font_scale(1.0, app=self.app, save=False)
+            self.app.processEvents()
+
+            # Manual column resize marks _user_resized_cols and survives subsequent window resizes
+            self.assertFalse(win._user_resized_cols)
+            hdr.resizeSection(7, 310)
+            self.app.processEvents()
+            self.assertTrue(win._user_resized_cols)
+            win.resize(1600, 750)
+            self.app.processEvents()
+            self.assertEqual(hdr.sectionSize(7), 310)
 
             # Verify HtmlDelegate word-wraps long remarks instead of clipping horizontally
             delegate = win.html_delegate
