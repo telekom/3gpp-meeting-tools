@@ -164,7 +164,7 @@ class TestCliDetector(unittest.TestCase):
             self.assertEqual(def_effort, "high")
             self.assertEqual(
                 cli_detector.format_active_model_badge("codex", home_dir=self.tmp_path),
-                "default: GPT-6.1-Sol · high",
+                "CLI Default",
             )
 
             cli_detector.set_cli_agent_model_config("codex", "gpt-6.1-sol", "low")
