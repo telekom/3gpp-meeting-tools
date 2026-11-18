@@ -222,9 +222,13 @@ class TestSessionPlanUIAndHTMLConsistency(unittest.TestCase):
                 self.assertIsNotNone(tue_draft_item)
                 self.assertEqual(tue_draft_item.text(), "—")
 
-                # 5b. Hide Empty Breaks option removed; breaks always shown when Show Breaks is checked
+                # 5b. Hide Empty Breaks option removed; breaks always shown when Show Breaks is checked; clean break label
                 self.assertFalse(hasattr(win, "chk_hide_empty_breaks"))
                 coffee_row = next(idx for idx, r in enumerate(win.grid_rows) if r.period == "Coffee 1")
+                self.assertTrue(win.grid_rows[coffee_row].display_label.startswith("☕ Coffee Break\n"))
+                self.assertNotIn("Short Break", win.grid_rows[coffee_row].display_label)
+                self.assertEqual(win.grid_rows[coffee_row].local_time_range, ("", ""))
+                self.assertEqual(win.grid_rows[q1_s1_row].local_time_range, ("", ""))
                 self.assertFalse(win.grid_table.isRowHidden(coffee_row))
                 win.chk_breaks.setChecked(False)
                 self.assertTrue(win.grid_table.isRowHidden(coffee_row))
@@ -239,7 +243,7 @@ class TestSessionPlanUIAndHTMLConsistency(unittest.TestCase):
                 win._on_day_filter_clicked("ALL")
                 self.assertFalse(win.grid_table.isColumnHidden(0))
 
-                # 6. HTML Export mirrors live clock pill, time-first row headers, decluttered pills, and 2-row chrome
+                # 6. HTML Export mirrors live clock pill, time-first row headers (venue-only), decluttered pills, and 2-row chrome
                 out_html = td / "parity_plan.html"
                 SessionPlanExporter.export_mobile_html(
                     snapshot=win.active_snapshot,
@@ -253,6 +257,10 @@ class TestSessionPlanUIAndHTMLConsistency(unittest.TestCase):
                 self.assertIn('id="liveClockPill"', html_txt)
                 self.assertIn('class="badge-live-clock"', html_txt)
                 self.assertIn('class="hdr-time-primary">Q1 · 09:00 – 10:30</span>', html_txt)
+                self.assertIn('<span class="hdr-break-title">☕ Coffee Break</span>', html_txt)
+                self.assertNotIn('Coffee ☕ Short Break', html_txt)
+                self.assertNotIn('class="hdr-time-local"', html_txt)
+                self.assertNotIn('Vienna)', html_txt)
                 self.assertIn('class="hdr-now-tag">NOW</span>', html_txt)
                 self.assertIn('class="cell-time-pill is-half">🕒 09:00–09:45</span>', html_txt)
                 self.assertIn('class="cell-time-pill is-half">🕒 09:45–10:30</span>', html_txt)

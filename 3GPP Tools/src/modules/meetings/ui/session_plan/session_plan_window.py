@@ -58,7 +58,9 @@ from modules.meetings.core.session_plan.session_plan_models import (
     collect_meeting_physical_rooms,
     compute_unique_initials,
     expand_ai_number,
+    format_break_period_label,
     format_slot_display_text,
+    format_venue_time_range,
     get_slot_unassigned_ais,
     is_slot_not_followed,
     lookup_room_location_note,
@@ -179,26 +181,23 @@ class SessionPlanVerticalHeader(QHeaderView):
             title_txt = r_desc.display_label.splitlines()[0]
             line1_w = fm_time.horizontalAdvance(title_txt) + scale_px(24)
             line2_txt = f"⏰ {t_start} – {t_end}"
-            if r_desc.local_time_range[0]:
-                line2_txt += f" ({r_desc.local_time_range[0]}–{r_desc.local_time_range[1]})"
             line2_w = fm_sub.horizontalAdvance(line2_txt) + scale_px(24)
         else:
             line1_txt = f"{r_desc.period} · {t_start} – {t_end}"
             now_extra = fm_badge.horizontalAdvance("NOW") + scale_px(18) if r_desc.is_live_period else 0
             line1_w = fm_time.horizontalAdvance(line1_txt) + now_extra + scale_px(24)
-            loc_txt = f" ({r_desc.local_time_range[0]}–{r_desc.local_time_range[1]})" if r_desc.local_time_range[0] else ""
-            line2_txt = f"Str {r_desc.stream_number} · {r_desc.short_room}{loc_txt}"
+            line2_txt = f"Str {r_desc.stream_number} · {r_desc.short_room}"
             line2_w = fm_sub.horizontalAdvance(line2_txt) + scale_px(32)
 
-        w = max(scale_px(184), line1_w, line2_w)
+        w = max(scale_px(156), line1_w, line2_w)
         h = max(scale_px(44), fm_time.height() + fm_sub.height() + scale_px(14))
         return QSize(w, h)
 
     def sizeHint(self) -> QSize:
         rows = getattr(self._window, "grid_rows", None) or []
         if not rows:
-            return QSize(scale_px(184), scale_px(44))
-        max_w = scale_px(184)
+            return QSize(scale_px(156), scale_px(44))
+        max_w = scale_px(156)
         for idx in range(len(rows)):
             max_w = max(max_w, self.sectionSizeFromContents(idx).width())
         return QSize(max_w, super().sizeHint().height())
@@ -272,8 +271,6 @@ class SessionPlanVerticalHeader(QHeaderView):
             painter.drawText(r1, Qt.AlignLeft | Qt.AlignVCenter, title_txt)
 
             time_str = f"⏰ {t_start} – {t_end}"
-            if r_desc.local_time_range[0]:
-                time_str += f" ({r_desc.local_time_range[0]}–{r_desc.local_time_range[1]})"
             r2 = QRect(rect.left() + pad_l, top_y + fm_time.height() + scale_px(2), rect.width() - pad_l - pad_r, fm_sub.height())
             painter.setFont(f_sub)
             f_sub_bold = QFont(f_sub)
@@ -304,7 +301,7 @@ class SessionPlanVerticalHeader(QHeaderView):
             painter.setPen(QColor(line1_color))
             painter.drawText(r1, Qt.AlignLeft | Qt.AlignVCenter, fm_time.elidedText(line1_txt, Qt.ElideRight, r1.width()))
 
-            # Stream color dot + Stream / Room + optional local time
+            # Stream color dot + Stream / Room
             line2_y = top_y + fm_time.height() + scale_px(2)
             dot_sz = max(6, scale_px(7))
             dot_y = line2_y + max(0, (fm_sub.height() - dot_sz) // 2)
@@ -314,8 +311,7 @@ class SessionPlanVerticalHeader(QHeaderView):
 
             sub_x = rect.left() + pad_l + dot_sz + scale_px(5)
             sub_w = rect.right() - pad_r - sub_x
-            loc_txt = f" ({r_desc.local_time_range[0]}–{r_desc.local_time_range[1]})" if r_desc.local_time_range[0] else ""
-            sub_txt = f"Str {r_desc.stream_number} · {r_desc.short_room}{loc_txt}"
+            sub_txt = f"Str {r_desc.stream_number} · {r_desc.short_room}"
             r2 = QRect(sub_x, line2_y, max(20, sub_w), fm_sub.height())
             painter.setFont(f_sub)
             painter.setPen(QColor(C.TEXT_SECONDARY))
@@ -1369,7 +1365,7 @@ class SessionPlanWindow(QWidget):
         self.drafting_table = QTableWidget()
         self.drafting_table.setColumnCount(6)
         self.drafting_table.setHorizontalHeaderLabels([
-            "Day", "Quarter", "Time (Venue / Vienna)", "Stream / Room", "Convener", "Drafting Topic & AIs"
+            "Day", "Quarter", "Time (Venue)", "Stream / Room", "Convener", "Drafting Topic & AIs"
         ])
         self.drafting_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
         self.drafting_table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -1405,7 +1401,7 @@ class SessionPlanWindow(QWidget):
         self.tracked_table = QTableWidget()
         self.tracked_table.setColumnCount(7)
         self.tracked_table.setHorizontalHeaderLabels([
-            "Day", "Quarter", "Time (Venue / Vienna)", "Stream / Room", "Delegate", "Matched Topic", "My Notes / Priority / Conflict"
+            "Day", "Quarter", "Time (Venue)", "Stream / Room", "Delegate", "Matched Topic", "My Notes / Priority / Conflict"
         ])
         self.tracked_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
         self.tracked_table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -1801,17 +1797,10 @@ class SessionPlanWindow(QWidget):
         live_period = self._get_live_period_name()
         for p in PERIOD_ORDER:
             times = self._get_period_effective_times(p)
-            local_range = SessionPlanTimezone.format_laptop_time_range(times[0], times[1], self.tz_offset_min)
             tu_split = f"1st Half: {times[2]}–{times[3]} · 2nd Half: {times[4]}–{times[5]}"
             is_live = (p == live_period)
             if any(b in p.lower() for b in ["break", "coffee", "lunch"]):
-                clean_name = (
-                    p.replace(" 1", "")
-                    .replace(" 2", "")
-                    .replace("Coffee", "☕ Coffee Break")
-                    .replace("Break", "☕ Short Break")
-                    .replace("Lunch", "🍱 Lunch Break")
-                )
+                clean_name = format_break_period_label(p)
                 lbl = f"{clean_name}\n{times[0]} – {times[1]}"
                 rows.append(
                     GridRowDescriptor(
@@ -1821,7 +1810,7 @@ class SessionPlanWindow(QWidget):
                         lbl,
                         (times[0], times[1]),
                         short_room="",
-                        local_time_range=local_range,
+                        local_time_range=("", ""),
                         tu_split_label="",
                         is_live_period=is_live,
                     )
@@ -1840,7 +1829,7 @@ class SessionPlanWindow(QWidget):
                             lbl,
                             (times[0], times[1]),
                             short_room=short_r,
-                            local_time_range=local_range,
+                            local_time_range=("", ""),
                             tu_split_label=tu_split,
                             is_live_period=is_live,
                         )
@@ -2002,12 +1991,8 @@ class SessionPlanWindow(QWidget):
             e_t = slot.end_time_local or times[1]
             half_lbl = "Full Quarter"
 
-        time_dual = SessionPlanTimezone.format_dual_time_range(s_t, e_t, self.tz_offset_min)
-        if " (" in time_dual:
-            parts = time_dual.split(" (", 1)
-            time_display = f"{parts[0]} Venue Time ({parts[1]}"
-        else:
-            time_display = f"{time_dual} (Venue Time)"
+        venue_range = format_venue_time_range(s_t, e_t)
+        time_display = f"{venue_range} (Venue Time)"
 
         streams = self.active_snapshot.streams if self.active_snapshot else None
         s_info = streams.get(stream_num) if streams else None
@@ -2408,13 +2393,13 @@ class SessionPlanWindow(QWidget):
 
         day_name = DAY_NAMES[day_idx]
         times = PERIOD_TIMES.get(period, ("12:30", "14:00"))
-        time_dual = SessionPlanTimezone.format_dual_time_range(times[0], times[1], self.tz_offset_min)
+        time_display = f"{format_venue_time_range(times[0], times[1])} (Venue Time)"
         tt = f"""<div style='font-family:Segoe UI, sans-serif; font-size:12px; min-width:220px; padding:4px;'>
             <div style='font-weight:bold; font-size:13px; color:{C.TEXT_STRONG}; margin-bottom:4px;'>
                 ☕ {day_name} · {period}
             </div>
             <div style='color:{C.TEXT_SECONDARY}; margin-bottom:6px;'>
-                🕒 <b>Time:</b> {time_dual}
+                🕒 <b>Time:</b> {time_display}
             </div>
             <hr style='border:none; border-top:1px solid {C.BORDER_STRONG}; margin:6px 0;'>
             <div style='font-weight:bold; color:{C.TEXT_PRIMARY};'>
@@ -2478,8 +2463,6 @@ class SessionPlanWindow(QWidget):
             if vh_item is not None:
                 t_s, t_e = r_desc.time_range
                 tt_lines = [f"<b>{html.escape(r_desc.period)}</b> · {t_s} – {t_e} (Venue Time)"]
-                if r_desc.local_time_range[0]:
-                    tt_lines.append(f"🏠 Local Time: {r_desc.local_time_range[0]} – {r_desc.local_time_range[1]}")
                 if r_desc.tu_split_label:
                     tt_lines.append(f"🕒 {html.escape(r_desc.tu_split_label)}")
                 if r_desc.row_type == "stream":
@@ -2730,9 +2713,7 @@ class SessionPlanWindow(QWidget):
             r_disp = f"{r_name} · {loc_note}" if loc_note else r_name
             convener = s_info.convener if s_info else ""
 
-            time_str = SessionPlanTimezone.format_dual_time_range(
-                s.start_time_local, s.end_time_local, self.tz_offset_min
-            )
+            time_str = format_venue_time_range(s.start_time_local, s.end_time_local)
 
             self.drafting_table.setItem(row, 0, QTableWidgetItem(s.day_name))
             self.drafting_table.setItem(row, 1, QTableWidgetItem(s.quarter))
@@ -2839,9 +2820,7 @@ class SessionPlanWindow(QWidget):
             )
             r_disp = f"{r_name} · {loc_note}" if loc_note else r_name
 
-            time_str = SessionPlanTimezone.format_dual_time_range(
-                s.start_time_local, s.end_time_local, self.tz_offset_min
-            )
+            time_str = format_venue_time_range(s.start_time_local, s.end_time_local)
 
             ann = self.annotations.get(s.slot_key)
             note_str = ann.comment if ann else ""
@@ -3462,9 +3441,7 @@ class SessionPlanWindow(QWidget):
 
             for row, ((del_name, d_idx, q_name), slots) in enumerate(collisions.items()):
                 s_a = slots[0]
-                time_str = SessionPlanTimezone.format_dual_time_range(
-                    s_a.start_time_local, s_a.end_time_local, self.tz_offset_min
-                )
+                time_str = format_venue_time_range(s_a.start_time_local, s_a.end_time_local)
 
                 # Determine overlapping TUs
                 has_tu1 = all(s.sub_slot in (0, 1) for s in slots) or any(
@@ -4031,32 +4008,32 @@ class SessionPlanWindow(QWidget):
             d_obj = base_date + timedelta(days=target["day_idx"])
             date_lbl = f" ({d_obj.strftime('%d %b')})"
 
-        dual_time = SessionPlanTimezone.format_dual_time_range(target["start"], target["end"], self.tz_offset_min)
+        venue_t = format_venue_time_range(target["start"], target["end"])
 
         if effective_mode == "live":
             rem_min = max(0, self._hhmm_to_min(target["end"]) - cur_min)
             status_pill = "🟢 HAPPENING NOW"
-            banner = f"{target['day_name']}{date_lbl} · {target['period']} · {target['half_label']} — {dual_time} ({rem_min} min remaining)"
+            banner = f"{target['day_name']}{date_lbl} · {target['period']} · {target['half_label']} — {venue_t} Venue ({rem_min} min remaining)"
         elif effective_mode == "upcoming_today":
             wait_min = max(0, self._hhmm_to_min(target["start"]) - cur_min)
             status_pill = f"⏳ UP NEXT IN {wait_min} MIN"
-            banner = f"Currently between sessions ({cur_hhmm} Venue) — Next: {target['day_name']}{date_lbl} · {target['period']} · {target['half_label']} ({dual_time})"
+            banner = f"Currently between sessions ({cur_hhmm} Venue) — Next: {target['day_name']}{date_lbl} · {target['period']} · {target['half_label']} ({venue_t})"
         elif effective_mode == "next_day":
             status_pill = "🌙 NEXT DAY PREVIEW"
-            banner = f"Today's sessions concluded ({cur_hhmm} Venue) — Next: {target['day_name']}{date_lbl} · {target['period']} ({dual_time})"
+            banner = f"Today's sessions concluded ({cur_hhmm} Venue) — Next: {target['day_name']}{date_lbl} · {target['period']} ({venue_t})"
         elif effective_mode == "before_meeting":
             days_until = max(1, -(day_diff or 0))
             status_pill = f"📅 STARTS IN {days_until}D"
-            banner = f"Before meeting week — Previewing {target['day_name']}{date_lbl} · {target['period']} ({dual_time})"
+            banner = f"Before meeting week — Previewing {target['day_name']}{date_lbl} · {target['period']} ({venue_t})"
         elif effective_mode == "after_meeting":
             status_pill = "🏁 MEETING CONCLUDED"
-            banner = f"Meeting week concluded — Previewing {target['day_name']}{date_lbl} · {target['period']} ({dual_time})"
+            banner = f"Meeting week concluded — Previewing {target['day_name']}{date_lbl} · {target['period']} ({venue_t})"
         elif effective_mode == "manual":
             status_pill = "🔎 MANUAL PREVIEW"
-            banner = f"Inspecting {target['day_name']}{date_lbl} · {target['period']} · {target['half_label']} — {dual_time}"
+            banner = f"Inspecting {target['day_name']}{date_lbl} · {target['period']} · {target['half_label']} — {venue_t} Venue"
         else:
             status_pill = "📅 SCHEDULE PREVIEW"
-            banner = f"{target['day_name']}{date_lbl} · {target['period']} · {target['half_label']} — {dual_time}"
+            banner = f"{target['day_name']}{date_lbl} · {target['period']} · {target['half_label']} — {venue_t} Venue"
 
         # Collect distinct periods on target day after target period for "Up Next" (1-2) and "Rest of Today"
         all_periods = list(PERIOD_ORDER)
@@ -4464,7 +4441,7 @@ class SessionPlanWindow(QWidget):
     def _make_upcoming_period_card(self, day_idx: int, period_info: dict) -> QFrame:
         """Creates an upcoming period summary card showing rooms, custom locations, and topics across streams."""
         p_name = period_info["period"]
-        dual_t = SessionPlanTimezone.format_dual_time_range(period_info["start"], period_info["end"], self.tz_offset_min)
+        venue_t = format_venue_time_range(period_info["start"], period_info["end"])
         streams = self.active_snapshot.streams if self.active_snapshot else {}
 
         frame = QFrame()
@@ -4477,7 +4454,7 @@ class SessionPlanWindow(QWidget):
 
         hdr = QHBoxLayout()
         p_icon = "☕" if period_info["is_break"] else "⏭️"
-        hdr_lbl = QLabel(f"<b>{p_icon} {html.escape(p_name)}</b> &nbsp;·&nbsp; <span style='color:{C.TEXT_SECONDARY};'>🕒 {html.escape(dual_t)}</span>")
+        hdr_lbl = QLabel(f"<b>{p_icon} {html.escape(p_name)}</b> &nbsp;·&nbsp; <span style='color:{C.TEXT_SECONDARY};'>🕒 {html.escape(venue_t)}</span>")
         hdr_lbl.setStyleSheet(f"color: {C.TEXT_PRIMARY}; font-size: 12px; border: none; background: transparent;")
         hdr.addWidget(hdr_lbl)
         hdr.addStretch(1)
@@ -4519,7 +4496,7 @@ class SessionPlanWindow(QWidget):
         """Creates a compact rest-of-day chronological strip row."""
         streams = self.active_snapshot.streams if self.active_snapshot else {}
         p_name = period_info["period"]
-        dual_t = SessionPlanTimezone.format_dual_time_range(period_info["start"], period_info["end"], self.tz_offset_min)
+        venue_t = format_venue_time_range(period_info["start"], period_info["end"])
 
         row_frame = QFrame()
         row_frame.setStyleSheet(
@@ -4529,7 +4506,7 @@ class SessionPlanWindow(QWidget):
         r_lay.setContentsMargins(10, 6, 10, 6)
         r_lay.setSpacing(10)
 
-        left_lbl = QLabel(f"<b>{html.escape(p_name)}</b><br><span style='color:{C.TEXT_MUTED}; font-size:10.5px;'>{html.escape(dual_t)}</span>")
+        left_lbl = QLabel(f"<b>{html.escape(p_name)}</b><br><span style='color:{C.TEXT_MUTED}; font-size:10.5px;'>{html.escape(venue_t)}</span>")
         left_lbl.setFixedWidth(185)
         left_lbl.setStyleSheet("border: none; background: transparent;")
         r_lay.addWidget(left_lbl)

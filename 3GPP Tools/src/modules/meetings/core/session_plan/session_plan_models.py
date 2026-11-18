@@ -653,6 +653,27 @@ def format_slot_display_text(raw_text: str, room_override: str = "") -> Tuple[st
     return "\n".join(cleaned_lines), is_empty_drafting
 
 
+def format_break_period_label(period: str) -> str:
+    """Normalizes internal break period codes (`Coffee 1`, `Break 1`, `Lunch`) into clean display titles."""
+    p_low = (period or "").strip().lower()
+    if "coffee" in p_low:
+        return "☕ Coffee Break"
+    if "lunch" in p_low:
+        return "🍱 Lunch Break"
+    if "break" in p_low:
+        return "☕ Short Break"
+    return (period or "").strip()
+
+
+def format_venue_time_range(start_hhmm: str, end_hhmm: str) -> str:
+    """Formats a venue local start/end HH:MM time range without secondary timezone suffixes."""
+    s = (start_hhmm or "").strip()
+    e = (end_hhmm or "").strip()
+    if s and e:
+        return f"{s} – {e}"
+    return s or e
+
+
 def build_slot_ai_bullets_html(
     slot: SessionSlot,
     agenda_map: Optional[Dict[str, Any]] = None,

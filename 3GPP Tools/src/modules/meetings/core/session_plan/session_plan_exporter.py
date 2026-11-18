@@ -27,7 +27,9 @@ from modules.meetings.core.session_plan.session_plan_models import (
     compute_unique_initials,
     expand_ai_number,
     expand_slot_ai_numbers,
+    format_break_period_label,
     format_slot_display_text,
+    format_venue_time_range,
     get_slot_unassigned_ais,
     is_slot_not_followed,
     lookup_room_location_note,
@@ -211,7 +213,7 @@ class SessionPlanExporter:
                 e_t = slot.end_time_local or times[1]
                 half_lbl = "Full Quarter"
 
-            time_dual = SessionPlanTimezone.format_dual_time_range(s_t, e_t, meeting_tz_offset_min)
+            time_venue = f"{format_venue_time_range(s_t, e_t)} (Venue Time)"
 
             s_info = snapshot.streams.get(slot.stream_number)
             r_name, loc_note, is_swapped = resolve_effective_room_and_location(
@@ -261,7 +263,7 @@ class SessionPlanExporter:
                 note_html = f"<div class='tt-section tt-note'>📝 <b>Notes:</b> {' '.join(parts)}</div>"
 
             tt = f"""<div class="tt-header">📅 {day_name}{date_lbl} · {period} · {half_lbl}</div>
-<div class="tt-time">🕒 <b>Time:</b> {time_dual}</div>
+<div class="tt-time">🕒 <b>Time:</b> {time_venue}</div>
 <div class="tt-meta">{' &nbsp;|&nbsp; '.join(meta_parts)}</div>
 <hr class="tt-sep">
 <div class="tt-body"><b>Topic:</b> {html.escape(slot.raw_text)}</div>"""
@@ -630,7 +632,7 @@ class SessionPlanExporter:
 
         # Header Row 1: Day Names & Dates (colspan=2 per day)
         overview_html.append('<thead><tr class="hdr-days-row">\n')
-        overview_html.append('<th class="corner-hdr" rowspan="2">Period / Stream<br><span class="hdr-sub">Venue &amp; Local Times</span></th>\n')
+        overview_html.append('<th class="corner-hdr" rowspan="2">Period / Stream<br><span class="hdr-sub">Venue Times</span></th>\n')
         for d_idx, d_name in enumerate(DAY_NAMES):
             day_cls = day_parity_classes[d_idx]
             date_str = ""
@@ -657,22 +659,14 @@ class SessionPlanExporter:
         streams = snapshot.streams
         for p in all_periods:
             times = get_period_effective_times(p)
-            lap_s, lap_e = SessionPlanTimezone.format_laptop_time_range(times[0], times[1], meeting_tz_offset_min)
-            lap_html = f' <span class="hdr-time-local">({lap_s}–{lap_e})</span>' if lap_s else ""
             if any(b in p.lower() for b in ["break", "coffee", "lunch"]):
-                clean_name = (
-                    p.replace(" 1", "")
-                    .replace(" 2", "")
-                    .replace("Coffee", "☕ Coffee Break")
-                    .replace("Break", "☕ Short Break")
-                    .replace("Lunch", "🍱 Lunch Break")
-                )
+                clean_name = format_break_period_label(p)
                 brk_cls = "grid-row break-row period-end-row"
                 overview_html.append(f'<tr class="{brk_cls}" data-period="{p}">\n')
                 overview_html.append(
                     f'<th class="row-hdr break-hdr" data-period="{p}">'
                     f'<div class="hdr-time-line"><span class="hdr-break-title">{clean_name}</span><span class="hdr-now-tag">NOW</span></div>'
-                    f'<div class="hdr-time-break">⏰ {times[0]} – {times[1]}{lap_html}</div>'
+                    f'<div class="hdr-time-break">⏰ {times[0]} – {times[1]}</div>'
                     f'</th>\n'
                 )
 
@@ -697,7 +691,7 @@ class SessionPlanExporter:
                         f'<th class="row-hdr stream-hdr-s{s_num}" data-period="{p}" '
                         f'title="{p}: {times[0]}–{times[1]} · 1st Half {times[2]}–{times[3]} | 2nd Half {times[4]}–{times[5]}">'
                         f'<div class="hdr-time-line"><span class="hdr-time-primary">{p} · {times[0]} – {times[1]}</span><span class="hdr-now-tag">NOW</span></div>'
-                        f'<div class="hdr-stream-line"><span class="str-dot s{s_num}"></span> <span class="hdr-stream-sub">Str {s_num} · {html.escape(short_r)}{lap_html}</span></div>'
+                        f'<div class="hdr-stream-line"><span class="str-dot s{s_num}"></span> <span class="hdr-stream-sub">Str {s_num} · {html.escape(short_r)}</span></div>'
                         f'</th>\n'
                     )
 
@@ -752,9 +746,7 @@ class SessionPlanExporter:
                     continue
 
                 q_eff_times = get_period_effective_times(q)
-                q_time_str = SessionPlanTimezone.format_dual_time_range(
-                    q_eff_times[0], q_eff_times[1], meeting_tz_offset_min
-                )
+                q_time_str = format_venue_time_range(q_eff_times[0], q_eff_times[1])
 
                 cards_html.append(f"""  <div class="quarter-card">
     <div class="quarter-header">
@@ -3281,7 +3273,7 @@ class SessionPlanExporter:
         drafting_slots = [s for s in snapshot.slots if s.is_drafting]
         drafting_rows = ""
         for s in drafting_slots:
-            time_str = SessionPlanTimezone.format_dual_time_range(s.start_time_local, s.end_time_local, meeting_tz_offset_min)
+            time_str = format_venue_time_range(s.start_time_local, s.end_time_local)
             s_info = snapshot.streams.get(s.stream_number)
             r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
             drafting_rows += f"<tr><td style='padding:4px 8px; border:1px solid #E2E8F0;'><b>{s.day_name}</b> {s.quarter}</td><td style='padding:4px 8px; border:1px solid #E2E8F0;'>{time_str}</td><td style='padding:4px 8px; border:1px solid #E2E8F0;'>{html.escape(r_name)}</td><td style='padding:4px 8px; border:1px solid #E2E8F0;'>{html.escape(s.raw_text)}</td></tr>"
@@ -3291,7 +3283,7 @@ class SessionPlanExporter:
         <table style="border-collapse:collapse; width:100%; font-size:12px; margin-bottom:16px;">
           <tr style="background:#FEF2F2; color:#991B1B;">
             <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Slot</th>
-            <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Time (Venue / Vienna)</th>
+            <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Time (Venue)</th>
             <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Room</th>
             <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Topic</th>
           </tr>
@@ -3304,7 +3296,7 @@ class SessionPlanExporter:
 
         tracked_rows = ""
         for s in tracked_slots:
-            time_str = SessionPlanTimezone.format_dual_time_range(s.start_time_local, s.end_time_local, meeting_tz_offset_min)
+            time_str = format_venue_time_range(s.start_time_local, s.end_time_local)
             s_info = snapshot.streams.get(s.stream_number)
             r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
             tracked_rows += f"<tr><td style='padding:4px 8px; border:1px solid #E2E8F0;'><b>{s.day_name}</b> {s.quarter}</td><td style='padding:4px 8px; border:1px solid #E2E8F0;'>{time_str}</td><td style='padding:4px 8px; border:1px solid #E2E8F0;'>{html.escape(r_name)}</td><td style='padding:4px 8px; border:1px solid #E2E8F0;'>{html.escape(s.raw_text)}</td></tr>"
@@ -3314,7 +3306,7 @@ class SessionPlanExporter:
         <table style="border-collapse:collapse; width:100%; font-size:12px; margin-bottom:16px;">
           <tr style="background:#F5F3FF; color:#5B21B6;">
             <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Slot</th>
-            <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Time (Venue / Vienna)</th>
+            <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Time (Venue)</th>
             <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Room</th>
             <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Topic</th>
           </tr>
@@ -3546,9 +3538,7 @@ class SessionPlanExporter:
 
             del_rows = ""
             for s in del_slots:
-                time_str = SessionPlanTimezone.format_dual_time_range(
-                    s.start_time_local, s.end_time_local, meeting_tz_offset_min
-                )
+                time_str = format_venue_time_range(s.start_time_local, s.end_time_local)
                 s_info = snapshot.streams.get(s.stream_number)
                 r_name = getattr(s, "room_override", "") or (s_info.room_name if s_info else f"Stream {s.stream_number}")
                 is_cov = (
@@ -3570,7 +3560,7 @@ class SessionPlanExporter:
               <table style="border-collapse:collapse; width:100%; font-size:11px; margin-bottom:8px;">
                 <tr style="background:#F8FAFC;">
                   <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Slot</th>
-                  <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Time (Venue / Vienna)</th>
+                  <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Time (Venue)</th>
                   <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Room</th>
                   <th style="padding:4px 8px; border:1px solid #E2E8F0; text-align:left;">Topic</th>
                 </tr>
