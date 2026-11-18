@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 import urllib.parse
 
-from PyQt5.QtCore import Qt, QUrl, pyqtSignal
+from PyQt5.QtCore import QSettings, Qt, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QApplication,
@@ -22,11 +22,13 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
 
+from core.ui.flow_layout import FlowLayout
 from modules.emails.core.thread_markdown_exporter import (
     export_thread_to_markdown,
     is_cacheable_document_url,
@@ -39,7 +41,9 @@ from modules.emails.core.tracked_threads_service import (
     open_outlook_attachment,
     open_outlook_message,
     pin_thread_by_subject_or_cid,
+    prepare_thread_llm_workspace,
     refresh_thread,
+    reply_to_outlook_message,
 )
 from modules.meetings.ui.topic_pills import TagCloudWidget
 
@@ -59,7 +63,10 @@ class TrackedThreadDialog(QDialog):
         tdoc_suggestions: Optional[List[str]] = None,
         tdoc_family_expander: Optional[Callable[[List[str]], List[str]]] = None,
     ):
-        super().__init__(parent)
+        super().__init__(
+            parent,
+            Qt.Window | Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint,
+        )
         self.db = db
         self.thread_id = thread_id
         self._ai_suggestions = ai_suggestions or []
@@ -67,8 +74,16 @@ class TrackedThreadDialog(QDialog):
         self._tdoc_suggestions = tdoc_suggestions or []
         self._tdoc_family_expander = tdoc_family_expander
         self._loading = False
+        self._settings = QSettings("3GPP_Tools", "TrackedThreadDialog")
         self.setWindowTitle("Tracked Email Thread")
-        self.resize(960, 720)
+        self.setMinimumSize(520, 420)
+        self.resize(1020, 760)
+        saved_geom = self._settings.value("geometry")
+        if saved_geom:
+            try:
+                self.restoreGeometry(saved_geom)
+            except Exception:
+                pass
         self._build_ui()
         self._load_data()
 
@@ -119,14 +134,32 @@ class TrackedThreadDialog(QDialog):
 
         layout.addLayout(links_grid)
 
-        # Toolbar row
-        toolbar = QHBoxLayout()
+        # Responsive wrapping action toolbar
+        toolbar_widget = QWidget(self)
+        toolbar_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        toolbar_sp.setHeightForWidth(True)
+        toolbar_widget.setSizePolicy(toolbar_sp)
+        toolbar = FlowLayout(toolbar_widget, margin=0, h_spacing=6, v_spacing=6)
+
+        self.order_combo = QComboBox()
+        self.order_combo.setToolTip("Choose display order of messages within this thread.")
+        self.order_combo.addItem("⬇️ Newest First", True)
+        self.order_combo.addItem("⬆️ Oldest First", False)
+        saved_newest = self._settings.value("newest_first", True, type=bool)
+        self.order_combo.setCurrentIndex(0 if saved_newest else 1)
+        self.order_combo.currentIndexChanged.connect(self._on_order_changed)
+        toolbar.addWidget(self.order_combo)
+
+        self.export_chrono_check = QCheckBox("Export Oldest First (for LLMs)")
+        self.export_chrono_check.setToolTip("When checked, Copy/Save Markdown and LLM CLI export chronologically (Oldest First) even when viewing Newest First.")
+        self.export_chrono_check.setChecked(self._settings.value("export_oldest_first", True, type=bool))
+        self.export_chrono_check.toggled.connect(lambda v: self._settings.setValue("export_oldest_first", bool(v)))
+        toolbar.addWidget(self.export_chrono_check)
+
         self.dedup_check = QCheckBox("Deduplicate trailing quotes")
         self.dedup_check.setChecked(True)
         self.dedup_check.toggled.connect(self._render_messages)
         toolbar.addWidget(self.dedup_check)
-
-        toolbar.addStretch()
 
         refresh_btn = QPushButton("Refresh Now")
         refresh_btn.clicked.connect(self._on_refresh)
@@ -167,16 +200,63 @@ class TrackedThreadDialog(QDialog):
         toolbar.addWidget(self.cli_combo)
 
         launch_cli_btn = QPushButton("Launch LLM CLI")
+        launch_cli_btn.setToolTip("Prepare thread.md + convert cached .docx drafts to Markdown, then launch Codex/Claude CLI.")
         launch_cli_btn.clicked.connect(self._on_launch_cli)
         toolbar.addWidget(launch_cli_btn)
 
-        layout.addLayout(toolbar)
+        layout.addWidget(toolbar_widget)
+
+        # In-thread search & company filter bar
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(6)
+        self.msg_search_edit = QLineEdit()
+        self.msg_search_edit.setClearButtonEnabled(True)
+        self.msg_search_edit.setPlaceholderText("🔍 Filter messages by keyword, TDoc, or sender...")
+        self.msg_search_edit.textChanged.connect(self._render_messages)
+        filter_row.addWidget(self.msg_search_edit, 1)
+
+        self.company_filter_combo = QComboBox()
+        self.company_filter_combo.addItem("All Companies", "")
+        self.company_filter_combo.currentIndexChanged.connect(self._render_messages)
+        filter_row.addWidget(self.company_filter_combo)
+
+        self.msg_count_lbl = QLabel("")
+        self.msg_count_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
+        filter_row.addWidget(self.msg_count_lbl)
+        layout.addLayout(filter_row)
 
         # Timeline browser
         self.browser = QTextBrowser()
         self.browser.setOpenLinks(False)
         self.browser.anchorClicked.connect(self._on_anchor_clicked)
         layout.addWidget(self.browser, 1)
+
+    def _on_order_changed(self):
+        self._settings.setValue("newest_first", bool(self.order_combo.currentData()))
+        self._render_messages()
+
+    def closeEvent(self, event):
+        try:
+            self._settings.setValue("geometry", self.saveGeometry())
+        except Exception:
+            pass
+        super().closeEvent(event)
+
+    def _populate_company_filter(self, messages: list):
+        cur_val = self.company_filter_combo.currentData() or ""
+        companies = sorted({
+            str(m.get("company") or "").strip()
+            for m in messages
+            if str(m.get("company") or "").strip() and str(m.get("company") or "").strip().lower() not in ("unknown", "list")
+        }, key=str.lower)
+        self.company_filter_combo.blockSignals(True)
+        self.company_filter_combo.clear()
+        self.company_filter_combo.addItem("All Companies", "")
+        for c in companies:
+            self.company_filter_combo.addItem(c, c)
+        idx = self.company_filter_combo.findData(cur_val)
+        self.company_filter_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.company_filter_combo.blockSignals(False)
 
     def _load_data(self):
         thread = self.db.get_thread(self.thread_id)
@@ -194,20 +274,49 @@ class TrackedThreadDialog(QDialog):
             self.ais_pills.setText(", ".join(thread.get("linked_ais") or []))
             self.wis_pills.setText(", ".join(thread.get("linked_wis") or []))
             self.tdocs_pills.setText(", ".join(thread.get("linked_tdocs") or []))
+            self._populate_company_filter(self.db.get_thread_messages(self.thread_id))
         finally:
             self._loading = False
         self._render_messages()
 
     def _render_messages(self):
         thread = self.db.get_thread(self.thread_id)
-        messages = self.db.get_thread_messages(self.thread_id)
+        all_messages = self.db.get_thread_messages(self.thread_id)
         if not thread:
             return
+
+        query = (self.msg_search_edit.text() if hasattr(self, "msg_search_edit") else "").strip().lower()
+        comp_filter = (self.company_filter_combo.currentData() if hasattr(self, "company_filter_combo") else "") or ""
+
+        filtered = []
+        for m in all_messages:
+            if comp_filter and (m.get("company") or "").strip().lower() != comp_filter.lower():
+                continue
+            if query:
+                haystack = " ".join([
+                    str(m.get("sender_name") or ""),
+                    str(m.get("sender_email") or ""),
+                    str(m.get("company") or ""),
+                    str(m.get("subject") or ""),
+                    str(m.get("body_text") or ""),
+                ]).lower()
+                if query not in haystack:
+                    continue
+            filtered.append(m)
+
+        if hasattr(self, "msg_count_lbl"):
+            if len(filtered) == len(all_messages):
+                self.msg_count_lbl.setText(f"{len(all_messages)} message(s)")
+            else:
+                self.msg_count_lbl.setText(f"Showing {len(filtered)} of {len(all_messages)}")
+
+        newest_first = bool(self.order_combo.currentData()) if hasattr(self, "order_combo") else True
         md = export_thread_to_markdown(
             thread,
-            messages,
+            filtered,
             deduplicate_quotes=self.dedup_check.isChecked(),
             interactive_links=True,
+            newest_first=newest_first,
         )
         self.browser.setMarkdown(md)
 
@@ -238,6 +347,17 @@ class TrackedThreadDialog(QDialog):
             if host == "msg" and path_parts:
                 if not open_outlook_message(path_parts[0]):
                     QMessageBox.warning(self, "Outlook Message", "Could not open the selected message in Microsoft Outlook.")
+            elif host == "reply" and path_parts:
+                if not reply_to_outlook_message(path_parts[0], reply_all=True):
+                    QMessageBox.warning(self, "Outlook Reply", "Could not open a Reply window in Microsoft Outlook.")
+            elif host == "copy" and path_parts:
+                target_id = path_parts[0]
+                msgs = self.db.get_thread_messages(self.thread_id)
+                msg = next((m for m in msgs if str(m.get("id") or "") == target_id), None)
+                if msg:
+                    body = (msg.get("clean_body") if self.dedup_check.isChecked() and msg.get("clean_body") else msg.get("body_text")) or ""
+                    clip_txt = f"[{msg.get('date_sent', '')}] {msg.get('sender_name', '')} ({msg.get('company', '')}):\n{body.strip()}"
+                    QApplication.clipboard().setText(clip_txt)
             elif host == "att" and len(path_parts) >= 2:
                 out_dir = self._get_thread_cache_dir()
                 if not open_outlook_attachment(path_parts[0], path_parts[1], save_dir=out_dir):
@@ -317,10 +437,20 @@ class TrackedThreadDialog(QDialog):
             self.thread_changed.emit()
             self.accept()
 
+    def _get_export_newest_first(self) -> bool:
+        if hasattr(self, "export_chrono_check") and self.export_chrono_check.isChecked():
+            return False
+        return bool(self.order_combo.currentData()) if hasattr(self, "order_combo") else False
+
     def _get_markdown(self) -> str:
         thread = self.db.get_thread(self.thread_id) or {}
         messages = self.db.get_thread_messages(self.thread_id)
-        return export_thread_to_markdown(thread, messages, deduplicate_quotes=self.dedup_check.isChecked())
+        return export_thread_to_markdown(
+            thread,
+            messages,
+            deduplicate_quotes=self.dedup_check.isChecked(),
+            newest_first=self._get_export_newest_first(),
+        )
 
     def _on_copy_markdown(self):
         QApplication.clipboard().setText(self._get_markdown())
@@ -335,12 +465,26 @@ class TrackedThreadDialog(QDialog):
 
     def _on_launch_cli(self):
         cli = self.cli_combo.currentText()
-        out_dir = Path.home() / ".3gpp_tools_tmp"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        md_path = out_dir / f"{self.thread_id}.md"
-        md_path.write_text(self._get_markdown(), encoding="utf-8")
-        prompt = f"Analyze the 3GPP email thread in {md_path} and summarize the views exchanged by company, key disagreements, and open points."
-        cmd = f'start powershell -NoExit -Command "{cli} \\"{prompt}\\""'
+        prep = prepare_thread_llm_workspace(
+            self.db,
+            self.thread_id,
+            self._get_thread_cache_dir(),
+            deduplicate_quotes=self.dedup_check.isChecked(),
+            newest_first=self._get_export_newest_first(),
+            cache_linked_docs=True,
+        )
+        md_path = prep["thread_md"]
+        ws_dir = prep["workspace_dir"]
+        doc_mds = prep["doc_mds"]
+        extra_docs = ""
+        if doc_mds:
+            names = ", ".join(p.name for p in doc_mds[:10])
+            extra_docs = f" Companion converted draft documents are also in {ws_dir} ({names})."
+        prompt = (
+            f"Analyze the 3GPP email thread in {md_path} and summarize the views exchanged by company, "
+            f"key disagreements, and open points.{extra_docs}"
+        )
+        cmd = f'start powershell -NoExit -Command "cd \\"{ws_dir}\\"; {cli} \\"{prompt}\\""'
         subprocess.Popen(cmd, shell=True)
 
 

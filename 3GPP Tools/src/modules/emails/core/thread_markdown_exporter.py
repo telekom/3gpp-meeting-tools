@@ -164,6 +164,7 @@ def export_thread_to_markdown(
     messages: List[Dict[str, Any]],
     deduplicate_quotes: bool = True,
     interactive_links: bool = False,
+    newest_first: bool = False,
 ) -> str:
     """
     Exports a tracked email thread to a lossless, human- and LLM-readable Markdown document.
@@ -206,27 +207,39 @@ def export_thread_to_markdown(
         for u in doc_urls:
             fname = urllib.parse.unquote(urllib.parse.urlsplit(u).path.rsplit("/", 1)[-1]) or u
             lines.append(f"  - [📄 {fname}]({u})")
+    disc_heading = "## Discussion (Newest First)" if newest_first else "## Chronological Discussion"
     lines.extend([
         "",
         "---",
         "",
-        "## Chronological Discussion",
+        disc_heading,
         "",
     ])
 
     base_subject = thread.get("normalized_subject", "").lower()
-    for idx, msg in enumerate(messages, 1):
+    indexed_msgs = list(enumerate(messages, 1))
+    if newest_first:
+        indexed_msgs.reverse()
+
+    for idx, msg in indexed_msgs:
         sender = (msg.get("sender_name") or msg.get("sender_email") or "Unknown").strip()
         comp = (msg.get("company") or "").strip()
         sender_disp = f"{sender} ({comp})" if comp else sender
         date_str = msg.get("date_sent", "Unknown Date")
         subj = (msg.get("subject") or "").strip()
         msg_id = str(msg.get("id") or "").strip()
+        is_unread = int(msg.get("is_read", 1) or 0) == 0
+        new_badge = " 🔵 **NEW** ·" if (interactive_links and is_unread) else ""
         can_open_outlook = interactive_links and msg_id and not msg_id.startswith("MSG-")
 
-        if can_open_outlook:
+        if interactive_links:
             enc_id = urllib.parse.quote(msg_id, safe="")
-            lines.append(f"### {idx}. [{date_str}] {sender_disp} · [📧 Open in Outlook](outlook://msg/{enc_id})")
+            action_parts = []
+            if can_open_outlook:
+                action_parts.append(f"[📧 Open in Outlook](outlook://msg/{enc_id})")
+                action_parts.append(f"[↩️ Reply](outlook://reply/{enc_id})")
+            action_parts.append(f"[📋 Copy](outlook://copy/{enc_id})")
+            lines.append(f"### {idx}. [{date_str}] {sender_disp}{new_badge} · {' · '.join(action_parts)}")
         else:
             lines.append(f"### {idx}. [{date_str}] {sender_disp}")
         if subj and subj.lower() != base_subject:

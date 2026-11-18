@@ -652,3 +652,86 @@ def cache_all_thread_documents_and_attachments(
     return cached
 
 
+def reply_to_outlook_message(entry_id: str, reply_all: bool = True) -> bool:
+    """Opens a native Outlook reply window for a specific MailItem by EntryID."""
+    if not entry_id or str(entry_id).startswith("MSG-"):
+        return False
+    from modules.emails.core.outlook_client import OutlookClient
+
+    ns = OutlookClient.get_namespace()
+    if not ns:
+        return False
+    try:
+        item = ns.GetItemFromID(str(entry_id).strip())
+        if item:
+            reply_item = item.ReplyAll() if reply_all else item.Reply()
+            reply_item.Display()
+            return True
+    except Exception as e:
+        logger.error(f"Failed to reply to Outlook message {entry_id}: {e}")
+    return False
+
+
+def prepare_thread_llm_workspace(
+    db: TrackedThreadsDatabase,
+    thread_id: str,
+    cache_dir: Path,
+    deduplicate_quotes: bool = True,
+    newest_first: bool = False,
+    cache_linked_docs: bool = True,
+) -> Dict[str, Any]:
+    """
+    Prepares a self-contained LLM workspace directory containing thread.md plus any
+    cached linked documents/attachments converted to Markdown when possible.
+    Returns {'workspace_dir': Path, 'thread_md': Path, 'doc_mds': List[Path]}.
+    """
+    from modules.emails.core.thread_markdown_exporter import export_thread_to_markdown
+
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    ws_dir = cache_dir / "llm_workspace"
+    ws_dir.mkdir(parents=True, exist_ok=True)
+
+    thread = db.get_thread(thread_id) or {"thread_id": thread_id}
+    messages = db.get_thread_messages(thread_id)
+    md_text = export_thread_to_markdown(
+        thread,
+        messages,
+        deduplicate_quotes=deduplicate_quotes,
+        interactive_links=False,
+        newest_first=newest_first,
+    )
+    thread_md = ws_dir / f"{thread_id}.md"
+    thread_md.write_text(md_text, encoding="utf-8")
+
+    cached_files: List[Path] = []
+    if cache_linked_docs:
+        try:
+            cached_files = cache_all_thread_documents_and_attachments(db, thread_id, cache_dir)
+        except Exception as e:
+            logger.debug(f"Could not cache linked docs during LLM workspace prep: {e}")
+
+    # Also include any already-cached .docx/.docm/.md files in cache_dir
+    for existing in cache_dir.iterdir():
+        if existing.is_file() and existing not in cached_files:
+            cached_files.append(existing)
+
+    doc_mds: List[Path] = []
+    for fpath in cached_files:
+        if fpath.suffix.lower() in (".docx", ".docm"):
+            out_md = ws_dir / f"{fpath.stem}.md"
+            if not out_md.exists():
+                try:
+                    from modules.meetings.core.tdoc_markdown_converter import convert_document_to_markdown
+                    convert_document_to_markdown(str(fpath), str(out_md))
+                except Exception as e:
+                    logger.debug(f"Markdown conversion skipped for {fpath.name}: {e}")
+            if out_md.exists():
+                doc_mds.append(out_md)
+        elif fpath.suffix.lower() == ".md" and fpath.parent != ws_dir:
+            doc_mds.append(fpath)
+
+    return {"workspace_dir": ws_dir, "thread_md": thread_md, "doc_mds": doc_mds}
+
+
+

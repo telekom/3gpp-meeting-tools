@@ -204,3 +204,68 @@ def test_safelinks_unwrapping_and_clickable_links():
     doc_urls = extract_thread_document_urls([{"body_text": raw_local_doc}])
     assert len(doc_urls) == 2
     assert all(is_cacheable_document_url(u) for u in doc_urls)
+
+
+def test_newest_first_ordering_filters_and_llm_workspace(tmp_path):
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+
+    from modules.emails.core.tracked_threads_service import prepare_thread_llm_workspace
+    from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
+
+    db = TrackedThreadsDatabase(tmp_path / "test_order.db")
+    tid = db.create_or_get_thread("Order Thread", "Order Thread", meeting_id="SA2#178", wg="SA2")
+    db.upsert_messages(
+        tid,
+        [
+            {
+                "id": "000000001111",
+                "subject": "Order Thread",
+                "sender_name": "Alice",
+                "company": "Nokia",
+                "date_sent": "2026-11-18 09:00:00",
+                "body_text": "First view: Option A",
+                "clean_body": "First view: Option A",
+                "is_read": 1,
+            },
+            {
+                "id": "000000002222",
+                "subject": "Order Thread",
+                "sender_name": "Bob",
+                "company": "Ericsson",
+                "date_sent": "2026-11-18 10:00:00",
+                "body_text": "Second view: Option B",
+                "clean_body": "Second view: Option B",
+                "is_read": 0,
+            },
+        ],
+    )
+    thread = db.get_thread(tid)
+    msgs = db.get_thread_messages(tid)
+
+    md_newest = export_thread_to_markdown(thread, msgs, interactive_links=True, newest_first=True)
+    assert "🔵 **NEW**" in md_newest
+    assert "outlook://reply/000000002222" in md_newest
+    assert "outlook://copy/000000002222" in md_newest
+    disc_newest = md_newest.split("## Discussion (Newest First)", 1)[1]
+    assert disc_newest.index("Bob (Ericsson)") < disc_newest.index("Alice (Nokia)")
+
+    md_oldest = export_thread_to_markdown(thread, msgs, interactive_links=False, newest_first=False)
+    disc_oldest = md_oldest.split("## Chronological Discussion", 1)[1]
+    assert disc_oldest.index("Alice (Nokia)") < disc_oldest.index("Bob (Ericsson)")
+
+    dlg = TrackedThreadDialog(db, tid)
+    dlg.msg_search_edit.setText("Option B")
+    assert "1 of 2" in dlg.msg_count_lbl.text()
+    dlg.msg_search_edit.clear()
+    idx_nokia = dlg.company_filter_combo.findData("Nokia")
+    assert idx_nokia >= 0
+    dlg.company_filter_combo.setCurrentIndex(idx_nokia)
+    assert "1 of 2" in dlg.msg_count_lbl.text()
+    dlg.close()
+
+    cache_dir = tmp_path / "cache"
+    prep = prepare_thread_llm_workspace(db, tid, cache_dir, newest_first=False, cache_linked_docs=False)
+    assert prep["thread_md"].exists()
+    ws_txt = prep["thread_md"].read_text(encoding="utf-8")
+    assert ws_txt.index("Alice (Nokia)") < ws_txt.index("Bob (Ericsson)")
