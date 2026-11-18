@@ -246,6 +246,11 @@ class TDocsTableModel(QAbstractTableModel):
     def _recompute_cached_email_stats(self):
         """Precomputes integer totals and sort tuples on each row using unique ID set unions."""
         for row in self._data:
+            if row.get("_is_tracked_thread"):
+                tot = int(row.get("_email_tot", 0))
+                unread = int(row.get("_email_unread", 0))
+                row["_email_sort_key"] = (tot, unread)
+                continue
             tdoc = str(row.get("TDoc", "")).strip().upper()
             family = self.get_family_tdocs(tdoc)
 
@@ -303,6 +308,62 @@ class TDocsTableModel(QAbstractTableModel):
                     if p_status != '⚪ Neutral' or p_notes:
                         row['My Status'] = p_status
                         row['My Notes'] = f"🔄 [From Base]: {p_notes}" if p_notes else "🔄 [From Base]"
+
+    def sync_tracked_thread_rows(self, threads: list):
+        """Injects or updates pinned/tracked email threads as synthetic rows in the meeting table."""
+        self.beginResetModel()
+        self._data = [r for r in self._data if not r.get("_is_tracked_thread")]
+        thread_rows = []
+        for t in (threads or []):
+            tid = str(t.get("thread_id", "")).strip()
+            if not tid:
+                continue
+            ais = t.get("linked_ais") or []
+            wis = t.get("linked_wis") or []
+            tdocs = t.get("linked_tdocs") or []
+            tot = int(t.get("message_count", 0))
+            unread = int(t.get("unread_count", 0))
+            last_dt = t.get("last_message_date") or ""
+            status_str = f"📧 {tot} msg(s)" + (f" ({unread} new)" if unread > 0 else "")
+            remarks_parts = [f"Tracked Email Thread • Last message: {last_dt or 'N/A'}"]
+            if ais:
+                remarks_parts.append(f"AIs: {', '.join(ais)}")
+            if wis:
+                remarks_parts.append(f"WIs: {', '.join(wis)}")
+            if tdocs:
+                remarks_parts.append(f"TDocs: {', '.join(tdocs)}")
+            row = {
+                "TDoc": tid,
+                "Title": f"📧 {t.get('title', 'Email Thread')}",
+                "Source": t.get("wg") or "Email Thread",
+                "Type": "📧 Email Thread",
+                "For": "Discussion",
+                "Abstract": "",
+                "Secretary Remarks": " | ".join(remarks_parts),
+                "Agenda Item": ais[0] if ais else "",
+                "TDoc Status": status_str,
+                "Related WIs": ", ".join(wis),
+                "Related TDocs": ", ".join(tdocs),
+                "Reply in": ", ".join(tdocs),
+                "_is_tracked_thread": True,
+                "_thread_id": tid,
+                "_email_tot": tot,
+                "_email_unread": unread,
+                "_email_sort_key": (tot, unread),
+            }
+            thread_rows.append(row)
+
+        if thread_rows:
+            self._apply_company_sanitization(thread_rows)
+            self._precompute_row_wi_tokens(thread_rows)
+            self._data.extend(thread_rows)
+
+        self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
+        self._apply_user_data_logic()
+        self._rebuild_family_cache()
+        self._recompute_cached_email_stats()
+        self._precompute_agenda_sort_tuples(self._data)
+        self.endResetModel()
 
     def apply_user_data_refresh(self):
         self.beginResetModel()
@@ -995,6 +1056,13 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.followed_wi_tokens = set()
         self.starred_wi_tokens = set()
         self.sort_mode = "AGENDA"
+        self.row_mode_filter = "ALL"
+
+    def setRowModeFilter(self, mode: str):
+        norm = str(mode or "ALL").upper()
+        if self.row_mode_filter != norm:
+            self.row_mode_filter = norm
+            self.invalidateFilter()
 
     def setIncludeTentativeSources(self, include_tentative: bool):
         new_val = bool(include_tentative)
@@ -1089,6 +1157,13 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
             return False
 
         row = model._data[source_row]
+
+        if exclude_filter != "row_mode":
+            is_thread = bool(row.get("_is_tracked_thread"))
+            if self.row_mode_filter == "TDOCS" and is_thread:
+                return False
+            if self.row_mode_filter == "THREADS" and not is_thread:
+                return False
 
         if exclude_filter != "agreements" and self.filter_agreements_only:
             if not row.get("_has_agreement"):

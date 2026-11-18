@@ -75,6 +75,15 @@ from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyMo
 from modules.emails.core.general_email_db import GeneralEmailDatabase
 from modules.emails.core.general_email_sync import GeneralEmailSyncThread
 from modules.emails.core.outlook_client import OutlookClient
+from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+from modules.emails.core.tracked_threads_service import (
+    pin_thread_from_msg,
+    refresh_meeting_threads,
+)
+from modules.emails.ui.tracked_thread_dialog import (
+    PinFromOutlookDialog,
+    TrackedThreadDialog,
+)
 from modules.emails.ui.general_email_dialog import (
     GeneralEmailFoldersDialog, GeneralEmailSyncDialog, TDocEmailsDialog, load_wg_email_config
 )
@@ -130,6 +139,11 @@ class TDocsWindow(QWidget):
 
         self.general_email_db = GeneralEmailDatabase(self.meeting_dir / "Agenda" / "emails.db")
         self.general_email_sync_thread = None
+        self.tracked_threads_db = TrackedThreadsDatabase(self.meeting_dir / "Agenda" / "tracked_threads.db")
+        self._tracked_thread_dialogs = {}
+        self.tracked_threads_timer = QTimer(self)
+        self.tracked_threads_timer.setInterval(300000)  # 5 minutes auto-refresh
+        self.tracked_threads_timer.timeout.connect(lambda: self._on_refresh_tracked_threads(silent=True))
 
         self._import_queue = []
         self._is_importing_agenda = False
@@ -440,6 +454,17 @@ class TDocsWindow(QWidget):
 
         email_menu = QMenu(self)
         email_menu.setToolTipsVisible(True)
+        act = email_menu.addAction("📌 Pin Email Thread from Outlook Folder...", self._on_pin_thread_from_outlook)
+        act.setToolTip("Browse and pin email discussion threads from your configured WG Outlook folders.")
+        act = email_menu.addAction("📥 Pin Email Thread from .msg File...", self._on_pin_thread_from_msg_dialog)
+        act.setToolTip("Select a local .msg file, locate its full thread in configured Outlook folders, and pin it to the meeting table.")
+        act = email_menu.addAction("🔄 Refresh Tracked Email Threads Now", lambda: self._on_refresh_tracked_threads(silent=False))
+        act.setToolTip("Check configured Outlook folders for new replies on all pinned/tracked email threads.")
+        self.act_auto_refresh_threads = email_menu.addAction("⏱️ Auto-Refresh Tracked Threads (Every 5m)")
+        self.act_auto_refresh_threads.setCheckable(True)
+        self.act_auto_refresh_threads.setChecked(False)
+        self.act_auto_refresh_threads.toggled.connect(self._on_toggle_auto_refresh_threads)
+        email_menu.addSeparator()
         act = email_menu.addAction("🔄 Sync Related Emails...", self._on_sync_general_emails)
         act.setToolTip("Scan the configured Outlook folders for emails that reference TDocs from this meeting.")
         act = email_menu.addAction("⚙️ Configure Outlook Folders...", self._on_configure_email_folders)
@@ -860,6 +885,18 @@ class TDocsWindow(QWidget):
         self.order_combo.currentIndexChanged.connect(self._on_order_changed)
         tail_layout.addWidget(self.order_combo)
 
+        self.row_mode_combo = QComboBox()
+        self.row_mode_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.row_mode_combo.setMaximumWidth(scale_px(135))
+        self.row_mode_combo.setToolTip("Filter between all rows, official TDocs only, or pinned 📧 Email Threads only.")
+        self.row_mode_combo.addItem("📋 All Rows", "ALL")
+        self.row_mode_combo.addItem("📄 TDocs Only", "TDOCS")
+        self.row_mode_combo.addItem("📧 Threads Only", "THREADS")
+        self.row_mode_combo.currentIndexChanged.connect(
+            lambda _: self.proxy.setRowModeFilter(self.row_mode_combo.currentData()) if hasattr(self, "proxy") else None
+        )
+        tail_layout.addWidget(self.row_mode_combo)
+
         self.btn_reset_filters = QPushButton("✕ Clear")
         self.btn_reset_filters.setToolTip("Reset all search text and active filters to show all TDocs.")
         self.btn_reset_filters.setCursor(Qt.PointingHandCursor)
@@ -991,6 +1028,7 @@ class TDocsWindow(QWidget):
         layout.addLayout(bottom_bar)
 
         self._load_tracked_wi_tokens()
+        self._sync_tracked_threads_to_table()
         self._refresh_comboboxes()
         self._refresh_email_counts()
         self._schedule_row_height_adjustment()
@@ -1768,6 +1806,11 @@ class TDocsWindow(QWidget):
 
         self.proxy.setTrackedWIFilters(False, False)
         self.proxy.setAgreementsFilter(False)
+        if hasattr(self, "row_mode_combo"):
+            self.row_mode_combo.blockSignals(True)
+            self.row_mode_combo.setCurrentIndex(0)
+            self.row_mode_combo.blockSignals(False)
+        self.proxy.setRowModeFilter("ALL")
         self._update_tracked_wi_button_styles()
 
         for combo in [self.company_combo, self.type_combo, self.ai_combo, self.wi_combo, self.status_combo, self.my_status_combo]:
@@ -1799,6 +1842,9 @@ class TDocsWindow(QWidget):
         QTimer.singleShot(0, self._update_count_label)
 
     def _handle_tdoc_action(self, base_tdoc: str):
+        if str(base_tdoc or "").strip().upper().startswith("THR-"):
+            self._open_tracked_thread_dialog(str(base_tdoc).strip().upper())
+            return
         if base_tdoc in self.model.loading_tdocs or not self.docs_ftp_url:
             return
         revisions = self.model.revisions.get(base_tdoc, [])
@@ -1952,6 +1998,10 @@ class TDocsWindow(QWidget):
 
     def _show_cell_popup(self, index):
         if not index.isValid():
+            return
+        row_data = self.model._data[self.proxy.mapToSource(index).row()]
+        if row_data.get("_is_tracked_thread"):
+            self._open_tracked_thread_dialog(row_data.get("_thread_id") or row_data.get("TDoc", ""))
             return
         col_name = self.model._headers[index.column()]
 
@@ -2692,7 +2742,7 @@ class TDocsWindow(QWidget):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 ext = Path(url.toLocalFile()).suffix.lower()
-                if ext in ['.docx', '.doc', '.zip', '.htm', '.html']:
+                if ext in ['.docx', '.doc', '.zip', '.htm', '.html', '.msg']:
                     self.drop_overlay.setGeometry(self.rect())
                     self.drop_overlay.show()
                     self.drop_overlay.raise_()
@@ -2704,7 +2754,7 @@ class TDocsWindow(QWidget):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 ext = Path(url.toLocalFile()).suffix.lower()
-                if ext in ['.docx', '.doc', '.zip', '.htm', '.html']:
+                if ext in ['.docx', '.doc', '.zip', '.htm', '.html', '.msg']:
                     event.acceptProposedAction()
                     return
         event.ignore()
@@ -2719,10 +2769,18 @@ class TDocsWindow(QWidget):
             self.drop_overlay.hide()
 
         valid_files = []
+        msg_files = []
         for url in event.mimeData().urls():
             file_path = Path(url.toLocalFile())
-            if file_path.suffix.lower() in ['.docx', '.doc', '.zip', '.htm', '.html']:
+            ext = file_path.suffix.lower()
+            if ext == '.msg':
+                msg_files.append(file_path)
+            elif ext in ['.docx', '.doc', '.zip', '.htm', '.html']:
                 valid_files.append(file_path)
+
+        if msg_files:
+            event.acceptProposedAction()
+            self._process_dropped_msg_files(msg_files)
 
         if valid_files:
             event.acceptProposedAction()
@@ -2757,7 +2815,7 @@ class TDocsWindow(QWidget):
 
             if agenda_files:
                 self._process_imported_agenda_files(agenda_files)
-        else:
+        elif not msg_files:
             event.ignore()
 
     def _import_word_agenda_dialog(self):
@@ -2857,10 +2915,119 @@ class TDocsWindow(QWidget):
         self.export_btn.setText(f"⏳ {msg}"[:25])
 
 
+    def _get_meeting_id_label(self) -> str:
+        wg = str(self.mtg_info.get("wg_name", "")).strip().upper()
+        num = str(self.mtg_info.get("meeting_number", "")).strip()
+        return f"{wg}#{num}" if (wg and num) else (wg or num or "MEETING")
+
+    def _sync_tracked_threads_to_table(self):
+        if not hasattr(self, "tracked_threads_db") or not hasattr(self, "model"):
+            return
+        try:
+            threads = self.tracked_threads_db.get_threads_for_meeting(self._get_meeting_id_label())
+            self.model.sync_tracked_thread_rows(threads)
+            total_unread = sum(int(t.get("unread_count", 0)) for t in threads)
+            if hasattr(self, "email_btn"):
+                if total_unread > 0:
+                    self.email_btn.setText(f"📧 Emails ({total_unread} new) ▾")
+                else:
+                    self.email_btn.setText("📧 Emails ▾")
+        except Exception as e:
+            logging.error(f"Error syncing tracked email threads to table: {e}")
+
+    def _open_tracked_thread_dialog(self, thread_id: str):
+        tid = str(thread_id or "").strip()
+        if not tid:
+            return
+        if tid in self._tracked_thread_dialogs:
+            dlg = self._tracked_thread_dialogs[tid]
+            dlg.setWindowState(dlg.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+            dlg.raise_()
+            dlg.activateWindow()
+            return
+        dlg = TrackedThreadDialog(self.tracked_threads_db, tid, parent=None)
+        dlg.thread_changed.connect(self._on_tracked_thread_changed)
+        self._tracked_thread_dialogs[tid] = dlg
+        dlg.finished.connect(lambda _, k=tid: self._tracked_thread_dialogs.pop(k, None))
+        dlg.show()
+
+    def _on_tracked_thread_changed(self):
+        self._sync_tracked_threads_to_table()
+        self._refresh_comboboxes()
+        self._schedule_row_height_adjustment()
+
+    def _process_dropped_msg_files(self, msg_files: list):
+        wg = str(self.mtg_info.get("wg_name", "SA2")).strip().upper()
+        meeting_id = self._get_meeting_id_label()
+        pinned_ids = []
+        for mp in msg_files:
+            tid = pin_thread_from_msg(self.tracked_threads_db, Path(mp), meeting_id=meeting_id, wg=wg)
+            if tid:
+                pinned_ids.append(tid)
+        if pinned_ids:
+            self._on_tracked_thread_changed()
+            self._open_tracked_thread_dialog(pinned_ids[-1])
+        else:
+            QMessageBox.warning(
+                self,
+                "Could Not Parse .msg",
+                "Failed to parse the dropped .msg file via Outlook COM. Ensure Microsoft Outlook is available.",
+            )
+
+    def _on_pin_thread_from_msg_dialog(self):
+        from PyQt5.QtWidgets import QFileDialog
+        paths, _ = QFileDialog.getOpenFileNames(self, "Select Outlook .msg File(s) to Pin Thread", "", "Outlook Message (*.msg)")
+        if paths:
+            self._process_dropped_msg_files([Path(p) for p in paths])
+
+    def _on_pin_thread_from_outlook(self):
+        wg = str(self.mtg_info.get("wg_name", "SA2")).strip().upper()
+        folders = load_wg_email_config(wg)
+        if not folders:
+            if QMessageBox.question(
+                self,
+                "No Folders Configured",
+                f"No Outlook folders configured for {wg}.\nConfigure folders now?",
+                QMessageBox.Yes | QMessageBox.No,
+            ) == QMessageBox.Yes:
+                self._on_configure_email_folders()
+            return
+        dlg = PinFromOutlookDialog(self.tracked_threads_db, self._get_meeting_id_label(), wg, self)
+        if dlg.exec_() == QDialog.Accepted and dlg.pinned_thread_ids:
+            self._on_tracked_thread_changed()
+            self._open_tracked_thread_dialog(dlg.pinned_thread_ids[-1])
+
+    def _on_refresh_tracked_threads(self, silent: bool = False):
+        meeting_id = self._get_meeting_id_label()
+        updates = refresh_meeting_threads(self.tracked_threads_db, meeting_id)
+        self._on_tracked_thread_changed()
+        new_total = sum(updates.values())
+        if new_total > 0:
+            QToolTip.showText(
+                QCursor.pos(),
+                f"📧 {new_total} new reply/replies across {len(updates)} tracked email thread(s)!",
+                self,
+            )
+            if not silent:
+                QMessageBox.information(
+                    self,
+                    "Tracked Threads Refreshed",
+                    f"Found {new_total} new message(s) across {len(updates)} tracked thread(s).",
+                )
+        elif not silent:
+            QMessageBox.information(self, "Tracked Threads Up-to-Date", "No new replies found in configured Outlook folders.")
+
+    def _on_toggle_auto_refresh_threads(self, enabled: bool):
+        if enabled:
+            self.tracked_threads_timer.start()
+        else:
+            self.tracked_threads_timer.stop()
+
     def _refresh_email_counts(self):
         try:
             counts = self.general_email_db.get_email_counts_per_tdoc()
             self.model.set_email_counts(counts)
+            self._sync_tracked_threads_to_table()
         except Exception as e:
             logging.error(f"Error refreshing email counts: {e}")
 
@@ -3015,6 +3182,8 @@ class TDocsWindow(QWidget):
     def closeEvent(self, event):
         if hasattr(self, 'routing_timer'):
             self.routing_timer.stop()
+        if hasattr(self, 'tracked_threads_timer'):
+            self.tracked_threads_timer.stop()
         if hasattr(self, 'search_timer'):
             self.search_timer.stop()
 
@@ -3048,6 +3217,15 @@ class TDocsWindow(QWidget):
                     pass
         if hasattr(self, '_triage_dialogs'):
             self._triage_dialogs.clear()
+
+        for dlg in list(getattr(self, '_tracked_thread_dialogs', {}).values()):
+            if dlg:
+                try:
+                    dlg.close()
+                except Exception:
+                    pass
+        if hasattr(self, '_tracked_thread_dialogs'):
+            self._tracked_thread_dialogs.clear()
 
         all_threads = [
             getattr(self, 'rev_thread', None),

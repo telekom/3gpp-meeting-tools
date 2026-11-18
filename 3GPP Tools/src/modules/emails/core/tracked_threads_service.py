@@ -11,6 +11,19 @@ logger = logging.getLogger(__name__)
 
 _PREFIX_RE = re.compile(r"^(?:\s*(?:re|fwd|fw|aw|wg|sv|antw)\s*:\s*)+", re.IGNORECASE)
 _TAG_RE = re.compile(r"^\s*\[[^\]]{2,30}\]\s*")
+_TDOC_RE = re.compile(r"\b(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,7}\b", re.IGNORECASE)
+_KI_AI_RE = re.compile(r"\b(?:KI\s*#?\s*\d+(?:[._]\d+)?|AI\s*\d+(?:\.\d+)+)\b", re.IGNORECASE)
+_WI_RE = re.compile(r"\b(?:FS|TEI\d+|e?[A-Z0-9]{2,})_[A-Z0-9_]{2,}\b")
+
+
+def auto_suggest_links(subject: str, body: str = "") -> Dict[str, List[str]]:
+    """Extracts candidate AIs/KIs, WIs, and TDocs from an email subject and body."""
+    text_subj = subject or ""
+    text_all = f"{text_subj}\n{(body or '')[:2000]}"
+    ais = sorted({re.sub(r"\s+", "", m.upper()) for m in _KI_AI_RE.findall(text_subj)})
+    wis = sorted({m.strip() for m in _WI_RE.findall(text_subj)})
+    tdocs = sorted({m.upper() for m in _TDOC_RE.findall(text_all)})
+    return {"ais": ais, "wis": wis, "tdocs": tdocs}
 
 
 def normalize_subject(subject: str) -> str:
@@ -162,6 +175,7 @@ def pin_thread_from_msg(
 
     norm_subj = normalize_subject(seed["subject"])
     folders = load_wg_email_config(wg) if wg else []
+    suggested = auto_suggest_links(seed["subject"], seed.get("clean_body") or seed.get("body_text", ""))
     thread_id = db.create_or_get_thread(
         title=norm_subj or seed["subject"],
         normalized_subject=norm_subj,
@@ -169,9 +183,9 @@ def pin_thread_from_msg(
         outlook_folders=folders,
         meeting_id=meeting_id,
         wg=wg,
-        linked_ais=linked_ais,
-        linked_wis=linked_wis,
-        linked_tdocs=linked_tdocs,
+        linked_ais=linked_ais if linked_ais is not None else suggested["ais"],
+        linked_wis=linked_wis if linked_wis is not None else suggested["wis"],
+        linked_tdocs=linked_tdocs if linked_tdocs is not None else suggested["tdocs"],
     )
 
     conv_ids = [seed["conversation_id"]] if seed.get("conversation_id") else []
@@ -209,3 +223,79 @@ def refresh_meeting_threads(db: TrackedThreadsDatabase, meeting_id: str) -> Dict
         if new_count > 0:
             results[tid] = new_count
     return results
+
+
+def list_recent_threads_in_folders(wg: str, max_items_per_folder: int = 300) -> List[Dict[str, Any]]:
+    """Lists recent unique conversation threads across configured Outlook folders for a WG."""
+    from modules.emails.core.outlook_client import OutlookClient
+
+    folders = load_wg_email_config(wg) if wg else []
+    threads_by_key: Dict[str, Dict[str, Any]] = {}
+
+    for fpath in folders:
+        folder = OutlookClient.get_folder_by_path(fpath)
+        if not folder:
+            continue
+        try:
+            items = folder.Items
+            items.Sort("[ReceivedTime]", True)
+            count = 0
+            for item in items:
+                if count >= max_items_per_folder:
+                    break
+                count += 1
+                try:
+                    subj = getattr(item, "Subject", "") or ""
+                    norm = normalize_subject(subj)
+                    if not norm:
+                        continue
+                    cid = getattr(item, "ConversationID", "") or ""
+                    key = norm.lower()
+                    dt = getattr(item, "ReceivedTime", None) or getattr(item, "SentOn", None)
+                    date_str = dt.strftime("%Y-%m-%d %H:%M") if hasattr(dt, "strftime") else str(dt or "")
+                    sender = getattr(item, "SenderName", "") or ""
+                    if key not in threads_by_key:
+                        threads_by_key[key] = {
+                            "title": norm,
+                            "normalized_subject": norm,
+                            "conversation_id": cid,
+                            "last_date": date_str,
+                            "last_sender": sender,
+                            "count": 1,
+                            "folder": fpath,
+                        }
+                    else:
+                        threads_by_key[key]["count"] += 1
+                except Exception:
+                    continue
+        except Exception as e:
+            logger.warning(f"Failed listing threads in '{fpath}': {e}")
+
+    return sorted(threads_by_key.values(), key=lambda x: x.get("last_date", ""), reverse=True)
+
+
+def pin_thread_by_subject_or_cid(
+    db: TrackedThreadsDatabase,
+    title: str,
+    normalized_subject: str,
+    conversation_id: str,
+    meeting_id: str,
+    wg: str,
+) -> str:
+    """Pins a thread selected from the configured Outlook folder browser and pulls all matching messages."""
+    folders = load_wg_email_config(wg) if wg else []
+    suggested = auto_suggest_links(title)
+    thread_id = db.create_or_get_thread(
+        title=title,
+        normalized_subject=normalized_subject,
+        conversation_id=conversation_id,
+        outlook_folders=folders,
+        meeting_id=meeting_id,
+        wg=wg,
+        linked_ais=suggested["ais"],
+        linked_wis=suggested["wis"],
+        linked_tdocs=suggested["tdocs"],
+    )
+    refresh_thread(db, thread_id)
+    return thread_id
+

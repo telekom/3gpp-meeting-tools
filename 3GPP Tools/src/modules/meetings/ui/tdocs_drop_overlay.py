@@ -39,7 +39,7 @@ class DropOverlayWidget(QWidget):
     def __init__(
         self,
         parent=None,
-        title: str = "Drop Chairman's Notes / Agenda file(s) to import",
+        title: str = "Drop Chairman's Notes / Agenda or Email (.msg) file(s) to import",
         supported_exts: Optional[List[str]] = None,
     ):
         super().__init__(parent)
@@ -83,7 +83,7 @@ class DropOverlayWidget(QWidget):
         badges_row = QHBoxLayout()
         badges_row.setSpacing(6)
         badges_row.setAlignment(Qt.AlignCenter)
-        for ext in (supported_exts or [".docx", ".doc", ".htm", ".zip"]):
+        for ext in (supported_exts or [".docx", ".doc", ".htm", ".zip", ".msg"]):
             b = QLabel(ext)
             b.setStyleSheet(f"""
                 QLabel {{
