@@ -3389,9 +3389,18 @@ class TDocsWindow(QWidget):
             QMessageBox.warning(self, "Email Sync Failed", msg)
 
     def _on_mark_all_emails_read(self):
-        self.general_email_db.mark_all_read()
+        from modules.emails.core.tracked_threads_service import mark_thread_read_with_outlook
+        synced_count = self.general_email_db.mark_all_read(sync_outlook=True)
+        if hasattr(self, "tracked_threads_db"):
+            for t in self.tracked_threads_db.get_threads_for_meeting(self._get_meeting_id_label()):
+                synced_count += mark_thread_read_with_outlook(self.tracked_threads_db, t["thread_id"], sync_outlook=True)
         self._refresh_email_counts()
-        QMessageBox.information(self, "Mark All Read", "All emails have been marked as read.")
+        self._refresh_comboboxes()
+        QMessageBox.information(
+            self,
+            "Mark All Read",
+            f"All meeting emails and tracked threads have been marked as read (synced {synced_count} Outlook item(s)).",
+        )
 
     def _on_wipe_generic_emails(self):
         reply = QMessageBox.question(

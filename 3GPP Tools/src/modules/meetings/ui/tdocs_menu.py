@@ -28,7 +28,10 @@ def handle_table_context_menu(window: Any, pos: QPoint) -> None:
 
     if row_data.get("_is_tracked_thread"):
         from PyQt5.QtWidgets import QMenu
-        from modules.emails.core.tracked_threads_service import refresh_thread
+        from modules.emails.core.tracked_threads_service import (
+            mark_thread_read_with_outlook,
+            refresh_thread,
+        )
 
         tid = str(row_data.get("_thread_id") or tdoc_id).strip()
         menu = QMenu(window.table)
@@ -42,8 +45,8 @@ def handle_table_context_menu(window: Any, pos: QPoint) -> None:
             lambda: (refresh_thread(window.tracked_threads_db, tid), window._on_tracked_thread_changed()),
         )
         menu.addAction(
-            "✔️ Mark Thread as Read",
-            lambda: (window.tracked_threads_db.mark_thread_read(tid), window._on_tracked_thread_changed()),
+            "✔️ Mark Thread as Read (Sync Outlook)",
+            lambda: (mark_thread_read_with_outlook(window.tracked_threads_db, tid, sync_outlook=True), window._on_tracked_thread_changed()),
         )
         menu.addSeparator()
         menu.addAction(

@@ -672,6 +672,28 @@ def reply_to_outlook_message(entry_id: str, reply_all: bool = True) -> bool:
     return False
 
 
+def mark_thread_read_with_outlook(
+    db: TrackedThreadsDatabase,
+    thread_id: str,
+    sync_outlook: bool = True,
+) -> int:
+    """
+    Marks all messages in a tracked thread as read in SQLite and synchronizes
+    the read status back to Microsoft Outlook. Returns count of Outlook items updated.
+    """
+    msgs = db.get_thread_messages(thread_id)
+    unread_ids = [
+        str(m.get("id") or "")
+        for m in msgs
+        if int(m.get("is_read", 0) or 0) == 0 and m.get("id")
+    ]
+    db.mark_thread_read(thread_id)
+    if sync_outlook and unread_ids:
+        from modules.emails.core.outlook_client import OutlookClient
+        return OutlookClient.set_messages_read_status(unread_ids, is_read=True)
+    return 0
+
+
 def prepare_thread_llm_workspace(
     db: TrackedThreadsDatabase,
     thread_id: str,

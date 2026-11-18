@@ -193,3 +193,30 @@ class OutlookClient:
         except Exception as e:
             logging.warning(f"Could not open Outlook draft via COM: {e}")
             return False, str(e)
+
+    @staticmethod
+    def set_messages_read_status(entry_ids: Sequence[str], is_read: bool = True) -> int:
+        """
+        Synchronizes read/unread status to Microsoft Outlook for the given EntryIDs.
+        Returns the number of Outlook items whose UnRead state was updated.
+        """
+        if platform.system() != 'Windows' or not entry_ids:
+            return 0
+        namespace = OutlookClient.get_namespace()
+        if not namespace:
+            return 0
+        updated = 0
+        target_unread = not bool(is_read)
+        for raw_id in entry_ids:
+            eid = str(raw_id or "").strip()
+            if not eid or eid.startswith("MSG-"):
+                continue
+            try:
+                item = namespace.GetItemFromID(eid)
+                if item is not None and bool(getattr(item, "UnRead", not target_unread)) != target_unread:
+                    item.UnRead = target_unread
+                    item.Save()
+                    updated += 1
+            except Exception as e:
+                logging.debug(f"Could not update Outlook read state for {eid}: {e}")
+        return updated

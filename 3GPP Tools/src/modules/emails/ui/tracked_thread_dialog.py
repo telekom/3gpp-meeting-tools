@@ -39,6 +39,7 @@ from modules.emails.core.tracked_threads_service import (
     cache_all_thread_documents_and_attachments,
     cache_and_open_thread_document_url,
     list_recent_threads_in_folders,
+    mark_thread_read_with_outlook,
     open_outlook_attachment,
     open_outlook_message,
     pin_thread_by_subject_or_cid,
@@ -486,7 +487,7 @@ class TrackedThreadDialog(QDialog):
         QMessageBox.information(self, "Thread Refreshed", f"Sync complete. {new_count} new message(s) found.")
 
     def _on_mark_read(self):
-        self.db.mark_thread_read(self.thread_id)
+        mark_thread_read_with_outlook(self.db, self.thread_id, sync_outlook=True)
         self._load_data()
         self.thread_changed.emit()
 

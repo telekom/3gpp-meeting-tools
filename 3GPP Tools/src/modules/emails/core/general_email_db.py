@@ -166,13 +166,35 @@ class GeneralEmailDatabase:
             """, [t.upper() for t in tdoc_ids])
             return [dict(row) for row in cursor.fetchall()]
 
-    def set_emails_read_status(self, email_ids: List[str], is_read: bool):
+    @staticmethod
+    def _sync_outlook_read_status(to_sync: List[str], is_read: bool) -> int:
+        if not to_sync:
+            return 0
+        from modules.emails.core.outlook_client import OutlookClient
+        return OutlookClient.set_messages_read_status(to_sync, is_read=bool(is_read))
+
+    def set_emails_read_status(self, email_ids: List[str], is_read: bool, sync_outlook: bool = True) -> int:
         if not email_ids:
-            return
+            return 0
+        target_val = 1 if is_read else 0
+        unique_ids = list(dict.fromkeys(str(eid) for eid in email_ids if eid))
+        if not unique_ids:
+            return 0
+        placeholders = ",".join(["?"] * len(unique_ids))
         with self._get_connection() as conn:
-            conn.executemany("UPDATE general_emails SET is_read = ? WHERE id = ?",
-                             [(1 if is_read else 0, eid) for eid in email_ids])
+            to_sync = [
+                row[0]
+                for row in conn.execute(
+                    f"SELECT id FROM general_emails WHERE id IN ({placeholders}) AND is_read != ?",
+                    unique_ids + [target_val],
+                ).fetchall()
+            ]
+            conn.executemany(
+                "UPDATE general_emails SET is_read = ? WHERE id = ?",
+                [(target_val, eid) for eid in unique_ids],
+            )
             conn.commit()
+        return self._sync_outlook_read_status(to_sync, is_read) if sync_outlook else 0
 
     def set_emails_ignored_status(self, email_ids: List[str], is_ignored: bool):
         if not email_ids:
@@ -190,24 +212,46 @@ class GeneralEmailDatabase:
             conn.executemany("DELETE FROM general_emails WHERE id = ?", [(eid,) for eid in email_ids])
             conn.commit()
 
-    def set_tdocs_read_status(self, tdoc_ids: Set[str], is_read: bool):
+    def set_tdocs_read_status(self, tdoc_ids: Set[str], is_read: bool, sync_outlook: bool = True) -> int:
         if not tdoc_ids:
-            return
-        placeholders = ",".join(["?"] * len(tdoc_ids))
+            return 0
+        target_val = 1 if is_read else 0
+        tdoc_list = list(tdoc_ids)
+        placeholders = ",".join(["?"] * len(tdoc_list))
         with self._get_connection() as conn:
+            to_sync = [
+                row[0]
+                for row in conn.execute(
+                    f"""
+                    SELECT DISTINCT e.id
+                    FROM general_emails e
+                    JOIN general_email_tdoc_matches m ON e.id = m.email_id
+                    WHERE m.tdoc_id IN ({placeholders}) AND e.is_read != ?
+                    """,
+                    tdoc_list + [target_val],
+                ).fetchall()
+            ]
             conn.execute(f"""
                 UPDATE general_emails 
                 SET is_read = ?
                 WHERE id IN (
                     SELECT email_id FROM general_email_tdoc_matches WHERE tdoc_id IN ({placeholders})
                 )
-            """, [1 if is_read else 0] + list(tdoc_ids))
+            """, [target_val] + tdoc_list)
             conn.commit()
+        return self._sync_outlook_read_status(to_sync, is_read) if sync_outlook else 0
 
-    def mark_all_read(self):
+    def mark_all_read(self, sync_outlook: bool = True) -> int:
         with self._get_connection() as conn:
+            to_sync = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT id FROM general_emails WHERE is_ignored = 0 AND is_read = 0"
+                ).fetchall()
+            ]
             conn.execute("UPDATE general_emails SET is_read = 1 WHERE is_ignored = 0")
             conn.commit()
+        return self._sync_outlook_read_status(to_sync, True) if sync_outlook else 0
 
     def wipe_generic_emails(self):
         """High-speed purge of generic tables only; preserves SA2 eMeeting tables."""

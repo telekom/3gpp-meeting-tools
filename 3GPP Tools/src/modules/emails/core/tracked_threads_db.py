@@ -202,7 +202,8 @@ class TrackedThreadsDatabase:
                         subject = excluded.subject,
                         body_text = excluded.body_text,
                         clean_body = excluded.clean_body,
-                        attachments = excluded.attachments
+                        attachments = excluded.attachments,
+                        is_read = CASE WHEN excluded.is_read = 1 THEN 1 ELSE tracked_thread_messages.is_read END
                     """,
                     (
                         msg_id,

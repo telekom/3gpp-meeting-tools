@@ -432,3 +432,87 @@ def test_unified_notes_status_and_tags_for_tdocs_and_threads(tmp_path):
     tdlg.tags_pills.add_tag("Priority")
     assert set(ttdb.get_thread(tid)["user_tags"]) == {"Key Issue", "Priority"}
     tdlg.close()
+
+
+def test_mark_read_syncs_with_outlook(tmp_path):
+    from unittest.mock import patch
+    from modules.emails.core.outlook_client import OutlookClient
+    from modules.emails.core.general_email_db import GeneralEmailDatabase
+    from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+    from modules.emails.core.tracked_threads_service import mark_thread_read_with_outlook
+
+    class FakeMailItem:
+        def __init__(self, unread: bool):
+            self.UnRead = unread
+            self.save_calls = 0
+
+        def Save(self):
+            self.save_calls += 1
+
+    fake_items = {
+        "EID-UNREAD-1": FakeMailItem(unread=True),
+        "EID-READ-2": FakeMailItem(unread=False),
+        "EID-GEN-1": FakeMailItem(unread=True),
+    }
+
+    class FakeNamespace:
+        def GetItemFromID(self, eid):
+            if eid not in fake_items:
+                raise KeyError(eid)
+            return fake_items[eid]
+
+    ttdb = TrackedThreadsDatabase(tmp_path / "threads.db")
+    tid = ttdb.create_or_get_thread("KI#2 read sync", "KI#2 read sync", meeting_id="SA2#178")
+    ttdb.upsert_messages(
+        tid,
+        [
+            {"id": "EID-UNREAD-1", "received_iso": "2026-11-18 10:00:00", "is_read": 0},
+            {"id": "EID-READ-2", "received_iso": "2026-11-18 11:00:00", "is_read": 1},
+            {"id": "MSG-SYNTHETIC-3", "received_iso": "2026-11-18 12:00:00", "is_read": 0},
+        ],
+    )
+
+    with patch.object(OutlookClient, "get_namespace", return_value=FakeNamespace()):
+        updated = mark_thread_read_with_outlook(ttdb, tid, sync_outlook=True)
+        assert updated == 1
+        assert fake_items["EID-UNREAD-1"].UnRead is False
+        assert fake_items["EID-UNREAD-1"].save_calls == 1
+        assert fake_items["EID-READ-2"].save_calls == 0
+
+    assert all(int(m["is_read"]) == 1 for m in ttdb.get_thread_messages(tid))
+
+    # Refreshing from Outlook syncs is_read=1 while preserving local read marks
+    tid2 = ttdb.create_or_get_thread("KI#3 refresh sync", "KI#3 refresh sync", meeting_id="SA2#178")
+    ttdb.upsert_messages(
+        tid2,
+        [{"id": "EID-SYNC-BACK", "received_iso": "2026-11-18 09:00:00", "is_read": 0}],
+    )
+    assert ttdb.get_thread_messages(tid2)[0]["is_read"] == 0
+    ttdb.upsert_messages(
+        tid2,
+        [{"id": "EID-SYNC-BACK", "received_iso": "2026-11-18 09:00:00", "is_read": 1}],
+    )
+    assert ttdb.get_thread_messages(tid2)[0]["is_read"] == 1
+
+    # GeneralEmailDatabase read/unread syncs with Outlook
+    gdb = GeneralEmailDatabase(db_path=str(tmp_path / "general.db"))
+    gdb.save_emails_batch(
+        [
+            {
+                "id": "EID-GEN-1",
+                "folder_tag": "Inbox",
+                "sender_name": "Alice",
+                "subject": "S2-2612673 comments",
+                "date_received": "2026-11-18 10:00:00",
+                "is_read": 0,
+            }
+        ],
+        [{"email_id": "EID-GEN-1", "tdoc_id": "S2-2612673", "rev_matched": "r00", "match_location": "Subject"}],
+    )
+    with patch.object(OutlookClient, "get_namespace", return_value=FakeNamespace()):
+        assert gdb.set_tdocs_read_status({"S2-2612673"}, True) == 1
+        assert fake_items["EID-GEN-1"].UnRead is False
+        assert gdb.set_tdocs_read_status({"S2-2612673"}, False) == 1
+        assert fake_items["EID-GEN-1"].UnRead is True
+        assert gdb.mark_all_read() == 1
+        assert fake_items["EID-GEN-1"].UnRead is False
