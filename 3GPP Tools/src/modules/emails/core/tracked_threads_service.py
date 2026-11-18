@@ -20,13 +20,89 @@ _KI_AI_RE = re.compile(r"\b(?:KI\s*#?\s*\d+(?:[._]\d+)?|AI\s*\d+(?:\.\d+)+)\b", 
 _WI_RE = re.compile(r"\b(?:FS|TEI\d+|e?[A-Z0-9]{2,})_[A-Z0-9_]{2,}\b")
 
 
-def auto_suggest_links(subject: str, body: str = "") -> Dict[str, List[str]]:
-    """Extracts candidate AIs/KIs, WIs, and TDocs from an email subject and body."""
+def _resolve_ais_against_agenda(
+    raw_ais: List[str],
+    raw_wis: List[str],
+    agenda_map: Optional[Dict[str, Any]],
+    valid_ais: Optional[List[str]],
+) -> List[str]:
+    """Resolves AI/KI subject tokens against actual meeting agenda items (using WI tokens to disambiguate KIs)."""
+    ai_descs: Dict[str, str] = {}
+    for k, item in (agenda_map or {}).items():
+        ai_key = str(k).strip()
+        if ai_key:
+            ai_descs[ai_key] = str(getattr(item, "description", "") or "").strip()
+    for entry in (valid_ais or []):
+        txt = str(entry or "").strip()
+        if not txt:
+            continue
+        if " — " in txt:
+            num, desc = txt.split(" — ", 1)
+            ai_descs.setdefault(num.strip(), desc.strip())
+        else:
+            ai_descs.setdefault(txt, "")
+
+    known_by_lower = {k.lower(): k for k in ai_descs}
+    resolved: List[str] = []
+    for tok in raw_ais:
+        t_clean = tok.strip()
+        # Direct AI number match (e.g. "AI20.6.1" -> "20.6.1")
+        num_part = re.sub(r"^AI\s*", "", t_clean, flags=re.IGNORECASE).strip()
+        if num_part.lower() in known_by_lower:
+            cand = known_by_lower[num_part.lower()]
+            if cand not in resolved:
+                resolved.append(cand)
+            continue
+
+        # KI token match (e.g. "KI#4", "KI#1_1") against agenda item descriptions
+        ki_m = re.match(r"^KI#?(\d+(?:[._]\d+)?)$", t_clean, re.IGNORECASE)
+        if not ki_m:
+            continue
+        ki_num_re = re.escape(ki_m.group(1)).replace(r"\_", r"[._]").replace(r"\.", r"[._]")
+        ki_pat = re.compile(rf"\bKI\s*#?\s*{ki_num_re}\b", re.IGNORECASE)
+        matches = [ai_k for ai_k, desc in ai_descs.items() if desc and ki_pat.search(desc)]
+        if len(matches) > 1 and raw_wis:
+            wi_matches = [
+                ai_k for ai_k in matches
+                if any(w.lower() in ai_descs[ai_k].lower() for w in raw_wis)
+            ]
+            if wi_matches:
+                matches = wi_matches
+        if len(matches) == 1 and matches[0] not in resolved:
+            resolved.append(matches[0])
+    return sorted(resolved)
+
+
+def auto_suggest_links(
+    subject: str,
+    body: str = "",
+    *,
+    agenda_map: Optional[Dict[str, Any]] = None,
+    valid_ais: Optional[List[str]] = None,
+    valid_wis: Optional[List[str]] = None,
+) -> Dict[str, List[str]]:
+    """
+    Extracts candidate AIs/KIs, WIs, and TDocs from an email subject and body.
+    When meeting metadata (`agenda_map`/`valid_ais`/`valid_wis`) is provided,
+    tokens are resolved strictly against real meeting Agenda Items and WIs.
+    """
     text_subj = subject or ""
     text_all = f"{text_subj}\n{(body or '')[:2000]}"
-    ais = sorted({re.sub(r"\s+", "", m.upper()) for m in _KI_AI_RE.findall(text_subj)})
-    wis = sorted({m.strip() for m in _WI_RE.findall(text_subj)})
+    raw_ais = sorted({re.sub(r"\s+", "", m.upper()) for m in _KI_AI_RE.findall(text_subj)})
+    raw_wis = sorted({m.strip() for m in _WI_RE.findall(text_subj)})
     tdocs = sorted({m.upper() for m in _TDOC_RE.findall(text_all)})
+
+    if agenda_map is not None or valid_ais is not None:
+        ais = _resolve_ais_against_agenda(raw_ais, raw_wis, agenda_map, valid_ais)
+    else:
+        ais = raw_ais
+
+    if valid_wis is not None:
+        wi_by_lower = {str(w).strip().lower(): str(w).strip() for w in valid_wis if str(w).strip()}
+        wis = sorted({wi_by_lower[w.lower()] for w in raw_wis if w.lower() in wi_by_lower})
+    else:
+        wis = raw_wis
+
     return {"ais": ais, "wis": wis, "tdocs": tdocs}
 
 
@@ -292,10 +368,17 @@ def _pin_from_seed_dict(
     linked_wis: Optional[List[str]] = None,
     linked_tdocs: Optional[List[str]] = None,
     seed_live_item: Any = None,
+    agenda_map: Optional[Dict[str, Any]] = None,
+    valid_wis: Optional[List[str]] = None,
 ) -> str:
     norm_subj = normalize_subject(seed["subject"])
     folders = _extract_folder_paths(load_wg_email_config(wg)) if wg else []
-    suggested = auto_suggest_links(seed["subject"], seed.get("clean_body") or seed.get("body_text", ""))
+    suggested = auto_suggest_links(
+        seed["subject"],
+        seed.get("clean_body") or seed.get("body_text", ""),
+        agenda_map=agenda_map,
+        valid_wis=valid_wis,
+    )
     thread_id = db.create_or_get_thread(
         title=norm_subj or seed["subject"],
         normalized_subject=norm_subj,
@@ -337,6 +420,8 @@ def pin_thread_from_msg(
     linked_ais: Optional[List[str]] = None,
     linked_wis: Optional[List[str]] = None,
     linked_tdocs: Optional[List[str]] = None,
+    agenda_map: Optional[Dict[str, Any]] = None,
+    valid_wis: Optional[List[str]] = None,
 ) -> Optional[str]:
     """Parses a dropped .msg, locates the full thread in configured Outlook folders, and pins it."""
     seed = parse_msg_file(msg_path)
@@ -345,6 +430,7 @@ def pin_thread_from_msg(
     return _pin_from_seed_dict(
         db, seed, meeting_id=meeting_id, wg=wg,
         linked_ais=linked_ais, linked_wis=linked_wis, linked_tdocs=linked_tdocs,
+        agenda_map=agenda_map, valid_wis=valid_wis,
     )
 
 
@@ -352,6 +438,8 @@ def pin_thread_from_outlook_selection(
     db: TrackedThreadsDatabase,
     meeting_id: str,
     wg: str,
+    agenda_map: Optional[Dict[str, Any]] = None,
+    valid_wis: Optional[List[str]] = None,
 ) -> List[str]:
     """Pins thread(s) from the currently selected MailItem(s) in Microsoft Outlook's ActiveExplorer."""
     import win32com.client
@@ -368,7 +456,10 @@ def pin_thread_from_outlook_selection(
             if getattr(item, "Class", 0) != 43:
                 continue
             seed = _mail_item_to_dict(item)
-            tid = _pin_from_seed_dict(db, seed, meeting_id=meeting_id, wg=wg, seed_live_item=item)
+            tid = _pin_from_seed_dict(
+                db, seed, meeting_id=meeting_id, wg=wg, seed_live_item=item,
+                agenda_map=agenda_map, valid_wis=valid_wis,
+            )
             if tid and tid not in pinned:
                 pinned.append(tid)
     except Exception as e:
@@ -462,10 +553,12 @@ def pin_thread_by_subject_or_cid(
     conversation_id: str,
     meeting_id: str,
     wg: str,
+    agenda_map: Optional[Dict[str, Any]] = None,
+    valid_wis: Optional[List[str]] = None,
 ) -> str:
     """Pins a thread selected from the configured Outlook folder browser and pulls all matching messages."""
     folders = _extract_folder_paths(load_wg_email_config(wg)) if wg else []
-    suggested = auto_suggest_links(title)
+    suggested = auto_suggest_links(title, agenda_map=agenda_map, valid_wis=valid_wis)
     thread_id = db.create_or_get_thread(
         title=title,
         normalized_subject=normalized_subject,

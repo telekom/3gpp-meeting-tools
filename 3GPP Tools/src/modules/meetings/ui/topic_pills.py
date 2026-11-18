@@ -15,7 +15,7 @@ from PyQt5.QtCore import QStringListModel, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QKeyEvent
 from PyQt5.QtWidgets import (
     QWidget, QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QLineEdit, QInputDialog, QScrollArea, QSizePolicy, QCompleter
+    QLineEdit, QInputDialog, QScrollArea, QSizePolicy, QCompleter, QMenu, QWidgetAction, QAction
 )
 
 from core.ui.flow_layout import FlowLayout
@@ -187,9 +187,16 @@ class TagCloudWidget(QFrame):
         placeholder: str = "Type term and press Enter or comma...",
         parent=None,
         pill_colors: Optional[Dict[str, str]] = None,
+        strict_dropdown: bool = False,
+        dropdown_label: str = "+ Select ▾",
+        empty_dropdown_label: str = "None available",
     ):
         super().__init__(parent)
         self.pill_colors = pill_colors
+        self.strict_dropdown = strict_dropdown
+        self._dropdown_label = dropdown_label
+        self._empty_dropdown_label = empty_dropdown_label
+        self._suggestions: List[str] = []
         self._completer: Optional[QCompleter] = None
         self._value_extractor: Optional[Callable[[str], str]] = None
         self.setObjectName("TagCloudFrame")
@@ -219,12 +226,89 @@ class TagCloudWidget(QFrame):
         self.input_edit.returnPressed.connect(self._on_enter_pressed)
         self.input_edit.textChanged.connect(self._on_text_changed)
         self.input_edit.backspace_pressed.connect(self._on_backspace_pressed)
-        self.flow_layout.addWidget(self.input_edit)
+
+        self.pick_btn: Optional[QPushButton] = None
+        self.pick_menu: Optional[QMenu] = None
+        if self.strict_dropdown:
+            self.input_edit.setReadOnly(True)
+            self.input_edit.setVisible(False)
+            self.pick_btn = QPushButton(self._empty_dropdown_label)
+            self.pick_btn.setCursor(Qt.PointingHandCursor)
+            self.pick_btn.setEnabled(False)
+            self.pick_btn.setStyleSheet(
+                f"QPushButton {{ background: {C.BG_SURFACE}; color: {C.TEXT_BODY}; border: 1px solid {C.BORDER_STRONG}; "
+                "border-radius: 10px; padding: 2px 8px; font-size: 11px; }"
+                f"QPushButton:hover:enabled {{ background: {C.INFO_SOFT}; border-color: {C.INFO_ACCENT}; }}"
+                f"QPushButton:disabled {{ color: {C.TEXT_MUTED}; border-style: dashed; }}"
+            )
+            self.pick_menu = QMenu(self.pick_btn)
+            self.pick_menu.aboutToShow.connect(self._populate_pick_menu)
+            self.pick_btn.setMenu(self.pick_menu)
+            self.flow_layout.addWidget(self.pick_btn)
+        else:
+            self.flow_layout.addWidget(self.input_edit)
+
+    def set_empty_dropdown_label(self, label: str):
+        """Updates the disabled label shown when strict_dropdown has no selectable suggestions."""
+        self._empty_dropdown_label = label
+        self._update_pick_button_state()
+
+    def _update_pick_button_state(self):
+        if not self.pick_btn:
+            return
+        has_items = bool(self._suggestions)
+        self.pick_btn.setEnabled(has_items)
+        self.pick_btn.setText(self._dropdown_label if has_items else self._empty_dropdown_label)
+
+    def _populate_pick_menu(self):
+        if not self.pick_menu:
+            return
+        menu = self.pick_menu
+        menu.clear()
+        if not self._suggestions:
+            empty_act = menu.addAction(self._empty_dropdown_label)
+            empty_act.setEnabled(False)
+            return
+
+        item_actions: List[tuple] = []
+        if len(self._suggestions) > 5:
+            search_wrap = QWidget(menu)
+            sw_layout = QHBoxLayout(search_wrap)
+            sw_layout.setContentsMargins(6, 4, 6, 4)
+            search_edit = QLineEdit(search_wrap)
+            search_edit.setClearButtonEnabled(True)
+            search_edit.setPlaceholderText("🔍 Search...")
+            sw_layout.addWidget(search_edit)
+            wa = QWidgetAction(menu)
+            wa.setDefaultWidget(search_wrap)
+            menu.addAction(wa)
+
+            def _filter_menu(txt: str):
+                q = txt.strip().lower()
+                for act, lbl in item_actions:
+                    act.setVisible(not q or q in lbl.lower())
+
+            search_edit.textChanged.connect(_filter_menu)
+            search_edit.setFocus()
+
+        active_lower = {t.lower() for t in self._tags}
+        for label in self._suggestions:
+            val = self._value_extractor(label) if self._value_extractor else label
+            act = QAction(label, menu)
+            act.setCheckable(True)
+            act.setChecked(val.lower() in active_lower)
+            act.toggled.connect(lambda checked, v=val: self.add_tag(v) if checked else self.remove_tag(v))
+            menu.addAction(act)
+            item_actions.append((act, label))
 
     def set_suggestions(self, suggestions: List[str], value_extractor: Optional[Callable[[str], str]] = None):
-        """Attaches an autocomplete QCompleter (substring, case-insensitive) to the inline editor."""
+        """Attaches an autocomplete QCompleter or updates strict dropdown options."""
         self._value_extractor = value_extractor
-        model = QStringListModel(suggestions or [], self)
+        self._suggestions = list(suggestions or [])
+        if self.strict_dropdown:
+            self._update_pick_button_state()
+            return
+        model = QStringListModel(self._suggestions, self)
         if self._completer is None:
             self._completer = QCompleter(model, self)
             self._completer.setCaseSensitivity(Qt.CaseInsensitive)
@@ -291,8 +375,10 @@ class TagCloudWidget(QFrame):
         self.tagsChanged.emit()
 
     def _rebuild_pills(self):
-        # Detach input_edit first so FlowLayout.clear() never calls deleteLater() on input_edit
+        # Detach persistent input/dropdown controls first so FlowLayout.clear() never deletes them
         self.flow_layout.removeWidget(self.input_edit)
+        if self.pick_btn is not None:
+            self.flow_layout.removeWidget(self.pick_btn)
         self.flow_layout.clear()
 
         # Add tag pill widgets
@@ -301,8 +387,11 @@ class TagCloudWidget(QFrame):
             pill.removed.connect(self.remove_tag)
             self.flow_layout.addWidget(pill)
 
-        # Re-add the input edit at the end
-        self.flow_layout.addWidget(self.input_edit)
+        if self.pick_btn is not None:
+            self.flow_layout.addWidget(self.pick_btn)
+            self._update_pick_button_state()
+        else:
+            self.flow_layout.addWidget(self.input_edit)
         self.updateGeometry()
 
     def tags(self) -> List[str]:

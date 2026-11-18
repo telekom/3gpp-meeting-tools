@@ -1,7 +1,7 @@
 # --- File: src/modules/emails/ui/tracked_thread_dialog.py ---
 import subprocess
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 import urllib.parse
 
 from PyQt5.QtCore import QSettings, Qt, QUrl, pyqtSignal
@@ -78,6 +78,7 @@ class TrackedThreadDialog(QDialog):
         sub_item_suggestions: Optional[List[str]] = None,
         all_existing_tags: Optional[List[str]] = None,
         annotations_save_callback: Optional[Callable[[str, str, str, str], None]] = None,
+        ai_to_sub_items: Optional[Dict[str, List[str]]] = None,
     ):
         super().__init__(
             parent,
@@ -89,6 +90,9 @@ class TrackedThreadDialog(QDialog):
         self._wi_suggestions = wi_suggestions or []
         self._tdoc_suggestions = tdoc_suggestions or []
         self._sub_item_suggestions = sub_item_suggestions or []
+        self._ai_to_sub_items: Dict[str, List[str]] = self._normalize_ai_sub_map(
+            ai_to_sub_items, self._sub_item_suggestions
+        )
         self._all_existing_tags = all_existing_tags or []
         self._annotations_save_callback = annotations_save_callback
         self._tdoc_family_expander = tdoc_family_expander
@@ -149,6 +153,9 @@ class TrackedThreadDialog(QDialog):
         self.ais_pills = TagCloudWidget(
             placeholder="AI # (e.g. 20.6.1)...",
             pill_colors={"bg": "#EFF6FF", "fg": "#1D4ED8", "border": "#BFDBFE"},
+            strict_dropdown=True,
+            dropdown_label="+ Add AI ▾",
+            empty_dropdown_label="No meeting AIs",
         )
         self.ais_pills.set_suggestions(self._ai_suggestions, value_extractor=lambda s: s.split(" — ", 1)[0].strip())
         self.ais_pills.tagsChanged.connect(self._on_links_changed)
@@ -158,8 +165,11 @@ class TrackedThreadDialog(QDialog):
         self.sub_items_pills = TagCloudWidget(
             placeholder="AI Sub-Topic...",
             pill_colors={"bg": "#F0FDFA", "fg": "#0F766E", "border": "#99F6E4"},
+            strict_dropdown=True,
+            dropdown_label="+ Add Sub-Topic ▾",
+            empty_dropdown_label="Assign AI first",
         )
-        self.sub_items_pills.set_suggestions(self._sub_item_suggestions, value_extractor=lambda s: s.split(" — ", 1)[0].strip())
+        self.sub_items_pills.set_suggestions([], value_extractor=lambda s: s.split(" — ", 1)[0].strip())
         self.sub_items_pills.tagsChanged.connect(self._on_links_changed)
         links_grid.addWidget(self.sub_items_pills, 0, 3)
 
@@ -167,6 +177,9 @@ class TrackedThreadDialog(QDialog):
         self.wis_pills = TagCloudWidget(
             placeholder="Work Item (e.g. FS_6G_ARC)...",
             pill_colors={"bg": "#EEF2FF", "fg": "#4338CA", "border": "#C7D2FE"},
+            strict_dropdown=True,
+            dropdown_label="+ Add WI ▾",
+            empty_dropdown_label="No meeting WIs",
         )
         self.wis_pills.set_suggestions(self._wi_suggestions, value_extractor=lambda s: s.split(" — ", 1)[0].strip())
         self.wis_pills.tagsChanged.connect(self._on_links_changed)
@@ -423,6 +436,7 @@ class TrackedThreadDialog(QDialog):
             self.wis_pills.setText(", ".join(thread.get("linked_wis") or []))
             self.tdocs_pills.setText(", ".join(thread.get("linked_tdocs") or []))
             self.tags_pills.setText(", ".join(thread.get("user_tags") or []))
+            self._refresh_sub_items_dropdown(thread.get("linked_ais") or [])
             status = str(thread.get("user_status") or "⚪ Neutral").strip()
             has_notes = bool(str(thread.get("user_notes") or "").strip())
             if hasattr(self, "notes_btn"):
@@ -546,11 +560,73 @@ class TrackedThreadDialog(QDialog):
                 return
         QDesktopServices.openUrl(url)
 
+    @staticmethod
+    def _normalize_ai_sub_map(
+        explicit_map: Optional[Dict[str, List[str]]],
+        sub_item_suggestions: List[str],
+    ) -> Dict[str, List[str]]:
+        out: Dict[str, List[str]] = {}
+        for ai_key, subs in (explicit_map or {}).items():
+            ak = str(ai_key or "").strip()
+            if not ak:
+                continue
+            bucket = out.setdefault(ak, [])
+            for s in (subs or []):
+                sc = str(s or "").strip()
+                if sc and sc not in bucket:
+                    bucket.append(sc)
+        if not explicit_map:
+            for item in (sub_item_suggestions or []):
+                txt = str(item or "").strip()
+                if " — AI " in txt:
+                    sub_part, ai_part = txt.rsplit(" — AI ", 1)
+                    ak = ai_part.strip()
+                    sc = sub_part.strip()
+                    if ak and sc:
+                        bucket = out.setdefault(ak, [])
+                        if sc not in bucket:
+                            bucket.append(sc)
+        return out
+
+    def _get_valid_sub_items_for_ais(self, ais: List[str]) -> List[str]:
+        by_lower = {k.lower(): v for k, v in self._ai_to_sub_items.items()}
+        valid: List[str] = []
+        seen_lower: set = set()
+        for ai in (ais or []):
+            for sub in by_lower.get(str(ai).strip().lower(), []):
+                if sub.lower() not in seen_lower:
+                    seen_lower.add(sub.lower())
+                    valid.append(sub)
+        return valid
+
+    def _refresh_sub_items_dropdown(self, ais: List[str]) -> List[str]:
+        valid_subs = self._get_valid_sub_items_for_ais(ais)
+        if not hasattr(self, "sub_items_pills"):
+            return valid_subs
+        if not ais:
+            self.sub_items_pills.set_empty_dropdown_label("Assign AI first")
+        elif not valid_subs:
+            self.sub_items_pills.set_empty_dropdown_label("No sub-topics for AI")
+        self.sub_items_pills.set_suggestions(valid_subs, value_extractor=lambda s: s.split(" — ", 1)[0].strip())
+        return valid_subs
+
     def _on_links_changed(self):
         if self._loading:
             return
         ais = self.ais_pills.tags()
+        valid_subs = self._refresh_sub_items_dropdown(ais)
+        valid_subs_lower = {s.lower() for s in valid_subs}
         sub_items = self.sub_items_pills.tags()
+        # Automatically prune sub-topics whose parent AI is no longer assigned
+        pruned_subs = [s for s in sub_items if s.lower() in valid_subs_lower]
+        if pruned_subs != sub_items:
+            self._loading = True
+            try:
+                self.sub_items_pills.setText(", ".join(pruned_subs))
+            finally:
+                self._loading = False
+            sub_items = pruned_subs
+
         wis = self.wis_pills.tags()
         tdocs = self.tdocs_pills.tags()
         user_tags = self.tags_pills.tags()
@@ -730,11 +806,15 @@ class PinFromOutlookDialog(QDialog):
         meeting_id: str,
         wg: str,
         parent: Optional[QWidget] = None,
+        agenda_map: Optional[Dict[str, object]] = None,
+        valid_wis: Optional[List[str]] = None,
     ):
         super().__init__(parent)
         self.db = db
         self.meeting_id = meeting_id
         self.wg = wg
+        self._agenda_map = agenda_map
+        self._valid_wis = valid_wis
         self.pinned_thread_ids = []
         self._threads = []
         self.setWindowTitle(f"Pin Email Thread from Configured {wg} Outlook Folders")
@@ -802,6 +882,8 @@ class PinFromOutlookDialog(QDialog):
                 conversation_id=t.get("conversation_id", ""),
                 meeting_id=self.meeting_id,
                 wg=self.wg,
+                agenda_map=self._agenda_map,
+                valid_wis=self._valid_wis,
             )
             self.pinned_thread_ids.append(tid)
         self.accept()

@@ -3121,7 +3121,7 @@ class TDocsWindow(QWidget):
         return seen
 
     def _build_thread_autocomplete_suggestions(self):
-        """Builds AI, WI, and TDoc suggestion lists for TrackedThreadDialog autocomplete."""
+        """Builds AI, WI, TDoc, Sub-Topic lists and AI -> Sub-Topics mapping for TrackedThreadDialog."""
         ai_items = []
         seen_ais = set()
         for ai_num, item in sorted((self.agenda_map or {}).items(), key=lambda kv: natural_sort_key(kv[0])):
@@ -3136,18 +3136,25 @@ class TDocsWindow(QWidget):
         seen_tdocs = set()
         sub_items = []
         seen_subs = set()
+        ai_to_sub_items = {}
         for row in (getattr(self.model, "_data", None) or []):
             if row.get("_is_tracked_thread"):
                 continue
             ai_val = str(row.get("Agenda Item", "") or "").strip()
-            if ai_val and ai_val not in seen_ais and ai_val not in ("N/A", "-", "None"):
+            valid_ai = bool(ai_val and ai_val not in ("N/A", "-", "None"))
+            if valid_ai and ai_val not in seen_ais:
                 seen_ais.add(ai_val)
                 ai_desc = str(row.get("Agenda item description", "") or "").strip()
                 ai_items.append(f"{ai_val} — {ai_desc}" if ai_desc else ai_val)
             sub_val = str(row.get("Sub-Item", "") or "").strip()
-            if sub_val and sub_val not in seen_subs:
-                seen_subs.add(sub_val)
-                sub_items.append(f"{sub_val} — AI {ai_val}" if ai_val else sub_val)
+            if sub_val:
+                if valid_ai:
+                    bucket = ai_to_sub_items.setdefault(ai_val, [])
+                    if sub_val not in bucket:
+                        bucket.append(sub_val)
+                if sub_val not in seen_subs:
+                    seen_subs.add(sub_val)
+                    sub_items.append(f"{sub_val} — AI {ai_val}" if valid_ai else sub_val)
             for wi in self.model._split_related_wis(row.get("Related WIs", "")):
                 if wi and wi.lower() not in ("(no wi)", "none", "nan", "-"):
                     wi_set.add(wi)
@@ -3156,7 +3163,7 @@ class TDocsWindow(QWidget):
                 seen_tdocs.add(tid)
                 title = str(row.get("Title", "") or "").strip()
                 tdoc_items.append(f"{tid} — {title[:70]}" if title else tid)
-        return ai_items, sorted(wi_set), tdoc_items, sub_items
+        return ai_items, sorted(wi_set), tdoc_items, sub_items, ai_to_sub_items
 
     def _sync_tracked_threads_to_table(self):
         if not hasattr(self, "tracked_threads_db") or not hasattr(self, "model"):
@@ -3198,7 +3205,7 @@ class TDocsWindow(QWidget):
             dlg.raise_()
             dlg.activateWindow()
             return
-        ai_sugg, wi_sugg, tdoc_sugg, sub_sugg = self._build_thread_autocomplete_suggestions()
+        ai_sugg, wi_sugg, tdoc_sugg, sub_sugg, ai_to_sub_items = self._build_thread_autocomplete_suggestions()
         all_tags = self.db.get_all_unique_tags() if hasattr(self, "db") else []
         dlg = TrackedThreadDialog(
             self.tracked_threads_db,
@@ -3211,6 +3218,7 @@ class TDocsWindow(QWidget):
             sub_item_suggestions=sub_sugg,
             all_existing_tags=all_tags,
             annotations_save_callback=self._save_user_data,
+            ai_to_sub_items=ai_to_sub_items,
         )
         dlg.thread_changed.connect(self._on_tracked_thread_changed)
         self._tracked_thread_dialogs[tid] = dlg
@@ -3222,13 +3230,25 @@ class TDocsWindow(QWidget):
         self._refresh_comboboxes()
         self._schedule_row_height_adjustment()
 
+    def _get_pin_meeting_context(self):
+        """Returns (agenda_map, valid_wis) for resolving KI/AI/WI tokens against the active meeting."""
+        _, wi_sugg, _, _, _ = self._build_thread_autocomplete_suggestions()
+        return getattr(self, "agenda_map", None), wi_sugg
+
     def _process_dropped_outlook_items(self, mime_data):
         """Handles emails dragged directly from Microsoft Outlook UI (FileGroupDescriptor / RenPrivateMessages)."""
         wg = str(self.mtg_info.get("wg_name", "SA2")).strip().upper()
         meeting_id = self._get_meeting_id_label()
+        agenda_map, valid_wis = self._get_pin_meeting_context()
         try:
             # First try reading Outlook ActiveExplorer Selection (most reliable for .msg drags in Windows)
-            pinned_ids = pin_thread_from_outlook_selection(self.tracked_threads_db, meeting_id=meeting_id, wg=wg)
+            pinned_ids = pin_thread_from_outlook_selection(
+                self.tracked_threads_db,
+                meeting_id=meeting_id,
+                wg=wg,
+                agenda_map=agenda_map,
+                valid_wis=valid_wis,
+            )
             if not pinned_ids and mime_data:
                 # Fallback: try extracting FileContents if non-empty
                 import struct
@@ -3249,7 +3269,14 @@ class TDocsWindow(QWidget):
                                 drop_dir.mkdir(parents=True, exist_ok=True)
                                 tmp_msg = drop_dir / fname
                                 tmp_msg.write_bytes(contents)
-                                tid = pin_thread_from_msg(self.tracked_threads_db, tmp_msg, meeting_id=meeting_id, wg=wg)
+                                tid = pin_thread_from_msg(
+                                    self.tracked_threads_db,
+                                    tmp_msg,
+                                    meeting_id=meeting_id,
+                                    wg=wg,
+                                    agenda_map=agenda_map,
+                                    valid_wis=valid_wis,
+                                )
                                 if tid:
                                     pinned_ids.append(tid)
             if pinned_ids:
@@ -3269,10 +3296,18 @@ class TDocsWindow(QWidget):
     def _process_dropped_msg_files(self, msg_files: list):
         wg = str(self.mtg_info.get("wg_name", "SA2")).strip().upper()
         meeting_id = self._get_meeting_id_label()
+        agenda_map, valid_wis = self._get_pin_meeting_context()
         pinned_ids = []
         try:
             for mp in msg_files:
-                tid = pin_thread_from_msg(self.tracked_threads_db, Path(mp), meeting_id=meeting_id, wg=wg)
+                tid = pin_thread_from_msg(
+                    self.tracked_threads_db,
+                    Path(mp),
+                    meeting_id=meeting_id,
+                    wg=wg,
+                    agenda_map=agenda_map,
+                    valid_wis=valid_wis,
+                )
                 if tid:
                     pinned_ids.append(tid)
             if pinned_ids:
@@ -3306,7 +3341,15 @@ class TDocsWindow(QWidget):
             ) == QMessageBox.Yes:
                 self._on_configure_email_folders()
             return
-        dlg = PinFromOutlookDialog(self.tracked_threads_db, self._get_meeting_id_label(), wg, self)
+        agenda_map, valid_wis = self._get_pin_meeting_context()
+        dlg = PinFromOutlookDialog(
+            self.tracked_threads_db,
+            self._get_meeting_id_label(),
+            wg,
+            self,
+            agenda_map=agenda_map,
+            valid_wis=valid_wis,
+        )
         if dlg.exec_() == QDialog.Accepted and dlg.pinned_thread_ids:
             self._on_tracked_thread_changed()
             self._open_tracked_thread_dialog(dlg.pinned_thread_ids[-1])

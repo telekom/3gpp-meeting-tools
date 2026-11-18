@@ -716,3 +716,84 @@ def test_lean_thread_dialog_and_idle_cli_launch(tmp_path):
         assert mock_launch.call_args.args[0] == "codex"
         assert (mock_launch.call_args.args[1] / "_CLI_CONTEXT.md").is_file()
     dlg.close()
+
+
+def test_strict_dropdown_cascading_subitems_and_ki_resolution(tmp_path):
+    from types import SimpleNamespace
+    from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+    from modules.emails.core.tracked_threads_service import auto_suggest_links
+    from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
+
+    # 1. KI/AI/WI resolution against meeting agenda_map and valid_wis
+    agenda_map = {
+        "20.6.1": SimpleNamespace(description="FS_6G_ARC: KI#1_1 NAS Routing"),
+        "20.6.2": SimpleNamespace(description="FS_6G_ARC: KI#4 Other aspects"),
+        "20.7.1": SimpleNamespace(description="FS_OTHER: KI#4 Something else"),
+    }
+    res_disamb = auto_suggest_links(
+        "Re: [SA2#178, FS_6G_ARC, KI#4] Interim conclusion",
+        agenda_map=agenda_map,
+        valid_wis=["FS_6G_ARC", "FS_OTHER"],
+    )
+    assert res_disamb["ais"] == ["20.6.2"]
+    assert res_disamb["wis"] == ["FS_6G_ARC"]
+
+    res_unmapped = auto_suggest_links(
+        "Re: [KI#99, UNKNOWN_WI] Topic",
+        agenda_map=agenda_map,
+        valid_wis=["FS_6G_ARC"],
+    )
+    assert res_unmapped["ais"] == []
+    assert res_unmapped["wis"] == []
+
+    # 2. Strict dropdowns, cascading Sub-Topics, parent-removal pruning, and preservation of legacy links
+    db = TrackedThreadsDatabase(tmp_path / "threads.db")
+    tid = db.create_or_get_thread(
+        "Cascading Links Thread",
+        "Cascading Links Thread",
+        meeting_id="SA2#178",
+        linked_ais=["LEGACY_KI#4", "20.6.1"],
+        linked_wis=["LEGACY_WI"],
+    )
+    ai_to_sub = {
+        "20.6.1": ["NAS Routing/transport", "Shared Sub"],
+        "20.6.2": ["KI#4 Bullet 3", "Shared Sub"],
+    }
+    dlg = TrackedThreadDialog(
+        db,
+        tid,
+        ai_suggestions=["20.6.1 — FS_6G_ARC: KI#1_1", "20.6.2 — FS_6G_ARC: KI#4"],
+        wi_suggestions=["FS_6G_ARC"],
+        ai_to_sub_items=ai_to_sub,
+    )
+    # Strict dropdowns hide/lock free-text input
+    assert dlg.ais_pills.strict_dropdown and dlg.ais_pills.input_edit.isReadOnly()
+    assert dlg.sub_items_pills.strict_dropdown and dlg.wis_pills.strict_dropdown
+    assert not dlg.tdocs_pills.strict_dropdown and not dlg.tags_pills.strict_dropdown
+    # Legacy AIs/WIs are NOT auto-cleaned on load
+    assert dlg.ais_pills.tags() == ["LEGACY_KI#4", "20.6.1"]
+    assert dlg.wis_pills.tags() == ["LEGACY_WI"]
+    assert dlg.sub_items_pills._suggestions == ["NAS Routing/transport", "Shared Sub"]
+
+    # Select sub-topic under 20.6.1 and also add 20.6.2
+    dlg.sub_items_pills.add_tag("NAS Routing/transport")
+    dlg.sub_items_pills.add_tag("Shared Sub")
+    dlg.ais_pills.add_tag("20.6.2")
+    assert set(dlg.sub_items_pills._suggestions) == {"NAS Routing/transport", "KI#4 Bullet 3", "Shared Sub"}
+    assert set(db.get_thread(tid)["linked_sub_items"]) == {"NAS Routing/transport", "Shared Sub"}
+
+    # Removing parent AI 20.6.1 prunes "NAS Routing/transport" while keeping "Shared Sub" (still under 20.6.2)
+    dlg.ais_pills.remove_tag("20.6.1")
+    assert db.get_thread(tid)["linked_sub_items"] == ["Shared Sub"]
+    assert dlg.sub_items_pills._suggestions == ["KI#4 Bullet 3", "Shared Sub"]
+
+    # Removing remaining mapped AI 20.6.2 clears sub-topics and disables picker with "No sub-topics for AI"
+    dlg.ais_pills.remove_tag("20.6.2")
+    assert db.get_thread(tid)["linked_sub_items"] == []
+    assert not dlg.sub_items_pills.pick_btn.isEnabled()
+    assert "No sub-topics for AI" in dlg.sub_items_pills.pick_btn.text()
+
+    # Removing the remaining legacy AI pill switches label to "Assign AI first"
+    dlg.ais_pills.remove_tag("LEGACY_KI#4")
+    assert "Assign AI first" in dlg.sub_items_pills.pick_btn.text()
+    dlg.close()
