@@ -359,8 +359,7 @@ class CliContextEditorDialog(QDialog):
 
         self.model_combo.blockSignals(True)
         self.model_combo.clear()
-        def_label = f"(Use CLI Default: {cli_def_model})" if cli_def_model else "(Use CLI Default)"
-        self.model_combo.addItem(def_label, "")
+        self.model_combo.addItem("(Use CLI Default)", "")
         for opt in models:
             lbl = f"{opt.display_name} ({opt.slug})" if opt.display_name != opt.slug else opt.slug
             self.model_combo.addItem(lbl, opt.slug)
@@ -442,8 +441,7 @@ class CliContextEditorDialog(QDialog):
                     break
 
         self.effort_combo.clear()
-        def_eff_label = f"(CLI Default: {cli_default_effort})" if cli_default_effort else "(CLI Default)"
-        self.effort_combo.addItem(def_eff_label, "")
+        self.effort_combo.addItem("(CLI Default)", "")
         for lvl in levels:
             self.effort_combo.addItem(lvl, lvl)
 

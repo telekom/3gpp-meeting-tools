@@ -641,12 +641,7 @@ def add_model_selector_submenu(
     model_menu = agent_submenu.addMenu(f"🧠 Model / Effort ({badge})")
     model_menu.setToolTipsVisible(True)
 
-    def_hint = (
-        f" ({cli_def_model}" + (f" · {cli_def_effort}" if cli_def_effort else "") + ")"
-        if cli_def_model
-        else ""
-    )
-    act_default = model_menu.addAction(f"🔄 Use CLI Default{def_hint}")
+    act_default = model_menu.addAction("🔄 Use CLI Default")
     act_default.setCheckable(True)
     act_default.setChecked(not active_model and not active_effort)
     act_default.setToolTip("Clear any 3GPP Tools override and inherit the CLI's own configured default.")

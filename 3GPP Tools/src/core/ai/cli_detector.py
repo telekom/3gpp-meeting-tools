@@ -542,24 +542,16 @@ def discover_cli_models(
 
 
 def format_active_model_badge(agent_id: str, *, home_dir: Optional[Path] = None) -> str:
-    """Format a compact UI label describing the active or CLI-default model and effort."""
+    """Format a compact UI label describing the active model/effort override or ``CLI Default``."""
     cid = (agent_id or "").strip().lower()
     cfg_model, cfg_effort = get_cli_agent_model_config(cid)
-    models, cli_def_model, cli_def_effort = discover_cli_models(cid, home_dir=home_dir)
+    if not cfg_model and not cfg_effort:
+        return "CLI Default"
+
+    models, _, _ = discover_cli_models(cid, home_dir=home_dir)
     display_lookup = {m.slug: m.display_name for m in models}
-
-    if cfg_model or cfg_effort:
-        model_disp = display_lookup.get(cfg_model, cfg_model) if cfg_model else (
-            display_lookup.get(cli_def_model, cli_def_model) or "CLI Default"
-        )
-        eff = cfg_effort or cli_def_effort
-        return f"{model_disp} · {eff}" if eff else model_disp
-
-    if cli_def_model:
-        model_disp = display_lookup.get(cli_def_model, cli_def_model)
-        eff = cli_def_effort
-        return f"default: {model_disp}" + (f" · {eff}" if eff else "")
-    return "CLI Default"
+    model_disp = display_lookup.get(cfg_model, cfg_model) if cfg_model else "CLI Default"
+    return f"{model_disp} · {cfg_effort}" if cfg_effort else model_disp
 
 
 def build_interactive_cli_args(
