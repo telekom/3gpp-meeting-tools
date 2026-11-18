@@ -25,6 +25,22 @@ from core.utils.dpapi import SecureCredentialStore, redact_sensitive_urls
 # ==========================================
 # --- GLOBAL STYLESHEET (ALL-BLUE THEME) ---
 # ==========================================
+def _combo_chevron_url() -> str:
+    """Return cached SVG URL for the global QComboBox dropdown chevron."""
+    try:
+        from core.ui.icons import lucide_svg_path
+        return lucide_svg_path("chevron-down", C.TEXT_MUTED)
+    except Exception:
+        return ""
+
+
+_GLOBAL_COMBO_CHEVRON = _combo_chevron_url()
+_GLOBAL_COMBO_ARROW_QSS = (
+    f'image: url("{_GLOBAL_COMBO_CHEVRON}"); width: 12px; height: 12px;'
+    if _GLOBAL_COMBO_CHEVRON
+    else ""
+)
+
 GLOBAL_STYLE = f"""
     QWidget {{
         font-family: {T.FONT_FAMILY_UI};
@@ -129,16 +145,47 @@ GLOBAL_STYLE = f"""
     }}
     QComboBox {{
         combobox-popup: 0;
-        padding: 4px 8px;
+        padding: 4px 26px 4px 10px;
         border-radius: {R.SM}px;
         border: 1px solid {C.BORDER_STRONG};
         background-color: {C.BG_CARD};
         font-weight: bold;
         color: {C.TEXT_BODY};
     }}
+    QComboBox:hover {{
+        border-color: {C.BORDER_HOVER};
+    }}
+    QComboBox:focus, QComboBox:on {{
+        border-color: {C.ACCENT_PRIMARY};
+    }}
+    QComboBox:disabled {{
+        background-color: {C.BG_SURFACE};
+        color: {C.TEXT_MUTED};
+        border-color: {C.BORDER_SUBTLE};
+    }}
     QComboBox::drop-down {{
+        subcontrol-origin: padding;
+        subcontrol-position: top right;
+        width: 22px;
         border: none;
-        width: 20px;
+    }}
+    QComboBox::down-arrow {{
+        {_GLOBAL_COMBO_ARROW_QSS}
+    }}
+    QComboBox QAbstractItemView {{
+        border: 1px solid {C.BORDER_STRONG};
+        border-radius: {R.MD}px;
+        background-color: {C.BG_CARD};
+        color: {C.TEXT_STRONG};
+        selection-background-color: {C.ACCENT_SOFT};
+        selection-color: {C.ACCENT_PRIMARY};
+        padding: 4px;
+        outline: none;
+    }}
+    QComboBox QAbstractItemView::item {{
+        min-height: 24px;
+        padding: 3px 8px;
+        border-radius: 3px;
     }}
     QTextEdit#console, QListWidget#queueList {{
         background-color: {C.CONSOLE_LEGACY_BG};

@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import (
     QDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QPlainTextEdit,
     QPushButton,
@@ -104,13 +105,15 @@ class CliContextEditorDialog(QDialog):
         self._home_dir = home_dir
         self._launch_requested = False
         self._models_cache: List[CliModelOption] = []
+        self._last_model_idx: int = 0
 
         self.setWindowTitle(
             "CLI Models & Standing Company Context"
             if self._settings_only
             else "Edit CLI Context, Notes & Model"
         )
-        self.resize(760, 620)
+        self.resize(840, 620)
+        self.setMinimumWidth(700)
         self.setModal(True)
 
         self._setup_ui(
@@ -132,8 +135,9 @@ class CliContextEditorDialog(QDialog):
 
         # Header card: Agent, Model, Reasoning Effort
         header_card = QFrame()
+        header_card.setObjectName("cliContextHeaderCard")
         header_card.setStyleSheet(
-            f"QFrame {{ background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px; }}"
+            f"QFrame#cliContextHeaderCard {{ background: {C.BG_SURFACE}; border: 1px solid {C.BORDER_STRONG}; border-radius: 6px; }}"
         )
         header_layout = QVBoxLayout(header_card)
         header_layout.setContentsMargins(12, 10, 12, 10)
@@ -151,14 +155,15 @@ class CliContextEditorDialog(QDialog):
         title_row.addStretch()
         header_layout.addLayout(title_row)
 
-        model_row = QHBoxLayout()
-        model_row.setSpacing(8)
+        agent_row = QHBoxLayout()
+        agent_row.setSpacing(8)
 
         lbl_agent = QLabel("CLI Agent:")
         lbl_agent.setStyleSheet(f"color: {C.TEXT_STRONG}; font-weight: 600; border: none;")
-        model_row.addWidget(lbl_agent)
+        agent_row.addWidget(lbl_agent)
 
         self.agent_combo = QComboBox()
+        self.agent_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         for aid, spec in CLI_AGENT_SPECS.items():
             self.agent_combo.addItem(f"{spec.icon} {spec.label}", aid)
         idx_a = self.agent_combo.findData(self._agent_id)
@@ -166,17 +171,23 @@ class CliContextEditorDialog(QDialog):
             self.agent_combo.setCurrentIndex(idx_a)
         self.agent_combo.setEnabled(self._settings_only)
         self.agent_combo.currentIndexChanged.connect(self._on_agent_changed)
-        model_row.addWidget(self.agent_combo)
+        agent_row.addWidget(self.agent_combo)
+        agent_row.addStretch(1)
+        header_layout.addLayout(agent_row)
+
+        model_row = QHBoxLayout()
+        model_row.setSpacing(8)
 
         lbl_model = QLabel("Model:")
         lbl_model.setStyleSheet(f"color: {C.TEXT_STRONG}; font-weight: 600; border: none;")
         model_row.addWidget(lbl_model)
 
         self.model_combo = QComboBox()
-        self.model_combo.setEditable(True)
-        self.model_combo.setInsertPolicy(QComboBox.NoInsert)
+        self.model_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.model_combo.setMinimumContentsLength(16)
         self.model_combo.setMinimumWidth(220)
         self.model_combo.currentIndexChanged.connect(self._on_model_changed)
+        self.model_combo.activated.connect(self._on_model_activated)
         model_row.addWidget(self.model_combo, stretch=1)
 
         lbl_effort = QLabel("Reasoning Effort:")
@@ -184,7 +195,8 @@ class CliContextEditorDialog(QDialog):
         model_row.addWidget(lbl_effort)
 
         self.effort_combo = QComboBox()
-        self.effort_combo.setMinimumWidth(140)
+        self.effort_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.effort_combo.setMinimumWidth(160)
         model_row.addWidget(self.effort_combo)
 
         header_layout.addLayout(model_row)
@@ -220,6 +232,10 @@ class CliContextEditorDialog(QDialog):
 
         # Tabs: Workspace / TDoc Notes + Standing Company Context
         self.tabs = QTabWidget()
+        tab_font = self.tabs.tabBar().font()
+        tab_font.setBold(True)
+        self.tabs.tabBar().setFont(tab_font)
+        self.tabs.setStyleSheet("QTabBar::tab:!selected { font-weight: normal; }")
 
         if not self._settings_only:
             notes_tab = QWidget()
@@ -354,21 +370,62 @@ class CliContextEditorDialog(QDialog):
             if idx >= 0:
                 self.model_combo.setCurrentIndex(idx)
             else:
-                self.model_combo.setEditText(saved_model)
+                self.model_combo.addItem(f"{saved_model} (custom)", saved_model)
+                self.model_combo.setCurrentIndex(self.model_combo.count() - 1)
         else:
             self.model_combo.setCurrentIndex(0)
+
+        self.model_combo.addItem("✏️ Custom model slug...", "__custom__")
+        self._last_model_idx = max(0, self.model_combo.currentIndex())
+
+        view = self.model_combo.view()
+        if view is not None:
+            fm = self.model_combo.fontMetrics()
+            max_item_w = max(
+                (fm.horizontalAdvance(self.model_combo.itemText(i)) for i in range(self.model_combo.count())),
+                default=260,
+            )
+            view.setMinimumWidth(min(560, max(280, max_item_w + 48)))
+
         self.model_combo.blockSignals(False)
 
         self._populate_efforts(selected_effort=saved_effort, cli_default_effort=cli_def_effort)
 
     def _current_model_slug(self) -> str:
-        idx = self.model_combo.currentIndex()
-        if idx >= 0 and self.model_combo.currentText() == self.model_combo.itemText(idx):
-            return str(self.model_combo.itemData(idx) or "").strip()
-        txt = self.model_combo.currentText().strip()
-        if txt.startswith("(Use CLI Default"):
+        data = self.model_combo.currentData()
+        if data is None or str(data) == "__custom__":
             return ""
-        return txt
+        return str(data).strip()
+
+    def _on_model_activated(self, index: int) -> None:
+        if str(self.model_combo.itemData(index) or "") != "__custom__":
+            self._last_model_idx = index
+            return
+        spec = CLI_AGENT_SPECS.get(self._agent_id)
+        agent_label = spec.label if spec else self._agent_id
+        text, ok = QInputDialog.getText(
+            self,
+            "Custom Model Slug",
+            f"Enter custom model ID/slug for {agent_label}:",
+        )
+        slug = text.strip() if ok else ""
+        if slug and slug != "__custom__":
+            existing = self.model_combo.findData(slug)
+            if existing >= 0:
+                self.model_combo.setCurrentIndex(existing)
+                self._last_model_idx = existing
+            else:
+                insert_pos = max(1, self.model_combo.count() - 1)
+                self.model_combo.blockSignals(True)
+                self.model_combo.insertItem(insert_pos, f"{slug} (custom)", slug)
+                self.model_combo.setCurrentIndex(insert_pos)
+                self.model_combo.blockSignals(False)
+                self._last_model_idx = insert_pos
+                self._on_model_changed()
+        else:
+            self.model_combo.blockSignals(True)
+            self.model_combo.setCurrentIndex(self._last_model_idx)
+            self.model_combo.blockSignals(False)
 
     def _populate_efforts(self, *, selected_effort: str = "", cli_default_effort: str = "") -> None:
         slug = self._current_model_slug()
@@ -402,6 +459,9 @@ class CliContextEditorDialog(QDialog):
         self.effort_combo.setEnabled(self.effort_combo.count() > 1)
 
     def _on_model_changed(self) -> None:
+        if str(self.model_combo.currentData() or "") == "__custom__":
+            return
+        self._last_model_idx = max(0, self.model_combo.currentIndex())
         _, _, cli_def_effort = discover_cli_models(self._agent_id, home_dir=self._home_dir)
         cur_eff = str(self.effort_combo.currentData() or "").strip().lower()
         self._populate_efforts(selected_effort=cur_eff, cli_default_effort=cli_def_effort)
