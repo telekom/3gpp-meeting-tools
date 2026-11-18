@@ -79,12 +79,14 @@ from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.emails.core.tracked_threads_service import (
     pin_thread_from_msg,
     pin_thread_from_outlook_selection,
-    refresh_meeting_threads,
 )
+from modules.emails.core.tracked_threads_workers import TrackedThreadsRefreshWorker
+from modules.emails.ui.sync_progress_bar import AsyncSyncProgressBar
 from modules.emails.ui.tracked_thread_dialog import (
     PinFromOutlookDialog,
     TrackedThreadDialog,
 )
+from core.ui.toast import notify_info, notify_success, notify_toast
 from modules.emails.ui.general_email_dialog import (
     GeneralEmailFoldersDialog, GeneralEmailSyncDialog, TDocEmailsDialog, load_wg_email_config
 )
@@ -933,6 +935,12 @@ class TDocsWindow(QWidget):
         filter_layout.addWidget(tail_group)
 
         layout.addWidget(filter_frame)
+
+        self.thread_sync_bar = AsyncSyncProgressBar(self)
+        self.thread_sync_bar.cancel_requested.connect(self._on_cancel_tracked_threads_sync)
+        layout.addWidget(self.thread_sync_bar)
+        self._tracked_threads_sync_worker = None
+        self._sync_silent_mode = False
 
     def _setup_table(self, layout, data, user_data):
         self.settings = MeetingsSettings()
@@ -3355,24 +3363,82 @@ class TDocsWindow(QWidget):
             self._open_tracked_thread_dialog(dlg.pinned_thread_ids[-1])
 
     def _on_refresh_tracked_threads(self, silent: bool = False):
-        meeting_id = self._get_meeting_id_label()
-        updates = refresh_meeting_threads(self.tracked_threads_db, meeting_id)
-        self._on_tracked_thread_changed()
-        new_total = sum(updates.values())
-        if new_total > 0:
-            QToolTip.showText(
-                QCursor.pos(),
-                f"📧 {new_total} new reply/replies across {len(updates)} tracked email thread(s)!",
-                self,
-            )
+        if getattr(self, "_tracked_threads_sync_worker", None) and self._tracked_threads_sync_worker.isRunning():
             if not silent:
-                QMessageBox.information(
+                notify_info(self, "Thread Sync Running", "Tracked email thread sync is already in progress.")
+            return
+        if not hasattr(self, "tracked_threads_db"):
+            return
+        meeting_id = self._get_meeting_id_label()
+        threads = self.tracked_threads_db.get_threads_for_meeting(meeting_id)
+        if not threads:
+            if not silent:
+                notify_info(self, "Tracked Threads", "No pinned email threads found for this meeting.")
+            return
+
+        self._sync_silent_mode = bool(silent)
+        titles = [str(t.get("title") or t.get("thread_id") or "") for t in threads]
+        if hasattr(self, "thread_sync_bar"):
+            self.thread_sync_bar.start_busy("Syncing tracked threads...", total=len(titles), remaining=titles)
+        if hasattr(self, "email_btn"):
+            self.email_btn.setText(f"⏳ Syncing 0/{len(titles)}...")
+
+        worker = TrackedThreadsRefreshWorker(self.tracked_threads_db.db_path, meeting_id, parent=self)
+        worker.progress.connect(self._on_tracked_threads_sync_progress)
+        worker.thread_updated.connect(lambda _tid, _n: self._sync_tracked_threads_to_table())
+        worker.finished_sync.connect(self._on_tracked_threads_sync_finished)
+        self._tracked_threads_sync_worker = worker
+        worker.start()
+
+    def _on_cancel_tracked_threads_sync(self):
+        if getattr(self, "_tracked_threads_sync_worker", None) and self._tracked_threads_sync_worker.isRunning():
+            self._tracked_threads_sync_worker.request_cancel()
+
+    def _on_tracked_threads_sync_progress(self, completed: int, total: int, current_title: str, remaining: list):
+        if hasattr(self, "thread_sync_bar"):
+            self.thread_sync_bar.update_progress(completed, total, current_title, remaining)
+        if hasattr(self, "email_btn"):
+            self.email_btn.setText(f"⏳ Syncing {completed}/{total}...")
+            rem_txt = "\n• ".join(remaining[:8]) if remaining else "(none)"
+            self.email_btn.setToolTip(
+                f"Syncing thread ({completed}/{total}): {current_title}\n\nRemaining:\n• {rem_txt}"
+            )
+
+    def _on_tracked_threads_sync_finished(self, ok: bool, updates: dict, err: str):
+        silent = bool(getattr(self, "_sync_silent_mode", False))
+        self._on_tracked_thread_changed()
+        if not ok:
+            if hasattr(self, "thread_sync_bar"):
+                self.thread_sync_bar.show_error(err or "Tracked thread sync interrupted.")
+            notify_toast(
+                self,
+                "Tracked Thread Sync Warning",
+                err or "Tracked thread sync did not complete cleanly.",
+                variant="warning",
+            )
+            return
+
+        if hasattr(self, "thread_sync_bar"):
+            self.thread_sync_bar.finish_ok()
+        new_total = sum((updates or {}).values())
+        if new_total > 0:
+            notify_success(
+                self,
+                "Tracked Threads Refreshed",
+                f"Found {new_total} new message(s) across {len(updates)} tracked thread(s).",
+            )
+            if silent:
+                QToolTip.showText(
+                    QCursor.pos(),
+                    f"📧 {new_total} new reply/replies across {len(updates)} tracked email thread(s)!",
                     self,
-                    "Tracked Threads Refreshed",
-                    f"Found {new_total} new message(s) across {len(updates)} tracked thread(s).",
                 )
         elif not silent:
-            QMessageBox.information(self, "Tracked Threads Up-to-Date", "No new replies found in configured Outlook folders.")
+            notify_info(
+                self,
+                "Tracked Threads Up-to-Date",
+                "No new replies found in configured Outlook folders.",
+            )
 
     def _on_toggle_auto_refresh_threads(self, enabled: bool):
         if enabled:
@@ -3550,6 +3616,12 @@ class TDocsWindow(QWidget):
             self.routing_timer.stop()
         if hasattr(self, 'tracked_threads_timer'):
             self.tracked_threads_timer.stop()
+        if getattr(self, '_tracked_threads_sync_worker', None) and self._tracked_threads_sync_worker.isRunning():
+            try:
+                self._tracked_threads_sync_worker.request_cancel()
+                self._tracked_threads_sync_worker.wait(1500)
+            except Exception:
+                pass
         if hasattr(self, 'search_timer'):
             self.search_timer.stop()
 

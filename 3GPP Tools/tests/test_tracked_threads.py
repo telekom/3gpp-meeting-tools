@@ -797,3 +797,78 @@ def test_strict_dropdown_cascading_subitems_and_ki_resolution(tmp_path):
     dlg.ais_pills.remove_tag("LEGACY_KI#4")
     assert "Assign AI first" in dlg.sub_items_pills.pick_btn.text()
     dlg.close()
+
+
+def test_async_thread_sync_workers_and_progress_bar(tmp_path):
+    from unittest.mock import patch
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+
+    from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+    from modules.emails.core.tracked_threads_workers import (
+        OutlookFolderScanWorker,
+        SingleThreadRefreshWorker,
+        TrackedThreadsRefreshWorker,
+    )
+    from modules.emails.ui.sync_progress_bar import AsyncSyncProgressBar
+
+    # 1. Test AsyncSyncProgressBar states
+    bar = AsyncSyncProgressBar()
+    bar.show()
+    bar.start_busy("Syncing threads...", total=3, remaining=["Thread A", "Thread B", "Thread C"])
+    assert not bar.isHidden()
+    assert bar.progress_bar.maximum() == 3
+
+    bar.update_progress(1, 3, "Thread A", ["Thread B", "Thread C"])
+    assert "Thread A" in bar.status_label.text()
+    assert "Next (2):" in bar.remaining_label.text()
+    assert bar.progress_bar.value() == 1
+
+    bar.show_error("Outlook RPC unavailable")
+    assert not bar.isHidden()
+    assert "Outlook RPC unavailable" in bar.status_label.text()
+    assert bar.cancel_btn.text() == "Dismiss"
+    bar.cancel_btn.click()
+    assert bar.isHidden()
+
+    bar.start_busy("Done test", total=1)
+    bar.finish_ok()
+    assert bar.isHidden()
+
+    # 2. Test TrackedThreadsRefreshWorker + SingleThreadRefreshWorker + OutlookFolderScanWorker
+    db_path = tmp_path / "threads.db"
+    db = TrackedThreadsDatabase(db_path)
+    t1 = db.create_or_get_thread("Thread One", "Thread One", meeting_id="SA2#178", outlook_folders=["Inbox"])
+    t2 = db.create_or_get_thread("Thread Two", "Thread Two", meeting_id="SA2#178", outlook_folders=["Inbox"])
+
+    progress_events = []
+    finished_events = []
+
+    def fake_refresh(_db, tid, progress_cb=None, cancel_check=None):
+        if progress_cb:
+            progress_cb(0, 1, "Inbox", [])
+        return 2 if tid == t1 else 0
+
+    with patch("modules.emails.core.tracked_threads_workers.refresh_thread", side_effect=fake_refresh):
+        w = TrackedThreadsRefreshWorker(db_path, "SA2#178")
+        w.progress.connect(lambda c, t, cur, rem: progress_events.append((c, t, cur, rem)))
+        w.finished_sync.connect(lambda ok, upd, err: finished_events.append((ok, upd, err)))
+        w.run()
+        assert any(cur == "Thread One" and "Thread Two" in rem for _c, _t, cur, rem in progress_events)
+        assert finished_events == [(True, {t1: 2}, "")]
+
+        single_events = []
+        sw = SingleThreadRefreshWorker(db_path, t1)
+        sw.finished_sync.connect(lambda ok, cnt, err: single_events.append((ok, cnt, err)))
+        sw.run()
+        assert single_events == [(True, 2, "")]
+
+    with patch(
+        "modules.emails.core.tracked_threads_workers.list_recent_threads_in_folders",
+        return_value=[{"title": "Sample", "normalized_subject": "Sample", "count": 3}],
+    ):
+        scan_events = []
+        fw = OutlookFolderScanWorker("SA2")
+        fw.finished_scan.connect(lambda ok, items, err: scan_events.append((ok, len(items), err)))
+        fw.run()
+        assert scan_events == [(True, 1, "")]

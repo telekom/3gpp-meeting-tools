@@ -39,6 +39,7 @@ from core.ai.cli_launcher import (
 )
 from core.ui.flow_layout import FlowLayout
 from core.ui.font_scale import install_reader_zoom, zoom_text_widget
+from core.ui.toast import notify_info, notify_success, notify_toast
 from modules.emails.core.thread_markdown_exporter import (
     export_thread_to_markdown,
     is_cacheable_document_url,
@@ -47,17 +48,20 @@ from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.emails.core.tracked_threads_service import (
     cache_all_thread_documents_and_attachments,
     cache_and_open_thread_document_url,
-    list_recent_threads_in_folders,
     mark_thread_read_with_outlook,
     open_outlook_attachment,
     open_outlook_message,
     pin_thread_by_subject_or_cid,
     prepare_thread_llm_workspace,
-    refresh_thread,
     reply_to_outlook_message,
     set_thread_message_flag_with_outlook,
     set_thread_message_read_with_outlook,
 )
+from modules.emails.core.tracked_threads_workers import (
+    OutlookFolderScanWorker,
+    SingleThreadRefreshWorker,
+)
+from modules.emails.ui.sync_progress_bar import AsyncSyncProgressBar
 from modules.meetings.ui.topic_pills import TagCloudWidget
 
 
@@ -97,6 +101,7 @@ class TrackedThreadDialog(QDialog):
         self._annotations_save_callback = annotations_save_callback
         self._tdoc_family_expander = tdoc_family_expander
         self._loading = False
+        self._refresh_worker: Optional[SingleThreadRefreshWorker] = None
         self._settings = QSettings("3GPP_Tools", "TrackedThreadDialog")
         self.setWindowTitle("Tracked Email Thread")
         self.setMinimumSize(520, 420)
@@ -213,10 +218,10 @@ class TrackedThreadDialog(QDialog):
         toolbar_widget.setSizePolicy(toolbar_sp)
         toolbar = FlowLayout(toolbar_widget, margin=0, h_spacing=6, v_spacing=4)
 
-        refresh_btn = QPushButton("🔄 Refresh")
-        refresh_btn.setToolTip("Sync new replies and Outlook read/flag states for this thread.")
-        refresh_btn.clicked.connect(self._on_refresh)
-        toolbar.addWidget(refresh_btn)
+        self.refresh_btn = QPushButton("🔄 Refresh")
+        self.refresh_btn.setToolTip("Sync new replies and Outlook read/flag states for this thread in the background.")
+        self.refresh_btn.clicked.connect(self._on_refresh)
+        toolbar.addWidget(self.refresh_btn)
 
         read_btn = QPushButton("✔️ Mark All Read")
         read_btn.setToolTip("Mark all messages in this thread as read (and sync to Outlook).")
@@ -272,6 +277,10 @@ class TrackedThreadDialog(QDialog):
         toolbar.addWidget(more_btn)
 
         layout.addWidget(toolbar_widget)
+
+        self.sync_bar = AsyncSyncProgressBar(self)
+        self.sync_bar.cancel_requested.connect(self._on_cancel_refresh)
+        layout.addWidget(self.sync_bar)
 
         # Row 3: Search, Company/State Filters & Display Order
         filter_row = QHBoxLayout()
@@ -392,6 +401,12 @@ class TrackedThreadDialog(QDialog):
         act_cfg.triggered.connect(lambda _=False: open_mcp_agent_setup_dialog(self))
 
     def closeEvent(self, event):
+        try:
+            if getattr(self, "_refresh_worker", None) and self._refresh_worker.isRunning():
+                self._refresh_worker.request_cancel()
+                self._refresh_worker.wait(1500)
+        except Exception:
+            pass
         try:
             self._settings.setValue("geometry", self.saveGeometry())
             if hasattr(self, "browser"):
@@ -685,10 +700,38 @@ class TrackedThreadDialog(QDialog):
         InteractiveNotesDialog(self, self.thread_id, row_data, _save, all_existing_tags=all_tags).exec_()
 
     def _on_refresh(self):
-        new_count = refresh_thread(self.db, self.thread_id)
+        if self._refresh_worker and self._refresh_worker.isRunning():
+            return
+        self.refresh_btn.setEnabled(False)
+        self.refresh_btn.setText("⏳ Syncing...")
+        thread = self.db.get_thread(self.thread_id) or {}
+        folders = thread.get("outlook_folders") or []
+        self.sync_bar.start_busy("Scanning Outlook folders...", total=len(folders), remaining=folders)
+
+        worker = SingleThreadRefreshWorker(self.db.db_path, self.thread_id, parent=self)
+        worker.progress.connect(self.sync_bar.update_progress)
+        worker.finished_sync.connect(self._on_refresh_finished)
+        self._refresh_worker = worker
+        worker.start()
+
+    def _on_cancel_refresh(self):
+        if self._refresh_worker and self._refresh_worker.isRunning():
+            self._refresh_worker.request_cancel()
+
+    def _on_refresh_finished(self, ok: bool, new_count: int, err: str):
+        self.refresh_btn.setEnabled(True)
+        self.refresh_btn.setText("🔄 Refresh")
         self._load_data()
         self.thread_changed.emit()
-        QMessageBox.information(self, "Thread Refreshed", f"Sync complete. {new_count} new message(s) found.")
+        if ok:
+            self.sync_bar.finish_ok()
+            if new_count > 0:
+                notify_success(self, "Thread Refreshed", f"{new_count} new message(s) synced.")
+            else:
+                notify_info(self, "Thread Up-to-Date", "No new replies found in Outlook.")
+        else:
+            self.sync_bar.show_error(err or "Thread sync did not finish cleanly.")
+            notify_toast(self, "Thread Sync", err or "Sync warning", variant="warning")
 
     def _on_mark_read(self):
         mark_thread_read_with_outlook(self.db, self.thread_id, sync_outlook=True)
@@ -817,6 +860,7 @@ class PinFromOutlookDialog(QDialog):
         self._valid_wis = valid_wis
         self.pinned_thread_ids = []
         self._threads = []
+        self._scan_worker: Optional[OutlookFolderScanWorker] = None
         self.setWindowTitle(f"Pin Email Thread from Configured {wg} Outlook Folders")
         self.resize(780, 520)
         self._build_ui()
@@ -832,10 +876,14 @@ class PinFromOutlookDialog(QDialog):
         self.search_edit.textChanged.connect(self._apply_filter)
         search_row.addWidget(self.search_edit, 1)
 
-        reload_btn = QPushButton("Rescan Folders")
-        reload_btn.clicked.connect(self._load_threads)
-        search_row.addWidget(reload_btn)
+        self.reload_btn = QPushButton("Rescan Folders")
+        self.reload_btn.clicked.connect(self._load_threads)
+        search_row.addWidget(self.reload_btn)
         layout.addLayout(search_row)
+
+        self.scan_bar = AsyncSyncProgressBar(self)
+        self.scan_bar.cancel_requested.connect(self._on_cancel_scan)
+        layout.addWidget(self.scan_bar)
 
         self.list_widget = QListWidget()
         self.list_widget.setSelectionMode(QListWidget.ExtendedSelection)
@@ -851,9 +899,45 @@ class PinFromOutlookDialog(QDialog):
         btn_row.addWidget(cancel_btn)
         layout.addLayout(btn_row)
 
+    def _on_cancel_scan(self):
+        if self._scan_worker and self._scan_worker.isRunning():
+            self._scan_worker.request_cancel()
+
+    def _stop_scan_worker(self):
+        if getattr(self, "_scan_worker", None) and self._scan_worker.isRunning():
+            self._scan_worker.request_cancel()
+            self._scan_worker.wait(1500)
+
+    def reject(self):
+        self._stop_scan_worker()
+        super().reject()
+
+    def closeEvent(self, event):
+        self._stop_scan_worker()
+        super().closeEvent(event)
+
     def _load_threads(self):
-        self._threads = list_recent_threads_in_folders(self.wg)
+        if self._scan_worker and self._scan_worker.isRunning():
+            return
+        self.reload_btn.setEnabled(False)
+        self.reload_btn.setText("⏳ Scanning...")
+        self.scan_bar.start_busy(f"Scanning {self.wg} Outlook folders...")
+
+        worker = OutlookFolderScanWorker(self.wg, parent=self)
+        worker.progress.connect(self.scan_bar.update_progress)
+        worker.finished_scan.connect(self._on_scan_finished)
+        self._scan_worker = worker
+        worker.start()
+
+    def _on_scan_finished(self, ok: bool, threads: list, err: str):
+        self.reload_btn.setEnabled(True)
+        self.reload_btn.setText("Rescan Folders")
+        self._threads = list(threads or [])
         self._apply_filter()
+        if ok:
+            self.scan_bar.finish_ok()
+        else:
+            self.scan_bar.show_error(err or "Folder scan did not finish cleanly.")
 
     def _apply_filter(self):
         q = self.search_edit.text().strip().lower()

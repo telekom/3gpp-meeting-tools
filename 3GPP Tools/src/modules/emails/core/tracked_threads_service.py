@@ -2,7 +2,7 @@
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from modules.emails.core.email_config import load_wg_email_config
 from modules.emails.core.thread_markdown_exporter import (
@@ -291,6 +291,8 @@ def _collect_matching_from_folders(
     subject_patterns: List[str],
     max_scan_per_folder: int = 500,
     seed_live_item: Any = None,
+    progress_cb: Optional[Callable[[int, int, str, List[str]], None]] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
 ) -> List[Dict[str, Any]]:
     """Scans configured Outlook folders via fast MAPI GetTable and Outlook GetConversation() for all thread messages."""
     from modules.emails.core.outlook_client import OutlookClient
@@ -312,7 +314,13 @@ def _collect_matching_from_folders(
     # 2. Scan configured folders using bulk MAPI GetTable (sub-second even on 5,000+ item folders)
     ns = OutlookClient.get_namespace()
     conv_pulled_for = set(conv_set)
-    for fpath in _extract_folder_paths(folder_paths):
+    extracted_paths = _extract_folder_paths(folder_paths)
+    total_folders = len(extracted_paths)
+    for idx, fpath in enumerate(extracted_paths):
+        if cancel_check and cancel_check():
+            break
+        if progress_cb:
+            progress_cb(idx, total_folders, fpath, extracted_paths[idx + 1 :])
         folder = OutlookClient.get_folder_by_path(fpath)
         if not folder or not ns:
             continue
@@ -327,6 +335,8 @@ def _collect_matching_from_folders(
                     pass
             scanned = 0
             while not tbl.EndOfTable and scanned < max_scan_per_folder:
+                if cancel_check and cancel_check():
+                    break
                 scanned += 1
                 try:
                     row = tbl.GetNextRow()
@@ -467,7 +477,12 @@ def pin_thread_from_outlook_selection(
     return pinned
 
 
-def refresh_thread(db: TrackedThreadsDatabase, thread_id: str) -> int:
+def refresh_thread(
+    db: TrackedThreadsDatabase,
+    thread_id: str,
+    progress_cb: Optional[Callable[[int, int, str, List[str]], None]] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
+) -> int:
     """Refreshes a single tracked thread from its configured Outlook folders. Returns new message count."""
     thread = db.get_thread(thread_id)
     if not thread:
@@ -479,6 +494,8 @@ def refresh_thread(db: TrackedThreadsDatabase, thread_id: str) -> int:
         folders,
         thread.get("conversation_ids") or [],
         thread.get("subject_patterns") or [thread.get("normalized_subject", "")],
+        progress_cb=progress_cb,
+        cancel_check=cancel_check,
     )
     discovered_cids = [m["conversation_id"] for m in found if m.get("conversation_id")]
     if discovered_cids:
@@ -486,25 +503,47 @@ def refresh_thread(db: TrackedThreadsDatabase, thread_id: str) -> int:
     return db.upsert_messages(thread_id, found)
 
 
-def refresh_meeting_threads(db: TrackedThreadsDatabase, meeting_id: str) -> Dict[str, int]:
+def refresh_meeting_threads(
+    db: TrackedThreadsDatabase,
+    meeting_id: str,
+    progress_cb: Optional[Callable[[int, int, str, List[str]], None]] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
+) -> Dict[str, int]:
     """Refreshes all tracked threads for a meeting. Returns {thread_id: new_count} for threads with new messages."""
     results: Dict[str, int] = {}
-    for thread in db.get_threads_for_meeting(meeting_id):
+    threads = db.get_threads_for_meeting(meeting_id)
+    total = len(threads)
+    titles = [str(t.get("title") or t.get("thread_id") or "") for t in threads]
+    for idx, thread in enumerate(threads):
+        if cancel_check and cancel_check():
+            break
+        if progress_cb:
+            progress_cb(idx, total, titles[idx], titles[idx + 1 :])
         tid = thread["thread_id"]
-        new_count = refresh_thread(db, tid)
+        new_count = refresh_thread(db, tid, cancel_check=cancel_check)
         if new_count > 0:
             results[tid] = new_count
     return results
 
 
-def list_recent_threads_in_folders(wg: str, max_items_per_folder: int = 300) -> List[Dict[str, Any]]:
+def list_recent_threads_in_folders(
+    wg: str,
+    max_items_per_folder: int = 300,
+    progress_cb: Optional[Callable[[int, int, str, List[str]], None]] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
+) -> List[Dict[str, Any]]:
     """Lists recent unique conversation threads across configured Outlook folders for a WG."""
     from modules.emails.core.outlook_client import OutlookClient
 
     folders = _extract_folder_paths(load_wg_email_config(wg)) if wg else []
     threads_by_key: Dict[str, Dict[str, Any]] = {}
+    total_folders = len(folders)
 
-    for fpath in folders:
+    for idx, fpath in enumerate(folders):
+        if cancel_check and cancel_check():
+            break
+        if progress_cb:
+            progress_cb(idx, total_folders, fpath, folders[idx + 1 :])
         folder = OutlookClient.get_folder_by_path(fpath)
         if not folder:
             continue
@@ -513,6 +552,8 @@ def list_recent_threads_in_folders(wg: str, max_items_per_folder: int = 300) -> 
             items.Sort("[ReceivedTime]", True)
             total = min(len(items), max_items_per_folder)
             for i in range(1, total + 1):
+                if cancel_check and cancel_check():
+                    break
                 try:
                     item = items.Item(i)
                     if getattr(item, "Class", 43) != 43:
