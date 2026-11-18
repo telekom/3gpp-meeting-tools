@@ -409,6 +409,7 @@ def build_row_context_menu(
     load_session_plan_callback=None,
     launch_cli_callback=None,
     selected_rows=None,
+    send_tdoc_email_callback=None,
 ):
     """Complete command center menu for row-level operations."""
     menu = QMenu(parent)
@@ -609,6 +610,45 @@ def build_row_context_menu(
     act_draft_email.setToolTip('Create a new email draft with meeting, AI and TDoc information in the subject.')
     act_draft_email.triggered.connect(lambda: compose_email_callback(tdoc_id))
 
+    if send_tdoc_email_callback:
+        if revisions:
+            latest_rev = revisions[-1]
+            latest_cached = is_tdoc_cached(meeting_dir, latest_rev)
+            act_send_latest = email_sub.addAction(
+                f"📎 Send Latest ({latest_rev}) via Email..."
+                + (" (Local)" if latest_cached else "")
+            )
+            act_send_latest.setToolTip(
+                "Create an Outlook email draft with the TDoc subject and attach the latest revision (downloads automatically if needed)."
+            )
+            act_send_latest.triggered.connect(lambda: send_tdoc_email_callback(latest_rev))
+
+            send_ver_sub = email_sub.addMenu("📎 Send Specific Version via Email")
+            send_ver_sub.setToolTipsVisible(True)
+            act_send_base = send_ver_sub.addAction(
+                f"📄 Send Base: {tdoc_id}" + (" (Local)" if base_cached else "")
+            )
+            act_send_base.setToolTip("Draft an email with the TDoc subject and attach the baseline TDoc.")
+            act_send_base.triggered.connect(lambda: send_tdoc_email_callback(tdoc_id))
+            send_ver_sub.addSeparator()
+            for rev in revisions:
+                rev_cached = is_tdoc_cached(meeting_dir, rev)
+                act_send_r = send_ver_sub.addAction(
+                    f"📄 Send Rev: {rev}" + (" (Local)" if rev_cached else "")
+                )
+                act_send_r.setToolTip("Draft an email with the TDoc subject and attach this revision.")
+                act_send_r.triggered.connect(
+                    lambda _, r=rev: send_tdoc_email_callback(r)
+                )
+        else:
+            act_send_tdoc = email_sub.addAction(
+                f"📎 Send {tdoc_id} via Email..." + (" (Local)" if base_cached else "")
+            )
+            act_send_tdoc.setToolTip(
+                "Create an Outlook email draft with the TDoc subject and attach this TDoc (downloads automatically if needed)."
+            )
+            act_send_tdoc.triggered.connect(lambda: send_tdoc_email_callback(tdoc_id))
+
     email_sub.addSeparator()
     act_mark_read = email_sub.addAction(
         f"✔️ Mark all emails as read for {tdoc_id} family"
@@ -657,6 +697,7 @@ def build_related_menu(
     triage_callback=None,  # <--- Added parameter
     compare_active_word_callback=None,
     launch_cli_callback=None,
+    send_tdoc_email_callback=None,
 ):
     """Context menu triggered when right-clicking hyperlinked TDoc tags."""
     menu = QMenu(parent)
@@ -718,6 +759,13 @@ def build_related_menu(
             act_email.setToolTip('Draft an email referring to this TDoc.')
             act_email.triggered.connect(
                 lambda: compose_email_callback(clean_tdoc)
+            )
+
+        if send_tdoc_email_callback:
+            act_send_rel = menu.addAction(f"📎 Send {clean_tdoc} via Email...")
+            act_send_rel.setToolTip("Create an Outlook email draft with this TDoc's subject and attach the document.")
+            act_send_rel.triggered.connect(
+                lambda: send_tdoc_email_callback(clean_tdoc)
             )
 
         if export_llm_callback:

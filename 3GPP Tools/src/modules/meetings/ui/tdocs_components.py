@@ -339,7 +339,7 @@ class CheckableComboBox(QComboBox):
             if raw_value in item_tooltips:
                 item.setToolTip(item_tooltips[raw_value])
             self.model().appendRow(item)
-        self.setCurrentIndex(0)
+        super().setCurrentIndex(0)
         self._refresh_text_and_tooltip()
         self.update()
 
@@ -388,7 +388,7 @@ class CheckableComboBox(QComboBox):
                 root_item.setCheckState(Qt.Checked if all_checked_now else Qt.Unchecked)
         finally:
             self._updating = False
-        self.setCurrentIndex(0)
+        super().setCurrentIndex(0)
         self._refresh_text_and_tooltip()
         self.update()  # Trigger paintEvent to update the button text
 

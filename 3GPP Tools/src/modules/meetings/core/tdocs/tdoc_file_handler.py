@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import zipfile
 from pathlib import Path
@@ -13,6 +14,105 @@ from core.utils.paths import to_extended_path
 
 
 class TDocFileHandler:
+    SUPPORTED_DOC_EXTS = ('.doc', '.docx', '.pdf', '.ppt', '.pptx')
+
+    @staticmethod
+    def _extract_archive_docs(
+        ext_zip_path: str,
+        tdoc_dir: Path,
+        target_filename: str,
+        cancel_check: Optional[Callable[[], bool]] = None,
+    ) -> List[Path]:
+        """Extracts supported document files from a local TDoc ZIP archive."""
+        extracted_files: List[Path] = []
+        with zipfile.ZipFile(ext_zip_path, 'r') as z:
+            for info in z.infolist():
+                if cancel_check and cancel_check():
+                    break
+                if '__MACOSX' in info.filename or info.filename.startswith('._'):
+                    continue
+
+                if info.filename.lower().endswith(TDocFileHandler.SUPPORTED_DOC_EXTS):
+                    original_name = Path(info.filename).name
+
+                    if target_filename.lower() not in original_name.lower():
+                        safe_name = f"{target_filename}_{original_name}"
+                    else:
+                        safe_name = original_name
+
+                    out_path = tdoc_dir / safe_name
+                    ext_out_path = to_extended_path(out_path)
+                    temp_out_path = to_extended_path(tdoc_dir / f"{safe_name}.part")
+
+                    if not os.path.exists(ext_out_path):
+                        try:
+                            with z.open(info.filename) as source, open(temp_out_path, 'wb') as target:
+                                shutil.copyfileobj(source, target)
+                            os.replace(temp_out_path, ext_out_path)
+                            logging.info(f"📂 [EXTRACTED] Saved: {out_path.name}")
+                        except Exception:
+                            if os.path.exists(temp_out_path):
+                                try:
+                                    os.remove(temp_out_path)
+                                except OSError:
+                                    pass
+                            raise
+                    else:
+                        logging.debug(f"📄 [FILE READY] Already extracted: {out_path.name}")
+
+                    extracted_files.append(out_path)
+
+        return extracted_files
+
+    @staticmethod
+    def find_local_tdoc_files(meeting_dir: Optional[Path], target_filename: str) -> List[Path]:
+        """
+        Resolves cached document files for ``target_filename`` without hitting the network.
+        Extracts from a valid cached ZIP if needed; otherwise returns matching loose docs.
+        """
+        if not meeting_dir or not target_filename:
+            return []
+
+        target_clean = target_filename.strip()
+        base_tdoc = re.sub(r"-?(?:r|rev)\d{1,2}[a-zA-Z]?$", "", target_clean, flags=re.IGNORECASE).upper()
+        mtg_path = Path(meeting_dir)
+
+        candidate_dirs: List[Path] = []
+        if (mtg_path / "TDocs").is_dir():
+            candidate_dirs.append(mtg_path / "TDocs" / base_tdoc)
+            candidate_dirs.append(mtg_path / "TDocs")
+        candidate_dirs.append(mtg_path / base_tdoc)
+        candidate_dirs.append(mtg_path)
+
+        target_pattern = re.compile(
+            rf"^{re.escape(target_clean)}(?:[_\-\s].*)?$", re.IGNORECASE
+        )
+
+        for cand_dir in candidate_dirs:
+            if not os.path.isdir(to_extended_path(cand_dir)):
+                continue
+
+            zip_path = cand_dir / f"{target_clean}.zip"
+            ext_zip = to_extended_path(zip_path)
+            if os.path.exists(ext_zip) and os.path.getsize(ext_zip) > 0 and zipfile.is_zipfile(ext_zip):
+                extracted = TDocFileHandler._extract_archive_docs(ext_zip, cand_dir, target_clean)
+                return extracted if extracted else [zip_path]
+
+            loose_matches: List[Path] = []
+            try:
+                for entry in cand_dir.iterdir():
+                    if not entry.is_file() or entry.name.startswith(("~$", ".")):
+                        continue
+                    if entry.suffix.lower() in TDocFileHandler.SUPPORTED_DOC_EXTS:
+                        if target_pattern.match(entry.stem):
+                            loose_matches.append(entry)
+            except OSError:
+                continue
+
+            if loose_matches:
+                return sorted(loose_matches, key=lambda p: p.name.lower())
+
+        return []
     @staticmethod
     def download_and_extract_tdoc(
         target_filename: str,
@@ -98,42 +198,6 @@ class TDocFileHandler:
                 raise
 
         # 3. Extract and Rename
-        extracted_files = []
-        with zipfile.ZipFile(ext_zip_path, 'r') as z:
-            for info in z.infolist():
-                if cancel_check and cancel_check():
-                    break
-                if '__MACOSX' in info.filename or info.filename.startswith('._'):
-                    continue
-
-                if info.filename.lower().endswith(('.doc', '.docx', '.pdf', '.ppt', '.pptx')):
-                    original_name = Path(info.filename).name
-
-                    if target_filename.lower() not in original_name.lower():
-                        safe_name = f"{target_filename}_{original_name}"
-                    else:
-                        safe_name = original_name
-
-                    out_path = tdoc_dir / safe_name
-                    ext_out_path = to_extended_path(out_path)
-                    temp_out_path = to_extended_path(tdoc_dir / f"{safe_name}.part")
-
-                    if not os.path.exists(ext_out_path):
-                        try:
-                            with z.open(info.filename) as source, open(temp_out_path, 'wb') as target:
-                                shutil.copyfileobj(source, target)
-                            os.replace(temp_out_path, ext_out_path)
-                            logging.info(f"📂 [EXTRACTED] Saved: {out_path.name}")
-                        except Exception:
-                            if os.path.exists(temp_out_path):
-                                try:
-                                    os.remove(temp_out_path)
-                                except OSError:
-                                    pass
-                            raise
-                    else:
-                        logging.debug(f"📄 [FILE READY] Already extracted: {out_path.name}")
-
-                    extracted_files.append(out_path)
-
-        return extracted_files
+        return TDocFileHandler._extract_archive_docs(
+            ext_zip_path, tdoc_dir, target_filename, cancel_check=cancel_check
+        )

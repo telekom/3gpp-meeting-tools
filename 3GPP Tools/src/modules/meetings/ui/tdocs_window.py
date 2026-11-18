@@ -35,6 +35,7 @@ from modules.meetings.core.exporters.markdown_exporter import MarkdownExporterTh
 from modules.meetings.core.settings import MeetingsSettings
 from modules.meetings.core.stats.exporter_thread import StatisticsExporterThread
 from modules.meetings.core.tdocs.tdocs_db import TDocsDatabase
+from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
 from modules.meetings.core.tdocs.tdocs_downloader import TDocsDownloaderThread
 from modules.meetings.core.tdocs.tdocs_parser import TDocsParser
 from modules.meetings.core.meeting_wi_enricher import MeetingWIEnricherThread
@@ -73,6 +74,7 @@ from core.ai.cli_launcher import populate_cli_agent_menu
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel, natural_sort_key
 from modules.emails.core.general_email_db import GeneralEmailDatabase
 from modules.emails.core.general_email_sync import GeneralEmailSyncThread
+from modules.emails.core.outlook_client import OutlookClient
 from modules.emails.ui.general_email_dialog import (
     GeneralEmailFoldersDialog, GeneralEmailSyncDialog, TDocEmailsDialog, load_wg_email_config
 )
@@ -115,6 +117,12 @@ class TDocsWindow(QWidget):
         self.chair_agreements = []
         self._email_dialogs = {}
         self._triage_dialogs = {}
+        self._highlight_clear_timer = QTimer(self)
+        self._highlight_clear_timer.setSingleShot(True)
+        self._highlight_clear_timer.setInterval(4500)
+        self._highlight_clear_timer.timeout.connect(
+            lambda: self.model.set_highlighted_tdoc(None) if hasattr(self, "model") else None
+        )
 
         self.agenda_dir = Path(filepath).parent
         self.agenda_map = AgendaManager.load_local_agenda(self.agenda_dir)
@@ -610,7 +618,8 @@ class TDocsWindow(QWidget):
             add_meeting_portal_actions(self.folder_menu, self.mtg_info)
 
     def _trigger_download_thread(self, base_tdoc: str, target_filename: str, legacy_url: str = None,
-                                 is_silent_compare: bool = False, auto_compare_active_word: bool = False):
+                                 is_silent_compare: bool = False, auto_compare_active_word: bool = False,
+                                 sync_table_on_success: bool = False, send_email_on_finish: bool = False):
         self.model.set_loading(base_tdoc, True)
         is_active = self.mtg_info.get("is_active_sync", False)
 
@@ -623,16 +632,19 @@ class TDocsWindow(QWidget):
         )
 
         thread = TDocActionThread(base_tdoc, target_filename, url_list, self.meeting_dir,
-                                  open_file=not is_silent_compare)
+                                  open_file=not (is_silent_compare or send_email_on_finish))
         thread.is_silent_compare = is_silent_compare
         thread.auto_compare_active_word = auto_compare_active_word
+        thread.sync_table_on_success = sync_table_on_success
+        thread.send_email_on_finish = send_email_on_finish
         thread.target_filename = target_filename
         thread.finished_action.connect(lambda t, s, m, th=thread: self._on_tdoc_action_finished(t, s, m, th))
 
         self.active_threads[base_tdoc] = thread
         thread.start()
 
-    def _compare_tdoc_with_active_word(self, base_tdoc: str, target_filename: str):
+    def _compare_tdoc_with_active_word(self, base_tdoc: str, target_filename: str,
+                                       sync_table_on_success: bool = False):
         """
         1-click action to compare the currently active Microsoft Word document (Slot A)
         against the specified TDoc or revision (Slot B).
@@ -653,6 +665,7 @@ class TDocsWindow(QWidget):
             target_filename,
             is_silent_compare=True,
             auto_compare_active_word=True,
+            sync_table_on_success=sync_table_on_success,
         )
 
     def _setup_filters(self, layout):
@@ -1819,16 +1832,28 @@ class TDocsWindow(QWidget):
             triage_callback=self._open_tdoc_triage,
             compare_active_word_callback=self._compare_tdoc_with_active_word,
             launch_cli_callback=self._launch_cli_for_tdocs,
+            send_tdoc_email_callback=self._send_tdoc_via_email,
         )
 
-    def _compose_email_draft(self, tdoc_id: str):
-        row_data = next((r for r in self.model._data if str(r.get("TDoc", "")).strip().upper() == tdoc_id.upper()),
-                        None)
+    @staticmethod
+    def _extract_base_tdoc(tdoc_id: str) -> str:
+        clean = str(tdoc_id or "").strip().upper()
+        match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', clean, re.IGNORECASE)
+        return match.group(1).upper() if match else clean
+
+    def _build_email_subject(self, tdoc_id: str) -> str:
+        clean_tdoc = str(tdoc_id or "").strip()
+        row_data = next(
+            (r for r in self.model._data if str(r.get("TDoc", "")).strip().upper() == clean_tdoc.upper()),
+            None,
+        )
 
         if not row_data:
-            match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', tdoc_id, re.IGNORECASE)
-            base_tdoc = match.group(1).upper() if match else tdoc_id.upper()
-            row_data = next((r for r in self.model._data if str(r.get("TDoc", "")).strip().upper() == base_tdoc), {})
+            base_tdoc = self._extract_base_tdoc(clean_tdoc)
+            row_data = next(
+                (r for r in self.model._data if str(r.get("TDoc", "")).strip().upper() == base_tdoc),
+                {},
+            )
 
         wg = str(self.mtg_info.get("wg_name", "")).strip().upper()
         mtg_num = str(self.mtg_info.get("meeting_number", "")).strip()
@@ -1845,8 +1870,10 @@ class TDocsWindow(QWidget):
             tag_parts.append(ai)
 
         tag_str = f"[{', '.join(tag_parts)}] " if tag_parts else ""
-        subject = f"{tag_str}{tdoc_id} {title}".strip()
+        return f"{tag_str}{clean_tdoc} {title}".strip()
 
+    def _compose_email_draft(self, tdoc_id: str):
+        subject = self._build_email_subject(tdoc_id)
         encoded_subject = urllib.parse.quote(subject, safe='')
         mailto_url = f"mailto:?subject={encoded_subject}"
 
@@ -1860,6 +1887,68 @@ class TDocsWindow(QWidget):
             logging.warning(f"Failed to launch email client automatically: {e}")
             QApplication.clipboard().setText(subject)
             QToolTip.showText(QCursor.pos(), "📋 Subject copied to clipboard!", self)
+
+    def _send_tdoc_via_email(self, target_tdoc: str):
+        """Drafts an email with the TDoc subject and attaches the TDoc document(s), downloading first if needed."""
+        clean_target = str(target_tdoc or "").strip()
+        if not clean_target:
+            return
+
+        local_files = TDocFileHandler.find_local_tdoc_files(self.meeting_dir, clean_target)
+        if local_files:
+            self._open_email_draft_with_attachments(clean_target, local_files)
+            return
+
+        base_tdoc = self._extract_base_tdoc(clean_target)
+        if base_tdoc in self.model.loading_tdocs:
+            return
+        self._trigger_download_thread(
+            base_tdoc,
+            clean_target,
+            send_email_on_finish=True,
+        )
+
+    def _open_email_draft_with_attachments(self, target_tdoc: str, attachments: list):
+        subject = self._build_email_subject(target_tdoc)
+        valid_paths = [Path(p) for p in (attachments or []) if p and Path(p).is_file()]
+        if not valid_paths:
+            QMessageBox.warning(
+                self,
+                "Attachment Missing",
+                f"Could not locate a local document file to attach for {target_tdoc}.",
+            )
+            return
+
+        ok, err = OutlookClient.create_email_draft(subject, valid_paths)
+        if ok:
+            logging.info(
+                f"📧 [Send TDoc] Opened Outlook draft for '{target_tdoc}' with {len(valid_paths)} attachment(s)."
+            )
+            return
+
+        # Graceful fallback when Classic Outlook COM is unavailable
+        QApplication.clipboard().setText(subject)
+        encoded_subject = urllib.parse.quote(subject, safe='')
+        mailto_url = f"mailto:?subject={encoded_subject}"
+        try:
+            if hasattr(os, 'startfile'):
+                os.startfile(mailto_url)
+            else:
+                webbrowser.open(mailto_url)
+        except Exception:
+            pass
+
+        try:
+            _open_folder(valid_paths[0].parent)
+        except Exception:
+            pass
+
+        QMessageBox.information(
+            self,
+            "Attach TDoc Manually",
+            f"Could not attach files automatically via Outlook COM ({err}).\n\n"
+            f"The email subject has been copied to your clipboard and the local folder for {target_tdoc} was opened so you can drag-and-drop the file(s).",
+        )
 
     def _show_cell_popup(self, index):
         if not index.isValid():
@@ -1921,10 +2010,15 @@ class TDocsWindow(QWidget):
             InteractiveNotesDialog(self, tdoc_id, row_data, self._save_user_data).exec_()
 
     def _save_user_data(self, tdoc_id: str, status: str, notes: str):
+        vbar = self.table.verticalScrollBar() if hasattr(self, "table") else None
+        prev_scroll = vbar.value() if vbar else 0
         self.db.upsert(tdoc_id, status, notes)
         self.model.user_data = self.db.get_all()
         self.model.apply_user_data_refresh()
         self._refresh_comboboxes()
+        self._adjust_table_row_heights()
+        if vbar is not None:
+            vbar.setValue(prev_scroll)
 
     def _export_reports(self):
         self.export_thread = MarkdownExporterThread(
@@ -1976,15 +2070,60 @@ class TDocsWindow(QWidget):
         if target_path and target_path.exists():
             _open_folder(target_path)
 
+    def _find_proxy_row(self, base_tdoc: str):
+        for row in range(self.proxy.rowCount()):
+            if self.proxy.data(self.proxy.index(row, 1), Qt.UserRole) == base_tdoc:
+                return row
+        return None
+
+    def _focus_and_highlight_proxy_row(self, row: int, base_tdoc: str):
+        idx = self.proxy.index(row, 1)
+        if not idx.isValid():
+            return
+        self.model.set_highlighted_tdoc(base_tdoc)
+        if hasattr(self, "_highlight_clear_timer") and self._highlight_clear_timer is not None:
+            self._highlight_clear_timer.start()
+        self.table.selectRow(row)
+        self.table.setCurrentIndex(idx)
+        self.table.scrollTo(idx, QTableView.PositionAtCenter)
+
+    def _reveal_tdoc_in_table(self, target_tdoc: str):
+        """
+        Syncs the table view after a successful Quick Open:
+        - If the current filter already includes the TDoc, scroll to and highlight it.
+        - If hidden by active filters, clear filters and filter to the TDoc, then scroll & highlight.
+        """
+        base_tdoc = self._extract_base_tdoc(target_tdoc)
+        if not base_tdoc or base_tdoc not in self.model.valid_tdocs:
+            return
+
+        row = self._find_proxy_row(base_tdoc)
+        if row is not None:
+            self._focus_and_highlight_proxy_row(row, base_tdoc)
+            return
+
+        self._clear_all_filters()
+        self.search_timer.stop()
+        self.search_input.blockSignals(True)
+        self.search_input.setText(base_tdoc)
+        self.search_input.blockSignals(False)
+        self.proxy.setGlobalFilter(base_tdoc)
+        self._update_filter_facets()
+        self._update_count_label()
+        self._adjust_table_row_heights()
+
+        row = self._find_proxy_row(base_tdoc)
+        if row is not None:
+            self._focus_and_highlight_proxy_row(row, base_tdoc)
+
     def _scroll_to_tdoc(self, target_tdoc: str):
-        match = re.search(r'^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$', target_tdoc, re.IGNORECASE)
-        base_tdoc = match.group(1).upper() if match else target_tdoc.upper()
+        base_tdoc = self._extract_base_tdoc(target_tdoc)
         if base_tdoc in self.model.valid_tdocs:
-            for row in range(self.proxy.rowCount()):
-                if self.proxy.data(self.proxy.index(row, 1), Qt.UserRole) == base_tdoc:
-                    self.table.scrollTo(self.proxy.index(row, 1), QTableView.PositionAtCenter)
-                    self.table.selectRow(row)
-                    return
+            row = self._find_proxy_row(base_tdoc)
+            if row is not None:
+                self.table.scrollTo(self.proxy.index(row, 1), QTableView.PositionAtCenter)
+                self.table.selectRow(row)
+                return
             if QMessageBox.question(self, "Hidden TDoc",
                                     f"TDoc '{base_tdoc}' is hidden by active filters.\nClear filters to view?",
                                     QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
@@ -2002,6 +2141,17 @@ class TDocsWindow(QWidget):
         self.model.set_loading(tdoc, False)
         if not success:
             return QMessageBox.warning(self, f"Action Failed: {tdoc}", msg)
+        if getattr(thread, "sync_table_on_success", False):
+            self._reveal_tdoc_in_table(getattr(thread, "target_filename", "") or tdoc)
+        if getattr(thread, "send_email_on_finish", False):
+            target_name = getattr(thread, "target_filename", "") or tdoc
+            attachments = list(getattr(thread, "extracted_doc_paths", []) or [])
+            if not attachments:
+                zip_candidate = self.meeting_dir / tdoc / f"{target_name}.zip"
+                if zip_candidate.is_file():
+                    attachments = [zip_candidate]
+            self._open_email_draft_with_attachments(target_name, attachments)
+            return
         if getattr(thread, "is_silent_compare", False):
             from modules.word_tools.core.document_opener import select_best_word_document
 
@@ -2513,7 +2663,13 @@ class TDocsWindow(QWidget):
 
         base_tdoc = match.group(1).upper()
         target_filename = (base_tdoc + (match.group(2) or "")).upper()
-        self._trigger_download_thread(base_tdoc, target_filename, legacy_url=None, is_silent_compare=False)
+        self._trigger_download_thread(
+            base_tdoc,
+            target_filename,
+            legacy_url=None,
+            is_silent_compare=False,
+            sync_table_on_success=True,
+        )
 
     def _on_instant_compare_active_word(self):
         tdoc_str = self.instant_fetch_input.text().strip()
@@ -2524,7 +2680,7 @@ class TDocsWindow(QWidget):
 
         base_tdoc = match.group(1).upper()
         target_filename = (base_tdoc + (match.group(2) or "")).upper()
-        self._compare_tdoc_with_active_word(base_tdoc, target_filename)
+        self._compare_tdoc_with_active_word(base_tdoc, target_filename, sync_table_on_success=True)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

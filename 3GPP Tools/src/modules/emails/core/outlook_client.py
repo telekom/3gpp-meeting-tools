@@ -4,6 +4,7 @@ import traceback
 import logging
 import os
 from pathlib import Path
+from typing import Optional, Sequence, Tuple, Union
 
 if platform.system() == 'Windows':
     import win32com.client
@@ -162,3 +163,33 @@ class OutlookClient:
             else:
                 logging.error(f"Explicit move failed for {entry_id}: {e}")
             return "ERROR"
+
+    @staticmethod
+    def create_email_draft(
+        subject: str,
+        attachments: Optional[Sequence[Union[str, Path]]] = None,
+    ) -> Tuple[bool, str]:
+        """
+        Opens a new Classic Outlook compose window with ``subject`` and optional
+        file attachments via COM automation. Returns ``(success, error_message)``.
+        """
+        if platform.system() != 'Windows':
+            return False, "Outlook COM automation is only supported on Windows."
+
+        try:
+            outlook = win32com.client.Dispatch("Outlook.Application")
+            mail = outlook.CreateItem(0)  # 0 = olMailItem
+            mail.Subject = str(subject or "")
+
+            for item in attachments or []:
+                abs_path = os.path.abspath(str(item))
+                if abs_path.startswith("\\\\?\\"):
+                    abs_path = abs_path[4:]
+                if os.path.isfile(abs_path):
+                    mail.Attachments.Add(abs_path)
+
+            mail.Display(False)
+            return True, ""
+        except Exception as e:
+            logging.warning(f"Could not open Outlook draft via COM: {e}")
+            return False, str(e)

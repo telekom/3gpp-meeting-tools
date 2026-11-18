@@ -35,6 +35,7 @@ class TDocsTableModel(QAbstractTableModel):
         ]
         self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
         self.loading_tdocs = set()
+        self._highlighted_tdoc = None
         self.revisions = {}
         self.email_counts = {}  # {tdoc_id: {'total': int, 'unread': int}}
         self._email_counts = self.email_counts
@@ -334,6 +335,22 @@ class TDocsTableModel(QAbstractTableModel):
                 self.dataChanged.emit(idx, idx)
                 break
 
+    def set_highlighted_tdoc(self, tdoc: str = None):
+        """Highlights a single TDoc row temporarily (or clears when None)."""
+        normalized = str(tdoc).strip().upper() if tdoc else None
+        prev = self._highlighted_tdoc
+        if prev == normalized:
+            return
+        self._highlighted_tdoc = normalized
+        targets = {t for t in (prev, normalized) if t}
+        if not targets or self.columnCount() <= 0:
+            return
+        last_col = self.columnCount() - 1
+        for r in range(self.rowCount()):
+            row_tdoc = str(self._data[r].get("TDoc", "")).strip().upper()
+            if row_tdoc in targets:
+                self.dataChanged.emit(self.index(r, 0), self.index(r, last_col), [Qt.BackgroundRole])
+
     def _linkify(self, prefix: str, text: str, html: bool) -> str:
         if not text:
             return ""
@@ -610,8 +627,10 @@ class TDocsTableModel(QAbstractTableModel):
         row = self._data[index.row()]
         col_name = self._headers[index.column()]
 
-        # Subtle background tint for agreements & working assumptions
+        # Subtle background tint for quick-opened highlight, agreements & working assumptions
         if role == Qt.BackgroundRole:
+            if self._highlighted_tdoc and str(row.get("TDoc", "")).strip().upper() == self._highlighted_tdoc:
+                return QColor(C.INFO_SOFT_STRONG)
             if row.get('_has_agreement'):
                 kind = str(row.get('_agreement_kind', 'Agreement')).lower()
                 if "working assumption" in kind:

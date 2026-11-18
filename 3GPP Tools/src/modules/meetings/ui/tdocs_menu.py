@@ -80,4 +80,5 @@ def handle_table_context_menu(window: Any, pos: QPoint) -> None:
         load_session_plan_callback=getattr(window, "_load_tdoc_as_session_plan", None),
         launch_cli_callback=getattr(window, "_launch_cli_for_tdocs", None),
         selected_rows=selected_rows,
+        send_tdoc_email_callback=getattr(window, "_send_tdoc_via_email", None),
     )
