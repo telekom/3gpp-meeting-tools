@@ -1,9 +1,75 @@
 # --- File: src/modules/emails/core/thread_markdown_exporter.py ---
 import re
+import urllib.parse
 from typing import Any, Dict, List
 
 
 _TDOC_RE = re.compile(r"\b(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,7}\b", re.IGNORECASE)
+_SAFELINK_RE = re.compile(
+    r"<?https?://[a-z0-9.-]*safelinks\.protection\.outlook\.com/\?[^\s<>\"\)\]]+>?",
+    re.IGNORECASE,
+)
+_BARE_URL_RE = re.compile(
+    r"(?<![\(\[<\"])(https?://[^\s<>\"\)\]]+)",
+    re.IGNORECASE,
+)
+
+
+def unwrap_outlook_safelinks(text: str) -> str:
+    """
+    Replaces Microsoft Outlook Safelinks (https://*.safelinks.protection.outlook.com/?url=...)
+    with the decoded original URL, and collapses duplicate 'url<url>' patterns from Outlook plain text.
+    """
+    if not text or "safelinks.protection.outlook.com" not in text.lower():
+        return text or ""
+
+    def _replace_safelink(match: re.Match) -> str:
+        full = match.group(0)
+        trailing = ""
+        while full and full[-1] in ".,;:!?" and not full.endswith(">"):
+            trailing = full[-1] + trailing
+            full = full[:-1]
+        raw = full.strip("<>")
+        try:
+            parsed = urllib.parse.urlsplit(raw)
+            qs = urllib.parse.parse_qs(parsed.query)
+            target = (qs.get("url") or [""])[0]
+            if target:
+                return urllib.parse.unquote(target) + trailing
+        except Exception:
+            pass
+        return raw + trailing
+
+    cleaned = _SAFELINK_RE.sub(_replace_safelink, text)
+    # Collapse Outlook's "https://example.com https://example.com" or "https://example.com<https://example.com>"
+    cleaned = re.sub(r"(https?://[^\s<>\"\)\]]+)\s*<+\1>+", r"\1", cleaned)
+    cleaned = re.sub(r"(https?://[^\s<>\"\)\]]+)(?:\1)+", r"\1", cleaned)
+    return cleaned
+
+
+def linkify_markdown_urls(text: str) -> str:
+    """Converts bare http(s):// URLs in text into clickable Markdown links [url](url)."""
+    if not text:
+        return ""
+    unwrapped = unwrap_outlook_safelinks(text)
+    # Also unwrap angle-bracketed <https://...> into clean [url](url)
+    unwrapped = re.sub(
+        r"<(https?://[^\s<>\"\)\]]+)>",
+        lambda m: f"[{m.group(1)}]({m.group(1)})",
+        unwrapped,
+    )
+
+    def _linkify_match(m: re.Match) -> str:
+        url = m.group(1)
+        trailing = ""
+        while url and url[-1] in ".,;:!?":
+            trailing = url[-1] + trailing
+            url = url[:-1]
+        if not url:
+            return m.group(0)
+        return f"[{url}]({url}){trailing}"
+
+    return _BARE_URL_RE.sub(_linkify_match, unwrapped)
 
 
 def export_thread_to_markdown(
@@ -13,7 +79,8 @@ def export_thread_to_markdown(
 ) -> str:
     """
     Exports a tracked email thread to a lossless, human- and LLM-readable Markdown document.
-    Preserves inline replies, metadata, participants/companies, and TDoc references.
+    Preserves inline replies, metadata, participants/companies, and TDoc references,
+    unwraps Outlook Safelinks, and formats URLs as clickable Markdown links.
     """
     participants = []
     seen_p = set()
@@ -67,7 +134,7 @@ def export_thread_to_markdown(
         lines.append("")
 
         body = (msg.get("clean_body") if deduplicate_quotes and msg.get("clean_body") else msg.get("body_text")) or ""
-        body = body.strip()
+        body = linkify_markdown_urls(body.strip())
         if body:
             lines.append(body)
         else:

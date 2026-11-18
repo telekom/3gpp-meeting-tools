@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from modules.emails.core.email_config import load_wg_email_config
+from modules.emails.core.thread_markdown_exporter import unwrap_outlook_safelinks
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 
 logger = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ def _mail_item_to_dict(item: Any) -> Dict[str, Any]:
         sender_email = getattr(item, "SenderEmailAddress", "") or ""
     except Exception:
         sender_email = ""
-    body_text = getattr(item, "Body", "") or ""
+    body_text = unwrap_outlook_safelinks(getattr(item, "Body", "") or "")
     conv_id = getattr(item, "ConversationID", "") or ""
     entry_id = getattr(item, "EntryID", "") or f"MSG-{abs(hash((subject, sender_name, body_text[:100])))}"
 
@@ -313,6 +314,9 @@ def _pin_from_seed_dict(
         found.append(seed)
 
     db.upsert_messages(thread_id, found)
+    discovered_cids = [m["conversation_id"] for m in found if m.get("conversation_id")]
+    if discovered_cids:
+        db.add_conversation_ids(thread_id, discovered_cids)
     return thread_id
 
 
@@ -376,6 +380,9 @@ def refresh_thread(db: TrackedThreadsDatabase, thread_id: str) -> int:
         thread.get("conversation_ids") or [],
         thread.get("subject_patterns") or [thread.get("normalized_subject", "")],
     )
+    discovered_cids = [m["conversation_id"] for m in found if m.get("conversation_id")]
+    if discovered_cids:
+        db.add_conversation_ids(thread_id, discovered_cids)
     return db.upsert_messages(thread_id, found)
 
 

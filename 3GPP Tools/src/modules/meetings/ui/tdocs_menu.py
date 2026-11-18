@@ -26,6 +26,29 @@ def handle_table_context_menu(window: Any, pos: QPoint) -> None:
     if not tdoc_id:
         return
 
+    if row_data.get("_is_tracked_thread"):
+        from PyQt5.QtWidgets import QMenu
+        from modules.emails.core.tracked_threads_service import refresh_thread
+
+        tid = str(row_data.get("_thread_id") or tdoc_id).strip()
+        menu = QMenu(window.table)
+        menu.addAction("📧 Open Tracked Email Thread...", lambda: window._open_tracked_thread_dialog(tid))
+        menu.addAction(
+            "🔄 Refresh This Thread Now",
+            lambda: (refresh_thread(window.tracked_threads_db, tid), window._on_tracked_thread_changed()),
+        )
+        menu.addAction(
+            "✔️ Mark Thread as Read",
+            lambda: (window.tracked_threads_db.mark_thread_read(tid), window._on_tracked_thread_changed()),
+        )
+        menu.addSeparator()
+        menu.addAction(
+            "📌 Unpin Thread",
+            lambda: (window.tracked_threads_db.delete_thread(tid), window._on_tracked_thread_changed()),
+        )
+        menu.exec_(window.table.viewport().mapToGlobal(pos))
+        return
+
     revisions = window.model.revisions.get(tdoc_id, [])
     family = window.model.get_family_tdocs(tdoc_id)
 

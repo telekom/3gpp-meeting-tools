@@ -235,12 +235,19 @@ class TagCloudWidget(QFrame):
         else:
             self._completer.setModel(model)
 
+    def _clear_input_safely(self):
+        try:
+            if self.input_edit is not None:
+                self.input_edit.clear()
+        except RuntimeError:
+            pass
+
     def _on_completer_activated(self, selected: str):
         val = self._value_extractor(selected) if self._value_extractor else selected
         if val:
             self.add_tag(val)
         from PyQt5.QtCore import QTimer
-        QTimer.singleShot(0, self.input_edit.clear)
+        QTimer.singleShot(0, self._clear_input_safely)
 
     def _on_enter_pressed(self):
         text = self.input_edit.text()

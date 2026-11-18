@@ -277,6 +277,29 @@ class TrackedThreadsDatabase:
                 cursor.execute("UPDATE tracked_threads SET linked_tdocs = ? WHERE thread_id = ?", (json.dumps(linked_tdocs), thread_id))
             conn.commit()
 
+    def add_conversation_ids(self, thread_id: str, cids: List[str]):
+        """Persists newly discovered Outlook ConversationIDs onto an existing tracked thread."""
+        clean_cids = [str(c).strip() for c in (cids or []) if str(c).strip()]
+        if not clean_cids:
+            return
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT conversation_ids FROM tracked_threads WHERE thread_id = ?", (thread_id,))
+            row = cursor.fetchone()
+            if not row:
+                return
+            try:
+                existing = json.loads(row["conversation_ids"] or "[]")
+            except Exception:
+                existing = []
+            merged = list(dict.fromkeys(existing + clean_cids))
+            if merged != existing:
+                cursor.execute(
+                    "UPDATE tracked_threads SET conversation_ids = ? WHERE thread_id = ?",
+                    (json.dumps(merged), thread_id),
+                )
+                conn.commit()
+
     def mark_thread_read(self, thread_id: str):
         with self._get_connection() as conn:
             cursor = conn.cursor()

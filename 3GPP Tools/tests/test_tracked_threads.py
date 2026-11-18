@@ -3,7 +3,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from modules.emails.core.thread_markdown_exporter import export_thread_to_markdown
+from modules.emails.core.thread_markdown_exporter import (
+    export_thread_to_markdown,
+    linkify_markdown_urls,
+    unwrap_outlook_safelinks,
+)
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.emails.core.tracked_threads_service import (
     _extract_folder_paths,
@@ -148,3 +152,19 @@ def test_pill_autocomplete_and_tdoc_family_expansion(tmp_path):
     dlg.ais_pills._on_completer_activated("20.6.1 — FS_6G_ARC: KI#1_1 NAS Routing")
     assert db.get_thread(tid)["linked_ais"] == ["20.6.1"]
     dlg.close()
+
+
+def test_safelinks_unwrapping_and_clickable_links():
+    raw = (
+        "Check https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178/Docs/S2-2612673.zip"
+        "<https://eur03.safelinks.protection.outlook.com/?url=https%3A%2F%2Fwww.3gpp.org%2Fftp%2Ftsg_sa%2FWG2_Arch%2FTSGS2_178%2FDocs%2FS2-2612673.zip&data=05%7C02%7C> "
+        "and also https://eur01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fportal.3gpp.org%2FHome.aspx&data=123."
+    )
+    unwrapped = unwrap_outlook_safelinks(raw)
+    assert "safelinks.protection.outlook.com" not in unwrapped
+    assert unwrapped.count("https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178/Docs/S2-2612673.zip") == 1
+    assert "https://portal.3gpp.org/Home.aspx." in unwrapped
+
+    linked = linkify_markdown_urls(raw)
+    assert "[https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178/Docs/S2-2612673.zip](https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178/Docs/S2-2612673.zip)" in linked
+    assert "[https://portal.3gpp.org/Home.aspx](https://portal.3gpp.org/Home.aspx)." in linked

@@ -318,7 +318,8 @@ class TDocsTableModel(QAbstractTableModel):
             tid = str(t.get("thread_id", "")).strip()
             if not tid:
                 continue
-            ais = t.get("linked_ais") or []
+            ais = [str(a).strip() for a in (t.get("linked_ais") or []) if str(a).strip()]
+            primary_ai = next((a for a in ais if a in (self.agenda_map or {})), ais[0] if ais else "")
             wis = t.get("linked_wis") or []
             tdocs = t.get("linked_tdocs") or []
             tot = int(t.get("message_count", 0))
@@ -340,13 +341,14 @@ class TDocsTableModel(QAbstractTableModel):
                 "For": "Discussion",
                 "Abstract": "",
                 "Secretary Remarks": " | ".join(remarks_parts),
-                "Agenda Item": ais[0] if ais else "",
+                "Agenda Item": primary_ai,
                 "TDoc Status": status_str,
                 "Related WIs": ", ".join(wis),
                 "Related TDocs": ", ".join(tdocs),
                 "Reply in": ", ".join(tdocs),
                 "_is_tracked_thread": True,
                 "_thread_id": tid,
+                "_linked_ais": set(ais),
                 "_email_tot": tot,
                 "_email_unread": unread,
                 "_email_sort_key": (tot, unread),
@@ -372,7 +374,8 @@ class TDocsTableModel(QAbstractTableModel):
 
     def update_data(self, new_data):
         self.beginResetModel()
-        self._data = new_data
+        existing_threads = [r for r in self._data if r.get("_is_tracked_thread")]
+        self._data = list(new_data or []) + existing_threads
         self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
         self.loading_tdocs.clear()
 
@@ -1197,8 +1200,13 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
 
         if exclude_filter != "type" and str(row.get("Type", "") or "").strip() not in self.type_filters:
             return False
-        if exclude_filter != "ai" and str(row.get("Agenda Item", "") or "").strip() not in self.ai_filters:
-            return False
+        if exclude_filter != "ai":
+            linked_ais = row.get("_linked_ais")
+            if linked_ais:
+                if not (linked_ais & self.ai_filters):
+                    return False
+            elif str(row.get("Agenda Item", "") or "").strip() not in self.ai_filters:
+                return False
         if exclude_filter != "sub_item" and self.sub_item_filters:
             row_sub = str(row.get("Sub-Item", "") or "").strip() or "(No Sub-Item)"
             if row_sub not in self.sub_item_filters:

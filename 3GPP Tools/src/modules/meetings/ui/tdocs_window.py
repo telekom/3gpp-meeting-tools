@@ -1619,7 +1619,10 @@ class TDocsWindow(QWidget):
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="type"):
                 facets["type"].add(str(row.get("Type", "") or "").strip())
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="ai"):
-                facets["ai"].add(str(row.get("Agenda Item", "") or "").strip())
+                if row.get("_linked_ais"):
+                    facets["ai"].update(row["_linked_ais"])
+                else:
+                    facets["ai"].add(str(row.get("Agenda Item", "") or "").strip())
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="sub_item"):
                 sub_val = str(row.get("Sub-Item", "") or "").strip()
                 if sub_val:
@@ -1682,8 +1685,12 @@ class TDocsWindow(QWidget):
         def sanitize(val): return str(val).strip() if val is not None else ""
 
         unique_types = sorted(list(set(sanitize(r.get("Type", "")) for r in self.model._data)))
-        unique_ais = sorted(list(set(sanitize(r.get("Agenda Item", "")) for r in self.model._data)),
-                            key=natural_sort_key)
+        all_ais = set()
+        for r in self.model._data:
+            if r.get("_linked_ais"):
+                all_ais.update(sanitize(a) for a in r["_linked_ais"])
+            all_ais.add(sanitize(r.get("Agenda Item", "")))
+        unique_ais = sorted(list(all_ais), key=natural_sort_key)
         unique_wis = sorted({
             wi
             for row_idx in range(self.model.rowCount())
