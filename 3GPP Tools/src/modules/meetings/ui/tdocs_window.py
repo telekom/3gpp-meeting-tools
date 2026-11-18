@@ -78,6 +78,7 @@ from modules.emails.core.outlook_client import OutlookClient
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.emails.core.tracked_threads_service import (
     pin_thread_from_msg,
+    pin_thread_from_outlook_selection,
     refresh_meeting_threads,
 )
 from modules.emails.ui.tracked_thread_dialog import (
@@ -2738,25 +2739,45 @@ class TDocsWindow(QWidget):
             self.drop_overlay.setGeometry(self.rect())
         self._schedule_row_height_adjustment()
 
+    @staticmethod
+    def _has_outlook_drag_payload(mime_data) -> bool:
+        if not mime_data:
+            return False
+        for fmt in mime_data.formats():
+            if any(k in fmt for k in ("FileGroupDescriptor", "RenPrivateMessages", "RenPrivateItem")):
+                return True
+        return False
+
     def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            for url in event.mimeData().urls():
+        mime = event.mimeData()
+        accepted = False
+        if mime and mime.hasUrls():
+            for url in mime.urls():
                 ext = Path(url.toLocalFile()).suffix.lower()
                 if ext in ['.docx', '.doc', '.zip', '.htm', '.html', '.msg']:
-                    self.drop_overlay.setGeometry(self.rect())
-                    self.drop_overlay.show()
-                    self.drop_overlay.raise_()
-                    event.acceptProposedAction()
-                    return
+                    accepted = True
+                    break
+        if not accepted and self._has_outlook_drag_payload(mime):
+            accepted = True
+        if accepted:
+            self.drop_overlay.setGeometry(self.rect())
+            self.drop_overlay.show()
+            self.drop_overlay.raise_()
+            event.acceptProposedAction()
+            return
         event.ignore()
 
     def dragMoveEvent(self, event):
-        if event.mimeData().hasUrls():
-            for url in event.mimeData().urls():
+        mime = event.mimeData()
+        if mime and mime.hasUrls():
+            for url in mime.urls():
                 ext = Path(url.toLocalFile()).suffix.lower()
                 if ext in ['.docx', '.doc', '.zip', '.htm', '.html', '.msg']:
                     event.acceptProposedAction()
                     return
+        if self._has_outlook_drag_payload(mime):
+            event.acceptProposedAction()
+            return
         event.ignore()
 
     def dragLeaveEvent(self, event):
@@ -2768,15 +2789,23 @@ class TDocsWindow(QWidget):
         if hasattr(self, 'drop_overlay'):
             self.drop_overlay.hide()
 
+        mime = event.mimeData()
         valid_files = []
         msg_files = []
-        for url in event.mimeData().urls():
-            file_path = Path(url.toLocalFile())
-            ext = file_path.suffix.lower()
-            if ext == '.msg':
-                msg_files.append(file_path)
-            elif ext in ['.docx', '.doc', '.zip', '.htm', '.html']:
-                valid_files.append(file_path)
+        if mime and mime.hasUrls():
+            for url in mime.urls():
+                file_path = Path(url.toLocalFile())
+                ext = file_path.suffix.lower()
+                if ext == '.msg':
+                    msg_files.append(file_path)
+                elif ext in ['.docx', '.doc', '.zip', '.htm', '.html']:
+                    valid_files.append(file_path)
+
+        outlook_dropped = False
+        if not msg_files and not valid_files and self._has_outlook_drag_payload(mime):
+            event.acceptProposedAction()
+            outlook_dropped = True
+            self._process_dropped_outlook_items(mime)
 
         if msg_files:
             event.acceptProposedAction()
@@ -2815,7 +2844,7 @@ class TDocsWindow(QWidget):
 
             if agenda_files:
                 self._process_imported_agenda_files(agenda_files)
-        elif not msg_files:
+        elif not msg_files and not outlook_dropped:
             event.ignore()
 
     def _import_word_agenda_dialog(self):
@@ -2956,23 +2985,71 @@ class TDocsWindow(QWidget):
         self._refresh_comboboxes()
         self._schedule_row_height_adjustment()
 
+    def _process_dropped_outlook_items(self, mime_data):
+        """Handles emails dragged directly from Microsoft Outlook UI (FileGroupDescriptor / RenPrivateMessages)."""
+        wg = str(self.mtg_info.get("wg_name", "SA2")).strip().upper()
+        meeting_id = self._get_meeting_id_label()
+        try:
+            # First try reading Outlook ActiveExplorer Selection (most reliable for .msg drags in Windows)
+            pinned_ids = pin_thread_from_outlook_selection(self.tracked_threads_db, meeting_id=meeting_id, wg=wg)
+            if not pinned_ids and mime_data:
+                # Fallback: try extracting FileContents if non-empty
+                import struct
+                formats = mime_data.formats()
+                fgd_fmt = next((f for f in formats if "FileGroupDescriptor" in f), None)
+                fc_fmt = next((f for f in formats if "FileContents" in f), None)
+                if fgd_fmt and fc_fmt:
+                    contents = bytes(mime_data.data(fc_fmt))
+                    desc = bytes(mime_data.data(fgd_fmt))
+                    if contents and len(desc) >= 4:
+                        is_uni = "FileGroupDescriptorW" in fgd_fmt
+                        rec_size = 592 if is_uni else 332
+                        if len(desc) >= 4 + rec_size:
+                            raw_name = desc[4 + 72 : 4 + rec_size]
+                            fname = (raw_name.decode("utf-16le", errors="ignore") if is_uni else raw_name.decode("mbcs", errors="ignore")).split("\0")[0].strip()
+                            if fname.lower().endswith(".msg"):
+                                drop_dir = self.meeting_dir / "Agenda" / "DroppedEmails"
+                                drop_dir.mkdir(parents=True, exist_ok=True)
+                                tmp_msg = drop_dir / fname
+                                tmp_msg.write_bytes(contents)
+                                tid = pin_thread_from_msg(self.tracked_threads_db, tmp_msg, meeting_id=meeting_id, wg=wg)
+                                if tid:
+                                    pinned_ids.append(tid)
+            if pinned_ids:
+                self._on_tracked_thread_changed()
+                self._open_tracked_thread_dialog(pinned_ids[-1])
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Outlook Drag & Drop",
+                    "Could not read the dragged email from Microsoft Outlook.\n"
+                    "Ensure the email is selected in Classic Outlook or save it as a .msg file.",
+                )
+        except Exception as e:
+            logging.error(f"Error handling Outlook drag & drop: {e}", exc_info=True)
+            QMessageBox.warning(self, "Outlook Drag & Drop Failed", f"Failed to process dragged Outlook email:\n{e}")
+
     def _process_dropped_msg_files(self, msg_files: list):
         wg = str(self.mtg_info.get("wg_name", "SA2")).strip().upper()
         meeting_id = self._get_meeting_id_label()
         pinned_ids = []
-        for mp in msg_files:
-            tid = pin_thread_from_msg(self.tracked_threads_db, Path(mp), meeting_id=meeting_id, wg=wg)
-            if tid:
-                pinned_ids.append(tid)
-        if pinned_ids:
-            self._on_tracked_thread_changed()
-            self._open_tracked_thread_dialog(pinned_ids[-1])
-        else:
-            QMessageBox.warning(
-                self,
-                "Could Not Parse .msg",
-                "Failed to parse the dropped .msg file via Outlook COM. Ensure Microsoft Outlook is available.",
-            )
+        try:
+            for mp in msg_files:
+                tid = pin_thread_from_msg(self.tracked_threads_db, Path(mp), meeting_id=meeting_id, wg=wg)
+                if tid:
+                    pinned_ids.append(tid)
+            if pinned_ids:
+                self._on_tracked_thread_changed()
+                self._open_tracked_thread_dialog(pinned_ids[-1])
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Could Not Parse .msg",
+                    "Failed to parse the dropped .msg file via Outlook COM. Ensure Microsoft Outlook is available.",
+                )
+        except Exception as e:
+            logging.error(f"Error processing dropped .msg file(s): {e}", exc_info=True)
+            QMessageBox.warning(self, "Error Processing .msg", f"Failed to process dropped .msg file:\n{e}")
 
     def _on_pin_thread_from_msg_dialog(self):
         from PyQt5.QtWidgets import QFileDialog

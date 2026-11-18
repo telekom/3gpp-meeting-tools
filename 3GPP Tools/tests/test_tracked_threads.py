@@ -5,12 +5,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from modules.emails.core.thread_markdown_exporter import export_thread_to_markdown
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
-from modules.emails.core.tracked_threads_service import auto_suggest_links, normalize_subject
+from modules.emails.core.tracked_threads_service import (
+    _extract_folder_paths,
+    auto_suggest_links,
+    normalize_subject,
+)
 
 
 def test_normalize_subject_strips_prefixes_and_tags():
     assert normalize_subject("Re: [SA2#178] FS_6G_ARC: KI#1_1: Interim conclusion") == "FS_6G_ARC: KI#1_1: Interim conclusion"
     assert normalize_subject("AW: Fwd: [SA2#178]   KI#1_1 NAS Routing  ") == "KI#1_1 NAS Routing"
+    assert normalize_subject("Re: [SA2#178, FS_6G_ARC, KI#1.1] Interim conclusion for KI#1.1 NAS Routing") == "Interim conclusion for KI#1.1 NAS Routing"
+    assert _extract_folder_paths([{"folder_path": "a/Inbox", "tag": "Inbox"}, "b/SA2"]) == ["a/Inbox", "b/SA2"]
     links = auto_suggest_links("Re: [SA2#178] FS_6G_ARC: KI#1_1: Interim conclusion", "See S2-2601234 for details.")
     assert "KI#1_1" in links["ais"]
     assert "FS_6G_ARC" in links["wis"]

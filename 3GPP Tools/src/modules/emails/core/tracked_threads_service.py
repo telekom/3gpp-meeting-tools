@@ -10,7 +10,7 @@ from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 logger = logging.getLogger(__name__)
 
 _PREFIX_RE = re.compile(r"^(?:\s*(?:re|fwd|fw|aw|wg|sv|antw)\s*:\s*)+", re.IGNORECASE)
-_TAG_RE = re.compile(r"^\s*\[[^\]]{2,30}\]\s*")
+_TAG_RE = re.compile(r"^\s*\[[^\]]{2,80}\]\s*")
 _TDOC_RE = re.compile(r"\b(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,7}\b", re.IGNORECASE)
 _KI_AI_RE = re.compile(r"\b(?:KI\s*#?\s*\d+(?:[._]\d+)?|AI\s*\d+(?:\.\d+)+)\b", re.IGNORECASE)
 _WI_RE = re.compile(r"\b(?:FS|TEI\d+|e?[A-Z0-9]{2,})_[A-Z0-9_]{2,}\b")
@@ -43,7 +43,27 @@ def normalize_subject(subject: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def _extract_folder_paths(raw_folders: Optional[List[Any]]) -> List[str]:
+    """Extracts string folder paths from either string lists or emails_config dict entries."""
+    paths: List[str] = []
+    for entry in (raw_folders or []):
+        if isinstance(entry, dict):
+            fp = str(entry.get("folder_path", "") or "").strip()
+        else:
+            fp = str(entry or "").strip()
+        if fp and fp not in paths:
+            paths.append(fp)
+    return paths
+
+
 def _extract_company(sender_name: str, sender_email: str) -> str:
+    try:
+        from modules.emails.core.general_email_sync import GeneralEmailSyncThread
+        comp = GeneralEmailSyncThread._resolve_company(sender_name, sender_email)
+        if comp and comp != "Unknown":
+            return comp
+    except Exception:
+        pass
     if "(" in sender_name and ")" in sender_name:
         m = re.search(r"\(([^)]+)\)", sender_name)
         if m:
@@ -73,10 +93,19 @@ def _mail_item_to_dict(item: Any) -> Dict[str, Any]:
     """Extracts standardized message fields from an Outlook COM MailItem."""
     subject = getattr(item, "Subject", "") or ""
     sender_name = getattr(item, "SenderName", "") or ""
-    sender_email = getattr(item, "SenderEmailAddress", "") or ""
+    try:
+        sender_email = getattr(item, "SenderEmailAddress", "") or ""
+    except Exception:
+        sender_email = ""
     body_text = getattr(item, "Body", "") or ""
     conv_id = getattr(item, "ConversationID", "") or ""
     entry_id = getattr(item, "EntryID", "") or f"MSG-{abs(hash((subject, sender_name, body_text[:100])))}"
+
+    try:
+        from modules.emails.core.general_email_sync import GeneralEmailSyncThread
+        sender_name, sender_email = GeneralEmailSyncThread._resolve_sender(item, sender_name, sender_email, body_text)
+    except Exception:
+        pass
 
     dt = getattr(item, "ReceivedTime", None) or getattr(item, "SentOn", None)
     date_sent = dt.strftime("%Y-%m-%d %H:%M:%S") if hasattr(dt, "strftime") else str(dt or "")
@@ -123,11 +152,12 @@ def parse_msg_file(msg_path: Path) -> Optional[Dict[str, Any]]:
 
 
 def _collect_matching_from_folders(
-    folder_paths: List[str],
+    folder_paths: List[Any],
     conversation_ids: List[str],
     subject_patterns: List[str],
+    max_scan_per_folder: int = 350,
 ) -> List[Dict[str, Any]]:
-    """Scans configured Outlook folders for messages matching any ConversationID or normalized subject."""
+    """Scans configured Outlook folders using fast MAPI Restrict (with bounded fallback) for matching thread messages."""
     from modules.emails.core.outlook_client import OutlookClient
 
     matches: List[Dict[str, Any]] = []
@@ -135,15 +165,42 @@ def _collect_matching_from_folders(
     norm_patterns = {p.lower() for p in subject_patterns if p}
     conv_set = {c for c in conversation_ids if c}
 
-    for fpath in folder_paths:
+    # Build a fast DASL LIKE filter using a distinctive substring of the normalized subject
+    dasl_filter = ""
+    for pat in subject_patterns:
+        clean_pat = (pat or "").strip()
+        if len(clean_pat) >= 6:
+            snippet = clean_pat[-45:].replace("'", "''").replace("%", "")
+            dasl_filter = f"@SQL=\"urn:schemas:httpmail:subject\" LIKE '%{snippet}%'"
+            break
+
+    for fpath in _extract_folder_paths(folder_paths):
         folder = OutlookClient.get_folder_by_path(fpath)
         if not folder:
             continue
         try:
             items = folder.Items
             items.Sort("[ReceivedTime]", True)
-            for item in items:
+
+            candidate_items = None
+            if dasl_filter:
                 try:
+                    candidate_items = items.Restrict(dasl_filter)
+                except Exception:
+                    candidate_items = None
+
+            if candidate_items is not None:
+                total = min(len(candidate_items), max_scan_per_folder)
+                iter_src = candidate_items
+            else:
+                total = min(len(items), max_scan_per_folder)
+                iter_src = items
+
+            for i in range(1, total + 1):
+                try:
+                    item = iter_src.Item(i)
+                    if getattr(item, "Class", 43) != 43:
+                        continue
                     subj = getattr(item, "Subject", "") or ""
                     cid = getattr(item, "ConversationID", "") or ""
                     norm = normalize_subject(subj).lower()
@@ -159,22 +216,17 @@ def _collect_matching_from_folders(
     return matches
 
 
-def pin_thread_from_msg(
+def _pin_from_seed_dict(
     db: TrackedThreadsDatabase,
-    msg_path: Path,
+    seed: Dict[str, Any],
     meeting_id: str,
     wg: str,
     linked_ais: Optional[List[str]] = None,
     linked_wis: Optional[List[str]] = None,
     linked_tdocs: Optional[List[str]] = None,
-) -> Optional[str]:
-    """Parses a dropped .msg, locates the full thread in configured Outlook folders, and pins it."""
-    seed = parse_msg_file(msg_path)
-    if not seed:
-        return None
-
+) -> str:
     norm_subj = normalize_subject(seed["subject"])
-    folders = load_wg_email_config(wg) if wg else []
+    folders = _extract_folder_paths(load_wg_email_config(wg)) if wg else []
     suggested = auto_suggest_links(seed["subject"], seed.get("clean_body") or seed.get("body_text", ""))
     thread_id = db.create_or_get_thread(
         title=norm_subj or seed["subject"],
@@ -196,6 +248,53 @@ def pin_thread_from_msg(
 
     db.upsert_messages(thread_id, found)
     return thread_id
+
+
+def pin_thread_from_msg(
+    db: TrackedThreadsDatabase,
+    msg_path: Path,
+    meeting_id: str,
+    wg: str,
+    linked_ais: Optional[List[str]] = None,
+    linked_wis: Optional[List[str]] = None,
+    linked_tdocs: Optional[List[str]] = None,
+) -> Optional[str]:
+    """Parses a dropped .msg, locates the full thread in configured Outlook folders, and pins it."""
+    seed = parse_msg_file(msg_path)
+    if not seed:
+        return None
+    return _pin_from_seed_dict(
+        db, seed, meeting_id=meeting_id, wg=wg,
+        linked_ais=linked_ais, linked_wis=linked_wis, linked_tdocs=linked_tdocs,
+    )
+
+
+def pin_thread_from_outlook_selection(
+    db: TrackedThreadsDatabase,
+    meeting_id: str,
+    wg: str,
+) -> List[str]:
+    """Pins thread(s) from the currently selected MailItem(s) in Microsoft Outlook's ActiveExplorer."""
+    import win32com.client
+
+    pinned: List[str] = []
+    try:
+        outlook = win32com.client.Dispatch("Outlook.Application")
+        explorer = outlook.ActiveExplorer()
+        if not explorer:
+            return pinned
+        selection = explorer.Selection
+        for i in range(1, selection.Count + 1):
+            item = selection.Item(i)
+            if getattr(item, "Class", 0) != 43:
+                continue
+            seed = _mail_item_to_dict(item)
+            tid = _pin_from_seed_dict(db, seed, meeting_id=meeting_id, wg=wg)
+            if tid and tid not in pinned:
+                pinned.append(tid)
+    except Exception as e:
+        logger.error(f"Failed to read Outlook ActiveExplorer.Selection: {e}")
+    return pinned
 
 
 def refresh_thread(db: TrackedThreadsDatabase, thread_id: str) -> int:
@@ -229,7 +328,7 @@ def list_recent_threads_in_folders(wg: str, max_items_per_folder: int = 300) -> 
     """Lists recent unique conversation threads across configured Outlook folders for a WG."""
     from modules.emails.core.outlook_client import OutlookClient
 
-    folders = load_wg_email_config(wg) if wg else []
+    folders = _extract_folder_paths(load_wg_email_config(wg)) if wg else []
     threads_by_key: Dict[str, Dict[str, Any]] = {}
 
     for fpath in folders:
@@ -239,12 +338,12 @@ def list_recent_threads_in_folders(wg: str, max_items_per_folder: int = 300) -> 
         try:
             items = folder.Items
             items.Sort("[ReceivedTime]", True)
-            count = 0
-            for item in items:
-                if count >= max_items_per_folder:
-                    break
-                count += 1
+            total = min(len(items), max_items_per_folder)
+            for i in range(1, total + 1):
                 try:
+                    item = items.Item(i)
+                    if getattr(item, "Class", 43) != 43:
+                        continue
                     subj = getattr(item, "Subject", "") or ""
                     norm = normalize_subject(subj)
                     if not norm:
@@ -283,7 +382,7 @@ def pin_thread_by_subject_or_cid(
     wg: str,
 ) -> str:
     """Pins a thread selected from the configured Outlook folder browser and pulls all matching messages."""
-    folders = load_wg_email_config(wg) if wg else []
+    folders = _extract_folder_paths(load_wg_email_config(wg)) if wg else []
     suggested = auto_suggest_links(title)
     thread_id = db.create_or_get_thread(
         title=title,
