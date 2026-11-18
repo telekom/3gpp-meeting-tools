@@ -36,12 +36,12 @@ class AsyncSyncProgressBar(QFrame):
 
     def _build_ui(self):
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setSpacing(10)
 
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("font-size: 11px; font-weight: 600; color: #1E3A8A; border: none; background: transparent;")
-        layout.addWidget(self.status_label, 1)
+        layout.addWidget(self.status_label, 0)
 
         self.remaining_label = QLabel("")
         self.remaining_label.setStyleSheet("font-size: 11px; color: #475569; border: none; background: transparent;")
@@ -49,13 +49,23 @@ class AsyncSyncProgressBar(QFrame):
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setFixedWidth(130)
-        self.progress_bar.setFixedHeight(14)
+        self.progress_bar.setFixedHeight(10)
         self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet(
+            "QProgressBar { background: #DBEAFE; border: none; border-radius: 5px; }"
+            "QProgressBar::chunk { background: #2563EB; border-radius: 5px; }"
+        )
         layout.addWidget(self.progress_bar)
 
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setCursor(Qt.PointingHandCursor)
-        self.cancel_btn.setFixedHeight(22)
+        self.cancel_btn.setMinimumHeight(24)
+        self.cancel_btn.setStyleSheet(
+            "QPushButton { background: #FFFFFF; color: #334155; border: 1px solid #CBD5E1; "
+            "border-radius: 4px; padding: 2px 10px; font-size: 11px; font-weight: 500; }"
+            "QPushButton:hover { background: #F1F5F9; border-color: #94A3B8; color: #0F172A; }"
+            "QPushButton:disabled { color: #94A3B8; background: #F8FAFC; }"
+        )
         self.cancel_btn.clicked.connect(self._on_action_clicked)
         layout.addWidget(self.cancel_btn)
 

@@ -818,6 +818,7 @@ def test_async_thread_sync_workers_and_progress_bar(tmp_path):
     bar.start_busy("Syncing threads...", total=3, remaining=["Thread A", "Thread B", "Thread C"])
     assert not bar.isHidden()
     assert bar.progress_bar.maximum() == 3
+    assert bar.cancel_btn.minimumHeight() >= 24
 
     bar.update_progress(1, 3, "Thread A", ["Thread B", "Thread C"])
     assert "Thread A" in bar.status_label.text()

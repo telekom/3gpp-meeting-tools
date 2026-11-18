@@ -3381,7 +3381,9 @@ class TDocsWindow(QWidget):
         if hasattr(self, "thread_sync_bar"):
             self.thread_sync_bar.start_busy("Syncing tracked threads...", total=len(titles), remaining=titles)
         if hasattr(self, "email_btn"):
-            self.email_btn.setText(f"⏳ Syncing 0/{len(titles)}...")
+            if not hasattr(self, "_default_email_btn_tooltip"):
+                self._default_email_btn_tooltip = self.email_btn.toolTip()
+            self.email_btn.setText(f"⏳ Emails (0/{len(titles)}) ▾")
 
         worker = TrackedThreadsRefreshWorker(self.tracked_threads_db.db_path, meeting_id, parent=self)
         worker.progress.connect(self._on_tracked_threads_sync_progress)
@@ -3398,7 +3400,7 @@ class TDocsWindow(QWidget):
         if hasattr(self, "thread_sync_bar"):
             self.thread_sync_bar.update_progress(completed, total, current_title, remaining)
         if hasattr(self, "email_btn"):
-            self.email_btn.setText(f"⏳ Syncing {completed}/{total}...")
+            self.email_btn.setText(f"⏳ Emails ({completed}/{total}) ▾")
             rem_txt = "\n• ".join(remaining[:8]) if remaining else "(none)"
             self.email_btn.setToolTip(
                 f"Syncing thread ({completed}/{total}): {current_title}\n\nRemaining:\n• {rem_txt}"
@@ -3406,6 +3408,8 @@ class TDocsWindow(QWidget):
 
     def _on_tracked_threads_sync_finished(self, ok: bool, updates: dict, err: str):
         silent = bool(getattr(self, "_sync_silent_mode", False))
+        if hasattr(self, "email_btn") and hasattr(self, "_default_email_btn_tooltip"):
+            self.email_btn.setToolTip(self._default_email_btn_tooltip)
         self._on_tracked_thread_changed()
         if not ok:
             if hasattr(self, "thread_sync_bar"):
