@@ -873,3 +873,43 @@ def test_async_thread_sync_workers_and_progress_bar(tmp_path):
         fw.finished_scan.connect(lambda ok, items, err: scan_events.append((ok, len(items), err)))
         fw.run()
         assert scan_events == [(True, 1, "")]
+
+
+def test_html_table_injection_and_list_normalization():
+    from PyQt5.QtWidgets import QApplication, QTextBrowser
+    from modules.emails.core.thread_markdown_exporter import (
+        export_thread_to_markdown,
+        inject_html_tables_into_body,
+    )
+
+    app = QApplication.instance() or QApplication([])
+    plain_body = (
+        "Hi all,\n"
+        "1.\xa0\xa0\xa0\xa0\xa0\xa0\xa0\xa0Regarding the NF Set concept:\n"
+        "-\xa0\xa0\xa0\xa0\xa0\xa0\xa0\xa0Use NF set for all NFs.\n\n"
+        "nfSetIdList\n\narray(NfSetId)\n\nC\n\n1..N\n\nNF Set ID defined in clause 28.12.\n\n"
+        "Table 6.1.6.3.3-1: Enumeration NFType\n\n"
+        "Enumeration value\n\nDescription\n\n\"NRF\"\n\nNetwork Function: NRF\n"
+    )
+    html_body = (
+        "<html><body>"
+        "<table><tr><td>nfSetIdList</td><td>array(NfSetId)</td><td>C</td><td>1..N</td><td>NF Set ID defined in clause 28.12.</td></tr></table>"
+        "<table><tr><th>Enumeration value</th><th>Description</th></tr><tr><td>\"NRF\"</td><td>Network Function: NRF</td></tr></table>"
+        "</body></html>"
+    )
+    merged = inject_html_tables_into_body(plain_body, html_body)
+    assert "| nfSetIdList | array(NfSetId) | C | 1..N | NF Set ID defined in clause 28.12. |" in merged
+    assert "| Enumeration value | Description |" in merged
+    assert "| \"NRF\" | Network Function: NRF |" in merged
+
+    md = export_thread_to_markdown(
+        {"title": "Table Thread", "normalized_subject": ""},
+        [{"id": "EID-TBL", "sender_name": "Uri", "date_sent": "2026-11-19 00:38:19", "body_text": merged}],
+        interactive_links=True,
+        include_metadata=False,
+    )
+    browser = QTextBrowser()
+    browser.setMarkdown(md)
+    rendered = browser.toHtml()
+    assert rendered.count("<table") == 2
+    assert "<pre" not in rendered

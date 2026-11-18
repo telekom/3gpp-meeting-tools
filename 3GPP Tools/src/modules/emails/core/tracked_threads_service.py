@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional
 from modules.emails.core.email_config import load_wg_email_config
 from modules.emails.core.thread_markdown_exporter import (
     extract_thread_document_urls,
+    inject_html_tables_into_body,
     unwrap_outlook_safelinks,
 )
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
@@ -177,7 +178,14 @@ def _mail_item_to_dict(item: Any) -> Dict[str, Any]:
         sender_email = getattr(item, "SenderEmailAddress", "") or ""
     except Exception:
         sender_email = ""
-    body_text = unwrap_outlook_safelinks(getattr(item, "Body", "") or "")
+    raw_body = getattr(item, "Body", "") or ""
+    try:
+        html_body = getattr(item, "HTMLBody", "") or ""
+    except Exception:
+        html_body = ""
+    if html_body and "<table" in html_body.lower():
+        raw_body = inject_html_tables_into_body(raw_body, html_body)
+    body_text = unwrap_outlook_safelinks(raw_body)
     conv_id = getattr(item, "ConversationID", "") or ""
     entry_id = getattr(item, "EntryID", "") or f"MSG-{abs(hash((subject, sender_name, body_text[:100])))}"
 

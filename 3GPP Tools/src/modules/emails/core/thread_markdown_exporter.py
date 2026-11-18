@@ -54,6 +54,93 @@ def escape_non_html_angles(text: str) -> str:
     return re.sub(r"<([^<>\n]{1,120})>", _replace_tag, cleaned)
 
 
+def inject_html_tables_into_body(body_text: str, html_body: str) -> str:
+    """
+    Replaces Outlook's flattened plain-text table cells in `body_text` with structured
+    GFM Markdown pipe tables extracted from `html_body`. Preserves surrounding text intact.
+    """
+    if not body_text or not html_body or "<table" not in html_body.lower():
+        return body_text
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return body_text
+
+    soup = BeautifulSoup(html_body, "html.parser")
+    tables = [t for t in soup.find_all("table") if not t.find("table")]
+    if not tables:
+        return body_text
+
+    lines = body_text.splitlines()
+    search_from = 0
+    for tbl in tables:
+        grid: List[List[str]] = []
+        for tr in tbl.find_all("tr"):
+            cells = [
+                " ".join(c.get_text(" ", strip=True).replace("\xa0", " ").split())
+                for c in tr.find_all(["td", "th"])
+            ]
+            if any(cells):
+                grid.append(cells)
+        if not grid or max(len(r) for r in grid) < 2:
+            continue
+        tbl_norm = " ".join(" ".join(cell for row in grid for cell in row if cell).split())
+        if len(tbl_norm) < 4:
+            continue
+
+        matched_span = None
+        for i in range(search_from, len(lines)):
+            first = " ".join(lines[i].replace("\xa0", " ").split())
+            if not first or not tbl_norm.startswith(first):
+                continue
+            acc = first
+            if acc == tbl_norm:
+                matched_span = (i, i)
+                break
+            for j in range(i + 1, len(lines)):
+                nxt = " ".join(lines[j].replace("\xa0", " ").split())
+                if not nxt:
+                    continue
+                cand = acc + " " + nxt
+                if not tbl_norm.startswith(cand):
+                    break
+                acc = cand
+                if acc == tbl_norm:
+                    matched_span = (i, j)
+                    break
+            if matched_span:
+                break
+
+        if matched_span:
+            col_count = max(len(r) for r in grid)
+            padded = [
+                [c.replace("|", "\\|") for c in r] + [""] * (col_count - len(r))
+                for r in grid
+            ]
+            md_rows = [
+                "| " + " | ".join(padded[0]) + " |",
+                "| " + " | ".join(["---"] * col_count) + " |",
+            ] + ["| " + " | ".join(br) + " |" for br in padded[1:]]
+            replacement = [""] + md_rows + [""]
+            s_i, s_j = matched_span
+            lines[s_i : s_j + 1] = replacement
+            search_from = s_i + len(replacement)
+
+    return "\n".join(lines)
+
+
+def _normalize_outlook_list_spacing(text: str) -> str:
+    """Normalizes Word/Outlook list markers with 4+ spaces/tabs so CommonMark does not render them as code blocks."""
+    if not text:
+        return ""
+    cleaned = text.replace("\xa0", " ")
+    # Collapse wide gaps after bullet/numbered list markers (e.g. "1.\t   Text" -> "1. Text")
+    cleaned = re.sub(r"^([ \t]*(?:[-*+•]|\d+\.))[ \t]{2,}", r"\1 ", cleaned, flags=re.MULTILINE)
+    # Strip 4+ leading spaces on standalone non-code lines unless part of a fenced block
+    cleaned = re.sub(r"^[ \t]{4,}(?=\S)", "", cleaned, flags=re.MULTILINE)
+    return cleaned
+
+
 def _normalize_doc_url_spaces(text: str) -> str:
     """Normalizes unencoded spaces, '#', '[' and ']' in 10.10.10.10/ftp and 3gpp.org/ftp document URLs."""
     if not text:
@@ -310,7 +397,8 @@ def export_thread_to_markdown(
         lines.append("")
 
         body = (msg.get("clean_body") if deduplicate_quotes and msg.get("clean_body") else msg.get("body_text")) or ""
-        body = linkify_markdown_urls(body.strip())
+        body = _normalize_outlook_list_spacing(body.strip())
+        body = linkify_markdown_urls(body)
         if interactive_links:
             body = escape_non_html_angles(body)
         if body:
