@@ -235,9 +235,21 @@ class SessionPlanVerticalHeader(QHeaderView):
         bar_w = max(3, scale_px(4))
         painter.fillRect(QRect(rect.left(), rect.top(), bar_w, rect.height()), QColor(accent_hex))
 
-        # Bottom & right grid borders
-        painter.setPen(QPen(QColor(C.BORDER_SUBTLE), 1))
-        painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+        # Bottom & right grid borders (strong 2px divider at Quarter/Period boundaries)
+        rows = getattr(self._window, "grid_rows", None) or []
+        tv = getattr(self._window, "grid_table", None)
+        is_period_end = True
+        for nxt in range(logicalIndex + 1, len(rows)):
+            if tv is None or not tv.isRowHidden(nxt):
+                is_period_end = (rows[nxt].period != r_desc.period)
+                break
+        if is_period_end:
+            painter.setPen(QPen(QColor(C.TEXT_FAINT), 2))
+            painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+        else:
+            painter.setPen(QPen(QColor(C.BORDER_SUBTLE), 1))
+            painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+        painter.setPen(QPen(QColor(C.TEXT_FAINT), 2))
         painter.drawLine(rect.right(), rect.top(), rect.right(), rect.bottom())
 
         f_time, f_sub, f_badge = self._fonts()
@@ -310,6 +322,221 @@ class SessionPlanVerticalHeader(QHeaderView):
             painter.drawText(r2, Qt.AlignLeft | Qt.AlignVCenter, fm_sub.elidedText(sub_txt, Qt.ElideRight, r2.width()))
 
         painter.restore()
+
+
+class SessionPlanHorizontalHeader(QHeaderView):
+    """
+    2-tier merged horizontal header for the Session Plan Overview Grid.
+
+    Top tier merges each visible Mon–Fri column pair into one Day Banner
+    (with alternating slate header tints and an emerald Today highlight).
+    Bottom tier renders `1st Half` and `2nd Half` separated by a faint dashed
+    split, while day boundaries use a strong 2px divider.
+    """
+
+    def __init__(self, window: "SessionPlanWindow", parent=None):
+        super().__init__(Qt.Horizontal, parent)
+        self._window = window
+        self.setSectionsClickable(False)
+        self.setDefaultAlignment(Qt.AlignCenter)
+
+    def sizeHint(self) -> QSize:
+        base = super().sizeHint()
+        return QSize(base.width(), max(scale_px(44), 44))
+
+    def paintEvent(self, event):
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        vp_rect = self.viewport().rect()
+        total_h = vp_rect.height()
+        top_h = max(scale_px(24), int(total_h * 0.56))
+        bot_h = max(1, total_h - top_h)
+
+        f_day = QFont(self.font())
+        f_day.setBold(True)
+        f_day.setPixelSize(max(11, scale_px(12)))
+        fm_day = QFontMetrics(f_day)
+
+        f_sub = QFont(self.font())
+        f_sub.setBold(True)
+        f_sub.setPixelSize(max(9, scale_px(10)))
+
+        f_badge = QFont(self.font())
+        f_badge.setBold(True)
+        f_badge.setPixelSize(max(8, scale_px(9)))
+        fm_badge = QFontMetrics(f_badge)
+
+        painter.fillRect(vp_rect, QColor(C.BG_SURFACE))
+
+        for day_idx in range(len(DAY_NAMES)):
+            c1 = day_idx * 2
+            c2 = c1 + 1
+            if c2 >= self.count():
+                continue
+            v1 = not self.isSectionHidden(c1)
+            v2 = not self.isSectionHidden(c2)
+            if not v1 and not v2:
+                continue
+
+            x1 = self.sectionViewportPosition(c1)
+            w1 = self.sectionSize(c1) if v1 else 0
+            x2 = self.sectionViewportPosition(c2)
+            w2 = self.sectionSize(c2) if v2 else 0
+
+            left = x1 if v1 else x2
+            right = (x2 + w2) if v2 else (x1 + w1)
+            if right <= left:
+                continue
+
+            day_rect = QRect(left, 0, right - left, top_h)
+            day_lbl, is_today = self._window._get_day_header_info(day_idx)
+
+            if is_today:
+                banner_bg = C.WG_RAN_BG
+                accent_col = C.EMERALD_ACCENT
+                accent_h = max(3, scale_px(3))
+                txt_col = C.WG_RAN_TEXT
+                sub_bg = C.SUCCESS_SOFT
+            elif day_idx % 2 == 1:
+                banner_bg = C.BG_HOVER
+                accent_col = C.TEXT_FAINT
+                accent_h = max(2, scale_px(2))
+                txt_col = C.TEXT_STRONG
+                sub_bg = C.BG_SURFACE
+            else:
+                banner_bg = C.BG_SURFACE
+                accent_col = C.TEXT_MUTED
+                accent_h = max(2, scale_px(2))
+                txt_col = C.TEXT_PRIMARY
+                sub_bg = C.BG_CARD
+
+            painter.fillRect(day_rect, QColor(banner_bg))
+            painter.fillRect(QRect(left, 0, right - left, accent_h), QColor(accent_col))
+
+            if is_today:
+                badge_txt = "Today"
+                bw = fm_badge.horizontalAdvance(badge_txt) + scale_px(10)
+                bh = fm_badge.height() + scale_px(2)
+                txt_w = fm_day.horizontalAdvance(day_lbl)
+                gap = scale_px(6)
+                combined_w = txt_w + gap + bw
+                start_x = left + max(scale_px(4), ((right - left) - combined_w) // 2)
+                painter.setFont(f_day)
+                painter.setPen(QColor(txt_col))
+                painter.drawText(
+                    QRect(start_x, accent_h, txt_w + 2, top_h - accent_h),
+                    Qt.AlignVCenter | Qt.AlignLeft,
+                    day_lbl,
+                )
+                by = accent_h + max(1, ((top_h - accent_h) - bh) // 2)
+                b_rect = QRect(start_x + txt_w + gap, by, bw, bh)
+                painter.setPen(QPen(QColor(C.SUCCESS_BORDER_MEDIUM), 1))
+                painter.setBrush(QColor(C.SUCCESS_SOFT_ALT))
+                painter.drawRoundedRect(b_rect, 4, 4)
+                painter.setFont(f_badge)
+                painter.setPen(QColor(C.SUCCESS))
+                painter.drawText(b_rect, Qt.AlignCenter, badge_txt)
+            else:
+                painter.setFont(f_day)
+                painter.setPen(QColor(txt_col))
+                painter.drawText(
+                    QRect(left + 2, accent_h, max(10, right - left - 4), top_h - accent_h),
+                    Qt.AlignCenter,
+                    fm_day.elidedText(day_lbl, Qt.ElideRight, max(10, right - left - 6)),
+                )
+
+            painter.setPen(QPen(QColor(C.BORDER_STRONG), 1))
+            painter.drawLine(left, top_h - 1, right - 1, top_h - 1)
+
+            for sub_col, sub_lbl in ((c1, "1st Half"), (c2, "2nd Half")):
+                if self.isSectionHidden(sub_col):
+                    continue
+                sx = self.sectionViewportPosition(sub_col)
+                sw = self.sectionSize(sub_col)
+                sub_rect = QRect(sx, top_h, sw, bot_h)
+                painter.fillRect(sub_rect, QColor(sub_bg))
+                painter.setFont(f_sub)
+                painter.setPen(QColor(C.SUCCESS_DARK if is_today else C.TEXT_MUTED))
+                painter.drawText(sub_rect, Qt.AlignCenter, sub_lbl)
+
+                if sub_col == c1 and v2:
+                    dash_pen = QPen(QColor(C.BORDER_STRONG), 1, Qt.DashLine)
+                    painter.setPen(dash_pen)
+                    painter.drawLine(sx + sw - 1, top_h + 2, sx + sw - 1, total_h - 2)
+
+            painter.setPen(QPen(QColor(C.BORDER_STRONG), 2))
+            painter.drawLine(left, total_h - 1, right - 1, total_h - 1)
+
+            painter.setPen(QPen(QColor(C.TEXT_FAINT), 2))
+            painter.drawLine(right - 1, 0, right - 1, total_h - 1)
+
+
+class SessionPlanGridTable(QTableWidget):
+    """
+    Custom QTableWidget for the Session Plan Overview Grid that paints semantic
+    separators instead of uniform gridlines:
+    - Strong vertical separators (2px #94A3B8) between days
+    - Faint dashed internal separators (1px #CBD5E1) between 1st Half and 2nd Half
+    - Strong horizontal separators (2px #94A3B8) between Quarter/Break periods
+    - Light horizontal separators (1px #E2E8F0) between streams in the same Quarter
+    """
+
+    def __init__(self, window: "SessionPlanWindow", parent=None):
+        super().__init__(parent)
+        self._window = window
+        self.setShowGrid(False)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        rows = getattr(self._window, "grid_rows", None) or []
+        if not rows or self.rowCount() == 0:
+            return
+
+        vp = self.viewport()
+        painter = QPainter(vp)
+        vp_w = vp.width()
+        vp_h = vp.height()
+
+        visible_rows = [r for r in range(self.rowCount()) if not self.isRowHidden(r)]
+        for day_idx in range(len(DAY_NAMES)):
+            c1 = day_idx * 2
+            c2 = c1 + 1
+            if c2 >= self.columnCount():
+                continue
+            v1 = not self.isColumnHidden(c1)
+            v2 = not self.isColumnHidden(c2)
+            if not v1 and not v2:
+                continue
+
+            if v1 and v2:
+                split_x = self.columnViewportPosition(c1) + self.columnWidth(c1) - 1
+                if 0 <= split_x < vp_w:
+                    painter.setPen(QPen(QColor(C.BORDER_STRONG), 1, Qt.DashLine))
+                    for r in visible_rows:
+                        if self.columnSpan(r, c1) == 1:
+                            ry = self.rowViewportPosition(r)
+                            rh = self.rowHeight(r)
+                            painter.drawLine(split_x, ry, split_x, ry + rh)
+
+            end_col = c2 if v2 else c1
+            day_right_x = self.columnViewportPosition(end_col) + self.columnWidth(end_col) - 1
+            if 0 <= day_right_x < vp_w:
+                painter.setPen(QPen(QColor(C.TEXT_FAINT), 2))
+                painter.drawLine(day_right_x, 0, day_right_x, vp_h)
+
+        for idx, r in enumerate(visible_rows):
+            ry_bot = self.rowViewportPosition(r) + self.rowHeight(r) - 1
+            if ry_bot < 0 or ry_bot > vp_h:
+                continue
+            cur_period = rows[r].period if r < len(rows) else ""
+            next_r = visible_rows[idx + 1] if idx + 1 < len(visible_rows) else None
+            next_period = rows[next_r].period if (next_r is not None and next_r < len(rows)) else None
+            is_period_boundary = (next_period is None) or (cur_period != next_period)
+            if is_period_boundary:
+                painter.setPen(QPen(QColor(C.TEXT_FAINT), 2))
+            else:
+                painter.setPen(QPen(QColor(C.BORDER_SUBTLE), 1))
+            painter.drawLine(0, ry_bot, vp_w, ry_bot)
 
 
 class SessionPlanWindow(QWidget):
@@ -386,6 +613,8 @@ class SessionPlanWindow(QWidget):
         self._last_now_live_bucket: Optional[Tuple[int, int]] = None
         self.grid_rows: List[GridRowDescriptor] = []
         self.empty_break_periods: Set[str] = set()
+        self.grid_day_filter_mode: str = "ALL"  # "ALL", "TODAY_PLUS", or "CUSTOM"
+        self.grid_selected_days: Set[int] = set()
 
         self.setWindowTitle(f"🗓️ Session Plan — SA2 #{self.meeting_number} ({self.location})")
         self.resize(1380, 840)
@@ -878,12 +1107,53 @@ class SessionPlanWindow(QWidget):
         self.chk_breaks.toggled.connect(self._update_row_visibility)
         self.room_strip_layout.addWidget(self.chk_breaks)
 
-        self.chk_hide_empty_breaks = QCheckBox("⚡ Hide Empty Breaks")
-        self.chk_hide_empty_breaks.setChecked(True)
-        self.chk_hide_empty_breaks.setStyleSheet(f"QCheckBox {{ color: {C.TEXT_MUTED}; font-size: 11px; padding: 2px 4px; }}")
-        self.chk_hide_empty_breaks.setToolTip("When checked, automatically hides break rows that have no scheduled drafting sessions or notes.")
-        self.chk_hide_empty_breaks.toggled.connect(self._update_row_visibility)
-        self.room_strip_layout.addWidget(self.chk_hide_empty_breaks)
+        sep_days = QFrame()
+        sep_days.setFrameShape(QFrame.VLine)
+        sep_days.setStyleSheet(f"color: {C.BORDER_STRONG};")
+        self.room_strip_layout.addWidget(sep_days)
+
+        day_grp = QWidget(self.room_strip)
+        day_grp.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        day_lay = QHBoxLayout(day_grp)
+        day_lay.setContentsMargins(0, 0, 0, 0)
+        day_lay.setSpacing(3)
+
+        lbl_days = QLabel("<b>Days:</b>")
+        lbl_days.setStyleSheet(f"font-size: 11px; color: {C.TEXT_SECONDARY}; border: none; background: transparent;")
+        day_lay.addWidget(lbl_days)
+
+        self.btn_day_all = QPushButton("All 5")
+        self.btn_day_all.setCheckable(True)
+        self.btn_day_all.setChecked(True)
+        self.btn_day_all.setCursor(Qt.PointingHandCursor)
+        self.btn_day_all.setToolTip("Show all 5 meeting days (Monday – Friday)")
+        self.btn_day_all.clicked.connect(lambda: self._on_day_filter_clicked("ALL"))
+        day_lay.addWidget(self.btn_day_all)
+
+        self.btn_day_today_plus = QPushButton("Today+")
+        self.btn_day_today_plus.setCheckable(True)
+        self.btn_day_today_plus.setCursor(Qt.PointingHandCursor)
+        self.btn_day_today_plus.setToolTip("Hide past days and show Today through Friday")
+        self.btn_day_today_plus.clicked.connect(lambda: self._on_day_filter_clicked("TODAY_PLUS"))
+        day_lay.addWidget(self.btn_day_today_plus)
+
+        self.day_filter_btns: List[QPushButton] = []
+        for d_idx, d_name in enumerate(DAY_NAMES):
+            btn_d = QPushButton(d_name[:3])
+            btn_d.setCheckable(True)
+            btn_d.setCursor(Qt.PointingHandCursor)
+            btn_d.setToolTip(f"Focus on {d_name} (click multiple days to compare side-by-side)")
+            btn_d.clicked.connect(lambda _, i=d_idx: self._on_day_filter_clicked(i))
+            day_lay.addWidget(btn_d)
+            self.day_filter_btns.append(btn_d)
+
+        self.room_strip_layout.addWidget(day_grp)
+        self._style_day_filter_buttons()
+
+        sep_loc = QFrame()
+        sep_loc.setFrameShape(QFrame.VLine)
+        sep_loc.setStyleSheet(f"color: {C.BORDER_STRONG};")
+        self.room_strip_layout.addWidget(sep_loc)
 
         self.btn_room_locations = QPushButton("📍 Room Locations...")
         self.btn_room_locations.setCursor(Qt.PointingHandCursor)
@@ -940,7 +1210,7 @@ class SessionPlanWindow(QWidget):
         )
         self.lbl_badge_legend.setToolTip(
             "<b>Cell &amp; Badge Legend</b><br>"
-            "• <b>🕒 Pill</b> = Effective slot time (blue = half-quarter, amber = custom time)<br>"
+            "• <b>🕒 Pill</b> = Sub-slot or custom time override (blue = half-quarter, amber = custom)<br>"
             "• <b>Solid pill</b> = Topic owner<br>"
             "• <b>Dashed pill</b> = Ad-hoc session cover<br>"
             "• <b style='color:#DC2626;'>Red ring / ⚠</b> = Parallel-stream clash<br>"
@@ -952,16 +1222,21 @@ class SessionPlanWindow(QWidget):
         self._style_focus_buttons()
 
         # Overview Table (10 columns: 2 per day)
-        self.grid_table = QTableWidget()
+        self.grid_table = SessionPlanGridTable(self)
         self.grid_table.setColumnCount(10)
-        self.grid_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.grid_table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
+        self.grid_table.setCornerButtonEnabled(False)
+        self.horizontal_day_header = SessionPlanHorizontalHeader(self, self.grid_table)
+        self.grid_table.setHorizontalHeader(self.horizontal_day_header)
+        self.horizontal_day_header.setSectionResizeMode(QHeaderView.Stretch)
+        self.horizontal_day_header.setFixedHeight(scale_px(44))
         self.vertical_time_header = SessionPlanVerticalHeader(self, self.grid_table)
         self.grid_table.setVerticalHeader(self.vertical_time_header)
         self.grid_table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.grid_table.verticalHeader().setDefaultSectionSize(scale_px(46))
         self.grid_table.setAlternatingRowColors(False)
-        self.grid_table.setStyleSheet(f"QTableWidget {{ gridline-color: {C.BORDER_SUBTLE}; selection-background-color: {C.INDIGO_SOFT}; }}")
+        self.grid_table.setStyleSheet(
+            f"QTableWidget {{ border: 1px solid {C.BORDER_STRONG}; selection-background-color: {C.INDIGO_SOFT}; }}"
+        )
         self.grid_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.grid_table.customContextMenuRequested.connect(self._on_grid_context_menu)
         self.grid_table.cellDoubleClicked.connect(self._on_grid_cell_double_clicked)
@@ -1572,13 +1847,120 @@ class SessionPlanWindow(QWidget):
                     )
         return rows
 
+    def _get_today_day_index(self) -> Optional[int]:
+        """Returns 0..4 when the current venue date falls within the Mon-Fri meeting week, else None."""
+        try:
+            base_date = datetime.strptime(self.start_date_str, "%Y-%m-%d").date()
+        except Exception:
+            return None
+        venue_today = SessionPlanTimezone.get_venue_current_datetime(self.tz_offset_min).date()
+        diff = (venue_today - base_date).days
+        return diff if 0 <= diff <= 4 else None
+
+    def _get_day_header_info(self, day_idx: int) -> Tuple[str, bool]:
+        """Returns `(formatted_day_label, is_today)` for horizontal column header painting."""
+        d_name = DAY_NAMES[day_idx] if 0 <= day_idx < len(DAY_NAMES) else f"Day {day_idx + 1}"
+        try:
+            base_date = datetime.strptime(self.start_date_str, "%Y-%m-%d").date()
+            cur_date = base_date + timedelta(days=day_idx)
+            venue_today = SessionPlanTimezone.get_venue_current_datetime(self.tz_offset_min).date()
+            return f"{d_name[:3]} {cur_date.strftime('%d %b')}", (cur_date == venue_today)
+        except Exception:
+            return d_name, False
+
+    def _get_day_bg_hex(self, day_idx: int, today_idx: Optional[int] = None) -> str:
+        """Returns subtle column background tint for alternating days and Today highlight."""
+        if today_idx is None:
+            today_idx = self._get_today_day_index()
+        if today_idx is not None and day_idx == today_idx:
+            return C.SUCCESS_SOFT
+        return C.BG_SURFACE if (day_idx % 2 == 1) else C.BG_CARD
+
+    def _style_day_filter_buttons(self):
+        """Styles the Overview Grid Day Filter pill buttons (`All 5`, `Today+`, `Mon`..`Fri`)."""
+        if not hasattr(self, "btn_day_all"):
+            return
+        base = "padding: 2px 7px; font-size: 10.5px; font-weight: 600; border-radius: 5px;"
+        active_all = f"background: {C.ACCENT_PRIMARY}; color: {C.BG_CARD}; border: 1px solid {C.ACCENT_HOVER};"
+        active_today = f"background: {C.EMERALD_PRIMARY}; color: {C.BG_CARD}; border: 1px solid {C.EMERALD_DARK};"
+        active_day = f"background: {C.INFO_ALT}; color: {C.BG_CARD}; border: 1px solid {C.ACCENT_HOVER};"
+        idle = f"background: {C.BG_CARD}; color: {C.TEXT_SECONDARY}; border: 1px solid {C.BORDER_STRONG};"
+
+        self.btn_day_all.blockSignals(True)
+        self.btn_day_all.setChecked(self.grid_day_filter_mode == "ALL")
+        self.btn_day_all.blockSignals(False)
+        self.btn_day_all.setStyleSheet(
+            f"QPushButton {{ {base} {active_all if self.grid_day_filter_mode == 'ALL' else idle} }}"
+        )
+
+        self.btn_day_today_plus.blockSignals(True)
+        self.btn_day_today_plus.setChecked(self.grid_day_filter_mode == "TODAY_PLUS")
+        self.btn_day_today_plus.blockSignals(False)
+        self.btn_day_today_plus.setStyleSheet(
+            f"QPushButton {{ {base} {active_today if self.grid_day_filter_mode == 'TODAY_PLUS' else idle} }}"
+        )
+
+        for idx, btn in enumerate(getattr(self, "day_filter_btns", [])):
+            is_sel = (self.grid_day_filter_mode == "CUSTOM" and idx in self.grid_selected_days)
+            btn.blockSignals(True)
+            btn.setChecked(is_sel)
+            btn.blockSignals(False)
+            btn.setStyleSheet(f"QPushButton {{ {base} {active_day if is_sel else idle} }}")
+
+    def _on_day_filter_clicked(self, target):
+        """Handles clicks on `All 5`, `Today+`, or individual `Mon`..`Fri` Day Filter pills."""
+        if target == "ALL":
+            self.grid_day_filter_mode = "ALL"
+            self.grid_selected_days.clear()
+        elif target == "TODAY_PLUS":
+            self.grid_day_filter_mode = "TODAY_PLUS"
+            self.grid_selected_days.clear()
+        elif isinstance(target, int):
+            if self.grid_day_filter_mode != "CUSTOM":
+                self.grid_day_filter_mode = "CUSTOM"
+                self.grid_selected_days = {target}
+            else:
+                if target in self.grid_selected_days:
+                    self.grid_selected_days.discard(target)
+                else:
+                    self.grid_selected_days.add(target)
+                if not self.grid_selected_days or len(self.grid_selected_days) >= len(DAY_NAMES):
+                    self.grid_day_filter_mode = "ALL"
+                    self.grid_selected_days.clear()
+
+        self._style_day_filter_buttons()
+        self._update_column_visibility()
+
+    def _update_column_visibility(self):
+        """Shows/hides day column pairs in `grid_table` according to the active Day Filter."""
+        if not hasattr(self, "grid_table"):
+            return
+        if self.grid_day_filter_mode == "TODAY_PLUS":
+            today_idx = self._get_today_day_index()
+            if today_idx is not None:
+                visible_days = set(range(today_idx, len(DAY_NAMES)))
+            else:
+                visible_days = set(range(len(DAY_NAMES)))
+        elif self.grid_day_filter_mode == "CUSTOM" and self.grid_selected_days:
+            visible_days = set(self.grid_selected_days)
+        else:
+            visible_days = set(range(len(DAY_NAMES)))
+
+        for d_idx in range(len(DAY_NAMES)):
+            hide = d_idx not in visible_days
+            self.grid_table.setColumnHidden(d_idx * 2, hide)
+            self.grid_table.setColumnHidden(d_idx * 2 + 1, hide)
+
+        if hasattr(self, "horizontal_day_header"):
+            self.horizontal_day_header.viewport().update()
+        QTimer.singleShot(0, self.grid_table.resizeRowsToContents)
+
     def _update_row_visibility(self):
         """Hides/shows rows according to interactive stream and break toggle checkboxes."""
         show_s1 = self.btn_toggle_s1.isChecked()
         show_s2 = self.btn_toggle_s2.isChecked()
         show_s3 = self.btn_toggle_s3.isChecked()
         show_breaks = self.chk_breaks.isChecked()
-        hide_empty = self.chk_hide_empty_breaks.isChecked()
 
         for row_idx, r_desc in enumerate(self.grid_rows):
             if r_desc.row_type == "stream":
@@ -1589,12 +1971,9 @@ class SessionPlanWindow(QWidget):
                 elif r_desc.stream_number == 3:
                     self.grid_table.setRowHidden(row_idx, not show_s3)
             elif r_desc.row_type == "break":
-                if not show_breaks:
-                    self.grid_table.setRowHidden(row_idx, True)
-                elif hide_empty and r_desc.period in self.empty_break_periods:
-                    self.grid_table.setRowHidden(row_idx, True)
-                else:
-                    self.grid_table.setRowHidden(row_idx, False)
+                self.grid_table.setRowHidden(row_idx, not show_breaks)
+        if hasattr(self, "grid_table") and self.grid_table.verticalHeader():
+            self.grid_table.verticalHeader().viewport().update()
 
     def _build_rich_slot_tooltip(
         self, slot: SessionSlot, day_idx: int, period: str, stream_num: int, tu: int
@@ -1753,8 +2132,9 @@ class SessionPlanWindow(QWidget):
     ) -> QWidget:
         """Creates a compact unified card for a session slot with right-aligned pills and neutral unassigned styling."""
         w = QWidget()
+        w.setStyleSheet("background: transparent;")
         outer_lay = QVBoxLayout(w)
-        outer_lay.setContentsMargins(2, 2, 2, 2)
+        outer_lay.setContentsMargins(3, 3, 3, 3)
         outer_lay.setSpacing(0)
 
         card = QFrame()
@@ -1880,16 +2260,14 @@ class SessionPlanWindow(QWidget):
             is_custom_time = (s_t, e_t) != (times[0], times[1])
 
         time_chip = None
-        if not is_empty_drafting and s_t and e_t:
+        if not is_empty_drafting and s_t and e_t and (is_half or tu in (1, 2) or is_custom_time):
             time_chip = QLabel(f"🕒 {s_t}–{e_t}")
             if is_dimmed:
                 tc_bg, tc_fg, tc_bdr = C.BG_SURFACE, C.TEXT_FAINT, C.BORDER_SUBTLE
             elif is_custom_time:
                 tc_bg, tc_fg, tc_bdr = C.WARNING_SOFT, C.WARNING_DARK, C.WARNING_BORDER
-            elif is_half or tu in (1, 2):
-                tc_bg, tc_fg, tc_bdr = C.INFO_SOFT, C.INFO_DARK, C.INFO_BORDER
             else:
-                tc_bg, tc_fg, tc_bdr = C.BG_SURFACE, C.TEXT_SECONDARY, C.BORDER_SUBTLE
+                tc_bg, tc_fg, tc_bdr = C.INFO_SOFT, C.INFO_DARK, C.INFO_BORDER
             time_chip.setStyleSheet(
                 f"background: {tc_bg}; color: {tc_fg}; font-size: 9.5px; "
                 f"font-weight: 700; border: 1px solid {tc_bdr}; border-radius: 3px; padding: 0px 4px;"
@@ -2011,8 +2389,9 @@ class SessionPlanWindow(QWidget):
     def _create_break_cell_widget(self, slot: SessionSlot, day_idx: int, period: str) -> QWidget:
         """Creates cell widget for break drafting sessions or boundary schedules."""
         w = QWidget()
+        w.setStyleSheet("background: transparent;")
         lay = QVBoxLayout(w)
-        lay.setContentsMargins(4, 2, 4, 2)
+        lay.setContentsMargins(4, 3, 4, 3)
 
         lbl = QLabel(slot.raw_text)
         lbl.setWordWrap(True)
@@ -2054,7 +2433,38 @@ class SessionPlanWindow(QWidget):
         finally:
             self._grid_collisions_cache = None
 
+    def _make_day_tint_item(self, day_bg_hex: str) -> QTableWidgetItem:
+        """Creates a non-editable background-tinted item so cellWidget margins match day zebra/today columns."""
+        bg_item = QTableWidgetItem("")
+        bg_item.setFlags(Qt.ItemIsEnabled)
+        bg_item.setBackground(QColor(day_bg_hex))
+        return bg_item
+
+    def _is_plain_empty_drafting(self, slot: SessionSlot) -> bool:
+        """True when a slot is a bare `'Drafting:'` placeholder with no delegates, tracked notes, or room override."""
+        room_ov = getattr(slot, "room_override", "") or ""
+        _, is_empty_drafting = format_slot_display_text(slot.raw_text, room_ov)
+        if not is_empty_drafting:
+            return False
+        ann = self.annotations.get(slot.slot_key)
+        if ann and (ann.comment or ann.assigned_colleague):
+            return False
+        del_names, _, is_all = self._get_slot_effective_delegates(slot)
+        if is_all or del_names:
+            return False
+        return True
+
+    def _make_empty_drafting_item(self, slot: SessionSlot, day_idx: int, period: str, stream_num: int, tu: int, day_bg_hex: str) -> QTableWidgetItem:
+        """Renders bare empty `'Drafting:'` placeholders as a quiet muted dash while preserving the rich tooltip."""
+        item = QTableWidgetItem("—")
+        item.setTextAlignment(Qt.AlignCenter)
+        item.setForeground(QColor(C.TEXT_FAINT))
+        item.setBackground(QColor(day_bg_hex))
+        item.setToolTip(self._build_rich_slot_tooltip(slot, day_idx, period, stream_num, tu))
+        return item
+
     def _render_overview_grid_impl(self):
+        self.grid_table.clearContents()
         self.grid_table.clearSpans()
         self.grid_table.setRowCount(0)
         self.grid_rows = self._build_grid_rows()
@@ -2080,28 +2490,17 @@ class SessionPlanWindow(QWidget):
 
         # 2. Horizontal Headers with Day and Half-Quarter Columns (10 columns)
         h_headers = []
-        try:
-            base_date = datetime.strptime(self.start_date_str, "%Y-%m-%d").date()
-        except Exception:
-            base_date = None
-
-        venue_today = SessionPlanTimezone.get_venue_current_datetime(self.tz_offset_min).date()
-
-        for idx, d_name in enumerate(DAY_NAMES):
-            if base_date:
-                cur_date = base_date + timedelta(days=idx)
-                d_str = f"{d_name[:3]} {cur_date.strftime('%d %b')}"
-                if cur_date == venue_today:
-                    d_str += " 🟢"
-            else:
-                d_str = d_name
-
+        today_idx = self._get_today_day_index()
+        for idx in range(len(DAY_NAMES)):
+            d_str, is_today = self._get_day_header_info(idx)
+            if is_today:
+                d_str += " 🟢"
             h_headers.append(f"{d_str}\n1st Half")
             h_headers.append(f"{d_str}\n2nd Half")
 
         self.grid_table.setHorizontalHeaderLabels(h_headers)
 
-        # Determine which break periods have content
+        # Determine which break periods have content (kept for test/API compatibility)
         active_break_periods = set()
         for s in self.active_snapshot.slots:
             if any(b in s.quarter.lower() for b in ["break", "coffee", "lunch"]):
@@ -2124,6 +2523,7 @@ class SessionPlanWindow(QWidget):
                 for day_idx in range(5):
                     tu1_col = day_idx * 2
                     tu2_col = day_idx * 2 + 1
+                    day_bg = self._get_day_bg_hex(day_idx, today_idx=today_idx)
                     matching = slot_map.get((day_idx, r_desc.period, r_desc.stream_number), [])
 
                     full_slot = next((s for s in matching if s.sub_slot == 0), None)
@@ -2132,52 +2532,79 @@ class SessionPlanWindow(QWidget):
 
                     if full_slot:
                         self.grid_table.setSpan(row_idx, tu1_col, 1, 2)
-                        w = self._create_slot_cell_widget(full_slot, day_idx, r_desc.period, r_desc.stream_number, is_half=False, tu=0)
-                        self.grid_table.setCellWidget(row_idx, tu1_col, w)
+                        if self._is_plain_empty_drafting(full_slot):
+                            self.grid_table.setItem(
+                                row_idx, tu1_col,
+                                self._make_empty_drafting_item(full_slot, day_idx, r_desc.period, r_desc.stream_number, 0, day_bg),
+                            )
+                        else:
+                            self.grid_table.setItem(row_idx, tu1_col, self._make_day_tint_item(day_bg))
+                            w = self._create_slot_cell_widget(full_slot, day_idx, r_desc.period, r_desc.stream_number, is_half=False, tu=0)
+                            self.grid_table.setCellWidget(row_idx, tu1_col, w)
                     elif tu1_slot or tu2_slot:
                         if tu1_slot:
-                            w1 = self._create_slot_cell_widget(tu1_slot, day_idx, r_desc.period, r_desc.stream_number, is_half=True, tu=1)
-                            self.grid_table.setCellWidget(row_idx, tu1_col, w1)
+                            if self._is_plain_empty_drafting(tu1_slot):
+                                self.grid_table.setItem(
+                                    row_idx, tu1_col,
+                                    self._make_empty_drafting_item(tu1_slot, day_idx, r_desc.period, r_desc.stream_number, 1, day_bg),
+                                )
+                            else:
+                                self.grid_table.setItem(row_idx, tu1_col, self._make_day_tint_item(day_bg))
+                                w1 = self._create_slot_cell_widget(tu1_slot, day_idx, r_desc.period, r_desc.stream_number, is_half=True, tu=1)
+                                self.grid_table.setCellWidget(row_idx, tu1_col, w1)
                         else:
                             item_e = QTableWidgetItem("—")
                             item_e.setTextAlignment(Qt.AlignCenter)
                             item_e.setForeground(QColor(C.BORDER_STRONG))
+                            item_e.setBackground(QColor(day_bg))
                             self.grid_table.setItem(row_idx, tu1_col, item_e)
 
                         if tu2_slot:
-                            w2 = self._create_slot_cell_widget(tu2_slot, day_idx, r_desc.period, r_desc.stream_number, is_half=True, tu=2)
-                            self.grid_table.setCellWidget(row_idx, tu2_col, w2)
+                            if self._is_plain_empty_drafting(tu2_slot):
+                                self.grid_table.setItem(
+                                    row_idx, tu2_col,
+                                    self._make_empty_drafting_item(tu2_slot, day_idx, r_desc.period, r_desc.stream_number, 2, day_bg),
+                                )
+                            else:
+                                self.grid_table.setItem(row_idx, tu2_col, self._make_day_tint_item(day_bg))
+                                w2 = self._create_slot_cell_widget(tu2_slot, day_idx, r_desc.period, r_desc.stream_number, is_half=True, tu=2)
+                                self.grid_table.setCellWidget(row_idx, tu2_col, w2)
                         else:
                             item_e = QTableWidgetItem("—")
                             item_e.setTextAlignment(Qt.AlignCenter)
                             item_e.setForeground(QColor(C.BORDER_STRONG))
+                            item_e.setBackground(QColor(day_bg))
                             self.grid_table.setItem(row_idx, tu2_col, item_e)
                     else:
                         self.grid_table.setSpan(row_idx, tu1_col, 1, 2)
                         item_e = QTableWidgetItem("—")
                         item_e.setTextAlignment(Qt.AlignCenter)
-                        item_e.setForeground(QColor(C.BORDER_SUBTLE))
+                        item_e.setForeground(QColor(C.BORDER_STRONG))
+                        item_e.setBackground(QColor(day_bg))
                         self.grid_table.setItem(row_idx, tu1_col, item_e)
 
             elif r_desc.row_type == "break":
                 for day_idx in range(5):
                     tu1_col = day_idx * 2
+                    day_bg = self._get_day_bg_hex(day_idx, today_idx=today_idx)
                     self.grid_table.setSpan(row_idx, tu1_col, 1, 2)
                     matching_b = break_slot_map.get((day_idx, r_desc.period), [])
                     valid_b = [s for s in matching_b if s.raw_text.strip() and s.raw_text.strip() != "-"]
                     if valid_b:
+                        self.grid_table.setItem(row_idx, tu1_col, self._make_day_tint_item(day_bg))
                         w = self._create_break_cell_widget(valid_b[0], day_idx, r_desc.period)
                         self.grid_table.setCellWidget(row_idx, tu1_col, w)
                     else:
                         item_b = QTableWidgetItem("—")
                         item_b.setTextAlignment(Qt.AlignCenter)
                         item_b.setForeground(QColor(C.BORDER_STRONG))
-                        item_b.setBackground(QColor(C.BG_SURFACE))
+                        item_b.setBackground(QColor(C.SUCCESS_SOFT if today_idx == day_idx else C.BG_SURFACE))
                         times = PERIOD_TIMES[r_desc.period]
                         item_b.setToolTip(f"{r_desc.period}: {times[0]} – {times[1]} (Break)")
                         self.grid_table.setItem(row_idx, tu1_col, item_b)
 
         self._update_row_visibility()
+        self._update_column_visibility()
         QTimer.singleShot(0, self.grid_table.resizeRowsToContents)
 
     @staticmethod
@@ -2962,6 +3389,7 @@ class SessionPlanWindow(QWidget):
                 target_row = r_i
                 break
         if target_row is not None:
+            self._ensure_day_visible(day_idx)
             self.btn_grid.setChecked(True)
             self.view_stack.setCurrentWidget(self.overview_page)
             col_idx = day_idx * 2 + (1 if slot_obj.sub_slot == 2 else 0)
@@ -4155,6 +4583,13 @@ class SessionPlanWindow(QWidget):
         self.now_selected_unit_key = None
         self._render_now_view()
 
+    def _ensure_day_visible(self, day_idx: int):
+        """Ensures the target day columns are visible if currently hidden by Day Filter."""
+        if not (0 <= day_idx < len(DAY_NAMES)) or not hasattr(self, "grid_table"):
+            return
+        if self.grid_table.isColumnHidden(day_idx * 2):
+            self._on_day_filter_clicked("ALL")
+
     def _jump_to_slot_in_grid(self, day_idx: int, period: str, stream_num: int = 1, sub_slot: int = 0):
         target_row = None
         for r_i, r_d in enumerate(self.grid_rows):
@@ -4162,6 +4597,7 @@ class SessionPlanWindow(QWidget):
                 target_row = r_i
                 break
         if target_row is not None:
+            self._ensure_day_visible(day_idx)
             self.btn_grid.setChecked(True)
             self.view_stack.setCurrentWidget(self.overview_page)
             col_idx = day_idx * 2 + (1 if sub_slot == 2 else 0)

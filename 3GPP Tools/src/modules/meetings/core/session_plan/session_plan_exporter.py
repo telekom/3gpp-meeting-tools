@@ -459,6 +459,17 @@ class SessionPlanExporter:
         unassigned_slots_json = json.dumps(unassigned_slots_data, ensure_ascii=False)
         base_date_js = base_date.strftime("%Y-%m-%d") if base_date else ""
 
+        day_parity_classes = []
+        today_day_idx = -1
+        for d_i in range(5):
+            if base_date and (base_date + timedelta(days=d_i)) == venue_today:
+                day_parity_classes.append("day-today")
+                today_day_idx = d_i
+            elif d_i % 2 == 1:
+                day_parity_classes.append("day-odd")
+            else:
+                day_parity_classes.append("day-even")
+
         # ------------------------------------------------------------------
         # Helper: Render Overview Grid Slot Cell
         # ------------------------------------------------------------------
@@ -488,7 +499,20 @@ class SessionPlanExporter:
             raw_esc = html.escape(clean_display_text).replace("\n", "<br>")
             tt_html = build_tooltip_html(slot, d_idx, p, tu)
 
-            cell_classes = ["grid-cell", "slot-cell", f"stream-{s_num}"]
+            day_cls = day_parity_classes[d_idx] if 0 <= d_idx < len(day_parity_classes) else "day-even"
+            bdr_cls = "tu-split-col" if (colspan == 1 and tu == 1) else "day-end-col"
+
+            # Quiet dash for bare empty "Drafting:" placeholders without notes or delegates
+            if is_empty_drafting and not (ann and ann.comment) and not is_all and not eff_dels:
+                return (
+                    f'<td class="grid-cell empty-slot-cell is-empty-drafting stream-{s_num} {day_cls} {bdr_cls}" '
+                    f'colspan="{colspan}" data-stream="{s_num}" data-period="{p}" data-tu="{tu}" data-day="{d_idx}" '
+                    f'data-delegates="" data-is-all="0" data-is-cov="0" data-unassigned="0" '
+                    f'data-not-followed="0" data-drafting="1" data-search="{html.escape(" ".join(search_tokens))}">—'
+                    f'<div class="slot-tooltip-data" style="display:none;">{tt_html}</div></td>'
+                )
+
+            cell_classes = ["grid-cell", "slot-cell", f"stream-{s_num}", day_cls, bdr_cls]
             if is_empty_drafting:
                 cell_classes.append("is-empty-drafting")
             elif slot.is_drafting:
@@ -509,7 +533,8 @@ class SessionPlanExporter:
                 p_bdr = pm.border_tint if pm else "#BFDBFE"
                 card_inline_style = f' style="background:{p_tint}; border:1px solid {p_bdr}; border-left:4px solid {p_col};"'
 
-            # Effective slot time pill + optional room override pill (mirroring Desktop GUI)
+            # Effective slot time pill + optional room override pill (mirroring Desktop GUI):
+            # Omit redundant time pill on standard Full-Quarter slots since the row header shows it.
             p_times = get_period_effective_times(p)
             if tu == 1:
                 s_t = slot.start_time_local or p_times[2]
@@ -528,7 +553,7 @@ class SessionPlanExporter:
                 time_pill_cls = "is-custom-time" if is_custom_t else "is-full"
 
             time_pill_html = ""
-            if (not is_empty_drafting) and s_t and e_t:
+            if (not is_empty_drafting) and s_t and e_t and (tu in (1, 2) or is_custom_t):
                 time_pill_html = f'<span class="cell-time-pill {time_pill_cls}">🕒 {html.escape(s_t)}–{html.escape(e_t)}</span>'
 
             room_pill_html = f'<span class="cell-room-override">📍 {html.escape(room_ov)}</span>' if room_ov else ""
@@ -605,22 +630,27 @@ class SessionPlanExporter:
 
         # Header Row 1: Day Names & Dates (colspan=2 per day)
         overview_html.append('<thead><tr class="hdr-days-row">\n')
-        overview_html.append('<th class="corner-hdr" rowspan="2">Period / Stream<br><span class="hdr-sub">Venue &amp; Laptop Times</span></th>\n')
+        overview_html.append('<th class="corner-hdr" rowspan="2">Period / Stream<br><span class="hdr-sub">Venue &amp; Local Times</span></th>\n')
         for d_idx, d_name in enumerate(DAY_NAMES):
+            day_cls = day_parity_classes[d_idx]
             date_str = ""
             today_badge = ""
             if base_date:
                 cur_d = base_date + timedelta(days=d_idx)
                 date_str = f" <span class='hdr-date'>{cur_d.strftime('%d %b')}</span>"
                 if cur_d == venue_today:
-                    today_badge = " <span class='badge-today'>🟢 Today</span>"
-            overview_html.append(f'<th class="col-day-hdr" colspan="2">{d_name[:3]}{date_str}{today_badge}</th>\n')
+                    today_badge = " <span class='badge-today'>Today</span>"
+            overview_html.append(f'<th class="col-day-hdr {day_cls} day-end-col" colspan="2" data-day="{d_idx}">{d_name[:3]}{date_str}{today_badge}</th>\n')
         overview_html.append('</tr>\n')
 
         # Header Row 2: Half-Quarter TU1 / TU2
         overview_html.append('<tr class="hdr-tu-row">\n')
         for d_idx in range(5):
-            overview_html.append('<th class="col-tu-hdr" title="1st Half (TU 1)">1st Half</th>\n<th class="col-tu-hdr" title="2nd Half (TU 2)">2nd Half</th>\n')
+            day_cls = day_parity_classes[d_idx]
+            overview_html.append(
+                f'<th class="col-tu-hdr {day_cls} tu-split-col" data-day="{d_idx}" data-tu="1" title="1st Half (TU 1)">1st Half</th>\n'
+                f'<th class="col-tu-hdr {day_cls} day-end-col" data-day="{d_idx}" data-tu="2" title="2nd Half (TU 2)">2nd Half</th>\n'
+            )
         overview_html.append('</tr></thead>\n<tbody>\n')
 
         # Body Rows
@@ -637,8 +667,7 @@ class SessionPlanExporter:
                     .replace("Break", "☕ Short Break")
                     .replace("Lunch", "🍱 Lunch Break")
                 )
-                is_empty_brk = (p not in active_break_periods)
-                brk_cls = "grid-row break-row" + (" empty-break" if is_empty_brk else "")
+                brk_cls = "grid-row break-row period-end-row"
                 overview_html.append(f'<tr class="{brk_cls}" data-period="{p}">\n')
                 overview_html.append(
                     f'<th class="row-hdr break-hdr" data-period="{p}">'
@@ -648,12 +677,13 @@ class SessionPlanExporter:
                 )
 
                 for d_idx in range(5):
+                    day_cls = day_parity_classes[d_idx]
                     matching_b = break_slot_map.get((d_idx, p), [])
                     valid_b = [s for s in matching_b if s.raw_text.strip() and s.raw_text.strip() != "-"]
                     if valid_b:
                         overview_html.append(render_overview_cell(valid_b[0], colspan=2, d_idx=d_idx, p=p, s_num=valid_b[0].stream_number or 1, tu=0))
                     else:
-                        overview_html.append(f'<td class="grid-cell empty-break-cell" colspan="2" data-day="{d_idx}" data-period="{p}">—</td>\n')
+                        overview_html.append(f'<td class="grid-cell empty-break-cell {day_cls} day-end-col" colspan="2" data-day="{d_idx}" data-period="{p}">—</td>\n')
                 overview_html.append('</tr>\n')
             else:
                 for s_num in [1, 2, 3]:
@@ -661,7 +691,8 @@ class SessionPlanExporter:
                     r_name = s_info.room_name if s_info else ("Main" if s_num == 1 else f"Brk {s_num-1}")
                     short_r = r_name.split("(")[0].strip()
 
-                    overview_html.append(f'<tr class="grid-row stream-row stream-row-{s_num}" data-stream="{s_num}" data-period="{p}">\n')
+                    p_end_cls = " period-end-row" if s_num == 3 else ""
+                    overview_html.append(f'<tr class="grid-row stream-row stream-row-{s_num}{p_end_cls}" data-stream="{s_num}" data-period="{p}">\n')
                     overview_html.append(
                         f'<th class="row-hdr stream-hdr-s{s_num}" data-period="{p}" '
                         f'title="{p}: {times[0]}–{times[1]} · 1st Half {times[2]}–{times[3]} | 2nd Half {times[4]}–{times[5]}">'
@@ -671,6 +702,7 @@ class SessionPlanExporter:
                     )
 
                     for d_idx in range(5):
+                        day_cls = day_parity_classes[d_idx]
                         matching = slot_map.get((d_idx, p, s_num), [])
                         full_slot = next((s for s in matching if s.sub_slot == 0), None)
                         tu1_slot = next((s for s in matching if s.sub_slot == 1), None)
@@ -682,14 +714,14 @@ class SessionPlanExporter:
                             if tu1_slot:
                                 overview_html.append(render_overview_cell(tu1_slot, colspan=1, d_idx=d_idx, p=p, s_num=s_num, tu=1))
                             else:
-                                overview_html.append(f'<td class="grid-cell empty-slot-cell" colspan="1" data-day="{d_idx}" data-period="{p}" data-stream="{s_num}">—</td>\n')
+                                overview_html.append(f'<td class="grid-cell empty-slot-cell {day_cls} tu-split-col" colspan="1" data-day="{d_idx}" data-period="{p}" data-stream="{s_num}">—</td>\n')
 
                             if tu2_slot:
                                 overview_html.append(render_overview_cell(tu2_slot, colspan=1, d_idx=d_idx, p=p, s_num=s_num, tu=2))
                             else:
-                                overview_html.append(f'<td class="grid-cell empty-slot-cell" colspan="1" data-day="{d_idx}" data-period="{p}" data-stream="{s_num}">—</td>\n')
+                                overview_html.append(f'<td class="grid-cell empty-slot-cell {day_cls} day-end-col" colspan="1" data-day="{d_idx}" data-period="{p}" data-stream="{s_num}">—</td>\n')
                         else:
-                            overview_html.append(f'<td class="grid-cell empty-slot-cell" colspan="2" data-day="{d_idx}" data-period="{p}" data-stream="{s_num}">—</td>\n')
+                            overview_html.append(f'<td class="grid-cell empty-slot-cell {day_cls} day-end-col" colspan="2" data-day="{d_idx}" data-period="{p}" data-stream="{s_num}">—</td>\n')
                     overview_html.append('</tr>\n')
 
         overview_html.append('</tbody></table></div>\n')
@@ -896,68 +928,70 @@ class SessionPlanExporter:
   body {
     margin: 0; padding: 0; background: var(--bg); color: var(--text);
     font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
-    font-size: 12.5px; line-height: 1.38;
+    font-size: 12px; line-height: 1.35;
+  }
+  @media (min-width: 769px) {
+    body {
+      height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+    }
+    #overviewView {
+      flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 6px 10px 8px 10px;
+    }
+    #nowView, #cardsView, #conflictsView, #unassignedView {
+      flex: 1 1 auto; min-height: 0; overflow-y: auto;
+    }
   }
   header {
-    position: sticky; top: 0; z-index: 100; background: #FFFFFF;
-    border-bottom: 1px solid var(--border); padding: 7px 14px 6px 14px;
+    position: sticky; top: 0; z-index: 100; background: #FFFFFF; flex-shrink: 0;
+    border-bottom: 1px solid var(--border); padding: 5px 12px;
     box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
   }
   .header-top {
-    display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; flex-wrap: wrap; gap: 6px;
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; flex-wrap: wrap; gap: 6px;
   }
   .title-block { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .title { font-size: 15px; font-weight: 700; color: var(--text-strong); margin: 0; letter-spacing: -0.01em; }
-  .badge-tdoc { font-size: 11px; background: #EEF2FF; color: #3730A3; border: 1px solid #C7D2FE; padding: 2px 8px; border-radius: 999px; font-weight: 700; }
-  .badge-snap { font-size: 11px; background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A; padding: 2px 7px; border-radius: 999px; font-weight: 600; }
+  .title { font-size: 14.5px; font-weight: 700; color: var(--text-strong); margin: 0; letter-spacing: -0.01em; }
+  .badge-tdoc { font-size: 11px; background: #EEF2FF; color: #3730A3; border: 1px solid #C7D2FE; padding: 1px 7px; border-radius: 999px; font-weight: 700; }
+  .badge-snap { font-size: 10.5px; background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A; padding: 1px 6px; border-radius: 999px; font-weight: 600; }
   .badge-utc {
     font-size: 10.5px; font-weight: 700; background: #ECFDF5; color: #065F46;
-    border: 1px solid #A7F3D0; padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+    border: 1px solid #A7F3D0; padding: 1px 7px; border-radius: 999px; white-space: nowrap;
   }
   .badge-live-clock {
-    display: inline-flex; align-items: center; gap: 5px;
-    font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
     background: #EFF6FF; color: #1E3A8A; border: 1px solid #BFDBFE;
-    padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+    padding: 2px 9px; border-radius: 999px; white-space: nowrap;
   }
-  .badge-live-clock strong { font-size: 12.5px; font-weight: 700; }
-  .tz-banner {
-    display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--subtext);
-    background: var(--surface); border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px;
-    font-weight: 500;
-  }
+  .badge-live-clock strong { font-size: 11.5px; font-weight: 700; }
   .header-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .btn-cal-download {
-    padding: 4px 10px; font-size: 11.5px; font-weight: 600; border-radius: 6px;
+    padding: 3px 9px; font-size: 11px; font-weight: 600; border-radius: 6px;
     background: #1E5C99; color: #FFFFFF; border: 1px solid #15426E; cursor: pointer;
     transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
   }
   .btn-cal-download:hover { background: #15426E; }
-  .btn-highlight-now {
-    padding: 4px 10px; font-size: 11.5px; font-weight: 700; border-radius: 6px;
-    background: #ECFDF5; color: #047857; border: 1px solid #A7F3D0; cursor: pointer;
-    transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
-  }
-  .btn-highlight-now:hover { background: #D1FAE5; }
-  .btn-highlight-now.active {
-    background: #059669; color: #FFFFFF; border-color: #047857;
-    box-shadow: 0 2px 6px rgba(5, 150, 105, 0.25);
-  }
   .badge-clash {
     font-size: 11px; font-weight: 700; background: #FFFBEB; color: #B45309;
-    border: 1px solid #F59E0B; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid #F59E0B; padding: 2px 8px; border-radius: 999px;
     display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
     transition: all 0.15s ease; white-space: nowrap;
   }
   .badge-clash:hover { background: #FEF3C7; border-color: #D97706; }
   .live-banner {
-    display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px; font-weight: 600;
-    padding: 4px 10px; border-radius: 6px; background: #ECFDF5; color: #065F46;
-    border: 1px solid #A7F3D0; margin-bottom: 5px; cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 600;
+    padding: 2px 10px; border-radius: 6px; background: #ECFDF5; color: #065F46;
+    border: 1px solid #A7F3D0; margin-top: 4px; cursor: pointer;
   }
   .live-banner:hover { background: #D1FAE5; }
+  .live-banner-right { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .live-banner-close {
+    border: none; background: transparent; color: #065F46; font-weight: 700; font-size: 12px;
+    cursor: pointer; padding: 0 4px; border-radius: 4px; line-height: 1.2;
+  }
+  .live-banner-close:hover { background: rgba(6, 95, 70, 0.12); }
   .pulse-dot {
-    width: 8px; height: 8px; border-radius: 50%; background: #10B981;
+    width: 7px; height: 7px; border-radius: 50%; background: #10B981;
     display: inline-block; animation: pulseLive 1.8s infinite;
   }
   @keyframes pulseLive {
@@ -1045,18 +1079,18 @@ class SessionPlanExporter:
     display: flex; gap: 8px; flex-wrap: wrap; font-size: 11px; color: #065F46;
   }
 
-  /* Delegate Selector Strip */
+  /* Delegate Selector & Day Filter Strip */
   .controls-bar {
-    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px 10px;
     padding-top: 2px;
   }
   .del-strip {
-    display: flex; gap: 5px; align-items: center; overflow-x: auto; padding: 2px 0;
+    display: flex; gap: 4px; align-items: center; overflow-x: auto; padding: 1px 0;
     -webkit-overflow-scrolling: touch; flex-wrap: wrap;
   }
-  .strip-label { font-size: 10.5px; font-weight: 700; color: #64748B; letter-spacing: 0.02em; margin-right: 2px; }
+  .strip-label { font-size: 10px; font-weight: 700; color: #64748B; letter-spacing: 0.02em; margin-right: 1px; }
   .del-filter-btn {
-    padding: 3px 9px; font-size: 11px; font-weight: 600; border-radius: 999px; cursor: pointer;
+    padding: 2px 8px; font-size: 10.5px; font-weight: 600; border-radius: 999px; cursor: pointer;
     background: #F1F5F9; color: #334155; border: 1px solid var(--border); white-space: nowrap;
     transition: all 0.15s ease;
   }
@@ -1070,24 +1104,40 @@ class SessionPlanExporter:
     background: var(--del-color, #2563EB); color: #FFFFFF; border-color: var(--del-color, #2563EB);
     box-shadow: 0 1px 4px rgba(0,0,0,0.14);
   }
-  .strip-sep { width: 1px; height: 16px; background: var(--border); margin: 0 2px; }
+  .strip-sep { width: 1px; height: 15px; background: var(--border); margin: 0 2px; }
   .btn-toggle { background: var(--surface); }
   #btnUnassigned.active { background: #D97706; color: #FFFFFF; border-color: #B45309; }
   #btnDrafting.active { background: #DC2626; color: #FFFFFF; border-color: #DC2626; }
 
+  .day-filter-strip {
+    display: inline-flex; gap: 3px; align-items: center; flex-wrap: wrap;
+  }
+  .day-filter-btn {
+    padding: 2px 7px; font-size: 10.5px; font-weight: 600; border-radius: 5px; cursor: pointer;
+    background: var(--surface); color: var(--subtext); border: 1px solid var(--grid-border);
+    white-space: nowrap; transition: all 0.12s ease;
+  }
+  .day-filter-btn:hover:not(.active) { background: #E2E8F0; color: var(--text); }
+  .day-filter-btn.active {
+    background: #1E5C99; color: #FFFFFF; border-color: #15426E;
+  }
+  .day-filter-btn[data-day-filter="TODAY_PLUS"].active {
+    background: #059669; border-color: #047857;
+  }
+
   /* Filter Controls Row */
   .filter-controls-row {
-    display: flex; gap: 8px; align-items: center; flex-wrap: wrap; flex: 1 1 320px; justify-content: flex-end;
+    display: flex; gap: 6px; align-items: center; flex-wrap: wrap; flex: 1 1 360px; justify-content: flex-end;
   }
   .search-box {
-    flex: 1 1 200px; max-width: 300px; min-width: 170px; padding: 4px 10px; border: 1px solid var(--grid-border); border-radius: 6px;
-    font-size: 12px; outline: none; background: var(--surface); color: var(--text);
+    flex: 1 1 160px; max-width: 240px; min-width: 140px; padding: 3px 8px; border: 1px solid var(--grid-border); border-radius: 6px;
+    font-size: 11.5px; outline: none; background: var(--surface); color: var(--text);
   }
   .search-box:focus { background: #FFFFFF; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(30, 92, 153, 0.12); }
-  .grid-row-controls { display: flex; gap: 5px; align-items: center; font-size: 11px; flex-wrap: wrap; }
+  .grid-row-controls { display: flex; gap: 4px; align-items: center; font-size: 10.5px; flex-wrap: wrap; }
   .toggle-label {
-    display: inline-flex; align-items: center; gap: 4px; cursor: pointer; color: var(--subtext); font-weight: 600;
-    background: var(--surface); border: 1px solid var(--border); padding: 2px 7px; border-radius: 6px; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 3px; cursor: pointer; color: var(--subtext); font-weight: 600;
+    background: var(--surface); border: 1px solid var(--border); padding: 2px 6px; border-radius: 5px; white-space: nowrap;
   }
   .toggle-label:hover { background: #F1F5F9; }
   .toggle-label input { cursor: pointer; margin: 0; }
@@ -1096,51 +1146,79 @@ class SessionPlanExporter:
   .str-dot.s2 { background: var(--stream2); }
   .str-dot.s3 { background: var(--stream3); }
 
-  /* Overview Grid View Styles (2D Scroll Container with Locked Day Header Row & Period Column) */
+  /* Overview Grid View Styles (Full-Viewport Container with Locked Day Header Row & Period Column) */
   .overview-grid-container {
-    margin: 8px 12px 20px 12px; overflow: auto; max-height: calc(100vh - 175px);
-    -webkit-overflow-scrolling: touch; border: 1px solid var(--grid-border); border-radius: 8px;
+    margin: 6px 10px 12px 10px; overflow: auto; flex: 1 1 auto; min-height: 300px;
+    -webkit-overflow-scrolling: touch; border: 1px solid #94A3B8; border-radius: 8px;
     background: #FFFFFF; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
   }
+  @media (min-width: 769px) {
+    .overview-grid-container { margin: 0; }
+  }
   .overview-table {
-    border-collapse: separate; border-spacing: 0; width: 100%; min-width: 1220px;
+    border-collapse: separate; border-spacing: 0; width: 100%; min-width: 920px;
     background: #FFFFFF; table-layout: fixed;
   }
+  .overview-table.filtered-days { min-width: 0; }
   .overview-table th, .overview-table td {
     border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
-    padding: 5px 7px; vertical-align: top; font-size: 11px;
+    padding: 4px 6px; vertical-align: top; font-size: 11px;
   }
   .overview-table td.grid-cell {
     padding: 3px; background: #FFFFFF;
   }
+  .overview-table td.grid-cell.day-odd { background: #F8FAFC; }
+  .overview-table td.grid-cell.day-today { background: #F0FDF4; }
+  .overview-table th.tu-split-col,
+  .overview-table td.tu-split-col {
+    border-right: 1px dashed #CBD5E1;
+  }
+  .overview-table th.day-end-col,
+  .overview-table td.day-end-col {
+    border-right: 2px solid #94A3B8 !important;
+  }
+  .overview-table tr.period-end-row th,
+  .overview-table tr.period-end-row td {
+    border-bottom: 2px solid #94A3B8;
+  }
+  .day-hidden { display: none !important; }
   .overview-table th:last-child, .overview-table td:last-child { border-right: none; }
   .overview-table tr:last-child td { border-bottom: none; }
 
   .hdr-days-row th {
-    background: #F1F5F9; color: #1E293B; font-weight: 700; text-align: center;
-    position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--grid-border);
-    box-shadow: 0 1px 0 var(--grid-border); padding: 5px 6px; white-space: nowrap;
+    background: #F8FAFC; color: #0F172A; font-weight: 700; text-align: center;
+    position: sticky; top: 0; z-index: 20; border-top: 2px solid #64748B; border-bottom: 1px solid var(--grid-border);
+    box-shadow: 0 1px 0 var(--grid-border); padding: 4px 6px; white-space: nowrap;
+  }
+  .hdr-days-row th.col-day-hdr.day-odd {
+    background: #EEF2F6; border-top-color: #94A3B8;
+  }
+  .hdr-days-row th.col-day-hdr.day-today {
+    background: #ECFDF5; color: #065F46; border-top: 3px solid #10B981;
   }
   .corner-hdr {
     background: #E2E8F0 !important; text-align: left !important; font-size: 11px;
-    position: sticky; top: 0; left: 0; z-index: 30 !important; width: 184px; min-width: 184px;
+    position: sticky; top: 0; left: 0; z-index: 30 !important; width: 152px; min-width: 152px;
+    border-top: none !important; border-right: 2px solid #94A3B8 !important;
   }
-  .hdr-sub { font-size: 9.5px; font-weight: 500; color: #64748B; }
+  .hdr-sub { font-size: 9px; font-weight: 500; color: #64748B; }
   .hdr-date { font-size: 10.5px; font-weight: 600; color: #475569; }
   .badge-today {
     display: inline-block; font-size: 9px; font-weight: 700; background: #DCFCE7;
-    color: #15803D; padding: 1px 5px; border-radius: 4px; margin-left: 4px;
+    color: #15803D; border: 1px solid #86EFAC; padding: 0px 5px; border-radius: 4px; margin-left: 4px;
   }
   .hdr-tu-row th {
-    background: #F8FAFC; color: #64748B; font-size: 10px; font-weight: 600; text-align: center;
-    position: sticky; top: var(--day-hdr-h, 27px); z-index: 19; padding: 3px 4px;
-    border-bottom: 1px solid var(--grid-border); box-shadow: 0 1px 2px rgba(0,0,0,0.03);
-    white-space: nowrap; min-width: 105px;
+    background: #FFFFFF; color: #64748B; font-size: 9.5px; font-weight: 600; text-align: center;
+    position: sticky; top: var(--day-hdr-h, 25px); z-index: 19; padding: 2px 4px;
+    border-bottom: 2px solid #CBD5E1; box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    white-space: nowrap; min-width: 0;
   }
+  .hdr-tu-row th.day-odd { background: #F1F5F9; }
+  .hdr-tu-row th.day-today { background: #F0FDF4; color: #166534; }
   .row-hdr {
     background: #F8FAFC; color: #1E293B; font-weight: 600; text-align: left;
-    position: sticky; left: 0; z-index: 10; width: 184px; min-width: 184px; font-size: 10.5px;
-    padding: 5px 8px !important;
+    position: sticky; left: 0; z-index: 10; width: 152px; min-width: 152px; font-size: 10.5px;
+    padding: 4px 6px !important; border-right: 2px solid #94A3B8 !important;
   }
   .hdr-time-line {
     display: flex; align-items: center; justify-content: space-between; gap: 4px;
@@ -1197,10 +1275,13 @@ class SessionPlanExporter:
     border-color: #94A3B8;
   }
   .grid-cell.empty-slot-cell {
-    text-align: center; color: #CBD5E1; font-weight: 500; background: #FFFFFF; vertical-align: middle !important;
+    text-align: center; color: #CBD5E1; font-weight: 500; vertical-align: middle !important;
   }
   .grid-cell.empty-break-cell {
     text-align: center; color: #CBD5E1; font-weight: 500; background: #FAFAFA; vertical-align: middle !important;
+  }
+  .grid-cell.empty-slot-cell.is-empty-drafting {
+    color: #94A3B8; font-weight: 500;
   }
   .grid-cell.is-empty-drafting .slot-card {
     background: #F8FAFC !important; border: 1px dashed #E2E8F0 !important;
@@ -1500,6 +1581,9 @@ class SessionPlanExporter:
   let nowAutoFollow = true;
   let nowPanelOpen = false;
   let nowTargetSlot = null; // { day_idx, quarter, tu, label, is_live }
+  let dayFilterMode = 'ALL'; // 'ALL', 'TODAY_PLUS', or 'CUSTOM'
+  let selectedDaysSet = new Set();
+  let liveBannerDismissed = false;
 
   const PERIOD_LIST = ['Q0', 'Break 1', 'Q1', 'Coffee 1', 'Q2', 'Lunch', 'Q3', 'Coffee 2', 'Q4', 'Q5'];
   const DAY_NAMES_LIST = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -1517,12 +1601,84 @@ class SessionPlanExporter:
     if (dayRow && dayRow.offsetHeight && document.documentElement && document.documentElement.style && document.documentElement.style.setProperty) {
       document.documentElement.style.setProperty('--day-hdr-h', dayRow.offsetHeight + 'px');
     }
-    const gridCont = document.querySelector('.overview-grid-container');
-    const hdr = document.querySelector('header');
-    if (gridCont && gridCont.style && hdr && hdr.offsetHeight && window.innerHeight) {
-      const avail = Math.max(320, window.innerHeight - hdr.offsetHeight - 24);
-      gridCont.style.maxHeight = avail + 'px';
+  }
+
+  function getLiveVenueDayIndex() {
+    if (!MEETING_BASE_DATE) return -1;
+    const now = new Date();
+    const venueMs = now.getTime() + (MEETING_TZ_OFFSET_MIN * 60000);
+    const vDate = new Date(venueMs);
+    const parts = MEETING_BASE_DATE.split('-');
+    const baseMs = Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    const vDayMs = Date.UTC(vDate.getUTCFullYear(), vDate.getUTCMonth(), vDate.getUTCDate());
+    const diff = Math.floor((vDayMs - baseMs) / 86400000);
+    return (diff >= 0 && diff <= 4) ? diff : -1;
+  }
+
+  function selectDayFilter(target) {
+    if (target === 'ALL') {
+      dayFilterMode = 'ALL';
+      selectedDaysSet.clear();
+    } else if (target === 'TODAY_PLUS') {
+      dayFilterMode = 'TODAY_PLUS';
+      selectedDaysSet.clear();
+    } else {
+      const dIdx = parseInt(target, 10);
+      if (dayFilterMode !== 'CUSTOM') {
+        dayFilterMode = 'CUSTOM';
+        selectedDaysSet = new Set([dIdx]);
+      } else {
+        if (selectedDaysSet.has(dIdx)) {
+          selectedDaysSet.delete(dIdx);
+        } else {
+          selectedDaysSet.add(dIdx);
+        }
+        if (selectedDaysSet.size === 0 || selectedDaysSet.size >= 5) {
+          dayFilterMode = 'ALL';
+          selectedDaysSet.clear();
+        }
+      }
     }
+
+    let visibleDays = new Set([0, 1, 2, 3, 4]);
+    if (dayFilterMode === 'TODAY_PLUS') {
+      const todayIdx = getLiveVenueDayIndex();
+      if (todayIdx >= 0) {
+        visibleDays = new Set();
+        for (let i = todayIdx; i < 5; i++) visibleDays.add(i);
+      }
+    } else if (dayFilterMode === 'CUSTOM' && selectedDaysSet.size > 0) {
+      visibleDays = new Set(selectedDaysSet);
+    }
+
+    document.querySelectorAll('.day-filter-btn').forEach(btn => {
+      const val = btn.getAttribute('data-day-filter');
+      if (val === 'ALL') {
+        btn.classList.toggle('active', dayFilterMode === 'ALL');
+      } else if (val === 'TODAY_PLUS') {
+        btn.classList.toggle('active', dayFilterMode === 'TODAY_PLUS');
+      } else {
+        btn.classList.toggle('active', dayFilterMode === 'CUSTOM' && selectedDaysSet.has(parseInt(val, 10)));
+      }
+    });
+
+    const ov = document.getElementById('overviewView');
+    if (ov) {
+      ov.querySelectorAll('[data-day]').forEach(el => {
+        const d = parseInt(el.getAttribute('data-day'), 10);
+        el.classList.toggle('day-hidden', !visibleDays.has(d));
+      });
+      const tbl = ov.querySelector('.overview-table');
+      if (tbl) tbl.classList.toggle('filtered-days', visibleDays.size < 5);
+    }
+    updateStickyHeaderOffsets();
+  }
+
+  function dismissLiveBanner(ev) {
+    if (ev && ev.stopPropagation) ev.stopPropagation();
+    liveBannerDismissed = true;
+    const banner = document.getElementById('liveVenueBanner');
+    if (banner) banner.style.display = 'none';
   }
 
   function switchView(viewName) {
@@ -1547,14 +1703,13 @@ class SessionPlanExporter:
       const btn = document.getElementById(btnIds[v]);
       if (btn) btn.classList.toggle('active', v === viewName);
       const div = document.getElementById(divIds[v]);
-      if (div) div.style.display = (v === viewName) ? 'block' : 'none';
+      if (div) div.style.display = (v === viewName) ? (v === 'grid' ? 'flex' : 'block') : 'none';
     }
 
     const gc = document.getElementById('gridControls');
     if (gc) gc.style.display = (viewName === 'grid') ? 'flex' : 'none';
-
-    const hNowBtn = document.getElementById('btnHighlightNow');
-    if (hNowBtn) hNowBtn.classList.toggle('active', viewName === 'now');
+    const dc = document.getElementById('dayFilterStrip');
+    if (dc) dc.style.display = (viewName === 'grid') ? 'inline-flex' : 'none';
 
     if (viewName === 'now') {
       renderNowView();
@@ -1575,7 +1730,7 @@ class SessionPlanExporter:
     });
     const dlBtn = document.getElementById('btnDownloadIcs');
     if (dlBtn) {
-      dlBtn.textContent = (delName === 'ALL') ? '📅 Download Team .ics' : ('📅 ' + delName + ' .ics');
+      dlBtn.textContent = (delName === 'ALL') ? '📅 Team .ics' : ('📅 ' + delName + ' .ics');
     }
     applyFilters();
     detectDelegateClashes(delName);
@@ -1612,20 +1767,6 @@ class SessionPlanExporter:
     rows.forEach(r => r.style.display = (chk && chk.checked) ? '' : 'none');
   }
 
-  function toggleEmptyBreaks() {
-    const chk = document.getElementById('chkEmptyBreaks');
-    const rows = document.querySelectorAll('.break-row.empty-break');
-    rows.forEach(r => {
-      if (chk && chk.checked) {
-        r.style.display = 'none';
-      } else {
-        const brkChk = document.getElementById('chkBreaks');
-        const showAll = brkChk ? brkChk.checked : true;
-        r.style.display = showAll ? '' : 'none';
-      }
-    });
-  }
-
   function switchDay(dayName, btn) {
     document.querySelectorAll('.day-tab').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.day-section').forEach(s => s.style.display = 'none');
@@ -1648,6 +1789,9 @@ class SessionPlanExporter:
       const sel = '.grid-cell[data-day="' + dayIdx + '"][data-period="' + period + '"]' + (streamNum ? '[data-stream="' + streamNum + '"]' : '');
       const el = document.querySelector(sel);
       if (el) {
+        if (el.classList && el.classList.contains('day-hidden')) {
+          selectDayFilter('ALL');
+        }
         if (el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
         el.classList.add('is-now-focused');
         setTimeout(() => el.classList.remove('is-now-focused'), 2600);
@@ -2726,6 +2870,7 @@ class SessionPlanExporter:
     const baseMs = Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
     const vDayMs = Date.UTC(vDate.getUTCFullYear(), vDate.getUTCMonth(), vDate.getUTCDate());
     const dayDiff = Math.floor((vDayMs - baseMs) / 86400000);
+    const closeBtnHtml = '<button type="button" class="live-banner-close" onclick="dismissLiveBanner(event)" title="Hide live banner">✕</button>';
 
     if (dayDiff >= 0 && dayDiff <= 4) {
       const todayEvents = CAL_EVENTS.filter(e => e.day_idx === dayDiff);
@@ -2746,33 +2891,35 @@ class SessionPlanExporter:
           document.querySelectorAll('tr.grid-row[data-period="' + lp + '"]').forEach(el => el.classList.add('is-live-row-hdr'));
         });
         if (nowTabBtn) nowTabBtn.textContent = '🟢 Now (' + liveNow[0].quarter + ')';
-        if (banner) {
+        if (banner && !liveBannerDismissed) {
           const liveTitles = liveNow.map(e => (e.is_drafting ? '🛠️ Draft: ' : ('Str ' + e.stream_num + ' [' + e.room + ']: ')) + (e.title || '').substring(0, 36)).join(' | ');
           const nextMsg = upcoming.length > 0 ? (' &bull; Next: ' + upcoming[0].start_local + ' (' + (upcoming[0].title || '').substring(0, 28) + ')') : '';
-          banner.innerHTML = '<span><span class="pulse-dot"></span> <strong>LIVE NOW</strong> (Venue ' + curTime + '): ' + escHtml(liveTitles) + nextMsg + '</span> <span style="font-size:11px;text-decoration:underline;">🔴 Open Now Tab</span>';
+          banner.innerHTML = '<span><span class="pulse-dot"></span> <strong>LIVE NOW</strong> (' + curTime + '): ' + escHtml(liveTitles) + nextMsg + '</span><span class="live-banner-right"><span style="font-size:10.5px;text-decoration:underline;">Open Now Tab</span>' + closeBtnHtml + '</span>';
           banner.style.display = 'flex';
         }
       } else {
         if (nowTabBtn) nowTabBtn.textContent = '🔴 Now';
-        if (banner) {
+        if (banner && !liveBannerDismissed) {
           if (upcoming.length > 0) {
             const n = upcoming[0];
-            banner.innerHTML = '<span>⏳ <strong>Venue Time ' + curTime + '</strong> &bull; Next session at ' + n.start_local + ' in 📍 ' + escHtml(n.room) + ': ' + escHtml((n.title || '').substring(0, 42)) + '</span> <span style="font-size:11px;text-decoration:underline;">🔴 Open Now Tab</span>';
+            banner.innerHTML = '<span>⏳ <strong>Venue ' + curTime + '</strong> &bull; Next at ' + n.start_local + ' in 📍 ' + escHtml(n.room) + ': ' + escHtml((n.title || '').substring(0, 42)) + '</span><span class="live-banner-right"><span style="font-size:10.5px;text-decoration:underline;">Open Now Tab</span>' + closeBtnHtml + '</span>';
           } else {
-            banner.innerHTML = '<span>🌙 <strong>Venue Time ' + curTime + '</strong> &bull; Sessions concluded for today.</span> <span style="font-size:11px;text-decoration:underline;">🔴 Open Now Tab</span>';
+            banner.innerHTML = '<span>🌙 <strong>Venue ' + curTime + '</strong> &bull; Sessions concluded for today.</span><span class="live-banner-right"><span style="font-size:10.5px;text-decoration:underline;">Open Now Tab</span>' + closeBtnHtml + '</span>';
           }
           banner.style.display = 'flex';
         }
       }
     } else if (banner) {
       if (nowTabBtn) nowTabBtn.textContent = '🔴 Now';
-      if (dayDiff < 0) {
-        const daysUntil = -dayDiff;
-        banner.innerHTML = '<span>📅 Meeting starts in ' + daysUntil + ' day' + (daysUntil > 1 ? 's' : '') + ' (' + MEETING_BASE_DATE + ')</span> <span style="font-size:11px;text-decoration:underline;">🔴 Preview Now Tab</span>';
-      } else {
-        banner.innerHTML = '<span>🏁 Meeting concluded (' + MEETING_BASE_DATE + ')</span> <span style="font-size:11px;text-decoration:underline;">🔴 Preview Now Tab</span>';
+      if (!liveBannerDismissed) {
+        if (dayDiff < 0) {
+          const daysUntil = -dayDiff;
+          banner.innerHTML = '<span>📅 Meeting starts in ' + daysUntil + ' day' + (daysUntil > 1 ? 's' : '') + ' (' + MEETING_BASE_DATE + ')</span><span class="live-banner-right"><span style="font-size:10.5px;text-decoration:underline;">Preview Now Tab</span>' + closeBtnHtml + '</span>';
+        } else {
+          banner.innerHTML = '<span>🏁 Meeting concluded (' + MEETING_BASE_DATE + ')</span><span class="live-banner-right"><span style="font-size:10.5px;text-decoration:underline;">Preview Now Tab</span>' + closeBtnHtml + '</span>';
+        }
+        banner.style.display = 'flex';
       }
-      banner.style.display = 'flex';
     }
 
     if (nowAutoFollow && currentView === 'now') {
@@ -2781,22 +2928,34 @@ class SessionPlanExporter:
     }
   }
 
-  // Auto-switch to mobile cards on narrow screens & apply initial empty break hiding
+  // Auto-switch to mobile cards on narrow screens
   if (window.innerWidth <= 768) {
     switchView('cards');
   }
   if (window.addEventListener) {
     window.addEventListener('resize', updateStickyHeaderOffsets);
   }
-  toggleEmptyBreaks();
   detectDelegateClashes('ALL');
   checkLiveVenueStatus();
   updateStickyHeaderOffsets();
   setInterval(checkLiveVenueStatus, 30000);
 """
 
-        snap_label_html = f'<span class="badge-snap">{html.escape(snapshot.snapshot_label)}</span>' if snapshot.snapshot_label else ''
-        tz_extra = f" | 💻 Austrian/Laptop Time: {tz_diff_str}" if is_tz_different else ""
+        raw_snap_lbl = (snapshot.snapshot_label or "").strip()
+        short_snap_lbl = raw_snap_lbl
+        if raw_snap_lbl:
+            m_snap = re.match(r"^([A-Za-z0-9-]+)\s*\((.+)\)$", raw_snap_lbl)
+            if m_snap:
+                inner_s = re.sub(r"\.(docx?|docm|zip|htm|html)$", "", m_snap.group(2).strip(), flags=re.I)
+                inner_s = re.sub(rf"^{re.escape(m_snap.group(1).strip())}[_\s-]*", "", inner_s, flags=re.I)
+                inner_s = re.sub(r"^(?:SA\d+-?\d+[-\s]*)?Session\s*Plan\s*[-\s]*", "", inner_s, flags=re.I).strip(" -_")
+                short_snap_lbl = inner_s or m_snap.group(1).strip()
+        snap_label_html = (
+            f'<span class="badge-snap" title="{html.escape(raw_snap_lbl)}">{html.escape(short_snap_lbl)}</span>'
+            if raw_snap_lbl
+            else ""
+        )
+        tz_diff_note = f" | Laptop Diff: {tz_diff_str}" if is_tz_different else ""
 
         full_html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -2816,29 +2975,25 @@ class SessionPlanExporter:
       <h1 class="title">SA2 #{snapshot.meeting_number} Session Plan</h1>
       <span class="badge-tdoc">{snapshot.tdoc_id}</span>
       {snap_label_html}
-      <span id="liveClockPill" class="badge-live-clock">🏛️ Venue: <strong>--:--</strong> <span style="color:#93C5FD;">|</span> 🏠 Local: <strong>--:--</strong></span>
-      <span class="badge-utc">🕒 {venue_utc_str}</span>
-      <span class="tz-banner">📍 {tz_name}{tz_extra}</span>
+      <span id="liveClockPill" class="badge-live-clock" title="📍 {html.escape(tz_name)}{html.escape(tz_diff_note)}">🏛️ Venue: <strong>--:--</strong> <span style="color:#93C5FD;">|</span> 🏠 Local: <strong>--:--</strong></span>
+      <span class="badge-utc" title="📍 {html.escape(tz_name)}{html.escape(tz_diff_note)}">🕒 {venue_utc_str}</span>
     </div>
     <div class="header-actions">
-      <span id="clashWarningBadge" class="badge-clash" style="display:none;" onclick="switchView('conflicts')" title="Click to open the Parallel Stream Conflicts & Coverage Board"></span>
-      <button id="btnHighlightNow" class="btn-highlight-now" onclick="highlightNow()" title="Open the 🔴 Now tab showing current &amp; upcoming rooms and delegate destinations">🔴 Now &amp; Next</button>
-      <button id="btnDownloadIcs" class="btn-cal-download" onclick="downloadSelectedCalendar()" title="Download RFC 5545 calendar for selected delegate or whole team">📅 Download Team .ics</button>
       <div class="view-switcher">
         <button id="btnViewGrid" class="view-btn active" onclick="switchView('grid')">🗓️ Overview Grid</button>
         <button id="btnViewNow" class="view-btn" onclick="switchView('now')">🔴 Now</button>
         <button id="btnViewCards" class="view-btn" onclick="switchView('cards')">📱 Day Cards</button>
         <button id="btnViewConflicts" class="view-btn" onclick="switchView('conflicts')">⚠️ Conflicts (0)</button>
-        <button id="btnViewUnassigned" class="view-btn" onclick="switchView('unassigned')">❓ Unassigned AIs ({unassigned_ai_count})</button>
+        <button id="btnViewUnassigned" class="view-btn" onclick="switchView('unassigned')">❓ Unassigned ({unassigned_ai_count})</button>
       </div>
+      <span id="clashWarningBadge" class="badge-clash" style="display:none;" onclick="switchView('conflicts')" title="Click to open the Parallel Stream Conflicts & Coverage Board"></span>
+      <button id="btnDownloadIcs" class="btn-cal-download" onclick="downloadSelectedCalendar()" title="Download RFC 5545 calendar for selected delegate or whole team">📅 Team .ics</button>
     </div>
   </div>
 
-  <div id="liveVenueBanner" class="live-banner" style="display:none;" onclick="switchView('now')"></div>
-
   <div class="controls-bar">
     <div class="del-strip">
-      <span class="strip-label">Delegate Focus:</span>
+      <span class="strip-label">Focus:</span>
       <button class="del-filter-btn active" data-del="ALL" onclick="selectDelegate('ALL')">👥 All Team</button>
       {del_filter_html}
       <span class="strip-sep"></span>
@@ -2847,20 +3002,30 @@ class SessionPlanExporter:
     </div>
 
     <div class="filter-controls-row">
+      <div id="dayFilterStrip" class="day-filter-strip" title="Focus on specific meeting days or hide past days">
+        <span class="strip-label">Days:</span>
+        <button class="day-filter-btn active" data-day-filter="ALL" onclick="selectDayFilter('ALL')">All</button>
+        <button class="day-filter-btn" data-day-filter="TODAY_PLUS" onclick="selectDayFilter('TODAY_PLUS')">Today+</button>
+        <button class="day-filter-btn" data-day-filter="0" onclick="selectDayFilter(0)">Mon</button>
+        <button class="day-filter-btn" data-day-filter="1" onclick="selectDayFilter(1)">Tue</button>
+        <button class="day-filter-btn" data-day-filter="2" onclick="selectDayFilter(2)">Wed</button>
+        <button class="day-filter-btn" data-day-filter="3" onclick="selectDayFilter(3)">Thu</button>
+        <button class="day-filter-btn" data-day-filter="4" onclick="selectDayFilter(4)">Fri</button>
+      </div>
       <div id="gridControls" class="grid-row-controls">
         <label class="toggle-label"><input type="checkbox" id="chkStr1" checked onchange="toggleStream(1)"><span class="str-dot s1"></span> Str 1</label>
         <label class="toggle-label"><input type="checkbox" id="chkStr2" checked onchange="toggleStream(2)"><span class="str-dot s2"></span> Str 2</label>
         <label class="toggle-label"><input type="checkbox" id="chkStr3" checked onchange="toggleStream(3)"><span class="str-dot s3"></span> Str 3</label>
         <label class="toggle-label"><input type="checkbox" id="chkBreaks" checked onchange="toggleBreaks()"> Breaks</label>
-        <label class="toggle-label"><input type="checkbox" id="chkEmptyBreaks" checked onchange="toggleEmptyBreaks()"> Hide Empty</label>
       </div>
-      <input type="text" id="searchInput" class="search-box" placeholder="🔍 Filter AI, topic, convener, notes..." oninput="applyFilters()">
+      <input type="text" id="searchInput" class="search-box" placeholder="🔍 Filter AI, topic, room..." oninput="applyFilters()">
     </div>
   </div>
 </header>
 
 <!-- Main View 1: 5-Day Spatial Overview Grid -->
 <div id="overviewView">
+  <div id="liveVenueBanner" class="live-banner" style="display:none;margin-bottom:5px;" onclick="switchView('now')"></div>
   {''.join(overview_html)}
 </div>
 

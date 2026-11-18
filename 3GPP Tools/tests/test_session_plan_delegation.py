@@ -1057,7 +1057,8 @@ if (typeof downloadSelectedCalendar !== 'function') throw new Error('downloadSel
 if (typeof detectDelegateClashes !== 'function') throw new Error('detectDelegateClashes is not defined');
 if (typeof toggleStream !== 'function') throw new Error('toggleStream is not defined');
 if (typeof toggleBreaks !== 'function') throw new Error('toggleBreaks is not defined');
-if (typeof toggleEmptyBreaks !== 'function') throw new Error('toggleEmptyBreaks is not defined');
+if (typeof selectDayFilter !== 'function') throw new Error('selectDayFilter is not defined');
+if (typeof toggleEmptyBreaks === 'function') throw new Error('toggleEmptyBreaks should be removed');
 
 // Invoke interactive handlers to ensure zero runtime scope exceptions
 switchView('cards');
@@ -1260,8 +1261,8 @@ detectDelegateClashes('ALL');
         self.assertIn("const UNASSIGNED_AIS =", content)
         self.assertIn("20.6.99", content)
 
-        # 3. Sticky Day row & 2D scroll container
-        self.assertIn("max-height: calc(100vh - 175px)", content)
+        # 3. Sticky Day row & full-viewport 100vh flex scroll container
+        self.assertIn("height: 100vh; display: flex; flex-direction: column;", content)
         self.assertIn("position: sticky; top: 0; z-index: 20;", content)
         self.assertIn("position: sticky; top: 0; left: 0; z-index: 30", content)
 
@@ -1270,8 +1271,8 @@ detectDelegateClashes('ALL');
         self.assertIn('id="btnViewConflicts"', content)
         self.assertIn("renderConflictsView", content)
 
-        # 5. Highlight Now dispatch guide
-        self.assertIn('id="btnHighlightNow"', content)
+        # 5. Live Now tab & dispatch guide
+        self.assertIn('id="btnViewNow"', content)
         self.assertIn('id="nowDispatchPanel"', content)
         self.assertIn("highlightNow", content)
         self.assertIn("Where Each Delegate Should Go", content)

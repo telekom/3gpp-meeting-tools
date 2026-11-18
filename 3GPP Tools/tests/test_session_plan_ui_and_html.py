@@ -36,6 +36,7 @@ from modules.meetings.core.session_plan.session_plan_models import (
 )
 from modules.meetings.core.session_plan.session_plan_timezone import SessionPlanTimezone
 from modules.meetings.ui.session_plan.session_plan_window import (
+    SessionPlanHorizontalHeader,
     SessionPlanVerticalHeader,
     SessionPlanWindow,
     _format_compact_snapshot_label,
@@ -167,9 +168,11 @@ class TestSessionPlanUIAndHTMLConsistency(unittest.TestCase):
                 self.assertIn("Venue", clock_txt)
                 self.assertIn("13px", clock_txt)
 
-                # 4. Time-first custom vertical header paints cleanly
+                # 4. Time-first vertical header & 2-tier merged horizontal day header paint cleanly
                 vh = win.grid_table.verticalHeader()
                 self.assertIsInstance(vh, SessionPlanVerticalHeader)
+                hh = win.grid_table.horizontalHeader()
+                self.assertIsInstance(hh, SessionPlanHorizontalHeader)
                 q1_s1_row = next(
                     idx for idx, r in enumerate(win.grid_rows)
                     if r.period == "Q1" and r.stream_number == 1
@@ -183,7 +186,7 @@ class TestSessionPlanUIAndHTMLConsistency(unittest.TestCase):
                 vh.paintSection(painter, img.rect(), q1_s1_row)
                 painter.end()
 
-                # 5. Grid cell widgets show explicit time pills for half-quarters and custom times
+                # 5. Grid cell widgets show explicit time pills ONLY for half-quarters and custom times
                 mon_tu1 = win.grid_table.cellWidget(q1_s1_row, 0)
                 mon_tu2 = win.grid_table.cellWidget(q1_s1_row, 1)
                 self.assertIsNotNone(mon_tu1)
@@ -197,22 +200,46 @@ class TestSessionPlanUIAndHTMLConsistency(unittest.TestCase):
                     idx for idx, r in enumerate(win.grid_rows)
                     if r.period == "Q3" and r.stream_number == 1
                 )
+                # Monday Q3 is standard full-quarter (14:00-15:30 matching Q3 header): no redundant inline time pill
+                mon_q3 = win.grid_table.cellWidget(q3_s1_row, 0)
+                self.assertIsNotNone(mon_q3)
+                mon_q3_texts = [lbl.text() for lbl in mon_q3.findChildren(QLabel)]
+                self.assertFalse(any("🕒" in t for t in mon_q3_texts))
+
+                # Friday Q3 has custom times (13:30-16:00): explicit time pill kept
                 fri_q3 = win.grid_table.cellWidget(q3_s1_row, 8)
                 self.assertIsNotNone(fri_q3)
                 q3_texts = [lbl.text() for lbl in fri_q3.findChildren(QLabel)]
                 self.assertIn("🕒 13:30–16:00", q3_texts)
 
-                # Empty drafting placeholders remain uncluttered (no time pill)
+                # Empty drafting placeholders render as quiet muted dashes (no card box or time pill)
                 q0_s2_row = next(
                     idx for idx, r in enumerate(win.grid_rows)
                     if r.period == "Q0" and r.stream_number == 2
                 )
-                tue_draft = win.grid_table.cellWidget(q0_s2_row, 2)
-                self.assertIsNotNone(tue_draft)
-                draft_texts = [lbl.text() for lbl in tue_draft.findChildren(QLabel)]
-                self.assertFalse(any("🕒" in t for t in draft_texts))
+                self.assertIsNone(win.grid_table.cellWidget(q0_s2_row, 2))
+                tue_draft_item = win.grid_table.item(q0_s2_row, 2)
+                self.assertIsNotNone(tue_draft_item)
+                self.assertEqual(tue_draft_item.text(), "—")
 
-                # 6. HTML Export mirrors live clock pill, time-first row headers, and cell time pills
+                # 5b. Hide Empty Breaks option removed; breaks always shown when Show Breaks is checked
+                self.assertFalse(hasattr(win, "chk_hide_empty_breaks"))
+                coffee_row = next(idx for idx, r in enumerate(win.grid_rows) if r.period == "Coffee 1")
+                self.assertFalse(win.grid_table.isRowHidden(coffee_row))
+                win.chk_breaks.setChecked(False)
+                self.assertTrue(win.grid_table.isRowHidden(coffee_row))
+                win.chk_breaks.setChecked(True)
+                self.assertFalse(win.grid_table.isRowHidden(coffee_row))
+
+                # 5c. Day Filter pills hide/show columns cleanly
+                win._on_day_filter_clicked(2)  # Wednesday only
+                self.assertTrue(win.grid_table.isColumnHidden(0))
+                self.assertFalse(win.grid_table.isColumnHidden(4))
+                self.assertFalse(win.grid_table.isColumnHidden(5))
+                win._on_day_filter_clicked("ALL")
+                self.assertFalse(win.grid_table.isColumnHidden(0))
+
+                # 6. HTML Export mirrors live clock pill, time-first row headers, decluttered pills, and 2-row chrome
                 out_html = td / "parity_plan.html"
                 SessionPlanExporter.export_mobile_html(
                     snapshot=win.active_snapshot,
@@ -229,17 +256,22 @@ class TestSessionPlanUIAndHTMLConsistency(unittest.TestCase):
                 self.assertIn('class="hdr-now-tag">NOW</span>', html_txt)
                 self.assertIn('class="cell-time-pill is-half">🕒 09:00–09:45</span>', html_txt)
                 self.assertIn('class="cell-time-pill is-half">🕒 09:45–10:30</span>', html_txt)
-                self.assertIn('class="cell-time-pill is-full">🕒 14:00–15:30</span>', html_txt)
+                self.assertNotIn('class="cell-time-pill is-full"', html_txt)
                 self.assertIn('class="cell-time-pill is-custom-time">🕒 13:30–16:00</span>', html_txt)
+                self.assertIn('id="dayFilterStrip"', html_txt)
+                self.assertIn('day-end-col', html_txt)
+                self.assertIn('period-end-row', html_txt)
+                self.assertNotIn('chkEmptyBreaks', html_txt)
+                self.assertNotIn('class="tz-banner"', html_txt)
 
-                # Verify JS updates liveClockPill cleanly in Node.js if available
+                # Verify JS updates liveClockPill and handles day filter / banner dismiss cleanly in Node.js
                 node_bin = shutil.which("node")
                 if node_bin:
                     scripts = re.findall(r"<script>(.*?)</script>", html_txt, re.DOTALL)
                     full_js = "\n".join(scripts)
                     harness = f"""
 const mockEl = () => ({{
-  classList: {{ toggle: () => {{}}, remove: () => {{}}, add: () => {{}} }},
+  classList: {{ toggle: () => {{}}, remove: () => {{}}, add: () => {{}}, contains: () => false }},
   style: {{ setProperty: () => {{}} }},
   getAttribute: () => '',
   querySelectorAll: () => [],
@@ -265,6 +297,10 @@ global.setTimeout = () => {{}};
 {full_js}
 checkLiveVenueStatus();
 if (!clockPill.innerHTML.includes('Venue:')) throw new Error('liveClockPill not updated');
+selectDayFilter(2);
+selectDayFilter('TODAY_PLUS');
+selectDayFilter('ALL');
+dismissLiveBanner({{ stopPropagation: () => {{}} }});
 """
                     js_file = td / "verify_parity.js"
                     js_file.write_text(harness, encoding="utf-8")
