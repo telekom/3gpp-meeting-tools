@@ -22,6 +22,7 @@ def test_normalize_subject_strips_prefixes_and_tags():
     assert normalize_subject("Re: [SA2#178] FS_6G_ARC: KI#1_1: Interim conclusion") == "FS_6G_ARC: KI#1_1: Interim conclusion"
     assert normalize_subject("AW: Fwd: [SA2#178]   KI#1_1 NAS Routing  ") == "KI#1_1 NAS Routing"
     assert normalize_subject("Re: [SA2#178, FS_6G_ARC, KI#1.1] Interim conclusion for KI#1.1 NAS Routing") == "Interim conclusion for KI#1.1 NAS Routing"
+    assert normalize_subject("回复: [SA2#178, FS_6G_ARC, KI#2] [S2-2612666, KI#2, interim conclusion] Interim conclusion for KI#2.") == "Interim conclusion for KI#2."
     assert _extract_folder_paths([{"folder_path": "a/Inbox", "tag": "Inbox"}, "b/SA2"]) == ["a/Inbox", "b/SA2"]
     links = auto_suggest_links("Re: [SA2#178] FS_6G_ARC: KI#1_1: Interim conclusion", "See S2-2601234 for details.")
     assert "KI#1_1" in links["ais"]
@@ -245,8 +246,26 @@ def test_newest_first_ordering_filters_and_llm_workspace(tmp_path):
 
     md_newest = export_thread_to_markdown(thread, msgs, interactive_links=True, newest_first=True)
     assert "🔵 **NEW**" in md_newest
+    assert "· ·" not in md_newest
     assert "outlook://reply/000000002222" in md_newest
     assert "outlook://copy/000000002222" in md_newest
+
+    # Inline <Ashok> tag must be escaped in interactive UI Markdown so QTextBrowser does not swallow following lines
+    msgs_with_tag = [
+        {
+            "id": "000000003333",
+            "subject": "Order Thread",
+            "sender_name": "Ashok",
+            "company": "Samsung",
+            "date_sent": "2026-11-18 11:00:00",
+            "body_text": "1. Item one\n<Ashok> What does this mean?\n2. Item two",
+            "clean_body": "1. Item one\n<Ashok> What does this mean?\n2. Item two",
+            "is_read": 0,
+        }
+    ]
+    md_tag = export_thread_to_markdown(thread, msgs_with_tag, interactive_links=True)
+    assert "&lt;Ashok&gt; What does this mean?" in md_tag
+    assert "2. Item two" in md_tag
     disc_newest = md_newest.split("## Discussion (Newest First)", 1)[1]
     assert disc_newest.index("Bob (Ericsson)") < disc_newest.index("Alice (Nokia)")
 

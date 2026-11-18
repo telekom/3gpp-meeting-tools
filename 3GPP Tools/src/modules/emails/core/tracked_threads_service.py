@@ -13,7 +13,7 @@ from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 
 logger = logging.getLogger(__name__)
 
-_PREFIX_RE = re.compile(r"^(?:\s*(?:re|fwd|fw|aw|wg|sv|antw)\s*:\s*)+", re.IGNORECASE)
+_PREFIX_RE = re.compile(r"^(?:\s*(?:re|fwd|fw|aw|wg|sv|antw|回复|答复|转发)\s*[:：]\s*)+", re.IGNORECASE)
 _TAG_RE = re.compile(r"^\s*\[[^\]]{2,80}\]\s*")
 _TDOC_RE = re.compile(r"\b(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,7}\b", re.IGNORECASE)
 _KI_AI_RE = re.compile(r"\b(?:KI\s*#?\s*\d+(?:[._]\d+)?|AI\s*\d+(?:\.\d+)+)\b", re.IGNORECASE)

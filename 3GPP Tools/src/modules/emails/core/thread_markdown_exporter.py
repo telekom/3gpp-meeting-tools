@@ -31,6 +31,27 @@ _BARE_URL_RE = re.compile(
     re.IGNORECASE,
 )
 _DOC_EXT_RE = re.compile(r"\.(?:docx|docm|doc|zip|pptx|pdf|xlsx|vsdx)(?:$|\?)", re.IGNORECASE)
+_ALLOWED_HTML_TAGS = {
+    "a", "b", "i", "em", "strong", "code", "pre", "br", "hr", "p", "div", "span",
+    "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6", "sub", "sup", "mark", "blockquote",
+}
+
+
+def escape_non_html_angles(text: str) -> str:
+    """Escapes inline delegate tags like <Ashok> or <Jinguo> so Qt's Markdown renderer does not treat them as unclosed HTML."""
+    if not text:
+        return ""
+    # Simplify Outlook "<email <mailto:email> >" artifacts
+    cleaned = re.sub(r"\s*<mailto:[^>\s]+>\s*", " ", text, flags=re.IGNORECASE)
+
+    def _replace_tag(m: re.Match) -> str:
+        inner = m.group(1)
+        first = inner.strip().split()[0].lstrip("/").lower() if inner.strip() else ""
+        if first in _ALLOWED_HTML_TAGS:
+            return m.group(0)
+        return f"&lt;{inner}&gt;"
+
+    return re.sub(r"<([^<>\n]{1,120})>", _replace_tag, cleaned)
 
 
 def _normalize_doc_url_spaces(text: str) -> str:
@@ -229,7 +250,7 @@ def export_thread_to_markdown(
         subj = (msg.get("subject") or "").strip()
         msg_id = str(msg.get("id") or "").strip()
         is_unread = int(msg.get("is_read", 1) or 0) == 0
-        new_badge = " 🔵 **NEW** ·" if (interactive_links and is_unread) else ""
+        new_badge = " 🔵 **NEW**" if (interactive_links and is_unread) else ""
         can_open_outlook = interactive_links and msg_id and not msg_id.startswith("MSG-")
 
         if interactive_links:
@@ -258,6 +279,8 @@ def export_thread_to_markdown(
 
         body = (msg.get("clean_body") if deduplicate_quotes and msg.get("clean_body") else msg.get("body_text")) or ""
         body = linkify_markdown_urls(body.strip())
+        if interactive_links:
+            body = escape_non_html_angles(body)
         if body:
             lines.append(body)
         else:
