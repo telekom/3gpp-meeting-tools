@@ -516,3 +516,136 @@ def test_mark_read_syncs_with_outlook(tmp_path):
         assert fake_items["EID-GEN-1"].UnRead is True
         assert gdb.mark_all_read() == 1
         assert fake_items["EID-GEN-1"].UnRead is False
+
+
+def test_per_message_read_unread_and_flag_sync(tmp_path):
+    from unittest.mock import patch
+    from PyQt5.QtCore import Qt, QUrl
+    from modules.emails.core.outlook_client import OutlookClient
+    from modules.emails.core.general_email_db import GeneralEmailDatabase
+    from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+    from modules.emails.core.thread_markdown_exporter import export_thread_to_markdown
+    from modules.emails.core.tracked_threads_service import (
+        set_thread_message_flag_with_outlook,
+        set_thread_message_read_with_outlook,
+    )
+    from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
+    from modules.emails.ui.tdoc_emails_dialog import TDocEmailsDialog
+    from modules.meetings.ui.tdocs_models import TDocsTableModel
+
+    class FakeMailItem:
+        def __init__(self, unread: bool, flag_status: int = 0):
+            self.UnRead = unread
+            self.FlagStatus = flag_status
+            self.save_calls = 0
+
+        def Save(self):
+            self.save_calls += 1
+
+    fake_items = {
+        "EID-M1": FakeMailItem(unread=True, flag_status=0),
+        "EID-M2": FakeMailItem(unread=False, flag_status=2),
+        "EID-GEN-1": FakeMailItem(unread=False, flag_status=0),
+    }
+
+    class FakeNamespace:
+        def GetItemFromID(self, eid):
+            if eid not in fake_items:
+                raise KeyError(eid)
+            return fake_items[eid]
+
+    ttdb = TrackedThreadsDatabase(tmp_path / "threads.db")
+    tid = ttdb.create_or_get_thread("KI#5 Per-Message", "KI#5 Per-Message", meeting_id="SA2#178")
+    ttdb.upsert_messages(
+        tid,
+        [
+            {"id": "EID-M1", "sender_name": "Alice", "company": "Samsung", "date_sent": "2026-11-18 10:00:00", "is_read": 0, "flag_status": 0},
+            {"id": "EID-M2", "sender_name": "Bob", "company": "Ericsson", "date_sent": "2026-11-18 11:00:00", "is_read": 1, "flag_status": 2},
+            {"id": "MSG-LOCAL-1", "sender_name": "Carol", "company": "Nokia", "date_sent": "2026-11-18 12:00:00", "is_read": 1, "flag_status": 0},
+        ],
+    )
+    t_row = ttdb.get_thread(tid)
+    assert t_row["unread_count"] == 1
+    assert t_row["flagged_count"] == 1
+
+    # Interactive markdown exposes per-message read/unread and flag links + badges
+    md = export_thread_to_markdown(t_row, ttdb.get_thread_messages(tid), interactive_links=True)
+    assert "outlook://read/EID-M1" in md
+    assert "outlook://flag/EID-M1" in md
+    assert "outlook://unread/EID-M2" in md
+    assert "outlook://unflag/EID-M2" in md
+    assert "🚩 **FLAGGED**" in md
+
+    with patch.object(OutlookClient, "get_namespace", return_value=FakeNamespace()):
+        # Toggle individual read/unread and flag via service & anchor clicks
+        dlg = TrackedThreadDialog(ttdb, tid)
+        dlg._on_anchor_clicked(QUrl("outlook://read/EID-M1"))
+        dlg._on_anchor_clicked(QUrl("outlook://flag/EID-M1"))
+        assert fake_items["EID-M1"].UnRead is False
+        assert fake_items["EID-M1"].FlagStatus == 2
+
+        dlg._on_anchor_clicked(QUrl("outlook://unread/EID-M2"))
+        dlg._on_anchor_clicked(QUrl("outlook://unflag/EID-M2"))
+        assert fake_items["EID-M2"].UnRead is True
+        assert fake_items["EID-M2"].FlagStatus == 0
+
+        # Synthetic MSG- IDs toggle locally without failing Outlook lookup
+        assert set_thread_message_read_with_outlook(ttdb, "MSG-LOCAL-1", False, sync_outlook=True) == 0
+        assert set_thread_message_flag_with_outlook(ttdb, "MSG-LOCAL-1", True, sync_outlook=True) == 0
+        dlg._load_data()
+
+        t_after = ttdb.get_thread(tid)
+        assert t_after["unread_count"] == 2
+        assert t_after["flagged_count"] == 2
+        assert "Flagged: 2" in dlg.meta_label.text()
+
+        # In-thread state filter works for All / Unread Only / Flagged Only
+        dlg.state_filter_combo.setCurrentIndex(dlg.state_filter_combo.findData("unread"))
+        assert "Showing 2 of 3" in dlg.msg_count_lbl.text()
+        dlg.state_filter_combo.setCurrentIndex(dlg.state_filter_combo.findData("flagged"))
+        assert "Showing 2 of 3" in dlg.msg_count_lbl.text()
+        dlg.close()
+
+    # TDocEmailsDialog & TDocsTableModel show and sync 2-state flags
+    gdb = GeneralEmailDatabase(db_path=str(tmp_path / "general.db"))
+    gdb.save_emails_batch(
+        [
+            {
+                "id": "EID-GEN-1",
+                "folder_tag": "SA2",
+                "sender_name": "Alice",
+                "company": "Samsung",
+                "subject": "S2-2612673 check",
+                "date_received": "2026-11-18 10:00:00",
+                "is_read": 0,
+                "flag_status": 0,
+            }
+        ],
+        [{"email_id": "EID-GEN-1", "tdoc_id": "S2-2612673", "rev_matched": "r00", "match_location": "Subject"}],
+    )
+    with patch.object(OutlookClient, "get_namespace", return_value=FakeNamespace()):
+        edlg = TDocEmailsDialog("S2-2612673", ["S2-2612673"], tmp_path / "general.db", wg="SA2")
+        assert edlg._get_selected_indices() == [0]
+        edlg._toggle_selected_flag()
+        assert fake_items["EID-GEN-1"].FlagStatus == 2
+        assert "🚩" in edlg.model.item(0, 0).text()
+        assert "1 Flagged" in edlg.lbl_counts.text()
+
+        counts = gdb.get_email_counts_per_tdoc()
+        assert counts["S2-2612673"]["flagged"] == 1
+        model = TDocsTableModel(
+            tmp_path,
+            [{"TDoc": "S2-2612673", "Title": "Doc", "Type": "pCR", "Source": "Samsung", "Agenda Item": "20.6.1"}],
+            {},
+            {},
+        )
+        model.email_counts = counts
+        model._recompute_cached_email_stats()
+        model.sync_tracked_thread_rows([ttdb.get_thread(tid)])
+        email_col = model._headers.index("Emails")
+        assert "🚩 1" in str(model.data(model.index(0, email_col), Qt.DisplayRole))
+        assert "🚩 2" in str(model.data(model.index(1, email_col), Qt.DisplayRole))
+
+        edlg._toggle_selected_flag()
+        assert fake_items["EID-GEN-1"].FlagStatus == 0
+        edlg.close()

@@ -36,7 +36,8 @@ class GeneralEmailDatabase:
                     date_received TEXT,
                     body_text TEXT,
                     is_read INTEGER DEFAULT 0,
-                    is_ignored INTEGER DEFAULT 0
+                    is_ignored INTEGER DEFAULT 0,
+                    flag_status INTEGER DEFAULT 0
                 )
             """)
             cursor.execute("""
@@ -50,16 +51,19 @@ class GeneralEmailDatabase:
                 )
             """)
 
-            # Schema migration: add is_ignored if existing DB lacks it
+            # Schema migration: add is_ignored and flag_status if existing DB lacks them
             cursor.execute("PRAGMA table_info(general_emails)")
             columns = [info[1] for info in cursor.fetchall()]
             if 'is_ignored' not in columns:
                 cursor.execute("ALTER TABLE general_emails ADD COLUMN is_ignored INTEGER DEFAULT 0")
+            if 'flag_status' not in columns:
+                cursor.execute("ALTER TABLE general_emails ADD COLUMN flag_status INTEGER DEFAULT 0")
 
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_gen_tdoc ON general_email_tdoc_matches(tdoc_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_gen_email_id ON general_email_tdoc_matches(email_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_gen_read ON general_emails(is_read)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_gen_ignored ON general_emails(is_ignored)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_gen_flagged ON general_emails(flag_status)")
             conn.commit()
 
     def save_emails_batch(self, emails_data: List[dict], matches_data: List[dict]):
@@ -73,14 +77,14 @@ class GeneralEmailDatabase:
                     e.get('sender_name', ''), e.get('sender_email', ''),
                     e.get('company', ''), e.get('date_received', ''),
                     e.get('body_text', ''), e.get('is_read', 0),
-                    e.get('is_ignored', 0)
+                    e.get('is_ignored', 0), 2 if int(e.get('flag_status', 0) or 0) == 2 else 0
                 )
                 for e in emails_data
             ]
-            # Preserve existing is_ignored and is_read states during re-sync
+            # Preserve existing is_ignored and local read marks while syncing read/flag updates from Outlook
             cursor.executemany("""
-                INSERT INTO general_emails (id, folder_tag, subject, sender_name, sender_email, company, date_received, body_text, is_read, is_ignored)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO general_emails (id, folder_tag, subject, sender_name, sender_email, company, date_received, body_text, is_read, is_ignored, flag_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     folder_tag = excluded.folder_tag,
                     subject = excluded.subject,
@@ -88,7 +92,9 @@ class GeneralEmailDatabase:
                     sender_email = excluded.sender_email,
                     company = excluded.company,
                     date_received = excluded.date_received,
-                    body_text = excluded.body_text
+                    body_text = excluded.body_text,
+                    is_read = CASE WHEN excluded.is_read = 1 THEN 1 ELSE general_emails.is_read END,
+                    flag_status = CASE WHEN excluded.flag_status != 0 THEN excluded.flag_status ELSE general_emails.flag_status END
             """, email_tuples)
 
             email_ids = [e['id'] for e in emails_data]
@@ -112,26 +118,30 @@ class GeneralEmailDatabase:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                           SELECT m.tdoc_id, e.id, e.is_read
+                           SELECT m.tdoc_id, e.id, e.is_read, COALESCE(e.flag_status, 0)
                            FROM general_email_tdoc_matches m
                                     JOIN general_emails e ON m.email_id = e.id
                            WHERE e.is_ignored = 0
                            """)
             raw_stats = {}
-            for tdoc_id, email_id, is_read in cursor.fetchall():
+            for tdoc_id, email_id, is_read, flag_status in cursor.fetchall():
                 tdoc_key = tdoc_id.upper()
                 if tdoc_key not in raw_stats:
-                    raw_stats[tdoc_key] = {"all_ids": set(), "unread_ids": set()}
+                    raw_stats[tdoc_key] = {"all_ids": set(), "unread_ids": set(), "flagged_ids": set()}
                 raw_stats[tdoc_key]["all_ids"].add(email_id)
                 if is_read == 0:
                     raw_stats[tdoc_key]["unread_ids"].add(email_id)
+                if int(flag_status or 0) == 2:
+                    raw_stats[tdoc_key]["flagged_ids"].add(email_id)
 
             return {
                 tdoc: {
                     "total": len(data["all_ids"]),
                     "unread": len(data["unread_ids"]),
+                    "flagged": len(data["flagged_ids"]),
                     "all_ids": data["all_ids"],
-                    "unread_ids": data["unread_ids"]
+                    "unread_ids": data["unread_ids"],
+                    "flagged_ids": data["flagged_ids"],
                 }
                 for tdoc, data in raw_stats.items()
             }
@@ -172,6 +182,36 @@ class GeneralEmailDatabase:
             return 0
         from modules.emails.core.outlook_client import OutlookClient
         return OutlookClient.set_messages_read_status(to_sync, is_read=bool(is_read))
+
+    @staticmethod
+    def _sync_outlook_flag_status(to_sync: List[str], is_flagged: bool) -> int:
+        if not to_sync:
+            return 0
+        from modules.emails.core.outlook_client import OutlookClient
+        return OutlookClient.set_messages_flag_status(to_sync, is_flagged=bool(is_flagged))
+
+    def set_emails_flag_status(self, email_ids: List[str], is_flagged: bool, sync_outlook: bool = True) -> int:
+        if not email_ids:
+            return 0
+        target_val = 2 if is_flagged else 0
+        unique_ids = list(dict.fromkeys(str(eid) for eid in email_ids if eid))
+        if not unique_ids:
+            return 0
+        placeholders = ",".join(["?"] * len(unique_ids))
+        with self._get_connection() as conn:
+            to_sync = [
+                row[0]
+                for row in conn.execute(
+                    f"SELECT id FROM general_emails WHERE id IN ({placeholders}) AND COALESCE(flag_status, 0) != ?",
+                    unique_ids + [target_val],
+                ).fetchall()
+            ]
+            conn.executemany(
+                "UPDATE general_emails SET flag_status = ? WHERE id = ?",
+                [(target_val, eid) for eid in unique_ids],
+            )
+            conn.commit()
+        return self._sync_outlook_flag_status(to_sync, is_flagged) if sync_outlook else 0
 
     def set_emails_read_status(self, email_ids: List[str], is_read: bool, sync_outlook: bool = True) -> int:
         if not email_ids:

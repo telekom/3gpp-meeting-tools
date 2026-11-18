@@ -173,6 +173,10 @@ class TDocEmailsDialog(QDialog):
         self.btn_mark_unread = QPushButton("✉️ Mark Unread")
         self.btn_mark_unread.clicked.connect(lambda: self._set_selected_read(False))
 
+        self.btn_flag = QPushButton("🚩 Flag")
+        self.btn_flag.setToolTip("Toggle Outlook flag on selected email(s).")
+        self.btn_flag.clicked.connect(self._toggle_selected_flag)
+
         self.btn_ignore = QPushButton("🚫 Ignore")
         self.btn_ignore.setToolTip("Exclude selected email(s) from counts without deleting them.")
         self.btn_ignore.clicked.connect(self._toggle_selected_ignore)
@@ -200,6 +204,7 @@ class TDocEmailsDialog(QDialog):
 
         act_row.addWidget(self.btn_mark_read)
         act_row.addWidget(self.btn_mark_unread)
+        act_row.addWidget(self.btn_flag)
         act_row.addWidget(self.btn_ignore)
         act_row.addWidget(self.btn_delete)
         act_row.addSpacing(10)
@@ -335,24 +340,13 @@ class TDocEmailsDialog(QDialog):
         for r_idx, e in enumerate(self.emails):
             is_read = (int(e.get("is_read", 0)) == 1)
             is_ignored = (int(e.get("is_ignored", 0)) == 1)
+            is_flagged = (int(e.get("flag_status", 0) or 0) == 2)
 
             if not is_read and not is_ignored:
                 unread_count += 1
 
-            if is_ignored:
-                status_text = "🚫 Ignored"
-            elif is_read:
-                status_text = "⚪ Read"
-            else:
-                status_text = "🔵 Unread"
-
-            status_item = QStandardItem(status_text)
-            status_item.setTextAlignment(Qt.AlignCenter)
-            if is_ignored:
-                status_item.setForeground(QColor("#888888"))
-            elif not is_read:
-                status_item.setForeground(QColor("#0078D7"))
-                status_item.setFont(QFont("Segoe UI", weight=QFont.Bold))
+            status_item = QStandardItem("")
+            self._apply_status_cell_style(status_item, is_read=is_read, is_ignored=is_ignored, is_flagged=is_flagged)
 
             tag_str = e.get("folder_tag", "WG")
             tag_item = QStandardItem(f"[{tag_str}]")
@@ -395,8 +389,7 @@ class TDocEmailsDialog(QDialog):
             row = [status_item, tag_item, loc_item, rev_item, sender_item, company_item, date_item, subj_item]
             self.model.appendRow(row)
 
-        total = len(self.emails)
-        self.lbl_counts.setText(f"{total} Total ({unread_count} Unread)")
+        self._update_unread_count_label()
         if self.emails:
             self.table.selectRow(0)
 
@@ -483,6 +476,24 @@ class TDocEmailsDialog(QDialog):
         self._standalone_reader.raise_()
         self._standalone_reader.activateWindow()
 
+    @staticmethod
+    def _apply_status_cell_style(item: QStandardItem, is_read: bool, is_ignored: bool, is_flagged: bool):
+        item.setTextAlignment(Qt.AlignCenter)
+        if is_ignored:
+            item.setText("🚫 Ignored")
+            item.setForeground(QColor("#888888"))
+            item.setFont(QFont("Segoe UI"))
+            return
+        flag_suffix = " 🚩" if is_flagged else ""
+        if is_read:
+            item.setText(f"⚪ Read{flag_suffix}")
+            item.setForeground(QColor("#C2410C") if is_flagged else QColor("#333"))
+            item.setFont(QFont("Segoe UI", weight=QFont.Bold if is_flagged else QFont.Normal))
+        else:
+            item.setText(f"🔵 Unread{flag_suffix}")
+            item.setForeground(QColor("#0078D7"))
+            item.setFont(QFont("Segoe UI", weight=QFont.Bold))
+
     def _mark_current_read(self):
         rows = self._get_selected_indices()
         if len(rows) == 1:
@@ -491,9 +502,8 @@ class TDocEmailsDialog(QDialog):
             if int(e.get("is_read", 0)) == 0 and int(e.get("is_ignored", 0)) == 0:
                 self.db.set_emails_read_status([e["id"]], True)
                 e["is_read"] = 1
-                self.model.item(idx, 0).setText("⚪ Read")
-                self.model.item(idx, 0).setForeground(QColor("#333"))
-                self.model.item(idx, 0).setFont(QFont("Segoe UI"))
+                is_flagged = (int(e.get("flag_status", 0) or 0) == 2)
+                self._apply_status_cell_style(self.model.item(idx, 0), is_read=True, is_ignored=False, is_flagged=is_flagged)
                 self.data_changed.emit()
                 self._update_unread_count_label()
 
@@ -505,11 +515,26 @@ class TDocEmailsDialog(QDialog):
         self.db.set_emails_read_status(email_ids, is_read)
         for r in rows:
             self.emails[r]["is_read"] = 1 if is_read else 0
-            if not self.emails[r].get("is_ignored"):
-                item = self.model.item(r, 0)
-                item.setText("⚪ Read" if is_read else "🔵 Unread")
-                item.setForeground(QColor("#333") if is_read else QColor("#0078D7"))
-                item.setFont(QFont("Segoe UI", weight=QFont.Normal if is_read else QFont.Bold))
+            is_ignored = bool(self.emails[r].get("is_ignored"))
+            is_flagged = (int(self.emails[r].get("flag_status", 0) or 0) == 2)
+            self._apply_status_cell_style(self.model.item(r, 0), is_read=is_read, is_ignored=is_ignored, is_flagged=is_flagged)
+        self.data_changed.emit()
+        self._update_unread_count_label()
+
+    def _toggle_selected_flag(self):
+        rows = self._get_selected_indices()
+        if not rows:
+            return
+        any_unflagged = any(int(self.emails[r].get("flag_status", 0) or 0) != 2 for r in rows)
+        target_flagged = True if any_unflagged else False
+        email_ids = [self.emails[r]["id"] for r in rows]
+        self.db.set_emails_flag_status(email_ids, target_flagged)
+        new_flag_val = 2 if target_flagged else 0
+        for r in rows:
+            self.emails[r]["flag_status"] = new_flag_val
+            is_read = (int(self.emails[r].get("is_read", 0)) == 1)
+            is_ignored = bool(self.emails[r].get("is_ignored"))
+            self._apply_status_cell_style(self.model.item(r, 0), is_read=is_read, is_ignored=is_ignored, is_flagged=target_flagged)
         self.data_changed.emit()
         self._update_unread_count_label()
 
@@ -553,7 +578,9 @@ class TDocEmailsDialog(QDialog):
 
     def _update_unread_count_label(self):
         unread = sum(1 for e in self.emails if int(e.get("is_read", 0)) == 0 and int(e.get("is_ignored", 0)) == 0)
-        self.lbl_counts.setText(f"{len(self.emails)} Total ({unread} Unread)")
+        flagged = sum(1 for e in self.emails if int(e.get("flag_status", 0) or 0) == 2 and int(e.get("is_ignored", 0)) == 0)
+        flag_part = f", {flagged} Flagged" if flagged > 0 else ""
+        self.lbl_counts.setText(f"{len(self.emails)} Total ({unread} Unread{flag_part})")
 
     def _open_in_outlook(self):
         rows = self._get_selected_indices()
@@ -592,6 +619,10 @@ class TDocEmailsDialog(QDialog):
 
         act_unread = menu.addAction("✉️ Mark as Unread")
         act_unread.triggered.connect(lambda: self._set_selected_read(False))
+
+        any_unflagged = any(int(self.emails[r].get("flag_status", 0) or 0) != 2 for r in rows)
+        act_flag = menu.addAction("🚩 Flag Email(s)" if any_unflagged else "🏳️ Clear Flag")
+        act_flag.triggered.connect(self._toggle_selected_flag)
 
         menu.addSeparator()
         any_active = any(int(self.emails[r].get("is_ignored", 0)) == 0 for r in rows)

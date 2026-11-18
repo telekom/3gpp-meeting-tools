@@ -249,13 +249,15 @@ class TDocsTableModel(QAbstractTableModel):
             if row.get("_is_tracked_thread"):
                 tot = int(row.get("_email_tot", 0))
                 unread = int(row.get("_email_unread", 0))
-                row["_email_sort_key"] = (tot, unread)
+                flagged = int(row.get("_email_flagged", 0))
+                row["_email_sort_key"] = (tot, unread, flagged)
                 continue
             tdoc = str(row.get("TDoc", "")).strip().upper()
             family = self.get_family_tdocs(tdoc)
 
             family_all_ids = set()
             family_unread_ids = set()
+            family_flagged_ids = set()
 
             for t in family:
                 stats = self.email_counts.get(t)
@@ -263,20 +265,26 @@ class TDocsTableModel(QAbstractTableModel):
                     if "all_ids" in stats:
                         family_all_ids.update(stats["all_ids"])
                         family_unread_ids.update(stats["unread_ids"])
+                        family_flagged_ids.update(stats.get("flagged_ids", ()))
                     else:
                         # Fallback for mock or legacy scalar dictionaries
                         tot_num = stats.get("total", 0)
                         un_num = stats.get("unread", 0)
+                        fl_num = stats.get("flagged", 0)
                         if tot_num:
                             family_all_ids.add(f"{t}_tot_{tot_num}")
                         if un_num:
                             family_unread_ids.add(f"{t}_un_{un_num}")
+                        if fl_num:
+                            family_flagged_ids.add(f"{t}_fl_{fl_num}")
 
             tot = len(family_all_ids)
             unread = len(family_unread_ids)
+            flagged = len(family_flagged_ids)
             row['_email_tot'] = tot
             row['_email_unread'] = unread
-            row['_email_sort_key'] = (tot, unread)
+            row['_email_flagged'] = flagged
+            row['_email_sort_key'] = (tot, unread, flagged)
 
     def get_unmatched_sources(self) -> list:
         """Returns a sorted list of unique raw 'Source' strings that evaluated to 'Other' (neither confirmed nor tentative matched)."""
@@ -338,9 +346,15 @@ class TDocsTableModel(QAbstractTableModel):
             tdocs = t.get("linked_tdocs") or []
             tot = int(t.get("message_count", 0))
             unread = int(t.get("unread_count", 0))
+            flagged = int(t.get("flagged_count", 0))
             last_dt = t.get("last_message_date") or ""
             status_str = "📧 Active Thread"
-            remarks_parts = [f"Tracked Email Thread ({tot} msgs" + (f", {unread} new)" if unread > 0 else ")") + f" • Last: {last_dt or 'N/A'}"]
+            stat_bits = [f"{tot} msgs"]
+            if unread > 0:
+                stat_bits.append(f"{unread} new")
+            if flagged > 0:
+                stat_bits.append(f"{flagged} flagged")
+            remarks_parts = [f"Tracked Email Thread ({', '.join(stat_bits)}) • Last: {last_dt or 'N/A'}"]
             if ais:
                 remarks_parts.append(f"AIs: {', '.join(ais)}")
             if explicit_subs:
@@ -395,7 +409,8 @@ class TDocsTableModel(QAbstractTableModel):
                 "_sub_item_order": sub_item_order,
                 "_email_tot": tot,
                 "_email_unread": unread,
-                "_email_sort_key": (tot, unread),
+                "_email_flagged": flagged,
+                "_email_sort_key": (tot, unread, flagged),
             }
             thread_rows.append(row)
 
@@ -752,27 +767,41 @@ class TDocsTableModel(QAbstractTableModel):
         if col_name == "Emails":
             tot = row.get('_email_tot', 0)
             unread = row.get('_email_unread', 0)
+            flagged = row.get('_email_flagged', 0)
 
             if role == Qt.DisplayRole:
                 if tot == 0:
                     return ""
-                return f"✉️ {tot} (🔵 {unread})" if unread > 0 else f"✉️ {tot}"
+                disp = f"✉️ {tot}"
+                if unread > 0:
+                    disp += f" (🔵 {unread})"
+                if flagged > 0:
+                    disp += f" 🚩 {flagged}"
+                return disp
             elif role == Qt.UserRole:
                 if tot == 0:
                     return ""
-                return f"{tot} (unread: {unread})" if unread > 0 else str(tot)
+                parts = []
+                if unread > 0:
+                    parts.append(f"unread: {unread}")
+                if flagged > 0:
+                    parts.append(f"flagged: {flagged}")
+                return f"{tot} ({', '.join(parts)})" if parts else str(tot)
             elif role == Qt.UserRole + 2:
-                return row.get('_email_sort_key', (0, 0))
+                return row.get('_email_sort_key', (0, 0, 0))
             elif role == Qt.ToolTipRole:
                 if tot == 0:
                     return "No indexed emails mentioning this TDoc or its revisions."
                 tdoc = str(row.get("TDoc", "")).upper()
                 family = self.get_family_tdocs(tdoc)
-                return f"<b>{tot} email(s) total</b> ({unread} unread) mentioning family: {', '.join(family)}"
+                flag_txt = f", {flagged} flagged" if flagged > 0 else ""
+                return f"<b>{tot} email(s) total</b> ({unread} unread{flag_txt}) mentioning family: {', '.join(family)}"
             elif role == Qt.TextAlignmentRole:
                 return Qt.AlignCenter
             elif role == Qt.ForegroundRole and unread > 0:
                 return QColor(C.OFFICE_BLUE)
+            elif role == Qt.ForegroundRole and flagged > 0:
+                return QColor(C.WARNING)
             return None
 
         if col_name == "":

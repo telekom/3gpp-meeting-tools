@@ -195,28 +195,41 @@ class OutlookClient:
             return False, str(e)
 
     @staticmethod
-    def set_messages_read_status(entry_ids: Sequence[str], is_read: bool = True) -> int:
-        """
-        Synchronizes read/unread status to Microsoft Outlook for the given EntryIDs.
-        Returns the number of Outlook items whose UnRead state was updated.
-        """
+    def _update_messages_property(entry_ids: Sequence[str], attr_name: str, target_value: Any, cast_fn) -> int:
         if platform.system() != 'Windows' or not entry_ids:
             return 0
         namespace = OutlookClient.get_namespace()
         if not namespace:
             return 0
         updated = 0
-        target_unread = not bool(is_read)
         for raw_id in entry_ids:
             eid = str(raw_id or "").strip()
             if not eid or eid.startswith("MSG-"):
                 continue
             try:
                 item = namespace.GetItemFromID(eid)
-                if item is not None and bool(getattr(item, "UnRead", not target_unread)) != target_unread:
-                    item.UnRead = target_unread
-                    item.Save()
-                    updated += 1
+                if item is not None:
+                    current = getattr(item, attr_name, None)
+                    if current is None or cast_fn(current) != target_value:
+                        setattr(item, attr_name, target_value)
+                        item.Save()
+                        updated += 1
             except Exception as e:
-                logging.debug(f"Could not update Outlook read state for {eid}: {e}")
+                logging.debug(f"Could not update Outlook {attr_name} for {eid}: {e}")
         return updated
+
+    @staticmethod
+    def set_messages_read_status(entry_ids: Sequence[str], is_read: bool = True) -> int:
+        """
+        Synchronizes read/unread status to Microsoft Outlook for the given EntryIDs.
+        Returns the number of Outlook items whose UnRead state was updated.
+        """
+        return OutlookClient._update_messages_property(entry_ids, "UnRead", not bool(is_read), bool)
+
+    @staticmethod
+    def set_messages_flag_status(entry_ids: Sequence[str], is_flagged: bool = True) -> int:
+        """
+        Synchronizes 2-state Outlook flag status (olFlagMarked=2, olNoFlag=0) for EntryIDs.
+        Returns the number of Outlook items whose FlagStatus was updated.
+        """
+        return OutlookClient._update_messages_property(entry_ids, "FlagStatus", 2 if is_flagged else 0, int)

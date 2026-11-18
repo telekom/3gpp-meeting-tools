@@ -123,6 +123,11 @@ def _mail_item_to_dict(item: Any) -> Dict[str, Any]:
     except Exception:
         pass
 
+    try:
+        raw_flag = int(getattr(item, "FlagStatus", 0) or 0)
+    except Exception:
+        raw_flag = 0
+
     return {
         "id": entry_id,
         "subject": subject,
@@ -136,6 +141,7 @@ def _mail_item_to_dict(item: Any) -> Dict[str, Any]:
         "in_reply_to": "",
         "conversation_id": conv_id,
         "is_read": 1 if getattr(item, "UnRead", False) is False else 0,
+        "flag_status": 2 if raw_flag == 2 else 0,
         "attachments": attachments,
     }
 
@@ -691,6 +697,40 @@ def mark_thread_read_with_outlook(
     if sync_outlook and unread_ids:
         from modules.emails.core.outlook_client import OutlookClient
         return OutlookClient.set_messages_read_status(unread_ids, is_read=True)
+    return 0
+
+
+def set_thread_message_read_with_outlook(
+    db: TrackedThreadsDatabase,
+    message_id: str,
+    is_read: bool,
+    sync_outlook: bool = True,
+) -> int:
+    """Marks a single message in a tracked thread read/unread and syncs to Outlook."""
+    msg_id = str(message_id or "").strip()
+    if not msg_id:
+        return 0
+    db.set_message_read_status(msg_id, bool(is_read))
+    if sync_outlook and not msg_id.startswith("MSG-"):
+        from modules.emails.core.outlook_client import OutlookClient
+        return OutlookClient.set_messages_read_status([msg_id], is_read=bool(is_read))
+    return 0
+
+
+def set_thread_message_flag_with_outlook(
+    db: TrackedThreadsDatabase,
+    message_id: str,
+    is_flagged: bool,
+    sync_outlook: bool = True,
+) -> int:
+    """Sets/clears the flag on a single tracked thread message and syncs to Outlook."""
+    msg_id = str(message_id or "").strip()
+    if not msg_id:
+        return 0
+    db.set_message_flag_status(msg_id, bool(is_flagged))
+    if sync_outlook and not msg_id.startswith("MSG-"):
+        from modules.emails.core.outlook_client import OutlookClient
+        return OutlookClient.set_messages_flag_status([msg_id], is_flagged=bool(is_flagged))
     return 0
 
 

@@ -124,8 +124,9 @@ class GeneralEmailSyncThread(QThread):
                         "company": company,
                         "date_received": str(getattr(mail_item, "ReceivedTime", "")),
                         "body_text": body[:12000],
-                        "is_read": 0,
-                        "is_ignored": 0
+                        "is_read": 1 if getattr(mail_item, "UnRead", False) is False else 0,
+                        "is_ignored": 0,
+                        "flag_status": 2 if int(getattr(mail_item, "FlagStatus", 0) or 0) == 2 else 0,
                     }
                     batch_emails.append(email_record)
 

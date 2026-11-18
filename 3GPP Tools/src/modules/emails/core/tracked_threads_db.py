@@ -50,6 +50,7 @@ class TrackedThreadsDatabase:
                     user_notes TEXT DEFAULT '',
                     user_tags TEXT DEFAULT '[]',
                     unread_count INTEGER DEFAULT 0,
+                    flagged_count INTEGER DEFAULT 0,
                     message_count INTEGER DEFAULT 0,
                     last_message_date TEXT DEFAULT '',
                     last_synced_at TEXT DEFAULT '',
@@ -71,6 +72,7 @@ class TrackedThreadsDatabase:
                     in_reply_to TEXT DEFAULT '',
                     conversation_id TEXT DEFAULT '',
                     is_read INTEGER DEFAULT 0,
+                    flag_status INTEGER DEFAULT 0,
                     attachments TEXT DEFAULT '[]',
                     FOREIGN KEY(thread_id) REFERENCES tracked_threads(thread_id) ON DELETE CASCADE
                 )
@@ -80,7 +82,7 @@ class TrackedThreadsDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ttm_thread ON tracked_thread_messages(thread_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ttm_date ON tracked_thread_messages(date_sent)")
 
-            # Schema migration: add linked_sub_items and user annotations for existing DBs
+            # Schema migration: add linked_sub_items, annotations, and flag columns for existing DBs
             cursor.execute("PRAGMA table_info(tracked_threads)")
             cols = [info[1] for info in cursor.fetchall()]
             if "linked_sub_items" not in cols:
@@ -91,6 +93,12 @@ class TrackedThreadsDatabase:
                 cursor.execute("ALTER TABLE tracked_threads ADD COLUMN user_notes TEXT DEFAULT ''")
             if "user_tags" not in cols:
                 cursor.execute("ALTER TABLE tracked_threads ADD COLUMN user_tags TEXT DEFAULT '[]'")
+            if "flagged_count" not in cols:
+                cursor.execute("ALTER TABLE tracked_threads ADD COLUMN flagged_count INTEGER DEFAULT 0")
+            cursor.execute("PRAGMA table_info(tracked_thread_messages)")
+            msg_cols = [info[1] for info in cursor.fetchall()]
+            if "flag_status" not in msg_cols:
+                cursor.execute("ALTER TABLE tracked_thread_messages ADD COLUMN flag_status INTEGER DEFAULT 0")
             conn.commit()
 
     @staticmethod
@@ -196,14 +204,15 @@ class TrackedThreadsDatabase:
                     INSERT INTO tracked_thread_messages (
                         id, thread_id, subject, sender_name, sender_email, company,
                         date_sent, body_text, clean_body, message_id_header,
-                        in_reply_to, conversation_id, is_read, attachments
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        in_reply_to, conversation_id, is_read, flag_status, attachments
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         subject = excluded.subject,
                         body_text = excluded.body_text,
                         clean_body = excluded.clean_body,
                         attachments = excluded.attachments,
-                        is_read = CASE WHEN excluded.is_read = 1 THEN 1 ELSE tracked_thread_messages.is_read END
+                        is_read = CASE WHEN excluded.is_read = 1 THEN 1 ELSE tracked_thread_messages.is_read END,
+                        flag_status = CASE WHEN excluded.id LIKE 'MSG-%' THEN tracked_thread_messages.flag_status ELSE excluded.flag_status END
                     """,
                     (
                         msg_id,
@@ -219,6 +228,7 @@ class TrackedThreadsDatabase:
                         msg.get("in_reply_to", ""),
                         msg.get("conversation_id", ""),
                         int(msg.get("is_read", 0)),
+                        2 if int(msg.get("flag_status", 0) or 0) == 2 else 0,
                         json.dumps(msg.get("attachments", [])),
                     ),
                 )
@@ -231,6 +241,7 @@ class TrackedThreadsDatabase:
             """
             SELECT COUNT(*) as total,
                    SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread,
+                   SUM(CASE WHEN flag_status = 2 THEN 1 ELSE 0 END) as flagged,
                    MAX(date_sent) as latest
             FROM tracked_thread_messages
             WHERE thread_id = ?
@@ -240,15 +251,16 @@ class TrackedThreadsDatabase:
         row = cursor.fetchone()
         total = row["total"] or 0
         unread = row["unread"] or 0
+        flagged = row["flagged"] or 0
         latest = row["latest"] or ""
         now = datetime.now().isoformat(timespec="seconds")
         cursor.execute(
             """
             UPDATE tracked_threads
-            SET message_count = ?, unread_count = ?, last_message_date = ?, last_synced_at = ?
+            SET message_count = ?, unread_count = ?, flagged_count = ?, last_message_date = ?, last_synced_at = ?
             WHERE thread_id = ?
             """,
-            (total, unread, latest, now, thread_id),
+            (total, unread, flagged, latest, now, thread_id),
         )
 
     def get_threads_for_meeting(self, meeting_id: str = "") -> List[Dict[str, Any]]:
@@ -346,6 +358,30 @@ class TrackedThreadsDatabase:
             cursor.execute("UPDATE tracked_thread_messages SET is_read = 1 WHERE thread_id = ?", (thread_id,))
             self._recompute_thread_stats(cursor, thread_id)
             conn.commit()
+
+    def _update_message_status_col(self, message_id: str, column: str, value: int) -> Optional[str]:
+        msg_id = str(message_id or "").strip()
+        if not msg_id or column not in ("is_read", "flag_status"):
+            return None
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT thread_id FROM tracked_thread_messages WHERE id = ?", (msg_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            thread_id = row["thread_id"]
+            cursor.execute(f"UPDATE tracked_thread_messages SET {column} = ? WHERE id = ?", (value, msg_id))
+            self._recompute_thread_stats(cursor, thread_id)
+            conn.commit()
+            return thread_id
+
+    def set_message_read_status(self, message_id: str, is_read: bool) -> Optional[str]:
+        """Marks a single tracked thread message read/unread and recomputes thread unread count."""
+        return self._update_message_status_col(message_id, "is_read", 1 if is_read else 0)
+
+    def set_message_flag_status(self, message_id: str, is_flagged: bool) -> Optional[str]:
+        """Sets 2-state Outlook-compatible flag_status (2=flagged, 0=unflagged) on a single message."""
+        return self._update_message_status_col(message_id, "flag_status", 2 if is_flagged else 0)
 
     def merge_threads(self, target_thread_id: str, source_thread_ids: List[str]):
         """Merges source threads into target_thread_id (repairing Outlook-split threads)."""

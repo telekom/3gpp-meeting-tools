@@ -46,6 +46,8 @@ from modules.emails.core.tracked_threads_service import (
     prepare_thread_llm_workspace,
     refresh_thread,
     reply_to_outlook_message,
+    set_thread_message_flag_with_outlook,
+    set_thread_message_read_with_outlook,
 )
 from modules.meetings.ui.topic_pills import TagCloudWidget
 
@@ -251,6 +253,14 @@ class TrackedThreadDialog(QDialog):
         self.company_filter_combo.currentIndexChanged.connect(self._render_messages)
         filter_row.addWidget(self.company_filter_combo)
 
+        self.state_filter_combo = QComboBox()
+        self.state_filter_combo.addItem("All Messages", "all")
+        self.state_filter_combo.addItem("🔵 Unread Only", "unread")
+        self.state_filter_combo.addItem("🚩 Flagged Only", "flagged")
+        self.state_filter_combo.setToolTip("Filter messages by read or Outlook flag state.")
+        self.state_filter_combo.currentIndexChanged.connect(self._render_messages)
+        filter_row.addWidget(self.state_filter_combo)
+
         self.msg_count_lbl = QLabel("")
         self.msg_count_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
         filter_row.addWidget(self.msg_count_lbl)
@@ -307,6 +317,7 @@ class TrackedThreadDialog(QDialog):
                 f"Meeting: {thread.get('meeting_id') or 'N/A'} | "
                 f"Messages: {thread.get('message_count', 0)} | "
                 f"Unread: {thread.get('unread_count', 0)} | "
+                f"Flagged: {thread.get('flagged_count', 0)} | "
                 f"Last synced: {thread.get('last_synced_at') or 'Never'}"
             )
             self.ais_pills.setText(", ".join(thread.get("linked_ais") or []))
@@ -336,9 +347,14 @@ class TrackedThreadDialog(QDialog):
 
         query = (self.msg_search_edit.text() if hasattr(self, "msg_search_edit") else "").strip().lower()
         comp_filter = (self.company_filter_combo.currentData() if hasattr(self, "company_filter_combo") else "") or ""
+        state_filter = (self.state_filter_combo.currentData() if hasattr(self, "state_filter_combo") else "all") or "all"
 
         filtered = []
         for m in all_messages:
+            if state_filter == "unread" and int(m.get("is_read", 0) or 0) != 0:
+                continue
+            if state_filter == "flagged" and int(m.get("flag_status", 0) or 0) != 2:
+                continue
             if comp_filter and (m.get("company") or "").strip().lower() != comp_filter.lower():
                 continue
             if query:
@@ -399,6 +415,17 @@ class TrackedThreadDialog(QDialog):
             elif host == "reply" and path_parts:
                 if not reply_to_outlook_message(path_parts[0], reply_all=True):
                     QMessageBox.warning(self, "Outlook Reply", "Could not open a Reply window in Microsoft Outlook.")
+            elif host in ("read", "unread", "flag", "unflag") and path_parts:
+                msg_id = path_parts[0]
+                sb = self.browser.verticalScrollBar()
+                prev_scroll = sb.value()
+                if host in ("read", "unread"):
+                    set_thread_message_read_with_outlook(self.db, msg_id, is_read=(host == "read"), sync_outlook=True)
+                else:
+                    set_thread_message_flag_with_outlook(self.db, msg_id, is_flagged=(host == "flag"), sync_outlook=True)
+                self._load_data()
+                sb.setValue(min(prev_scroll, sb.maximum()))
+                self.thread_changed.emit()
             elif host == "copy" and path_parts:
                 target_id = path_parts[0]
                 msgs = self.db.get_thread_messages(self.thread_id)

@@ -263,7 +263,9 @@ def export_thread_to_markdown(
         subj = (msg.get("subject") or "").strip()
         msg_id = str(msg.get("id") or "").strip()
         is_unread = int(msg.get("is_read", 1) or 0) == 0
+        is_flagged = int(msg.get("flag_status", 0) or 0) == 2
         new_badge = " 🔵 **NEW**" if (interactive_links and is_unread) else ""
+        flag_badge = " 🚩 **FLAGGED**" if (interactive_links and is_flagged) else ""
         can_open_outlook = interactive_links and msg_id and not msg_id.startswith("MSG-")
 
         if interactive_links:
@@ -272,8 +274,15 @@ def export_thread_to_markdown(
             if can_open_outlook:
                 action_parts.append(f"[📧 Open in Outlook](outlook://msg/{enc_id})")
                 action_parts.append(f"[↩️ Reply](outlook://reply/{enc_id})")
+            if msg_id:
+                action_parts.append(
+                    f"[✓ Mark Read](outlook://read/{enc_id})" if is_unread else f"[🔵 Mark Unread](outlook://unread/{enc_id})"
+                )
+                action_parts.append(
+                    f"[🏳️ Clear Flag](outlook://unflag/{enc_id})" if is_flagged else f"[🚩 Flag](outlook://flag/{enc_id})"
+                )
             action_parts.append(f"[📋 Copy](outlook://copy/{enc_id})")
-            lines.append(f"### {idx}. [{date_str}] {sender_disp}{new_badge} · {' · '.join(action_parts)}")
+            lines.append(f"### {idx}. [{date_str}] {sender_disp}{new_badge}{flag_badge} · {' · '.join(action_parts)}")
         else:
             lines.append(f"### {idx}. [{date_str}] {sender_disp}")
         if subj and subj.lower() != base_subject:
