@@ -165,7 +165,10 @@ def _rmtree_safe(target: Path) -> None:
 
 
 def _norm_rel(rel_path: str) -> str:
-    return rel_path.replace("\\", "/").lstrip("./")
+    path = rel_path.replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    return path
 
 
 def _is_ignored_cache(rel_posix: str) -> bool:
@@ -209,21 +212,19 @@ def _sha256_file(path: Path) -> str:
 def _copy_retry(src: Path, dst: Path, attempts: int = 10, delay_s: float = 0.35) -> None:
     ext_src = _ext_path(src)
     ext_dst = _ext_path(dst)
-    os.makedirs(_ext_path(dst.parent), exist_ok=True)
-    last_err = None
-    for i in range(max(1, attempts)):
+    ext_parent = _ext_path(dst.parent)
+    attempts = max(1, attempts)
+    for attempt in range(attempts):
         try:
+            os.makedirs(ext_parent, exist_ok=True)
             if os.path.exists(ext_dst):
                 _clear_ro(ext_dst)
             shutil.copy2(ext_src, ext_dst)
             return
         except OSError as exc:
-            last_err = exc
-            _clear_ro(ext_dst)
-            if i < attempts - 1:
-                time.sleep(delay_s)
-    if last_err is not None:
-        raise last_err
+            if attempt == attempts - 1:
+                raise OSError(f'Could not copy "{src}" to "{dst}" ({exc})') from exc
+            time.sleep(delay_s)
 
 
 def _write_text_retry(target: Path, text: str, attempts: int = 8, delay_s: float = 0.25) -> None:
@@ -400,7 +401,7 @@ def _apply_update(staged_dir: Path, app_root: Path, commit_meta: dict) -> dict:
         for fname in files:
             src_full = os.path.join(root, fname)
             rel_posix = _norm_rel(os.path.relpath(src_full, ext_staged))
-            src_file = staged_dir / rel_posix
+            src_file = Path(src_full)
 
             if _is_ignored_cache(rel_posix):
                 continue
@@ -429,14 +430,20 @@ def _apply_update(staged_dir: Path, app_root: Path, commit_meta: dict) -> dict:
             continue
         if _is_protected(norm_old) or _is_seed_only(norm_old):
             continue
-        old_target = app_root / norm_old
+        old_relative = Path(norm_old)
+        if old_relative.anchor or ".." in old_relative.parts:
+            continue
+        old_target = app_root / old_relative
         ext_old = _ext_path(old_target)
         if os.path.isfile(ext_old):
             try:
+                resolved_root = Path(_ext_path(app_root)).resolve(strict=True)
+                parent = Path(_ext_path(old_target.parent)).resolve(strict=True)
+                parent.relative_to(resolved_root)
                 _clear_ro(ext_old)
                 os.unlink(ext_old)
                 removed += 1
-            except OSError:
+            except (OSError, RuntimeError, ValueError):
                 pass
 
     now_iso = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()

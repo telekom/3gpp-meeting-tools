@@ -74,8 +74,11 @@ SEED_IF_MISSING_PATHS: Set[str] = {
 
 
 def normalize_rel_path(rel_path: str) -> str:
-    """Normalize a relative path to forward-slash lowercase comparison form."""
-    return rel_path.replace("\\", "/").lstrip("./")
+    """Use forward slashes and remove explicit current-directory prefixes."""
+    path = rel_path.replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    return path
 
 
 def is_ignored_cache_path(rel_posix: str) -> bool:
@@ -189,21 +192,19 @@ def _copy_with_retry(src: Path, dst: Path, attempts: int = 10, delay_s: float = 
     """Copy ``src`` to ``dst`` with retries for transient OneDrive/AV file locks and >260 char paths."""
     ext_src = _to_extended_path(src)
     ext_dst = _to_extended_path(dst)
-    os.makedirs(_to_extended_path(dst.parent), exist_ok=True)
-    last_err: Optional[Exception] = None
-    for i in range(max(1, attempts)):
+    ext_parent = _to_extended_path(dst.parent)
+    attempts = max(1, attempts)
+    for attempt in range(attempts):
         try:
+            os.makedirs(ext_parent, exist_ok=True)
             if os.path.exists(ext_dst):
                 _clear_readonly(ext_dst)
             shutil.copy2(ext_src, ext_dst)
             return
-        except (PermissionError, OSError) as exc:
-            last_err = exc
-            _clear_readonly(ext_dst)
-            if i < attempts - 1:
-                time.sleep(delay_s)
-    if last_err is not None:
-        raise last_err
+        except OSError as exc:
+            if attempt == attempts - 1:
+                raise OSError(f'Could not copy "{src}" to "{dst}" ({exc})') from exc
+            time.sleep(delay_s)
 
 
 def _remove_with_retry(target: Path, attempts: int = 6, delay_s: float = 0.25) -> bool:
@@ -280,7 +281,7 @@ def apply_staged_tree(
         for fname in files:
             src_full = os.path.join(root, fname)
             rel_posix = normalize_rel_path(os.path.relpath(src_full, ext_staged))
-            src_file = staged_app_dir / rel_posix
+            src_file = Path(src_full)
 
             if is_ignored_cache_path(rel_posix):
                 continue
@@ -311,18 +312,29 @@ def apply_staged_tree(
                 continue
             if is_protected_relative_path(norm_old) or is_seed_only_relative_path(norm_old):
                 continue
-            old_target = app_root / norm_old
-            if os.path.isfile(_to_extended_path(old_target)):
-                if _remove_with_retry(old_target):
-                    removed += 1
-                    # Prune empty parent folders inside app_root
-                    parent = old_target.parent
-                    while parent != app_root and os.path.isdir(_to_extended_path(parent)):
-                        try:
-                            os.rmdir(_to_extended_path(parent))
-                            parent = parent.parent
-                        except OSError:
-                            break
+            old_relative = Path(norm_old)
+            if old_relative.anchor or ".." in old_relative.parts:
+                continue
+            old_target = app_root / old_relative
+            if not os.path.isfile(_to_extended_path(old_target)):
+                continue
+            try:
+                resolved_root = Path(_to_extended_path(app_root)).resolve(strict=True)
+                parent = Path(_to_extended_path(old_target.parent)).resolve(strict=True)
+                parent.relative_to(resolved_root)
+            except (OSError, RuntimeError, ValueError):
+                continue
+            if _remove_with_retry(old_target):
+                removed += 1
+                # Leave directory aliases and their targets in place.
+                if parent != resolved_root / old_relative.parent:
+                    continue
+                while parent != resolved_root:
+                    try:
+                        os.rmdir(_to_extended_path(parent))
+                        parent = parent.parent
+                    except OSError:
+                        break
 
     now_iso = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
     has_git_dir = os.path.exists(_to_extended_path(app_root / ".git")) or os.path.exists(

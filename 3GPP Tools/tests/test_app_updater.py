@@ -36,6 +36,7 @@ from core.updater.app_updater import (
 )
 from core.updater.apply_worker import (
     APP_VERSION_FILENAME,
+    _copy_with_retry,
     apply_staged_tree,
     is_protected_relative_path,
     is_seed_only_relative_path,
@@ -216,8 +217,20 @@ class TestAppUpdater(unittest.TestCase):
         self.assertTrue(is_protected_relative_path("output/diagram.vsdx"))
         self.assertTrue(is_seed_only_relative_path("src/db/3gpp_data.db"))
         self.assertTrue(is_seed_only_relative_path("src/config/useful_links.json"))
+        self.assertTrue(is_protected_relative_path(".editor_cache.puml"))
+        self.assertFalse(is_protected_relative_path(".gitignore"))
         self.assertFalse(is_protected_relative_path("src/main_tools.py"))
         self.assertFalse(is_protected_relative_path("src/config/plantuml_presets.json"))
+
+    def test_copy_failure_reports_both_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "staged" / ".gitignore"
+            destination = Path(tmp) / "installed" / ".gitignore"
+            with self.assertRaises(OSError) as raised:
+                _copy_with_retry(source, destination, attempts=1)
+            self.assertIn(str(source), str(raised.exception))
+            self.assertIn(str(destination), str(raised.exception))
+            self.assertIsInstance(raised.exception.__cause__, FileNotFoundError)
 
     def test_apply_staged_tree_preserves_user_data_and_cleans_obsolete_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -233,6 +246,9 @@ class TestAppUpdater(unittest.TestCase):
             (app_root / "output").mkdir(parents=True)
             (app_root / "src" / "main_tools.py").write_text("OLD_MAIN", encoding="utf-8")
             (app_root / "src" / "obsolete_module.py").write_text("REMOVE_ME", encoding="utf-8")
+            (app_root / ".obsolete").write_text("REMOVE_ME", encoding="utf-8")
+            outside_file = app_root.parent / "outside.txt"
+            outside_file.write_text("KEEP_ME", encoding="utf-8")
             (app_root / "src" / "db" / "3gpp_data.db").write_bytes(b"USER_SYNCED_DB")
             (app_root / "src" / "config" / "network_config.json").write_text('{"proxy":"corp"}', encoding="utf-8")
             (app_root / "src" / "config" / "useful_links.json").write_text('{"custom":true}', encoding="utf-8")
@@ -243,6 +259,7 @@ class TestAppUpdater(unittest.TestCase):
             (staged / "src" / "db").mkdir(parents=True)
             (staged / "src" / "config").mkdir(parents=True)
             (staged / "src" / "main_tools.py").write_text("NEW_MAIN", encoding="utf-8")
+            (staged / ".gitignore").write_text("*.log", encoding="utf-8")
             (staged / "src" / "new_feature.py").write_text("NEW_FEATURE", encoding="utf-8")
             (staged / "src" / "config" / "plantuml_presets.json").write_text('{"v":2}', encoding="utf-8")
             (staged / "src" / "config" / "useful_links.json").write_text('{"default":true}', encoding="utf-8")
@@ -257,12 +274,21 @@ class TestAppUpdater(unittest.TestCase):
                     "title": "feat: update",
                     "updated_iso": "2026-11-14T12:00:00Z",
                 },
-                prev_managed_files=["src/main_tools.py", "src/obsolete_module.py"],
+                prev_managed_files=[
+                    "src/main_tools.py", "src/obsolete_module.py", "./.obsolete",
+                    "../outside.txt", str(outside_file),
+                ],
                 app_data_root=app_data,
                 log_fn=lambda _msg: None,
             )
 
-            self.assertEqual(summary["removed"], 1)
+            self.assertEqual(summary["removed"], 2)
+            self.assertEqual((app_root / ".gitignore").read_text(encoding="utf-8"), "*.log")
+            self.assertFalse((app_root / "gitignore").exists())
+            version = json.loads((app_root / APP_VERSION_FILENAME).read_text(encoding="utf-8"))
+            self.assertIn(".gitignore", version["managed_files"])
+            self.assertFalse((app_root / ".obsolete").exists())
+            self.assertEqual(outside_file.read_text(encoding="utf-8"), "KEEP_ME")
             self.assertEqual((app_root / "src" / "main_tools.py").read_text(encoding="utf-8"), "NEW_MAIN")
             self.assertEqual((app_root / "src" / "new_feature.py").read_text(encoding="utf-8"), "NEW_FEATURE")
             self.assertFalse((app_root / "src" / "obsolete_module.py").exists())
@@ -479,6 +505,14 @@ class TestAppUpdater(unittest.TestCase):
             (app_root / "src" / "db" / "3gpp_data.db").write_bytes(b"COLLEAGUE_DB_DATA")
             (app_root / "src" / "config" / "network_config.json").write_text('{"proxy":"corp"}', encoding="utf-8")
 
+            outside_file = tmp_base / "outside.txt"
+            outside_file.write_text("KEEP_ME", encoding="utf-8")
+            (app_root / ".obsolete").write_text("REMOVE_ME", encoding="utf-8")
+            (app_root / APP_VERSION_FILENAME).write_text(
+                json.dumps({"managed_files": ["./.obsolete", "../outside.txt", str(outside_file)]}),
+                encoding="utf-8",
+            )
+
             # Place Update.cmd inside `3GPP Tools/src/Update.cmd` AND test self-overwrite
             cmd_copy = app_root / "src" / "Update.cmd"
             shutil.copy2(str(update_cmd_src), str(cmd_copy))
@@ -493,11 +527,13 @@ class TestAppUpdater(unittest.TestCase):
                 zf.writestr("3gpp-meeting-tools-" + ("9" * 40) + "/3GPP Tools/src/main_tools.py", "UPDATED_VERSION\n")
                 zf.writestr("3gpp-meeting-tools-" + ("9" * 40) + "/3GPP Tools/src/Update.cmd", update_cmd_src.read_text(encoding="utf-8"))
                 zf.writestr("3gpp-meeting-tools-" + ("9" * 40) + "/3GPP Tools/src/db/3gpp_data.db", b"SEED_DB")
+                zf.writestr("3gpp-meeting-tools-" + ("9" * 40) + "/3GPP Tools/.gitignore", "*.log")
                 zf.writestr(long_sibling, b"DOCX_BYTES")
 
             res = subprocess.run(
-                ["cmd.exe", "/c", str(cmd_copy), "--no-pause", "--zip-file", str(zip_path)],
+                f'cmd.exe /d /s /c ""{cmd_copy}" --no-pause --zip-file "{zip_path}""',
                 cwd=str(app_root),
+                env={**os.environ, "USERPROFILE": str(tmp_base / "profile")},
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 timeout=30.0,
@@ -510,7 +546,12 @@ class TestAppUpdater(unittest.TestCase):
             self.assertEqual((app_root / "src" / "main_tools.py").read_text(encoding="utf-8"), "UPDATED_VERSION\n")
             self.assertEqual((app_root / "src" / "db" / "3gpp_data.db").read_bytes(), b"COLLEAGUE_DB_DATA")
             self.assertEqual((app_root / "src" / "config" / "network_config.json").read_text(encoding="utf-8"), '{"proxy":"corp"}')
-            self.assertTrue((app_root / APP_VERSION_FILENAME).is_file())
+            self.assertEqual((app_root / ".gitignore").read_text(encoding="utf-8"), "*.log")
+            self.assertFalse((app_root / "gitignore").exists())
+            version = json.loads((app_root / APP_VERSION_FILENAME).read_text(encoding="utf-8"))
+            self.assertIn(".gitignore", version["managed_files"])
+            self.assertFalse((app_root / ".obsolete").exists())
+            self.assertEqual(outside_file.read_text(encoding="utf-8"), "KEEP_ME")
         finally:
             rmtree_extended(tmp_base)
 
