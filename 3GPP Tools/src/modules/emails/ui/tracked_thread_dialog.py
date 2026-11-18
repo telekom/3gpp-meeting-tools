@@ -1,7 +1,7 @@
 # --- File: src/modules/emails/ui/tracked_thread_dialog.py ---
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Callable, List, Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
     QFileDialog,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -31,6 +32,7 @@ from modules.emails.core.tracked_threads_service import (
     pin_thread_by_subject_or_cid,
     refresh_thread,
 )
+from modules.meetings.ui.topic_pills import TagCloudWidget
 
 
 class TrackedThreadDialog(QDialog):
@@ -38,12 +40,26 @@ class TrackedThreadDialog(QDialog):
 
     thread_changed = pyqtSignal()
 
-    def __init__(self, db: TrackedThreadsDatabase, thread_id: str, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        db: TrackedThreadsDatabase,
+        thread_id: str,
+        parent: Optional[QWidget] = None,
+        ai_suggestions: Optional[List[str]] = None,
+        wi_suggestions: Optional[List[str]] = None,
+        tdoc_suggestions: Optional[List[str]] = None,
+        tdoc_family_expander: Optional[Callable[[List[str]], List[str]]] = None,
+    ):
         super().__init__(parent)
         self.db = db
         self.thread_id = thread_id
+        self._ai_suggestions = ai_suggestions or []
+        self._wi_suggestions = wi_suggestions or []
+        self._tdoc_suggestions = tdoc_suggestions or []
+        self._tdoc_family_expander = tdoc_family_expander
+        self._loading = False
         self.setWindowTitle("Tracked Email Thread")
-        self.resize(920, 680)
+        self.resize(960, 720)
         self._build_ui()
         self._load_data()
 
@@ -61,27 +77,38 @@ class TrackedThreadDialog(QDialog):
         self.meta_label.setWordWrap(True)
         layout.addWidget(self.meta_label)
 
-        # Links editor row
-        links_row = QHBoxLayout()
-        links_row.addWidget(QLabel("AIs:"))
-        self.ais_edit = QLineEdit()
-        self.ais_edit.setPlaceholderText("e.g. KI#1_1, AI 6.2")
-        links_row.addWidget(self.ais_edit)
+        # Links pill editors (auto-save + autocomplete)
+        links_grid = QGridLayout()
+        links_grid.setSpacing(6)
 
-        links_row.addWidget(QLabel("WIs:"))
-        self.wis_edit = QLineEdit()
-        self.wis_edit.setPlaceholderText("e.g. FS_6G_ARC")
-        links_row.addWidget(self.wis_edit)
+        links_grid.addWidget(QLabel("<b>AIs:</b>"), 0, 0, Qt.AlignTop)
+        self.ais_pills = TagCloudWidget(
+            placeholder="Type AI # or topic (e.g. 20.6.1)...",
+            pill_colors={"bg": "#EFF6FF", "fg": "#1D4ED8", "border": "#BFDBFE"},
+        )
+        self.ais_pills.set_suggestions(self._ai_suggestions, value_extractor=lambda s: s.split(" — ", 1)[0].strip())
+        self.ais_pills.tagsChanged.connect(self._on_links_changed)
+        links_grid.addWidget(self.ais_pills, 0, 1)
 
-        links_row.addWidget(QLabel("TDocs:"))
-        self.tdocs_edit = QLineEdit()
-        self.tdocs_edit.setPlaceholderText("e.g. S2-2601234")
-        links_row.addWidget(self.tdocs_edit)
+        links_grid.addWidget(QLabel("<b>WIs:</b>"), 1, 0, Qt.AlignTop)
+        self.wis_pills = TagCloudWidget(
+            placeholder="Type Work Item (e.g. FS_6G_ARC)...",
+            pill_colors={"bg": "#EEF2FF", "fg": "#4338CA", "border": "#C7D2FE"},
+        )
+        self.wis_pills.set_suggestions(self._wi_suggestions, value_extractor=lambda s: s.split(" — ", 1)[0].strip())
+        self.wis_pills.tagsChanged.connect(self._on_links_changed)
+        links_grid.addWidget(self.wis_pills, 1, 1)
 
-        save_links_btn = QPushButton("Save Links")
-        save_links_btn.clicked.connect(self._save_links)
-        links_row.addWidget(save_links_btn)
-        layout.addLayout(links_row)
+        links_grid.addWidget(QLabel("<b>TDocs:</b>"), 2, 0, Qt.AlignTop)
+        self.tdocs_pills = TagCloudWidget(
+            placeholder="Type TDoc # (e.g. S2-2612673) — revisions & merges auto-included...",
+            pill_colors={"bg": "#ECFDF5", "fg": "#047857", "border": "#A7F3D0"},
+        )
+        self.tdocs_pills.set_suggestions(self._tdoc_suggestions, value_extractor=lambda s: s.split(" — ", 1)[0].strip().upper())
+        self.tdocs_pills.tagsChanged.connect(self._on_links_changed)
+        links_grid.addWidget(self.tdocs_pills, 2, 1)
+
+        layout.addLayout(links_grid)
 
         # Toolbar row
         toolbar = QHBoxLayout()
@@ -135,16 +162,20 @@ class TrackedThreadDialog(QDialog):
         thread = self.db.get_thread(self.thread_id)
         if not thread:
             return
-        self.title_label.setText(f"📧 {thread.get('title', 'Email Thread')}")
-        self.meta_label.setText(
-            f"Meeting: {thread.get('meeting_id') or 'N/A'} | "
-            f"Messages: {thread.get('message_count', 0)} | "
-            f"Unread: {thread.get('unread_count', 0)} | "
-            f"Last synced: {thread.get('last_synced_at') or 'Never'}"
-        )
-        self.ais_edit.setText(", ".join(thread.get("linked_ais") or []))
-        self.wis_edit.setText(", ".join(thread.get("linked_wis") or []))
-        self.tdocs_edit.setText(", ".join(thread.get("linked_tdocs") or []))
+        self._loading = True
+        try:
+            self.title_label.setText(f"📧 {thread.get('title', 'Email Thread')}")
+            self.meta_label.setText(
+                f"Meeting: {thread.get('meeting_id') or 'N/A'} | "
+                f"Messages: {thread.get('message_count', 0)} | "
+                f"Unread: {thread.get('unread_count', 0)} | "
+                f"Last synced: {thread.get('last_synced_at') or 'Never'}"
+            )
+            self.ais_pills.setText(", ".join(thread.get("linked_ais") or []))
+            self.wis_pills.setText(", ".join(thread.get("linked_wis") or []))
+            self.tdocs_pills.setText(", ".join(thread.get("linked_tdocs") or []))
+        finally:
+            self._loading = False
         self._render_messages()
 
     def _render_messages(self):
@@ -155,13 +186,24 @@ class TrackedThreadDialog(QDialog):
         md = export_thread_to_markdown(thread, messages, deduplicate_quotes=self.dedup_check.isChecked())
         self.browser.setMarkdown(md)
 
-    def _save_links(self):
-        ais = [x.strip() for x in self.ais_edit.text().split(",") if x.strip()]
-        wis = [x.strip() for x in self.wis_edit.text().split(",") if x.strip()]
-        tdocs = [x.strip() for x in self.tdocs_edit.text().split(",") if x.strip()]
+    def _on_links_changed(self):
+        if self._loading:
+            return
+        ais = self.ais_pills.tags()
+        wis = self.wis_pills.tags()
+        tdocs = self.tdocs_pills.tags()
+        if self._tdoc_family_expander:
+            expanded = self._tdoc_family_expander(tdocs)
+            if [t.upper() for t in expanded] != [t.upper() for t in tdocs]:
+                self._loading = True
+                try:
+                    self.tdocs_pills.setText(", ".join(expanded))
+                finally:
+                    self._loading = False
+                tdocs = expanded
         self.db.update_thread_links(self.thread_id, linked_ais=ais, linked_wis=wis, linked_tdocs=tdocs)
         self.thread_changed.emit()
-        QMessageBox.information(self, "Links Saved", "Updated AI/WI/TDoc links for this thread.")
+        self._render_messages()
 
     def _on_refresh(self):
         new_count = refresh_thread(self.db, self.thread_id)

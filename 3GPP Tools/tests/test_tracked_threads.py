@@ -92,3 +92,45 @@ def test_tracked_threads_db_crud_merge_and_read(tmp_path):
     assert "S2-2601234" in md
     assert "Alice (Nokia)" in md
     assert "Bob (Ericsson)" in md
+
+
+def test_pill_autocomplete_and_tdoc_family_expansion(tmp_path):
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+
+    from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
+
+    db = TrackedThreadsDatabase(tmp_path / "test_pills.db")
+    tid = db.create_or_get_thread(
+        title="NAS Routing",
+        normalized_subject="Interim conclusion for KI#1.1 NAS Routing",
+        meeting_id="SA2#178",
+        wg="SA2",
+    )
+
+    def _expand(tdocs):
+        out = []
+        for t in tdocs:
+            tu = t.upper()
+            out.append(tu)
+            if tu == "S2-2612673":
+                out.append("S2-2612999")
+        return list(dict.fromkeys(out))
+
+    dlg = TrackedThreadDialog(
+        db,
+        tid,
+        ai_suggestions=["20.6.1 — FS_6G_ARC: KI#1_1 NAS Routing"],
+        wi_suggestions=["FS_6G_ARC"],
+        tdoc_suggestions=["S2-2612673 — Proposal for interim agreements"],
+        tdoc_family_expander=_expand,
+    )
+    dlg.ais_pills._on_completer_activated("20.6.1 — FS_6G_ARC: KI#1_1 NAS Routing")
+    dlg.wis_pills._on_completer_activated("FS_6G_ARC")
+    dlg.tdocs_pills._on_completer_activated("S2-2612673 — Proposal for interim agreements")
+
+    updated = db.get_thread(tid)
+    assert updated["linked_ais"] == ["20.6.1"]
+    assert updated["linked_wis"] == ["FS_6G_ARC"]
+    assert updated["linked_tdocs"] == ["S2-2612673", "S2-2612999"]
+    dlg.close()

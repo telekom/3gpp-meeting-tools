@@ -151,13 +151,62 @@ def parse_msg_file(msg_path: Path) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _iter_folder_tree(folder: Any, max_depth: int = 3) -> List[Any]:
+    """Returns [folder, ...subfolders] up to max_depth."""
+    result = [folder]
+    if max_depth <= 0:
+        return result
+    try:
+        for sub in folder.Folders:
+            result.extend(_iter_folder_tree(sub, max_depth - 1))
+    except Exception:
+        pass
+    return result
+
+
+def _collect_conversation_items(seed_item: Any, max_items: int = 250) -> List[Dict[str, Any]]:
+    """Uses Outlook's GetConversation() table to fetch all emails in a thread across all folders."""
+    from modules.emails.core.outlook_client import OutlookClient
+
+    results: List[Dict[str, Any]] = []
+    seen_ids = set()
+    try:
+        conv = seed_item.GetConversation()
+        if not conv:
+            return results
+        tbl = conv.GetTable()
+        ns = OutlookClient.get_namespace()
+        if not ns:
+            return results
+        count = 0
+        while not tbl.EndOfTable and count < max_items:
+            count += 1
+            try:
+                row = tbl.GetNextRow()
+                eid = row("EntryID")
+                if not eid or eid in seen_ids:
+                    continue
+                item = ns.GetItemFromID(eid)
+                if getattr(item, "Class", 43) != 43:
+                    continue
+                d = _mail_item_to_dict(item)
+                seen_ids.add(d["id"])
+                results.append(d)
+            except Exception:
+                continue
+    except Exception as e:
+        logger.debug(f"GetConversation() unavailable for item: {e}")
+    return results
+
+
 def _collect_matching_from_folders(
     folder_paths: List[Any],
     conversation_ids: List[str],
     subject_patterns: List[str],
-    max_scan_per_folder: int = 350,
+    max_scan_per_folder: int = 500,
+    seed_live_item: Any = None,
 ) -> List[Dict[str, Any]]:
-    """Scans configured Outlook folders using fast MAPI Restrict (with bounded fallback) for matching thread messages."""
+    """Scans configured Outlook folders via fast MAPI GetTable and Outlook GetConversation() for all thread messages."""
     from modules.emails.core.outlook_client import OutlookClient
 
     matches: List[Dict[str, Any]] = []
@@ -165,46 +214,54 @@ def _collect_matching_from_folders(
     norm_patterns = {p.lower() for p in subject_patterns if p}
     conv_set = {c for c in conversation_ids if c}
 
-    # Build a fast DASL LIKE filter using a distinctive substring of the normalized subject
-    dasl_filter = ""
-    for pat in subject_patterns:
-        clean_pat = (pat or "").strip()
-        if len(clean_pat) >= 6:
-            snippet = clean_pat[-45:].replace("'", "''").replace("%", "")
-            dasl_filter = f"@SQL=\"urn:schemas:httpmail:subject\" LIKE '%{snippet}%'"
-            break
+    # 1. If we already have a live Outlook MailItem, pull its full cross-folder conversation first
+    if seed_live_item is not None:
+        for d in _collect_conversation_items(seed_live_item):
+            if d["id"] not in seen_ids:
+                seen_ids.add(d["id"])
+                matches.append(d)
+                if d.get("conversation_id"):
+                    conv_set.add(d["conversation_id"])
 
+    # 2. Scan configured folders using bulk MAPI GetTable (sub-second even on 5,000+ item folders)
+    ns = OutlookClient.get_namespace()
+    conv_pulled_for = set(conv_set)
     for fpath in _extract_folder_paths(folder_paths):
         folder = OutlookClient.get_folder_by_path(fpath)
-        if not folder:
+        if not folder or not ns:
             continue
         try:
-            items = folder.Items
-            items.Sort("[ReceivedTime]", True)
-
-            candidate_items = None
-            if dasl_filter:
+            tbl = folder.GetTable()
+            tbl.Sort("[ReceivedTime]", True)
+            cols = tbl.Columns
+            for col_name in ("EntryID", "Subject", "MessageClass"):
                 try:
-                    candidate_items = items.Restrict(dasl_filter)
+                    cols.Add(col_name)
                 except Exception:
-                    candidate_items = None
-
-            if candidate_items is not None:
-                total = min(len(candidate_items), max_scan_per_folder)
-                iter_src = candidate_items
-            else:
-                total = min(len(items), max_scan_per_folder)
-                iter_src = items
-
-            for i in range(1, total + 1):
+                    pass
+            scanned = 0
+            while not tbl.EndOfTable and scanned < max_scan_per_folder:
+                scanned += 1
                 try:
-                    item = iter_src.Item(i)
-                    if getattr(item, "Class", 43) != 43:
+                    row = tbl.GetNextRow()
+                    msg_cls = str(row("MessageClass") or "")
+                    if msg_cls and not msg_cls.startswith("IPM.Note"):
                         continue
-                    subj = getattr(item, "Subject", "") or ""
-                    cid = getattr(item, "ConversationID", "") or ""
+                    eid = row("EntryID")
+                    subj = str(row("Subject") or "")
                     norm = normalize_subject(subj).lower()
-                    if (cid and cid in conv_set) or (norm and norm in norm_patterns):
+                    if norm and norm in norm_patterns:
+                        if eid in seen_ids:
+                            continue
+                        item = ns.GetItemFromID(eid)
+                        cid = getattr(item, "ConversationID", "") or ""
+                        if cid and cid not in conv_pulled_for:
+                            conv_pulled_for.add(cid)
+                            conv_set.add(cid)
+                            for cd in _collect_conversation_items(item):
+                                if cd["id"] not in seen_ids:
+                                    seen_ids.add(cd["id"])
+                                    matches.append(cd)
                         d = _mail_item_to_dict(item)
                         if d["id"] not in seen_ids:
                             seen_ids.add(d["id"])
@@ -224,6 +281,7 @@ def _pin_from_seed_dict(
     linked_ais: Optional[List[str]] = None,
     linked_wis: Optional[List[str]] = None,
     linked_tdocs: Optional[List[str]] = None,
+    seed_live_item: Any = None,
 ) -> str:
     norm_subj = normalize_subject(seed["subject"])
     folders = _extract_folder_paths(load_wg_email_config(wg)) if wg else []
@@ -242,8 +300,16 @@ def _pin_from_seed_dict(
 
     conv_ids = [seed["conversation_id"]] if seed.get("conversation_id") else []
     patterns = [norm_subj] if norm_subj else []
-    found = _collect_matching_from_folders(folders, conv_ids, patterns) if folders else []
-    if not any(m["id"] == seed["id"] for m in found):
+    found = _collect_matching_from_folders(folders, conv_ids, patterns, seed_live_item=seed_live_item)
+    if not any(
+        m["id"] == seed["id"]
+        or (
+            seed.get("date_sent")
+            and m.get("date_sent", "")[:16] == seed["date_sent"][:16]
+            and m.get("sender_email", "").lower() == seed.get("sender_email", "").lower()
+        )
+        for m in found
+    ):
         found.append(seed)
 
     db.upsert_messages(thread_id, found)
@@ -289,7 +355,7 @@ def pin_thread_from_outlook_selection(
             if getattr(item, "Class", 0) != 43:
                 continue
             seed = _mail_item_to_dict(item)
-            tid = _pin_from_seed_dict(db, seed, meeting_id=meeting_id, wg=wg)
+            tid = _pin_from_seed_dict(db, seed, meeting_id=meeting_id, wg=wg, seed_live_item=item)
             if tid and tid not in pinned:
                 pinned.append(tid)
     except Exception as e:

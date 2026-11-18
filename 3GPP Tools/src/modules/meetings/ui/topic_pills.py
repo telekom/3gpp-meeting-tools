@@ -9,13 +9,13 @@ Provides:
 """
 
 import re
-from typing import Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QStringListModel, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QKeyEvent
 from PyQt5.QtWidgets import (
     QWidget, QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QLineEdit, QInputDialog, QScrollArea, QSizePolicy
+    QLineEdit, QInputDialog, QScrollArea, QSizePolicy, QCompleter
 )
 
 from core.ui.flow_layout import FlowLayout
@@ -122,13 +122,16 @@ class TagPillItem(QFrame):
     """Individual tag pill with a remove button."""
     removed = pyqtSignal(str)
 
-    def __init__(self, text: str, parent=None):
+    def __init__(self, text: str, parent=None, colors: Optional[Dict[str, str]] = None):
         super().__init__(parent)
         self.tag_text = text
+        bg = (colors or {}).get("bg", C.BG_CANVAS)
+        border = (colors or {}).get("border", C.BORDER_STRONG)
+        fg = (colors or {}).get("fg", C.TEXT_BODY)
         self.setStyleSheet(f"""
             QFrame {{
-                background-color: {C.BG_CANVAS};
-                border: 1px solid {C.BORDER_STRONG};
+                background-color: {bg};
+                border: 1px solid {border};
                 border-radius: 11px;
                 padding: 1px 4px;
             }}
@@ -138,7 +141,7 @@ class TagPillItem(QFrame):
         layout.setSpacing(4)
 
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 11px; font-weight: 500; background: transparent; border: none;")
+        lbl.setStyleSheet(f"color: {fg}; font-size: 11px; font-weight: 500; background: transparent; border: none;")
         layout.addWidget(lbl)
 
         btn_close = QPushButton("✕")
@@ -179,8 +182,16 @@ class TagCloudWidget(QFrame):
     """
     tagsChanged = pyqtSignal()
 
-    def __init__(self, placeholder: str = "Type term and press Enter or comma...", parent=None):
+    def __init__(
+        self,
+        placeholder: str = "Type term and press Enter or comma...",
+        parent=None,
+        pill_colors: Optional[Dict[str, str]] = None,
+    ):
         super().__init__(parent)
+        self.pill_colors = pill_colors
+        self._completer: Optional[QCompleter] = None
+        self._value_extractor: Optional[Callable[[str], str]] = None
         self.setObjectName("TagCloudFrame")
         self.setStyleSheet(f"""
             QFrame#TagCloudFrame {{
@@ -210,8 +221,31 @@ class TagCloudWidget(QFrame):
         self.input_edit.backspace_pressed.connect(self._on_backspace_pressed)
         self.flow_layout.addWidget(self.input_edit)
 
+    def set_suggestions(self, suggestions: List[str], value_extractor: Optional[Callable[[str], str]] = None):
+        """Attaches an autocomplete QCompleter (substring, case-insensitive) to the inline editor."""
+        self._value_extractor = value_extractor
+        model = QStringListModel(suggestions or [], self)
+        if self._completer is None:
+            self._completer = QCompleter(model, self)
+            self._completer.setCaseSensitivity(Qt.CaseInsensitive)
+            self._completer.setFilterMode(Qt.MatchContains)
+            self._completer.setCompletionMode(QCompleter.PopupCompletion)
+            self._completer.activated[str].connect(self._on_completer_activated)
+            self.input_edit.setCompleter(self._completer)
+        else:
+            self._completer.setModel(model)
+
+    def _on_completer_activated(self, selected: str):
+        val = self._value_extractor(selected) if self._value_extractor else selected
+        if val:
+            self.add_tag(val)
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(0, self.input_edit.clear)
+
     def _on_enter_pressed(self):
         text = self.input_edit.text()
+        if self._value_extractor and text.strip():
+            text = self._value_extractor(text.strip())
         self._ingest_text(text)
         self.input_edit.clear()
 
@@ -255,7 +289,7 @@ class TagCloudWidget(QFrame):
 
         # Add tag pill widgets
         for t in self._tags:
-            pill = TagPillItem(t, self)
+            pill = TagPillItem(t, self, colors=self.pill_colors)
             pill.removed.connect(self.remove_tag)
             self.flow_layout.addWidget(pill)
 

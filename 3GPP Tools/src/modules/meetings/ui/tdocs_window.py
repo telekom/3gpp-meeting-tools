@@ -2949,11 +2949,88 @@ class TDocsWindow(QWidget):
         num = str(self.mtg_info.get("meeting_number", "")).strip()
         return f"{wg}#{num}" if (wg and num) else (wg or num or "MEETING")
 
+    def _expand_tdoc_family_with_merges(self, tdocs: list) -> list:
+        """Expands TDoc IDs across revision chains and merged-to/replaced-by contributions."""
+        if not tdocs or not hasattr(self, "model"):
+            return list(tdocs or [])
+        tdoc_map = getattr(self.model, "_tdoc_map", {}) or {}
+        seen = []
+        seen_set = set()
+        queue = [str(t).strip().upper() for t in tdocs if str(t).strip()]
+        tdoc_token_re = re.compile(r"\b(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{5,8}(?:r\d{1,2}[a-z]?)?\b", re.IGNORECASE)
+
+        while queue:
+            cur = queue.pop(0)
+            if cur in seen_set:
+                continue
+            seen_set.add(cur)
+            seen.append(cur)
+
+            # Revision family from model
+            for fam in self.model.get_family_tdocs(cur):
+                f_up = str(fam).strip().upper()
+                if f_up and f_up not in seen_set:
+                    queue.append(f_up)
+
+            # Check merge / replacement hints in row metadata
+            row = tdoc_map.get(cur)
+            if row:
+                for col in ("Merged to", "Merged into", "Replaced by", "Revised to", "Secretary Remarks", "TDoc Status"):
+                    val = str(row.get(col, "") or "")
+                    if not val:
+                        continue
+                    if col in ("Secretary Remarks", "TDoc Status") and not any(k in val.lower() for k in ("merg", "revis", "replac", "supersed")):
+                        continue
+                    for m in tdoc_token_re.findall(val):
+                        m_up = m.upper()
+                        if m_up not in seen_set:
+                            queue.append(m_up)
+        return seen
+
+    def _build_thread_autocomplete_suggestions(self):
+        """Builds AI, WI, and TDoc suggestion lists for TrackedThreadDialog autocomplete."""
+        ai_items = []
+        seen_ais = set()
+        for ai_num, item in sorted((self.agenda_map or {}).items(), key=lambda kv: natural_sort_key(kv[0])):
+            desc = getattr(item, "description", "") or ""
+            label = f"{ai_num} — {desc}" if desc else str(ai_num)
+            if ai_num not in seen_ais:
+                seen_ais.add(ai_num)
+                ai_items.append(label)
+
+        wi_set = set()
+        tdoc_items = []
+        seen_tdocs = set()
+        for row in (getattr(self.model, "_data", None) or []):
+            if row.get("_is_tracked_thread"):
+                continue
+            ai_val = str(row.get("Agenda Item", "") or "").strip()
+            if ai_val and ai_val not in seen_ais and ai_val not in ("N/A", "-", "None"):
+                seen_ais.add(ai_val)
+                ai_desc = str(row.get("Agenda item description", "") or "").strip()
+                ai_items.append(f"{ai_val} — {ai_desc}" if ai_desc else ai_val)
+            for wi in self.model._split_related_wis(row.get("Related WIs", "")):
+                if wi and wi.lower() not in ("(no wi)", "none", "nan", "-"):
+                    wi_set.add(wi)
+            tid = str(row.get("TDoc", "") or "").strip().upper()
+            if tid and tid not in seen_tdocs:
+                seen_tdocs.add(tid)
+                title = str(row.get("Title", "") or "").strip()
+                tdoc_items.append(f"{tid} — {title[:70]}" if title else tid)
+        return ai_items, sorted(wi_set), tdoc_items
+
     def _sync_tracked_threads_to_table(self):
         if not hasattr(self, "tracked_threads_db") or not hasattr(self, "model"):
             return
         try:
             threads = self.tracked_threads_db.get_threads_for_meeting(self._get_meeting_id_label())
+            for t in threads:
+                cur_tdocs = t.get("linked_tdocs") or []
+                if cur_tdocs:
+                    expanded = self._expand_tdoc_family_with_merges(cur_tdocs)
+                    if [x.upper() for x in expanded] != [x.upper() for x in cur_tdocs]:
+                        t["linked_tdocs"] = expanded
+                        self.tracked_threads_db.update_thread_links(t["thread_id"], linked_tdocs=expanded)
             self.model.sync_tracked_thread_rows(threads)
             total_unread = sum(int(t.get("unread_count", 0)) for t in threads)
             if hasattr(self, "email_btn"):
@@ -2974,7 +3051,16 @@ class TDocsWindow(QWidget):
             dlg.raise_()
             dlg.activateWindow()
             return
-        dlg = TrackedThreadDialog(self.tracked_threads_db, tid, parent=None)
+        ai_sugg, wi_sugg, tdoc_sugg = self._build_thread_autocomplete_suggestions()
+        dlg = TrackedThreadDialog(
+            self.tracked_threads_db,
+            tid,
+            parent=None,
+            ai_suggestions=ai_sugg,
+            wi_suggestions=wi_sugg,
+            tdoc_suggestions=tdoc_sugg,
+            tdoc_family_expander=self._expand_tdoc_family_with_merges,
+        )
         dlg.thread_changed.connect(self._on_tracked_thread_changed)
         self._tracked_thread_dialogs[tid] = dlg
         dlg.finished.connect(lambda _, k=tid: self._tracked_thread_dialogs.pop(k, None))
