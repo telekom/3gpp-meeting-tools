@@ -274,6 +274,7 @@ def test_newest_first_ordering_filters_and_llm_workspace(tmp_path):
     assert disc_oldest.index("Alice (Nokia)") < disc_oldest.index("Bob (Ericsson)")
 
     dlg = TrackedThreadDialog(db, tid)
+    dlg.show()
     dlg.msg_search_edit.setText("Option B")
     assert "1 of 2" in dlg.msg_count_lbl.text()
     dlg.msg_search_edit.clear()
@@ -288,3 +289,55 @@ def test_newest_first_ordering_filters_and_llm_workspace(tmp_path):
     assert prep["thread_md"].exists()
     ws_txt = prep["thread_md"].read_text(encoding="utf-8")
     assert ws_txt.index("Alice (Nokia)") < ws_txt.index("Bob (Ericsson)")
+
+
+def test_ctrl_wheel_reader_zoom_on_thread_browser(tmp_path):
+    from PyQt5.QtCore import QEvent, QPoint, QPointF, Qt
+    from PyQt5.QtGui import QKeyEvent, QWheelEvent
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+
+    from core.ui.font_scale import install_reader_zoom
+    from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
+
+    install_reader_zoom()
+    db = TrackedThreadsDatabase(tmp_path / "test_zoom.db")
+    tid = db.create_or_get_thread("Zoom Thread", "Zoom Thread", meeting_id="SA2#178", wg="SA2")
+    dlg = TrackedThreadDialog(db, tid)
+    dlg.show()
+
+    vp = dlg.browser.viewport()
+    base_steps = int(dlg.browser.property("_reader_zoom_steps") or 0)
+    wheel_up = QWheelEvent(
+        QPointF(10, 10),
+        QPointF(10, 10),
+        QPoint(0, 0),
+        QPoint(0, 120),
+        Qt.NoButton,
+        Qt.ControlModifier,
+        Qt.ScrollUpdate,
+        False,
+    )
+    QApplication.sendEvent(vp, wheel_up)
+    assert int(dlg.browser.property("_reader_zoom_steps") or 0) == base_steps + 1
+
+    wheel_down = QWheelEvent(
+        QPointF(10, 10),
+        QPointF(10, 10),
+        QPoint(0, 0),
+        QPoint(0, -120),
+        Qt.NoButton,
+        Qt.ControlModifier,
+        Qt.ScrollUpdate,
+        False,
+    )
+    QApplication.sendEvent(vp, wheel_down)
+    assert int(dlg.browser.property("_reader_zoom_steps") or 0) == base_steps
+
+    QApplication.sendEvent(vp, wheel_up)
+    assert int(dlg.browser.property("_reader_zoom_steps") or 0) == base_steps + 1
+
+    ctrl_zero = QKeyEvent(QEvent.KeyPress, Qt.Key_0, Qt.ControlModifier)
+    QApplication.sendEvent(dlg.browser, ctrl_zero)
+    assert int(dlg.browser.property("_reader_zoom_steps") or 0) == 0
+    dlg.close()

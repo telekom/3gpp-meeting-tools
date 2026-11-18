@@ -29,6 +29,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.flow_layout import FlowLayout
+from core.ui.font_scale import install_reader_zoom, zoom_text_widget
 from modules.emails.core.thread_markdown_exporter import (
     export_thread_to_markdown,
     is_cacheable_document_url,
@@ -225,10 +226,15 @@ class TrackedThreadDialog(QDialog):
         filter_row.addWidget(self.msg_count_lbl)
         layout.addLayout(filter_row)
 
-        # Timeline browser
+        # Timeline browser (supports Ctrl+Wheel zoom and Ctrl+0 reset)
         self.browser = QTextBrowser()
         self.browser.setOpenLinks(False)
+        self.browser.setToolTip("Tip: Hold Ctrl + Mouse Wheel to zoom text size (Ctrl+0 to reset).")
         self.browser.anchorClicked.connect(self._on_anchor_clicked)
+        install_reader_zoom()
+        saved_zoom = self._settings.value("zoom_steps", 0, type=int)
+        if saved_zoom:
+            zoom_text_widget(self.browser, int(saved_zoom))
         layout.addWidget(self.browser, 1)
 
     def _on_order_changed(self):
@@ -238,6 +244,8 @@ class TrackedThreadDialog(QDialog):
     def closeEvent(self, event):
         try:
             self._settings.setValue("geometry", self.saveGeometry())
+            if hasattr(self, "browser"):
+                self._settings.setValue("zoom_steps", int(self.browser.property("_reader_zoom_steps") or 0))
         except Exception:
             pass
         super().closeEvent(event)

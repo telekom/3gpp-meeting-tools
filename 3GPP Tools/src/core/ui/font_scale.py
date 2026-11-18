@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-from PyQt5.QtCore import QObject, QSettings, Qt, pyqtSignal
+from PyQt5.QtCore import QEvent, QObject, QSettings, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
     QComboBox,
@@ -257,6 +257,8 @@ def install_font_scaling(app: Optional[QApplication]) -> None:
 
         QApplication.setStyleSheet = _scaled_app_set_stylesheet  # type: ignore[method-assign]
 
+    install_reader_zoom(app)
+
 
 def set_unscaled_stylesheet(widget: QWidget, qss: str) -> None:
     """
@@ -440,3 +442,54 @@ def zoom_text_widget(widget: Optional[QWidget], delta_steps: int, reset: bool = 
 
     target.setProperty("_reader_zoom_steps", nxt_steps)
     return nxt_steps
+
+
+_ZOOM_EVENT_FILTER: Optional[QObject] = None
+
+
+class _ReaderZoomEventFilter(QObject):
+    """App-wide Ctrl+Wheel and Ctrl+0 reader zoom handler for QTextBrowser/QTextEdit/QPlainTextEdit."""
+
+    def eventFilter(self, obj, event):  # type: ignore[override]
+        try:
+            etype = event.type()
+            if etype == QEvent.Wheel and isinstance(obj, QWidget):
+                if (event.modifiers() & Qt.ControlModifier) and not (event.modifiers() & (Qt.ShiftModifier | Qt.AltModifier)):
+                    target = _unwrap_zoomable_widget(obj)
+                    if target is not None:
+                        dy = event.angleDelta().y()
+                        if dy == 0:
+                            dy = event.pixelDelta().y()
+                        if dy != 0:
+                            zoom_text_widget(target, 1 if dy > 0 else -1)
+                            event.accept()
+                            return True
+            elif etype == QEvent.KeyPress and isinstance(obj, QWidget):
+                if (event.modifiers() & Qt.ControlModifier) and event.key() == Qt.Key_0:
+                    target = _unwrap_zoomable_widget(obj)
+                    if target is not None:
+                        zoom_text_widget(target, 0, reset=True)
+                        event.accept()
+                        return True
+        except Exception:
+            pass
+        return super().eventFilter(obj, event)
+
+
+def install_reader_zoom(app_or_widget: Optional[QObject] = None) -> None:
+    """Installs the global Ctrl+Wheel / Ctrl+0 reader zoom filter once per QApplication instance."""
+    global _ZOOM_EVENT_FILTER
+    app = QApplication.instance()
+    if app is None:
+        return
+    needs_install = _ZOOM_EVENT_FILTER is None
+    if not needs_install:
+        try:
+            if _ZOOM_EVENT_FILTER.parent() is not app:  # type: ignore[union-attr]
+                needs_install = True
+        except RuntimeError:
+            needs_install = True
+    if needs_install:
+        _ZOOM_EVENT_FILTER = _ReaderZoomEventFilter(app)
+        app.installEventFilter(_ZOOM_EVENT_FILTER)
+
