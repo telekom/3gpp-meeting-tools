@@ -990,3 +990,126 @@ def test_reload_single_and_all_cached_emails_from_outlook(tmp_path):
         sw.run()
         assert events == [(True, 1, "")]
         dlg.close()
+
+
+def test_collect_matching_includes_sent_items_and_pulls_conversation():
+    from unittest.mock import patch
+    from modules.emails.core.outlook_client import OutlookClient
+    from modules.emails.core.tracked_threads_service import _collect_matching_from_folders
+
+    class FakeRow:
+        def __init__(self, data):
+            self._data = data
+
+        def __call__(self, key):
+            return self._data[key]
+
+    class FakeTable:
+        def __init__(self, rows):
+            self._rows = list(rows)
+            self._idx = 0
+            self.Columns = type("Cols", (), {"Add": lambda _s, _c: None})()
+
+        @property
+        def EndOfTable(self):
+            return self._idx >= len(self._rows)
+
+        def Sort(self, *_a):
+            pass
+
+        def GetNextRow(self):
+            r = self._rows[self._idx]
+            self._idx += 1
+            return FakeRow(r)
+
+    class FakeMailItem:
+        def __init__(self, eid, subj, sender, conv_id, body, sent_item_table=None):
+            self.EntryID = eid
+            self.Subject = subj
+            self.SenderName = sender
+            self.SenderEmailAddress = f"{sender.lower()}@example.com"
+            self.ConversationID = conv_id
+            self.Body = body
+            self.HTMLBody = ""
+            self.UnRead = False
+            self.FlagStatus = 0
+            self._conv_rows = sent_item_table or []
+
+        def GetConversation(self):
+            rows = self._conv_rows
+            return type("Conv", (), {"GetTable": lambda _s: FakeTable(rows)})()
+
+    inbox_item = FakeMailItem(
+        "EID-IN-1",
+        "RE: [SA2#178] draft S2-2612711 was 12653",
+        "Maxime",
+        "CID-SENT-TEST",
+        "Uploaded draft",
+        sent_item_table=[{"EntryID": "EID-IN-1"}, {"EntryID": "EID-SENT-CONV"}],
+    )
+    sent_conv_item = FakeMailItem(
+        "EID-SENT-CONV",
+        "RE: [SA2#178] draft S2-2612711 was 12653",
+        "Josep",
+        "CID-SENT-TEST",
+        "My sent reply via GetConversation",
+    )
+    sent_folder_item = FakeMailItem(
+        "EID-SENT-FOLDER",
+        "RE: [SA2#178] draft S2-2612711 was 12653",
+        "Josep",
+        "CID-DIFFERENT",
+        "My sent reply only in Sent Items folder",
+    )
+
+    items_by_id = {
+        "EID-IN-1": inbox_item,
+        "EID-SENT-CONV": sent_conv_item,
+        "EID-SENT-FOLDER": sent_folder_item,
+    }
+
+    inbox_folder = type(
+        "Folder",
+        (),
+        {
+            "FolderPath": "\\\\me@example.com\\Inbox\\SA2",
+            "GetTable": lambda _s: FakeTable(
+                [{"EntryID": "EID-IN-1", "Subject": inbox_item.Subject, "MessageClass": "IPM.Note", "ConversationID": "CID-SENT-TEST"}]
+            ),
+        },
+    )()
+    sent_folder = type(
+        "Folder",
+        (),
+        {
+            "FolderPath": "\\\\me@example.com\\Sent Items",
+            "GetTable": lambda _s: FakeTable(
+                [{"EntryID": "EID-SENT-FOLDER", "Subject": sent_folder_item.Subject, "MessageClass": "IPM.Note", "ConversationID": "CID-DIFFERENT"}]
+            ),
+        },
+    )()
+
+    class FakeNS:
+        def GetDefaultFolder(self, idx):
+            if idx == 5:
+                return sent_folder
+            raise KeyError(idx)
+
+        def GetItemFromID(self, eid):
+            return items_by_id[eid]
+
+    def fake_get_folder(path):
+        if "Sent Items" in path:
+            return sent_folder
+        return inbox_folder
+
+    with patch.object(OutlookClient, "get_namespace", return_value=FakeNS()), \
+         patch.object(OutlookClient, "get_folder_by_path", side_effect=fake_get_folder):
+        # Even when CID-SENT-TEST is already on the thread, refresh still pulls GetConversation() AND scans Sent Items
+        found = _collect_matching_from_folders(
+            ["Inbox\\SA2"],
+            conversation_ids=["CID-SENT-TEST"],
+            subject_patterns=["draft S2-2612711 was 12653"],
+        )
+        found_ids = {m["id"] for m in found}
+        assert found_ids == {"EID-IN-1", "EID-SENT-CONV", "EID-SENT-FOLDER"}

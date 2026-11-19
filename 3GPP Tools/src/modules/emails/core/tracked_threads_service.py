@@ -313,18 +313,30 @@ def _collect_matching_from_folders(
     conv_set = {c for c in conversation_ids if c}
 
     # 1. If we already have a live Outlook MailItem, pull its full cross-folder conversation first
+    conv_pulled_for = set()
     if seed_live_item is not None:
+        seed_cid = getattr(seed_live_item, "ConversationID", "") or ""
+        if seed_cid:
+            conv_pulled_for.add(seed_cid)
         for d in _collect_conversation_items(seed_live_item):
             if d["id"] not in seen_ids:
                 seen_ids.add(d["id"])
                 matches.append(d)
                 if d.get("conversation_id"):
                     conv_set.add(d["conversation_id"])
+                    conv_pulled_for.add(d["conversation_id"])
 
-    # 2. Scan configured folders using bulk MAPI GetTable (sub-second even on 5,000+ item folders)
+    # 2. Scan configured folders + Outlook Sent Items using bulk MAPI GetTable
     ns = OutlookClient.get_namespace()
-    conv_pulled_for = set(conv_set)
     extracted_paths = _extract_folder_paths(folder_paths)
+    if ns:
+        try:
+            sent_folder = ns.GetDefaultFolder(5)  # olFolderSentMail
+            sent_path = getattr(sent_folder, "FolderPath", "") or ""
+            if sent_path and sent_path.lower() not in {p.lower() for p in extracted_paths}:
+                extracted_paths.append(sent_path)
+        except Exception:
+            pass
     total_folders = len(extracted_paths)
     for idx, fpath in enumerate(extracted_paths):
         if cancel_check and cancel_check():
@@ -336,9 +348,15 @@ def _collect_matching_from_folders(
             continue
         try:
             tbl = folder.GetTable()
-            tbl.Sort("[ReceivedTime]", True)
+            try:
+                tbl.Sort("[ReceivedTime]", True)
+            except Exception:
+                try:
+                    tbl.Sort("[SentOn]", True)
+                except Exception:
+                    pass
             cols = tbl.Columns
-            for col_name in ("EntryID", "Subject", "MessageClass"):
+            for col_name in ("EntryID", "Subject", "MessageClass", "ConversationID"):
                 try:
                     cols.Add(col_name)
                 except Exception:
@@ -355,8 +373,12 @@ def _collect_matching_from_folders(
                         continue
                     eid = row("EntryID")
                     subj = str(row("Subject") or "")
+                    try:
+                        row_cid = str(row("ConversationID") or "")
+                    except Exception:
+                        row_cid = ""
                     norm = normalize_subject(subj).lower()
-                    if norm and norm in norm_patterns:
+                    if (norm and norm in norm_patterns) or (row_cid and row_cid in conv_set):
                         if eid in seen_ids:
                             continue
                         item = ns.GetItemFromID(eid)
