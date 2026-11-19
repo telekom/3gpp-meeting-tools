@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLineEdit, QComboBox, QTableView, QHeaderView,
     QMenu, QLabel, QCheckBox, QDateEdit,
-    QMessageBox, QFrame, QFileDialog, QDialog
+    QMessageBox, QFrame, QFileDialog, QDialog, QSizePolicy
 )
 
 from core.network.session import NetworkConfigDialog
@@ -115,6 +115,10 @@ class MeetingsTab(QWidget):
         for btn in self.tsg_buttons.values():
             btn.setMinimumHeight(scale_px(26))
         self.btn_update_tdoc_metadata.setMinimumHeight(scale_px(26))
+        self.tdoc_metadata_warning.setStyleSheet(
+            f"color: {C.WARNING_DARK}; font-size: {scale_px(T.SIZE_CAPTION)}px; "
+            f"font-weight: 600; background: transparent; border: none;"
+        )
 
         for widget in (
             self.wg_filter,
@@ -283,6 +287,9 @@ class MeetingsTab(QWidget):
         self.global_tdoc_input.setToolTip("Type a TDoc number. Press Enter to open or use the quick buttons.")
         tdoc_layout.addWidget(self.global_tdoc_input)
 
+        self.ribbon_card.add_primary_widget(tdoc_group)
+
+        # Quick TDoc Jump action buttons wrap independently in primary_flow so they never clip off-screen
         self.btn_open_tdoc = QPushButton("Doc")
         self.btn_open_tdoc.setObjectName("primaryBtn")
         self.btn_open_tdoc.setCursor(Qt.PointingHandCursor)
@@ -290,7 +297,7 @@ class MeetingsTab(QWidget):
         self.btn_open_tdoc.setVisible(False)
         apply_lucide_icon(self.btn_open_tdoc, "file-text", color=C.TEXT_ON_ACCENT, active_color=C.TEXT_ON_ACCENT, size=13)
         self.btn_open_tdoc.setToolTip("Download and open the specified TDoc directly in Microsoft Word.")
-        tdoc_layout.addWidget(self.btn_open_tdoc)
+        self.ribbon_card.add_primary_widget(self.btn_open_tdoc)
 
         self.btn_open_meeting = QPushButton("Mtg")
         self.btn_open_meeting.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -299,7 +306,7 @@ class MeetingsTab(QWidget):
         self.btn_open_meeting.setVisible(False)
         apply_lucide_icon(self.btn_open_meeting, "calendar", size=13)
         self.btn_open_meeting.setToolTip("Open the full meeting table containing this TDoc.")
-        tdoc_layout.addWidget(self.btn_open_meeting)
+        self.ribbon_card.add_primary_widget(self.btn_open_meeting)
 
         self.btn_compare_active_word = QPushButton("vs Word")
         self.btn_compare_active_word.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -310,7 +317,7 @@ class MeetingsTab(QWidget):
         self.btn_compare_active_word.setToolTip(
             "Download this TDoc and immediately compare it with your currently active Microsoft Word document."
         )
-        tdoc_layout.addWidget(self.btn_compare_active_word)
+        self.ribbon_card.add_primary_widget(self.btn_compare_active_word)
 
         self.btn_copy_tdoc = QPushButton("Copy ▾")
         self.btn_copy_tdoc.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -319,23 +326,48 @@ class MeetingsTab(QWidget):
         self.btn_copy_tdoc.setVisible(False)
         apply_lucide_icon(self.btn_copy_tdoc, "copy", size=13)
         self.btn_copy_tdoc.setToolTip("Copy TDoc number, title, citation, or direct 3GPP download URLs to clipboard.")
-        tdoc_layout.addWidget(self.btn_copy_tdoc)
+        self.ribbon_card.add_primary_widget(self.btn_copy_tdoc)
 
-        self.tdoc_metadata_warning = QLabel()
-        self.tdoc_metadata_warning.setStyleSheet(f"color: {C.WARNING}; font-size: {T.SIZE_CAPTION}px; font-weight: bold;")
+        # Dedicated full-width wrapping alert banner for missing/incomplete TDoc metadata
+        self.tdoc_metadata_banner = QFrame(self.ribbon_card)
+        self.tdoc_metadata_banner.setObjectName("tdocMetadataBanner")
+        self.tdoc_metadata_banner.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.tdoc_metadata_banner.setStyleSheet(
+            f"""
+            QFrame#tdocMetadataBanner {{
+                background-color: {C.WARNING_SOFT};
+                border: 1px solid {C.WARNING_BORDER};
+                border-radius: {R.MD}px;
+            }}
+            """
+        )
+        self.tdoc_metadata_banner.setVisible(False)
+        banner_layout = QHBoxLayout(self.tdoc_metadata_banner)
+        banner_layout.setContentsMargins(S.SM + 2, S.XS + 1, S.SM + 2, S.XS + 1)
+        banner_layout.setSpacing(S.SM)
+
+        self.tdoc_metadata_warning = QLabel(self.tdoc_metadata_banner)
+        self.tdoc_metadata_warning.setWordWrap(True)
+        self.tdoc_metadata_warning.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.tdoc_metadata_warning.setStyleSheet(
+            f"color: {C.WARNING_DARK}; font-size: {scale_px(T.SIZE_CAPTION)}px; "
+            f"font-weight: 600; background: transparent; border: none;"
+        )
         self.tdoc_metadata_warning.setVisible(False)
-        tdoc_layout.addWidget(self.tdoc_metadata_warning)
+        banner_layout.addWidget(self.tdoc_metadata_warning, 1, Qt.AlignVCenter)
 
-        self.btn_update_tdoc_metadata = QPushButton("Update metadata")
+        self.btn_update_tdoc_metadata = QPushButton("Update metadata", self.tdoc_metadata_banner)
         self.btn_update_tdoc_metadata.setStyleSheet(BUTTON_STYLE_TOOLBAR_WARNING)
         self.btn_update_tdoc_metadata.setMinimumHeight(scale_px(26))
+        self.btn_update_tdoc_metadata.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.btn_update_tdoc_metadata.setCursor(Qt.PointingHandCursor)
         self.btn_update_tdoc_metadata.setVisible(False)
-        apply_lucide_icon(self.btn_update_tdoc_metadata, "refresh-cw", color=C.WARNING, size=13)
+        apply_lucide_icon(self.btn_update_tdoc_metadata, "refresh-cw", color=C.WARNING_DARK, size=13)
         self.btn_update_tdoc_metadata.setToolTip("Deep-scrape Docs/ folders to rebuild missing first/last TDoc ranges.")
         self.btn_update_tdoc_metadata.clicked.connect(self._update_incomplete_tdoc_metadata)
-        tdoc_layout.addWidget(self.btn_update_tdoc_metadata)
+        banner_layout.addWidget(self.btn_update_tdoc_metadata, 0, Qt.AlignVCenter)
 
-        self.ribbon_card.add_primary_widget(tdoc_group)
+        self.ribbon_card.add_banner_widget(self.tdoc_metadata_banner)
 
         # 3. Network Sync Menu (Utility bar)
         self.sync_menu_btn = QPushButton("Sync ▾")
@@ -874,7 +906,9 @@ class MeetingsTab(QWidget):
             self.tdoc_metadata_warning.setVisible(False)
             self.btn_update_tdoc_metadata.setVisible(False)
             self.btn_update_tdoc_metadata.setEnabled(True)
-            self.btn_update_tdoc_metadata.setText("🔄 Update metadata")
+            self.btn_update_tdoc_metadata.setText("Update metadata")
+            self.tdoc_metadata_banner.setVisible(False)
+            self.ribbon_card.updateGeometry()
             return
 
         refreshable = [m for m in meetings if (m.get("url_key") or "").strip()]
@@ -900,7 +934,10 @@ class MeetingsTab(QWidget):
         self.tdoc_metadata_warning.setVisible(True)
         self.btn_update_tdoc_metadata.setVisible(bool(refreshable))
         self.btn_update_tdoc_metadata.setEnabled(bool(refreshable))
-        self.btn_update_tdoc_metadata.setText("🔄 Update metadata")
+        self.btn_update_tdoc_metadata.setText("Update metadata")
+        self.tdoc_metadata_banner.setVisible(True)
+        self.tdoc_metadata_banner.updateGeometry()
+        self.ribbon_card.updateGeometry()
 
     def _update_incomplete_tdoc_metadata(self):
         """
@@ -925,6 +962,9 @@ class MeetingsTab(QWidget):
             f"{'meeting' if len(targets) == 1 else 'meetings'}. "
             "Re-run the Quick TDoc Jump after synchronization completes."
         )
+        self.btn_update_tdoc_metadata.setEnabled(False)
+        self.tdoc_metadata_banner.updateGeometry()
+        self.ribbon_card.updateGeometry()
         self.update_specific_requested.emit(targets, False, True, False)
 
     def _open_add_meeting_dialog(self):

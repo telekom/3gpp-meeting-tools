@@ -109,6 +109,54 @@ class TestMeetingsPhase2Revamp(unittest.TestCase):
         tab.close()
         host.close()
 
+    def test_quick_tdoc_metadata_warning_and_actions_stay_visible_on_resize(self) -> None:
+        tab = MeetingsTab(self.db_path)
+        tab.show()
+        self.app.processEvents()
+
+        # Hidden by default
+        self.assertTrue(tab.tdoc_metadata_banner.isHidden())
+        self.assertTrue(tab.tdoc_metadata_warning.wordWrap())
+
+        incomplete = [
+            {
+                "wg_name": "SA5",
+                "meeting_number": f"16{i}",
+                "start_date": "2026-05-01",
+                "url_key": f"https://ftp.3gpp.org/tsg_sa/WG5_TM/TSGS5_16{i}",
+            }
+            for i in range(6)
+        ]
+        tab.global_tdoc_input.setText("S5-265276")
+        tab._set_tdoc_metadata_warning(incomplete)
+
+        for width, height in ((1280, 720), (920, 650)):
+            tab.resize(width, height)
+            self.app.processEvents()
+            self.assertFalse(tab.tdoc_metadata_banner.isHidden())
+            self.assertFalse(tab.tdoc_metadata_warning.isHidden())
+            self.assertFalse(tab.btn_update_tdoc_metadata.isHidden())
+            btn_right = tab.btn_update_tdoc_metadata.mapTo(tab, tab.btn_update_tdoc_metadata.rect().bottomRight()).x()
+            warn_right = tab.tdoc_metadata_warning.mapTo(tab, tab.tdoc_metadata_warning.rect().bottomRight()).x()
+            self.assertLessEqual(btn_right, tab.width())
+            self.assertLess(warn_right, tab.btn_update_tdoc_metadata.mapTo(tab, tab.btn_update_tdoc_metadata.rect().topLeft()).x())
+
+        # Triggering metadata update disables repeat clicks and clearing hides the banner
+        tab._update_incomplete_tdoc_metadata()
+        self.assertFalse(tab.btn_update_tdoc_metadata.isEnabled())
+        tab._set_tdoc_metadata_warning([])
+        self.assertTrue(tab.tdoc_metadata_banner.isHidden())
+
+        # When TDoc is found on narrow viewports, quick action buttons wrap inside tab bounds
+        for btn in (tab.btn_open_tdoc, tab.btn_open_meeting, tab.btn_compare_active_word, tab.btn_copy_tdoc):
+            btn.setVisible(True)
+        tab.resize(920, 650)
+        self.app.processEvents()
+        copy_right = tab.btn_copy_tdoc.mapTo(tab, tab.btn_copy_tdoc.rect().bottomRight()).x()
+        self.assertLessEqual(copy_right, tab.width())
+
+        tab.close()
+
 
 if __name__ == "__main__":
     unittest.main()
