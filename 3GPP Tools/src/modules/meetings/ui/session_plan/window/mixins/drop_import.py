@@ -312,7 +312,7 @@ class DropImportMixin:
         parsed = urlsplit(raw_url)
         raw_name = unquote(Path(parsed.path).name) if parsed.path else ""
 
-        session = NetworkSession.get_instance().get_session()
+        session = NetworkSession.get_instance()
         NetworkSession.apply_humanness(session, url=raw_url)
         resp = session.get(raw_url, stream=True, timeout=timeout)
         resp.raise_for_status()

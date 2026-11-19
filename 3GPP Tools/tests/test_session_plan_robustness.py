@@ -1164,10 +1164,10 @@ class TestSessionPlanRobustness(unittest.TestCase):
             resp.iter_content = lambda chunk_size=65536: [raw[i : i + chunk_size] for i in range(0, len(raw), chunk_size)]
             return resp
 
-        fake_session = MagicMock()
+        # Use requests.Session-shaped mock directly returned by NetworkSession.get_instance()
+        import requests
+        fake_session = MagicMock(spec=requests.Session)
         fake_session.get.side_effect = _fake_get
-        fake_net = MagicMock()
-        fake_net.get_session.return_value = fake_session
 
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
@@ -1178,7 +1178,7 @@ class TestSessionPlanRobustness(unittest.TestCase):
                 tracked_tokens=set(),
             )
             try:
-                with patch("core.network.session.NetworkSession.get_instance", return_value=fake_net), \
+                with patch("core.network.session.NetworkSession.get_instance", return_value=fake_session), \
                      patch("core.network.session.NetworkSession.apply_humanness"), \
                      patch.object(QMessageBox, "information") as mock_info, \
                      patch.object(QMessageBox, "critical") as mock_crit:
