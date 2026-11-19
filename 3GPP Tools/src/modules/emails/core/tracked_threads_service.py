@@ -626,7 +626,8 @@ def _add_thread_row_to_bucket(
     if not norm:
         return
     key = norm.lower()
-    if eid and any(eid in b["entry_ids"] for b in (threads_by_key.get(key),)):
+    existing = threads_by_key.get(key)
+    if eid and existing and eid in existing["entry_ids"]:
         return
     tdoc_in_subj = sorted({m.upper() for m in _TDOC_RE.findall(subj or "")})
     if key not in threads_by_key:

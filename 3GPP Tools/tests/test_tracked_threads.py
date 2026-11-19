@@ -1282,7 +1282,69 @@ def test_discovery_classification_config_and_ignore(tmp_path):
     dlg._on_pin_selected()
     assert len(dlg.pinned_thread_ids) == 1
     assert any(t["title"] == "Body Ref Only" for t in tdb.get_threads_for_meeting("SA2#178"))
+    from PyQt5.QtCore import Qt as _Qt
+    assert bool(dlg.windowFlags() & _Qt.Window)
+    assert dlg.isSizeGripEnabled()
     dlg.close()
+
+    # 4. list_recent_threads_in_folders GetTable() path (including None bucket & ConversationID column failure)
+    from unittest.mock import patch
+    from modules.emails.core.outlook_client import OutlookClient
+    from modules.emails.core.tracked_threads_service import list_recent_threads_in_folders
+
+    class FakeCols:
+        def Add(self, name):
+            if name == "ConversationID":
+                raise RuntimeError("Falscher Parameter")
+
+    class FakeRow:
+        def __init__(self, data):
+            self._d = data
+
+        def __call__(self, col):
+            if col not in self._d:
+                raise RuntimeError("Missing col")
+            return self._d[col]
+
+    class FakeTable:
+        def __init__(self, rows):
+            self._rows = list(rows)
+            self._idx = 0
+            self.Columns = FakeCols()
+
+        @property
+        def EndOfTable(self):
+            return self._idx >= len(self._rows)
+
+        def Sort(self, *_args):
+            pass
+
+        def GetNextRow(self):
+            r = FakeRow(self._rows[self._idx])
+            self._idx += 1
+            return r
+
+    class FakeFolder:
+        def __init__(self, path, rows):
+            self.FolderPath = path
+            self._rows = rows
+
+        def GetTable(self):
+            return FakeTable(self._rows)
+
+    f_inbox = FakeFolder("Inbox\\SA2", [
+        {"EntryID": "E1", "Subject": "Re: [SA2#178] Breakout A", "MessageClass": "IPM.Note", "SenderName": "Alice", "ReceivedTime": "2026-11-18 10:00", "UnRead": True},
+        {"EntryID": "E1", "Subject": "Re: [SA2#178] Breakout A", "MessageClass": "IPM.Note", "SenderName": "Alice", "ReceivedTime": "2026-11-18 10:00", "UnRead": True},
+        {"EntryID": "E2", "Subject": "Fwd: [SA2#178] Breakout A", "MessageClass": "IPM.Note", "SenderName": "Bob", "ReceivedTime": "2026-11-18 11:00", "UnRead": False},
+    ])
+    with patch("modules.emails.core.tracked_threads_service.load_wg_email_config", return_value=[{"folder_path": "Inbox\\SA2"}]), \
+         patch.object(OutlookClient, "get_namespace", return_value=None), \
+         patch.object(OutlookClient, "get_folder_by_path", return_value=f_inbox):
+        scanned = list_recent_threads_in_folders("SA2", max_items_per_folder=50)
+        assert len(scanned) == 1
+        assert scanned[0]["title"] == "Breakout A"
+        assert scanned[0]["count"] == 2
+        assert scanned[0]["unread_count"] == 1
 
 
 def test_tdocs_email_state_quick_filters():

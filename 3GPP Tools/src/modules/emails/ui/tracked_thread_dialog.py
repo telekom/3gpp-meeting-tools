@@ -117,6 +117,8 @@ class TrackedThreadDialog(QDialog):
         self._unread_cursor: int = -1
         self._initial_scroll_done: bool = False
         self._settings = QSettings("3GPP_Tools", "TrackedThreadDialog")
+        self.setWindowFlags(Qt.Window)
+        self.setSizeGripEnabled(True)
         self.setWindowTitle("Tracked Email Thread")
         self.setMinimumSize(520, 420)
         self.resize(1020, 760)
@@ -1013,8 +1015,18 @@ class PinFromOutlookDialog(QDialog):
             default_end=str(mtg_end_date or "").strip()[:10],
         )
 
+        self.setWindowFlags(Qt.Window)
+        self.setSizeGripEnabled(True)
         self.setWindowTitle(f"Discover & Pin Email Threads — Configured {wg} Outlook Folders")
+        self.setMinimumSize(620, 420)
         self.resize(1120, 680)
+        self._settings = QSettings("3GPP_Tools", "PinFromOutlookDialog")
+        saved_geom = self._settings.value("geometry")
+        if saved_geom:
+            try:
+                self.restoreGeometry(saved_geom)
+            except Exception:
+                pass
         self._build_ui()
         if auto_scan:
             self._load_threads()
@@ -1023,9 +1035,12 @@ class PinFromOutlookDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
-        # Row 1: Search & Coverage Filter & Rescan
-        top_row = QHBoxLayout()
-        top_row.setSpacing(8)
+        # Row 1: Responsive FlowLayout for Coverage Filter, Search & Rescan
+        top_widget = QWidget(self)
+        top_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        top_sp.setHeightForWidth(True)
+        top_widget.setSizePolicy(top_sp)
+        top_row = FlowLayout(top_widget, margin=0, h_spacing=8, v_spacing=4)
         top_row.addWidget(QLabel("<b>Coverage:</b>"))
         self.coverage_combo = QComboBox()
         self.coverage_combo.addItem("🔍 Untracked & Body-Only (🔴 + 🟡)", "UNTRACKED_AND_BODY")
@@ -1040,15 +1055,16 @@ class PinFromOutlookDialog(QDialog):
         top_row.addWidget(self.coverage_combo)
 
         self.search_edit = QLineEdit()
+        self.search_edit.setMinimumWidth(220)
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setPlaceholderText("🔍 Search subject, sender, TDoc, AI, or WI...")
         self.search_edit.textChanged.connect(self._apply_filter)
-        top_row.addWidget(self.search_edit, 1)
+        top_row.addWidget(self.search_edit)
 
         self.reload_btn = QPushButton("🔄 Rescan Folders")
         self.reload_btn.clicked.connect(self._load_threads)
         top_row.addWidget(self.reload_btn)
-        layout.addLayout(top_row)
+        layout.addWidget(top_widget)
 
         # Row 2: Configurable Subject Tag & Meeting Date Window (persisted per meeting)
         cfg_frame = QFrame(self)
@@ -1056,9 +1072,10 @@ class PinFromOutlookDialog(QDialog):
         cfg_frame.setStyleSheet(
             "#DiscoveryCfgBar { background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; }"
         )
-        cfg_row = QHBoxLayout(cfg_frame)
-        cfg_row.setContentsMargins(8, 5, 8, 5)
-        cfg_row.setSpacing(8)
+        cfg_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        cfg_sp.setHeightForWidth(True)
+        cfg_frame.setSizePolicy(cfg_sp)
+        cfg_row = FlowLayout(cfg_frame, margin=8, h_spacing=8, v_spacing=4)
 
         self.require_tag_check = QCheckBox("Require Subject Tag:")
         self.require_tag_check.setChecked(bool(self._config.get("require_subject_tag", False)))
@@ -1113,7 +1130,6 @@ class PinFromOutlookDialog(QDialog):
         self.days_after_spin.valueChanged.connect(self._on_config_ui_changed)
         cfg_row.addWidget(self.days_after_spin)
 
-        cfg_row.addStretch()
         layout.addWidget(cfg_frame)
 
         self.scan_bar = AsyncSyncProgressBar(self)
@@ -1140,12 +1156,13 @@ class PinFromOutlookDialog(QDialog):
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         hdr = self.table.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        hdr.resizeSection(0, 145)
+        hdr.resizeSection(1, 95)
         hdr.setSectionResizeMode(2, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        hdr.resizeSection(3, 195)
+        hdr.resizeSection(4, 165)
+        hdr.resizeSection(5, 120)
         self.table.itemSelectionChanged.connect(self._update_action_buttons)
         layout.addWidget(self.table, 1)
 
@@ -1196,11 +1213,24 @@ class PinFromOutlookDialog(QDialog):
             self._scan_worker.request_cancel()
             self._scan_worker.wait(1500)
 
+    def _save_geometry(self):
+        try:
+            if hasattr(self, "_settings"):
+                self._settings.setValue("geometry", self.saveGeometry())
+        except Exception:
+            pass
+
+    def accept(self):
+        self._save_geometry()
+        super().accept()
+
     def reject(self):
+        self._save_geometry()
         self._stop_scan_worker()
         super().reject()
 
     def closeEvent(self, event):
+        self._save_geometry()
         self._stop_scan_worker()
         super().closeEvent(event)
 
