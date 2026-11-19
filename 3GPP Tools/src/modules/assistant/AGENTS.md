@@ -94,13 +94,10 @@ The Assistant presentation layer (`src/modules/assistant/ui`) is built on a resp
 - **Multi-Line Prompt Editor (`MultilinePromptEdit`):**
   - Auto-wrapping `QPlainTextEdit` supporting `Enter` to submit and `Shift+Enter` for multiline input, character count label, clear button, and danger-styled cooperative `■ Stop` button.
 - **Tabbed Research Cockpit Drawer:**
-  - **Tab 1: 📚 Sources & Embedded Inspector (`EvidenceInspectorWidget`):** Upper tree list plus embedded excerpt viewer with source badges (`[Spec Text]`, `[Protocol]`, `[Catalogue]`) and 1-click cross-tab deep-linking:
-    - `🔎 In Spec Search`: switches to Spec Search and focuses the cited spec and clause.
-    - `🔬 In Protocols`: switches to Protocols and jumps to the message definition.
-    - `📚 In Specs`: switches to Specifications and selects the specification.
-    - `📋 Copy Excerpt`: copies evidence text to clipboard.
+  - **Tab 1: 📚 Sources & Embedded Inspector (`EvidenceInspectorWidget`):** Upper tree list plus embedded excerpt viewer with source badges (`[Spec Text]`, `[Protocol]`, `[Catalogue]`) and 1-click cross-tab deep-linking (`🔎 In Spec Search`, `🔬 In Protocols`, `📚 In Specs`, `📋 Copy Excerpt`).
   - **Tab 2: ⚡ Research Activity Timeline (`ActivityTimelineWidget`):** Semantic tool icons, live progress bar, step counter, and citable evidence tags.
   - **Tab 3: 🔬 Diagnostics Trace (`DiagnosticsTraceWidget`):** Real-time KPI strip (latency, prompt tokens, eval tokens, speed in tok/s), filterable raw trace, and 1-click trace copy.
+- **Docked Companion Mode (`Ctrl+Shift+A`):** Toggling Assistant in `RightSidePanel` reparents the single live `AssistantTab.body_container` into the right dock (leaving a non-destructive `docked_placeholder_card` on tab 9), swaps `main_splitter` to `Qt.Vertical` with a compact strip (`dock_compact_strip`), auto-expands `Sources` on `[E#]` citation clicks, and cleanly restores the full view when opening the Assistant tab, clicking `Full View`, or closing the dock.
 
 ---
 
@@ -134,3 +131,8 @@ To prevent system prompt bloat on every turn in Claude/Codex, all 39+ capabiliti
 - **Read-Only Enforcement (`--read-only`):** Blocks all mutating actions (`DOCUMENT_WRITE`) at both tool registration and action dispatch boundaries while preserving read/inspection actions inside mixed tools.
 - **On-Site Meeting Venue LAN (`10.10.10.10` / `3GPPWIFI`):** `onsite_meeting_cockpit` and `URLRouter` automatically probe `10.10.10.10:80` and active Windows Wi-Fi profiles (`3GPPWIFI`), bypass corporate proxies (`no_proxy` includes `10.10.10.10`), skip polite FTP scraper delays on LAN transfers, and access live `/Inbox/`, `/Revisions/`, and `/Inbox/Chair_Notes/` directories unavailable on public 3GPP FTP.
 - **Strict `stdout` Isolation & Logging:** In `mcp_server.py` and `cli_tools.py`, all log records are routed exclusively to `3gpp_tools.log` and `sys.stderr` so `sys.stdout` remains 100% pure for JSON-RPC 2.0 / CLI JSON payloads.
+
+### 6.3. MCP Telemetry, Desktop Cockpit & CLI Launcher (`mcp_activity.py`, `mcp_monitor_dialog.py`, `cli_detector.py`, `cli_launcher.py`, `cli_context_dialog.py`)
+- **Cross-Process Telemetry (`mcp_activity.py`):** Atomic append-only JSONL journal (`mcp_activity.jsonl` in AppData `logs/`, auto-trimming to latest 1,500 when >2,500 lines), per-PID `session_{pid}.json`, and Win32 kernel liveness checks (`OpenProcess` & `GetExitCodeProcess`).
+- **Desktop Monitor Cockpit (`McpMonitorDialog`, non-modal floating window):** Accessible via `SystemStatusBar` (`🤖 MCP: ...`), `ConsolePanel` (`🤖 MCP`), and `Help ▾ → 🤖 MCP Server && AI Agent Cockpit...` with 3 tabs: (1) *Live Activity Stream* (JSON argument/response inspector); (2) *AI Agent Client Setup* (live **Installed LLM CLIs** strip with `[🚀 Launch]`, `[🧠 Models & Company Context...]`, `[🔄 Re-scan]` + config snippets for Claude Desktop, Codex, Claude CLI, Gemini CLI `~/.gemini/settings.json`, Cursor/Windsurf, `Launch_MCP.cmd`); (3) *Interactive Tool Playground* (executes all 12 tools / 58 actions via `ToolRegistry`).
+- **Interactive CLI Discovery & Launch:** `cli_detector.py` discovers `codex`, `claude`, `gemini` in `<2 ms` (reading `~/.codex/models_cache.json` + `~/.codex/config.toml` + `src/config/cli_agents_config.json`); `cli_launcher.py` writes `_CLI_CONTEXT.md` aggregating two-layer notes (`src/config/cli_user_context.md` + `_USER_NOTES.md`) and launches inside canonical `{meeting_dir}/{base_tdoc}/` (`stage_copies=False`) for single TDocs or `Export/CLI_Batch_*` for multi-TDoc batches.
