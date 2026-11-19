@@ -802,6 +802,28 @@ def test_strict_dropdown_cascading_subitems_and_ki_resolution(tmp_path):
     # Removing the remaining legacy AI pill switches label to "Assign AI first"
     dlg.ais_pills.remove_tag("LEGACY_KI#4")
     assert "Assign AI first" in dlg.sub_items_pills.pick_btn.text()
+
+    # Large AI dropdown uses single-column scrollable popup with multi-token search (never multi-column QMenu)
+    many_ais = [f"8.{i} — Legacy Maintenance Item {i}" for i in range(1, 75)] + [
+        "20.6.1 — FS_6G_ARC: Paging and Mobility Aspects",
+        "20.6.2 — FS_6G_ARC: Compute Offloading",
+    ]
+    dlg.ais_pills.set_suggestions(many_ais, value_extractor=lambda s: s.split(" — ", 1)[0].strip())
+    dlg.ais_pills._populate_pick_menu()
+    assert dlg.ais_pills.pick_list is not None
+    assert dlg.ais_pills.pick_list.count() == len(many_ais)
+    assert dlg.ais_pills.pick_list.maximumHeight() <= 700
+    assert dlg.ais_pills.pick_search_edit is not None
+    dlg.ais_pills.pick_search_edit.setText("20.6 paging")
+    visible_rows = [
+        dlg.ais_pills.pick_list.item(i)
+        for i in range(dlg.ais_pills.pick_list.count())
+        if not dlg.ais_pills.pick_list.item(i).isHidden()
+    ]
+    assert len(visible_rows) == 1
+    assert "20.6.1" in visible_rows[0].text()
+    dlg.ais_pills.pick_list.itemClicked.emit(visible_rows[0])
+    assert "20.6.1" in dlg.ais_pills.tags()
     dlg.close()
 
 

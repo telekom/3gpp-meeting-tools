@@ -11,14 +11,16 @@ Provides:
 import re
 from typing import Callable, Dict, List, Optional, Set
 
-from PyQt5.QtCore import QStringListModel, Qt, pyqtSignal
+from PyQt5.QtCore import QEvent, QObject, QStringListModel, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QKeyEvent
 from PyQt5.QtWidgets import (
-    QWidget, QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QLineEdit, QInputDialog, QScrollArea, QSizePolicy, QCompleter, QMenu, QWidgetAction, QAction
+    QAbstractItemView, QAction, QCompleter, QFrame, QHBoxLayout, QInputDialog, QLabel,
+    QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton, QScrollArea,
+    QSizePolicy, QVBoxLayout, QWidget, QWidgetAction
 )
 
 from core.ui.flow_layout import FlowLayout
+from core.ui.font_scale import scale_px
 from core.ui.theme import C
 
 
@@ -229,6 +231,8 @@ class TagCloudWidget(QFrame):
 
         self.pick_btn: Optional[QPushButton] = None
         self.pick_menu: Optional[QMenu] = None
+        self.pick_search_edit: Optional[QLineEdit] = None
+        self.pick_list: Optional[QListWidget] = None
         if self.strict_dropdown:
             self.input_edit.setReadOnly(True)
             self.input_edit.setVisible(False)
@@ -242,6 +246,10 @@ class TagCloudWidget(QFrame):
                 f"QPushButton:disabled {{ color: {C.TEXT_MUTED}; border-style: dashed; }}"
             )
             self.pick_menu = QMenu(self.pick_btn)
+            self.pick_menu.setStyleSheet(
+                f"QMenu {{ background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; "
+                "border-radius: 6px; padding: 0px; }}"
+            )
             self.pick_menu.aboutToShow.connect(self._populate_pick_menu)
             self.pick_btn.setMenu(self.pick_menu)
             self.flow_layout.addWidget(self.pick_btn)
@@ -265,41 +273,145 @@ class TagCloudWidget(QFrame):
             return
         menu = self.pick_menu
         menu.clear()
+        self.pick_search_edit = None
+        self.pick_list = None
         if not self._suggestions:
             empty_act = menu.addAction(self._empty_dropdown_label)
             empty_act.setEnabled(False)
             return
 
-        item_actions: List[tuple] = []
+        # Compute readable single-column popup width clamped cleanly to viewport ergonomics
+        max_len = max((len(str(lbl)) for lbl in self._suggestions), default=20)
+        popup_w = max(scale_px(300), min(scale_px(540), scale_px(120 + max_len * 7)))
+
+        container = QWidget(menu)
+        container.setFixedWidth(popup_w)
+        c_layout = QVBoxLayout(container)
+        c_layout.setContentsMargins(6, 6, 6, 6)
+        c_layout.setSpacing(5)
+
+        search_edit: Optional[QLineEdit] = None
         if len(self._suggestions) > 5:
-            search_wrap = QWidget(menu)
-            sw_layout = QHBoxLayout(search_wrap)
-            sw_layout.setContentsMargins(6, 4, 6, 4)
-            search_edit = QLineEdit(search_wrap)
+            search_edit = QLineEdit(container)
             search_edit.setClearButtonEnabled(True)
-            search_edit.setPlaceholderText("🔍 Search...")
-            sw_layout.addWidget(search_edit)
-            wa = QWidgetAction(menu)
-            wa.setDefaultWidget(search_wrap)
-            menu.addAction(wa)
+            search_edit.setPlaceholderText("🔍 Search by # or keyword (Space-separated terms)...")
+            search_edit.setStyleSheet(
+                f"QLineEdit {{ background: {C.BG_CARD}; color: {C.TEXT_BODY}; "
+                f"border: 1px solid {C.BORDER_STRONG}; border-radius: 5px; padding: 4px 8px; font-size: 12px; }} "
+                f"QLineEdit:focus {{ border-color: {C.INFO_ACCENT}; }}"
+            )
+            c_layout.addWidget(search_edit)
+            self.pick_search_edit = search_edit
 
-            def _filter_menu(txt: str):
-                q = txt.strip().lower()
-                for act, lbl in item_actions:
-                    act.setVisible(not q or q in lbl.lower())
-
-            search_edit.textChanged.connect(_filter_menu)
-            search_edit.setFocus()
+        list_widget = QListWidget(container)
+        list_widget.setSelectionMode(QAbstractItemView.NoSelection)
+        list_widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        list_widget.setWordWrap(True)
+        list_widget.setUniformItemSizes(False)
+        list_widget.setFocusPolicy(Qt.StrongFocus)
+        list_widget.setStyleSheet(
+            f"QListWidget {{ background: {C.BG_CARD}; color: {C.TEXT_BODY}; "
+            f"border: 1px solid {C.BORDER_SUBTLE}; border-radius: 5px; outline: none; font-size: 12px; }} "
+            f"QListWidget::item {{ padding: 4px 6px; border-radius: 3px; }} "
+            f"QListWidget::item:hover {{ background-color: {C.BG_HOVER}; }}"
+        )
+        self.pick_list = list_widget
 
         active_lower = {t.lower() for t in self._tags}
+        normal_font = QFont(list_widget.font())
+        bold_font = QFont(normal_font)
+        bold_font.setBold(True)
+        active_bg = QColor(C.INFO_SOFT)
+        active_fg = QColor(C.INFO_DARK)
+        default_bg = QColor(C.BG_CARD)
+        default_fg = QColor(C.TEXT_BODY)
+
+        def _style_item(it: QListWidgetItem, checked: bool):
+            it.setData(Qt.CheckStateRole, Qt.Checked if checked else Qt.Unchecked)
+            it.setFont(bold_font if checked else normal_font)
+            it.setBackground(active_bg if checked else default_bg)
+            it.setForeground(active_fg if checked else default_fg)
+
         for label in self._suggestions:
             val = self._value_extractor(label) if self._value_extractor else label
-            act = QAction(label, menu)
-            act.setCheckable(True)
-            act.setChecked(val.lower() in active_lower)
-            act.toggled.connect(lambda checked, v=val: self.add_tag(v) if checked else self.remove_tag(v))
-            menu.addAction(act)
-            item_actions.append((act, label))
+            it = QListWidgetItem(label)
+            it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            it.setData(Qt.UserRole, val)
+            it.setToolTip(label)
+            _style_item(it, val.lower() in active_lower)
+            list_widget.addItem(it)
+
+        est_rows_h = sum(max(scale_px(26), list_widget.sizeHintForRow(i) + 4) for i in range(min(14, list_widget.count())))
+        list_h = max(scale_px(44), min(scale_px(380), est_rows_h + scale_px(6)))
+        list_widget.setFixedHeight(list_h)
+        c_layout.addWidget(list_widget)
+
+        footer = QHBoxLayout()
+        footer.setContentsMargins(2, 0, 2, 0)
+        footer.setSpacing(6)
+        status_lbl = QLabel(container)
+        status_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
+        footer.addWidget(status_lbl, 1)
+
+        btn_done = QPushButton("Done ✓", container)
+        btn_done.setCursor(Qt.PointingHandCursor)
+        btn_done.setStyleSheet(
+            f"QPushButton {{ background: {C.INFO_SOFT}; color: {C.INFO_DARK}; "
+            f"border: 1px solid {C.INFO_BORDER_MEDIUM}; border-radius: 4px; "
+            "padding: 2px 10px; font-size: 11px; font-weight: bold; } "
+            f"QPushButton:hover {{ background: {C.INFO_SOFT_STRONG}; }}"
+        )
+        btn_done.clicked.connect(menu.close)
+        footer.addWidget(btn_done)
+        c_layout.addLayout(footer)
+
+        def _update_status():
+            total = list_widget.count()
+            shown = sum(1 for i in range(total) if not list_widget.item(i).isHidden())
+            sel_cnt = sum(1 for i in range(total) if list_widget.item(i).data(Qt.CheckStateRole) == Qt.Checked)
+            if shown < total:
+                status_lbl.setText(f"Showing {shown} of {total} · {sel_cnt} selected")
+            else:
+                status_lbl.setText(f"{total} item(s) · {sel_cnt} selected")
+
+        def _toggle_item(it: Optional[QListWidgetItem]):
+            if it is None:
+                return
+            val = str(it.data(Qt.UserRole) or it.text())
+            now_checked = it.data(Qt.CheckStateRole) != Qt.Checked
+            _style_item(it, now_checked)
+            if now_checked:
+                self.add_tag(val)
+            else:
+                self.remove_tag(val)
+            _update_status()
+
+        list_widget.itemClicked.connect(_toggle_item)
+
+        if search_edit is not None:
+            def _filter_list(txt: str):
+                tokens = [tok for tok in txt.strip().lower().split() if tok]
+                for i in range(list_widget.count()):
+                    it = list_widget.item(i)
+                    lbl_l = it.text().lower()
+                    it.setHidden(bool(tokens) and not all(tok in lbl_l for tok in tokens))
+                _update_status()
+
+            def _on_search_return():
+                visible_items = [list_widget.item(i) for i in range(list_widget.count()) if not list_widget.item(i).isHidden()]
+                if len(visible_items) == 1:
+                    _toggle_item(visible_items[0])
+
+            search_edit.textChanged.connect(_filter_list)
+            search_edit.returnPressed.connect(_on_search_return)
+
+        _update_status()
+        wa = QWidgetAction(menu)
+        wa.setDefaultWidget(container)
+        menu.addAction(wa)
+        if search_edit is not None:
+            QTimer.singleShot(0, search_edit.setFocus)
 
     def set_suggestions(self, suggestions: List[str], value_extractor: Optional[Callable[[str], str]] = None):
         """Attaches an autocomplete QCompleter or updates strict dropdown options."""
