@@ -462,7 +462,7 @@ class TDocsWindow(QWidget):
 
         email_menu = QMenu(self)
         email_menu.setToolTipsVisible(True)
-        act = email_menu.addAction("📬 Unread & Flagged Email Inbox...", self._open_meeting_email_inbox)
+        act = email_menu.addAction("📬 Unread && Flagged Email Inbox...", self._open_meeting_email_inbox)
         act.setToolTip("Open the unified Email Triage Cockpit combining all unread, flagged, and recent emails across Tracked Threads and TDoc Emails.")
         email_menu.addSeparator()
         act = email_menu.addAction("📌 Pin Email Thread from Outlook Folder...", self._on_pin_thread_from_outlook)
