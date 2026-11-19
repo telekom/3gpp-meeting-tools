@@ -1121,11 +1121,11 @@ def test_tdocs_table_columns_fit_viewport_on_narrow_resize():
     # Narrow viewport (e.g. ~1200px) must fit all 14 columns without pushing Emails off-screen
     w_narrow = TDocsWindow.compute_fitted_column_widths(1200, 14, scale_fn=lambda x: x)
     assert sum(w_narrow.values()) <= 1200
-    assert w_narrow[13] >= 74
+    assert w_narrow[13] >= 92
 
     # Wide viewport (e.g. 1650px) expands flexible columns and preserves Emails width
     w_wide = TDocsWindow.compute_fitted_column_widths(1650, 14, scale_fn=lambda x: x)
     assert sum(w_wide.values()) == 1650
-    assert w_wide[13] >= 84
+    assert w_wide[13] >= 100
     assert w_wide[7] > w_narrow[7]
     assert w_wide[2] > w_narrow[2]

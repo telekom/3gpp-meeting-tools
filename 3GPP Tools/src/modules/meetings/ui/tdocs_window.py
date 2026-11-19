@@ -206,8 +206,7 @@ class TDocsWindow(QWidget):
         super().showEvent(event)
         self._load_tracked_wi_tokens()
         self._update_filter_facets()
-        if not getattr(self, "_user_resized_cols", False):
-            self._apply_scaled_table_columns()
+        self._schedule_column_fit()
         self._schedule_row_height_adjustment()
 
     def _setup_header(self, layout, title, is_electronic, count):
@@ -1159,23 +1158,23 @@ class TDocsWindow(QWidget):
             12: sc(110),
         }
         if col_count > 13:
-            base_widths[13] = sc(84)
+            base_widths[13] = sc(100)
 
         min_widths = {
             0: sc(74),
             1: sc(74),
-            2: sc(110),
-            3: sc(68),
+            2: sc(100),
+            3: sc(64),
             4: sc(52),
             5: sc(48),
             6: sc(26),
-            7: sc(115),
+            7: sc(108),
             8: sc(54),
             9: sc(26),
-            10: sc(72),
-            11: sc(60),
-            12: sc(60),
-            13: sc(74),
+            10: sc(68),
+            11: sc(58),
+            12: sc(58),
+            13: sc(92),
         }
 
         widths = {col: w for col, w in base_widths.items() if col < col_count}
@@ -1218,11 +1217,28 @@ class TDocsWindow(QWidget):
                         leftover -= take
         return widths
 
+    def _schedule_column_fit(self):
+        """Fits columns on the next event-loop tick so viewport().width() reflects post-layout & scrollbar geometry."""
+        if getattr(self, "_user_resized_cols", False):
+            return
+        if not hasattr(self, "_col_fit_timer"):
+            self._col_fit_timer = QTimer(self)
+            self._col_fit_timer.setSingleShot(True)
+            self._col_fit_timer.timeout.connect(self._apply_scaled_table_columns)
+        self._col_fit_timer.start(15)
+
     def _apply_scaled_table_columns(self):
         """Scale and fit TDocsWindow table column widths to the active viewport."""
+        if not hasattr(self, "table") or not hasattr(self, "model"):
+            return
         header = self.table.horizontalHeader()
         col_count = len(self.model._headers)
         vp_w = self.table.viewport().width()
+        if vp_w > 40:
+            # Reserve 2px safety margin so Qt never triggers an unnecessary 1-2px horizontal scrollbar
+            vp_w -= 2
+            if not self.table.verticalScrollBar().isVisible() and self.proxy.rowCount() > 6:
+                vp_w = max(200, vp_w - max(16, self.table.verticalScrollBar().sizeHint().width()))
         widths = self.compute_fitted_column_widths(vp_w, col_count)
 
         self._programmatic_column_resize = True
@@ -1233,6 +1249,7 @@ class TDocsWindow(QWidget):
                     header.resizeSection(col, width)
         finally:
             self._programmatic_column_resize = False
+        self._schedule_row_height_adjustment()
 
     def _on_font_scale_changed(self, _scale: float = 0.0):
         """Update filter dropdown caps, toolbar buttons, column widths, and row heights on font scale changes."""
@@ -2931,6 +2948,7 @@ class TDocsWindow(QWidget):
             self.drop_overlay.setGeometry(self.rect())
         if not getattr(self, "_user_resized_cols", False):
             self._apply_scaled_table_columns()
+            self._schedule_column_fit()
         self._schedule_row_height_adjustment()
 
     @staticmethod

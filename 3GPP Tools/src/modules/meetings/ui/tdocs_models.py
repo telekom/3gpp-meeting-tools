@@ -776,7 +776,8 @@ class TDocsTableModel(QAbstractTableModel):
                 if unread > 0:
                     disp += f" (🔵 {unread})"
                 if flagged > 0:
-                    disp += f" 🚩 {flagged}"
+                    sep = "\n" if unread > 0 else " "
+                    disp += f"{sep}🚩 {flagged}"
                 return disp
             elif role == Qt.UserRole:
                 if tot == 0:
