@@ -382,6 +382,37 @@ def test_ctrl_wheel_reader_zoom_on_thread_browser(tmp_path):
     assert int(dlg.browser.property("_reader_zoom_steps") or 0) == 0
     dlg.close()
 
+    # Also verify Ctrl+Wheel zoom on MeetingEmailInboxDialog.preview_browser even with pixel-sized QSS fonts
+    from PyQt5.QtCore import QSettings
+    from PyQt5.QtGui import QFont
+    from modules.emails.core.general_email_db import GeneralEmailDatabase
+    from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
+
+    gdb = GeneralEmailDatabase(tmp_path / "zoom_gen.db")
+    gdb.save_emails_batch(
+        [{"id": "E-Z1", "subject": "Zoom test", "sender_name": "Alice", "date_received": "2026-11-18 10:00:00", "body_text": "Line 1\nLine 2", "is_read": 0}],
+        [{"email_id": "E-Z1", "tdoc_id": "S2-2612000", "match_location": "Subject"}],
+    )
+    idlg = MeetingEmailInboxDialog(
+        db,
+        gdb,
+        meeting_id="SA2#178",
+        settings=QSettings(str(tmp_path / "zoom_inbox.ini"), QSettings.IniFormat),
+    )
+    px_f = QFont(idlg.preview_browser.font())
+    px_f.setPixelSize(16)
+    idlg.preview_browser.setFont(px_f)
+    idlg.show()
+    ivp = idlg.preview_browser.viewport()
+    QApplication.sendEvent(ivp, wheel_up)
+    assert int(idlg.preview_browser.property("_reader_zoom_steps") or 0) == 1
+    assert idlg.preview_browser.font().pointSizeF() > 7.0
+    zoomed_up_pt = idlg.preview_browser.font().pointSizeF()
+    QApplication.sendEvent(ivp, wheel_down)
+    assert int(idlg.preview_browser.property("_reader_zoom_steps") or 0) == 0
+    assert idlg.preview_browser.font().pointSizeF() < zoomed_up_pt
+    idlg.close()
+
 
 def test_unified_notes_status_and_tags_for_tdocs_and_threads(tmp_path):
     import sqlite3

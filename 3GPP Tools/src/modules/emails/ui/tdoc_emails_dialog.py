@@ -100,6 +100,8 @@ class StandaloneEmailReaderWindow(QWidget):
 
         self.browser = QTextBrowser()
         self.browser.setOpenLinks(False)
+        self.browser.setToolTip("Tip: Hold Ctrl + Mouse Wheel to zoom text size (Ctrl+0 to reset).")
+        install_reader_zoom()
         self.browser.anchorClicked.connect(self._on_anchor_clicked)
         self.browser.setStyleSheet("background: white; border: 1px solid #CCC; border-radius: 4px; padding: 12px;")
         layout.addWidget(self.browser)

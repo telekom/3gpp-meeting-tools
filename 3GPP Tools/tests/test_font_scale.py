@@ -178,12 +178,29 @@ class TestFontScale(unittest.TestCase):
         self.assertGreater(hint_140.height(), hint_100.height())
 
     def test_reader_text_zoom_controls(self) -> None:
+        from PyQt5.QtGui import QFont
+
         browser = QTextBrowser()
         self.assertEqual(zoom_text_widget(browser, 1), 1)
         self.assertEqual(zoom_text_widget(browser, 2), 3)
         self.assertEqual(zoom_text_widget(browser, -1), 2)
         self.assertEqual(zoom_text_widget(browser, 0, reset=True), 0)
         self.assertIsNone(zoom_text_widget(QLabel("not zoomable"), 1))
+
+        # Pixel-sized fonts (as set by global QSS) must scale upward cleanly instead of collapsing to 1pt
+        px_browser = QTextBrowser()
+        px_font = QFont()
+        px_font.setPixelSize(16)
+        px_browser.setFont(px_font)
+        self.assertEqual(px_browser.font().pointSizeF(), -1.0)
+        self.assertEqual(zoom_text_widget(px_browser, 2), 2)
+        self.assertGreater(px_browser.font().pointSizeF(), 7.0)
+        zoomed_pt = px_browser.font().pointSizeF()
+        self.assertEqual(zoom_text_widget(px_browser, -1), 1)
+        self.assertLess(px_browser.font().pointSizeF(), zoomed_pt)
+        self.assertEqual(zoom_text_widget(px_browser, 0, reset=True), 0)
+        self.assertLess(px_browser.font().pointSizeF(), zoomed_pt)
+        self.assertGreater(px_browser.font().pointSizeF(), 5.0)
 
     def test_scaled_font_uses_pixel_size_consistently(self) -> None:
         from PyQt5.QtGui import QFont

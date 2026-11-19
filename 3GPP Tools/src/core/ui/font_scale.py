@@ -575,6 +575,7 @@ def find_active_zoom_target(window: Optional[QWidget]) -> Optional[QWidget]:
 def zoom_text_widget(widget: Optional[QWidget], delta_steps: int, reset: bool = False) -> Optional[int]:
     """
     Zoom a `QTextEdit` / `QPlainTextEdit` / `QTextBrowser` by `delta_steps`, or reset to 0.
+    Handles pixel-sized global QSS fonts cleanly without collapsing `pointSizeF()` to <= 0.
     Returns the updated zoom step count, or None if `widget` is not zoomable.
     """
     target = _unwrap_zoomable_widget(widget)
@@ -587,11 +588,27 @@ def zoom_text_widget(widget: Optional[QWidget], delta_steps: int, reset: bool = 
     else:
         nxt_steps = max(_MIN_READER_ZOOM, min(_MAX_READER_ZOOM, cur_steps + int(delta_steps)))
 
-    diff = nxt_steps - cur_steps
-    if diff > 0:
-        target.zoomIn(diff)  # type: ignore[attr-defined]
-    elif diff < 0:
-        target.zoomOut(-diff)  # type: ignore[attr-defined]
+    base_pt_prop = target.property("_reader_zoom_base_pt")
+    cur_font = target.font()
+    if base_pt_prop is None:
+        if cur_font.pointSizeF() > 0:
+            base_pt = float(cur_font.pointSizeF())
+        elif cur_font.pixelSize() > 0:
+            dpi_y = float(target.logicalDpiY() or 96.0)
+            base_pt = max(6.0, round(cur_font.pixelSize() * 72.0 / dpi_y, 2))
+        else:
+            base_pt = 9.5
+        target.setProperty("_reader_zoom_base_pt", base_pt)
+    else:
+        base_pt = float(base_pt_prop)
+
+    if nxt_steps != cur_steps or reset:
+        new_pt = max(5.0, float(base_pt) + nxt_steps)
+        cur_font.setPointSizeF(new_pt)
+        target.setFont(cur_font)
+        doc = target.document() if hasattr(target, "document") else None
+        if doc is not None:
+            doc.setDefaultFont(cur_font)
 
     target.setProperty("_reader_zoom_steps", nxt_steps)
     return nxt_steps

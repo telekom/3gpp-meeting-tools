@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLa
                              QMessageBox, QInputDialog, QDialog, QDateEdit, QMenu, QApplication,
                              QAbstractItemView, QFormLayout, QTextEdit, QFrame)
 
+from core.ui.font_scale import install_reader_zoom
 from modules.emails.core.email_db import EmailDatabase
 from modules.emails.core.email_threads import EmailSyncThread, EmailMoveThread, EmailTargetRescanThread
 from modules.emails.core.stats.statistics_threads import EmailStatsExporterThread
@@ -280,6 +281,8 @@ class EmailManagerWindow(QWidget):
         btn_layout.addStretch()
 
         self.reading_pane = QTextBrowser()
+        self.reading_pane.setToolTip("Tip: Hold Ctrl + Mouse Wheel to zoom text size (Ctrl+0 to reset).")
+        install_reader_zoom()
         self.reading_pane.setStyleSheet(
             "background: white; border: 1px solid #CCC; border-radius: 4px; padding: 10px; color: #333;")
         pane_layout.addLayout(btn_layout)
