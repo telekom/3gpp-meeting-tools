@@ -2762,3 +2762,130 @@ def test_batch_folder_sync_fast_skip_and_filter_scoped_sync(tmp_path):
         assert "S2-2612800" in g_after["G-CONV-REPLY"]["matched_tdocs"]
 
     dlg.close()
+
+
+def test_auto_cache_drafts_folder_documents_and_open_sensitivity(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from modules.emails.core.general_email_db import GeneralEmailDatabase
+    from modules.emails.core.general_email_sync import GeneralEmailSyncThread
+    from modules.emails.core.outlook_client import OutlookClient, PR_FLAG_STATUS_PROP
+    from modules.emails.core.thread_markdown_exporter import extract_drafts_document_urls, is_drafts_document_url
+    from modules.emails.core.tracked_threads_service import (
+        cache_and_open_thread_document_url,
+        cache_drafts_for_messages,
+        refresh_meeting_threads,
+        resolve_draft_cache_target,
+    )
+
+    draft_url_pinned = "http://10.10.10.10/ftp/SA/SA2/Inbox/Drafts/FS_6G_ARC/KI%2317/S2-2612805%20v3.docx"
+    draft_url_unpinned = "http://10.10.10.10/ftp/SA/SA2/Inbox/Drafts/FS_6G_ARC/KI%2318/Baseline.docx"
+    rev_url = "http://10.10.10.10/ftp/SA/SA2/Revisions/S2-2612805r01.docx"
+    inbox_url = "http://10.10.10.10/ftp/SA/SA2/Inbox/S2-2612805.zip"
+    quoted_draft_url = "http://10.10.10.10/ftp/SA/SA2/Inbox/Drafts/Old/QuotedOnly.docx"
+
+    assert is_drafts_document_url(draft_url_pinned)
+    assert is_drafts_document_url("https://www.3gpp.org/ftp/Meetings_3GPP_SYNC/SA2/Inbox/Drafts/KI17/B.docx")
+    assert not is_drafts_document_url(rev_url)
+    assert not is_drafts_document_url(inbox_url)
+
+    extracted = extract_drafts_document_urls(
+        [
+            {
+                "clean_body": f"Updated: {draft_url_pinned}\nAlso ignore {rev_url} and {inbox_url}",
+                "body_text": f"Updated: {draft_url_pinned}\n\nFrom: Old\nSent: Today\nOld: {quoted_draft_url}",
+            }
+        ],
+        prefer_clean_body=True,
+    )
+    assert extracted == [draft_url_pinned]
+
+    agenda_dir = tmp_path / "Agenda"
+    agenda_dir.mkdir(parents=True, exist_ok=True)
+    drafts_root = agenda_dir / "DraftsCache"
+    expected_pinned_path = resolve_draft_cache_target(draft_url_pinned, drafts_root)
+    assert expected_pinned_path == drafts_root / "FS_6G_ARC" / "KI#17" / "S2-2612805 v3.docx"
+
+    get_calls = []
+
+    class _FakeSession:
+        def get(self, url, timeout=None):
+            get_calls.append((url, timeout))
+            if "10.10.10.10" in url and "v3.docx" in url:
+                return SimpleNamespace(status_code=200, content=b"PK\x03\x04PINNED-DRAFT")
+            # Simulate 10.10.10.10 failing for second URL -> Meetings_3GPP_SYNC fallback
+            if "10.10.10.10" in url:
+                raise TimeoutError("10.10.10.10 unreachable")
+            if "Meetings_3GPP_SYNC" in url and "Baseline.docx" in url:
+                return SimpleNamespace(status_code=200, content=b"PK\x03\x04UNPINNED-DRAFT")
+            return SimpleNamespace(status_code=404, content=b"")
+
+    tdb = TrackedThreadsDatabase(agenda_dir / "tracked_threads.db")
+    gdb = GeneralEmailDatabase(agenda_dir / "emails.db")
+    tid = tdb.create_or_get_thread("Pinned Draft Thread", "pinned draft", meeting_id="SA2#178", outlook_folders=[])
+    tdb.upsert_messages(
+        tid,
+        [
+            {
+                "id": "E-DR-1",
+                "subject": "Pinned Draft Thread",
+                "sender_name": "Alice",
+                "date_sent": "2026-11-19 15:00:00",
+                "body_text": f"New draft: {draft_url_pinned} and {rev_url}",
+                "clean_body": f"New draft: {draft_url_pinned} and {rev_url}",
+                "is_read": 0,
+            }
+        ],
+    )
+    gdb.save_emails_batch(
+        [
+            {
+                "id": "G-DR-1",
+                "folder_tag": "SA2",
+                "subject": "[SA2#178] S2-2612900 Draft",
+                "sender_name": "Bob",
+                "date_received": "2026-11-19 16:00:00",
+                "body_text": f"Unpinned draft: {draft_url_unpinned} and {inbox_url}",
+                "clean_body": f"Unpinned draft: {draft_url_unpinned} and {inbox_url}",
+                "is_read": 0,
+            }
+        ],
+        [{"email_id": "G-DR-1", "tdoc_id": "S2-2612900", "match_location": "Subject"}],
+    )
+
+    with patch("core.network.session.NetworkSession", return_value=_FakeSession()), \
+         patch.object(OutlookClient, "get_namespace", return_value=SimpleNamespace(GetDefaultFolder=lambda _i: None)), \
+         patch.object(OutlookClient, "get_folder_by_path", return_value=None):
+        # 1. Tracked threads sync caches /Drafts/ URL into DraftsCache
+        refresh_meeting_threads(tdb, "SA2#178")
+        assert expected_pinned_path.is_file()
+        assert expected_pinned_path.read_bytes() == b"PK\x03\x04PINNED-DRAFT"
+        assert not (drafts_root / "S2-2612805r01.docx").exists()
+
+        # 2. GeneralEmailSyncThread caches unpinned email's /Drafts/ URL too
+        syncer = GeneralEmailSyncThread([], gdb.db_path)
+        syncer.sync_folders()
+        expected_unpinned_path = resolve_draft_cache_target(draft_url_unpinned, drafts_root)
+        assert expected_unpinned_path.is_file()
+        assert expected_unpinned_path.read_bytes() == b"PK\x03\x04UNPINNED-DRAFT"
+
+        # 3. Repeating cache_drafts_for_messages skips BOTH already-cached files with ZERO HTTP requests!
+        prev_calls = len(get_calls)
+        cache_drafts_for_messages(
+            [{"clean_body": f"{draft_url_pinned} {draft_url_unpinned}"}],
+            agenda_dir,
+        )
+        assert len(get_calls) == prev_calls
+
+        # 4. Opening cached Draft via InboxAttachments / ThreadAttachments reuses DraftsCache
+        #    with zero HTTP calls and opens via open_document() so sensitivity label handler runs!
+        opened = []
+        with patch("modules.word_tools.core.document_opener.open_document", side_effect=lambda p: opened.append(Path(p))):
+            out = cache_and_open_thread_document_url(
+                draft_url_pinned,
+                agenda_dir / "InboxAttachments",
+                open_after=True,
+            )
+            assert len(get_calls) == prev_calls
+            assert out == expected_pinned_path
+            assert opened == [expected_pinned_path.resolve()]

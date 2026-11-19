@@ -433,6 +433,25 @@ def is_cacheable_document_url(url: str) -> bool:
     return bool(_DOC_EXT_RE.search(path))
 
 
+def is_drafts_document_url(url: str) -> bool:
+    """
+    Returns True if url points to a downloadable document in 10.10.10.10's Drafts folder
+    (or its 3gpp.org/ftp Drafts mirror), excluding /Revisions/ and /Docs/.
+    """
+    if not is_cacheable_document_url(url):
+        return False
+    parsed = urllib.parse.urlsplit(url.strip())
+    host = (parsed.netloc or "").lower()
+    if not (host == "10.10.10.10" or host.endswith("3gpp.org")):
+        return False
+    segs = [urllib.parse.unquote(s).strip().lower() for s in parsed.path.split("/") if s.strip()]
+    if "drafts" not in segs:
+        return False
+    if "revisions" in segs or "docs" in segs:
+        return False
+    return True
+
+
 def _format_short_url_label(url: str) -> str:
     """Returns a concise human-readable label for long URLs and 3GPP/10.10.10.10 document links."""
     u = str(url or "").strip()
@@ -461,18 +480,36 @@ def _format_short_url_label(url: str) -> str:
     return f"🔗 {netloc}/…"
 
 
-def extract_thread_document_urls(messages: List[Dict[str, Any]]) -> List[str]:
-    """Extracts all unique cacheable document URLs (e.g. 10.10.10.10 or 3gpp.org/ftp .docx/.zip) from thread messages."""
+def _extract_matching_document_urls(
+    messages: List[Dict[str, Any]],
+    predicate: Any,
+    *,
+    prefer_clean_body: bool = False,
+) -> List[str]:
     found: List[str] = []
     seen = set()
     for msg in (messages or []):
-        body = unwrap_outlook_safelinks(msg.get("body_text") or msg.get("clean_body") or "")
+        if prefer_clean_body:
+            raw = msg.get("clean_body") or strip_trailing_quotes(msg.get("body_text") or "")
+        else:
+            raw = msg.get("body_text") or msg.get("clean_body") or ""
+        body = unwrap_outlook_safelinks(raw)
         for m in _BARE_URL_RE.finditer(body):
             url = m.group(1).rstrip(".,;:!?")
-            if is_cacheable_document_url(url) and url not in seen:
+            if predicate(url) and url not in seen:
                 seen.add(url)
                 found.append(url)
     return found
+
+
+def extract_thread_document_urls(messages: List[Dict[str, Any]]) -> List[str]:
+    """Extracts all unique cacheable document URLs (e.g. 10.10.10.10 or 3gpp.org/ftp .docx/.zip) from thread messages."""
+    return _extract_matching_document_urls(messages, is_cacheable_document_url, prefer_clean_body=False)
+
+
+def extract_drafts_document_urls(messages: List[Dict[str, Any]], prefer_clean_body: bool = True) -> List[str]:
+    """Extracts unique 10.10.10.10 / Drafts folder document URLs (excluding /Revisions/ and /Docs/)."""
+    return _extract_matching_document_urls(messages, is_drafts_document_url, prefer_clean_body=prefer_clean_body)
 
 
 def linkify_markdown_urls(text: str, shorten_long_urls: bool = False) -> str:

@@ -338,6 +338,19 @@ class GeneralEmailSyncThread(QThread):
             if flag_updates:
                 total_flags_updated += self.db.update_email_flags_batch(flag_updates)
 
+        if not (cancel_check and cancel_check()) and self.db and str(self.db.db_path) != ":memory:":
+            try:
+                from modules.emails.core.tracked_threads_service import cache_drafts_for_messages
+                all_msgs = self.db.get_all_emails_with_tdocs(show_ignored=True)
+                cache_drafts_for_messages(
+                    all_msgs,
+                    Path(self.db.db_path).parent,
+                    progress_cb=progress_cb,
+                    cancel_check=cancel_check,
+                )
+            except Exception as exc:
+                logging.debug(f"Auto-caching /Drafts/ URLs skipped cleanly: {exc}")
+
         return total_synced + total_flags_updated
 
     def _extract_tdocs(self, subject: str, body: str) -> List[dict]:

@@ -16,8 +16,10 @@ from modules.emails.core.outlook_client import (
     safe_mapi_row_val,
 )
 from modules.emails.core.thread_markdown_exporter import (
+    extract_drafts_document_urls,
     extract_thread_document_urls,
     inject_html_tables_into_body,
+    is_drafts_document_url,
     strip_trailing_quotes,
     unwrap_outlook_safelinks,
 )
@@ -545,6 +547,7 @@ def _pin_from_seed_dict(
     discovered_cids = [m["conversation_id"] for m in found if m.get("conversation_id")]
     if discovered_cids:
         db.add_conversation_ids(thread_id, discovered_cids)
+    _auto_cache_db_drafts(db, found)
     return thread_id
 
 
@@ -635,6 +638,7 @@ def refresh_thread(
     new_cnt = db.upsert_messages(thread_id, found, sync_unread=True)
     if flag_updates:
         db.update_message_flags_batch(thread_id, flag_updates)
+    _auto_cache_db_drafts(db, db.get_thread_messages(thread_id), cancel_check=cancel_check)
     return new_cnt
 
 
@@ -651,6 +655,11 @@ def refresh_threads_batch(
 
     ns = OutlookClient.get_namespace()
     if not ns:
+        _auto_cache_db_drafts(
+            db,
+            [m for t in threads if t.get("thread_id") for m in db.get_thread_messages(t["thread_id"])],
+            cancel_check=cancel_check,
+        )
         return {}
 
     tid_map: Dict[str, Dict[str, Any]] = {}
@@ -689,6 +698,11 @@ def refresh_threads_batch(
             folder_to_tids[fp_key].add(tid)
 
     if not tid_map or not folder_order:
+        _auto_cache_db_drafts(
+            db,
+            [m for t in threads if t.get("thread_id") for m in db.get_thread_messages(t["thread_id"])],
+            cancel_check=cancel_check,
+        )
         return {}
 
     try:
@@ -879,6 +893,7 @@ def refresh_threads_batch(
             logger.warning(f"Error scanning Outlook folder '{fpath}': {e}")
 
     results: Dict[str, int] = {}
+    all_thread_msgs: List[Dict[str, Any]] = []
     for tid in tid_map:
         if cids_by_tid[tid]:
             db.add_conversation_ids(tid, list(cids_by_tid[tid]))
@@ -887,6 +902,8 @@ def refresh_threads_batch(
             db.update_message_flags_batch(tid, flag_updates_by_tid[tid])
         if new_count > 0:
             results[tid] = new_count
+        all_thread_msgs.extend(db.get_thread_messages(tid))
+    _auto_cache_db_drafts(db, all_thread_msgs, cancel_check=cancel_check)
     return results
 
 
@@ -983,6 +1000,12 @@ def sync_scoped_inbox_items(
         if fallback_threads and not (cancel_check and cancel_check()):
             upd = refresh_threads_batch(tracked_db, fallback_threads, cancel_check=cancel_check)
             tracked_changes += sum((upd or {}).values())
+
+        if not (cancel_check and cancel_check()):
+            scoped_msgs: List[Dict[str, Any]] = []
+            for tid in t_ids:
+                scoped_msgs.extend(tracked_db.get_thread_messages(tid))
+            _auto_cache_db_drafts(tracked_db, scoped_msgs, progress_cb=progress_cb, cancel_check=cancel_check)
 
     # 2. Scoped Unpinned Conversations via direct EntryID + GetConversation()
     if general_db is not None and u_ids and not (cancel_check and cancel_check()):
@@ -1091,6 +1114,22 @@ def sync_scoped_inbox_items(
             general_changes += len(new_emails)
         if flag_updates_gen:
             general_changes += general_db.update_email_flags_batch(flag_updates_gen)
+
+        if not (cancel_check and cancel_check()):
+            scoped_gen_msgs: List[Dict[str, Any]] = list(new_emails)
+            try:
+                all_eids = list({*u_ids, *(e["id"] for e in new_emails)})
+                if all_eids:
+                    ph = ",".join(["?"] * len(all_eids))
+                    with general_db._get_connection() as conn:
+                        for b_txt, c_txt in conn.execute(
+                            f"SELECT body_text, clean_body FROM general_emails WHERE id IN ({ph})",
+                            all_eids,
+                        ).fetchall():
+                            scoped_gen_msgs.append({"body_text": b_txt or "", "clean_body": c_txt or ""})
+            except Exception:
+                pass
+            _auto_cache_db_drafts(general_db, scoped_gen_msgs, progress_cb=progress_cb, cancel_check=cancel_check)
 
     return tracked_changes, general_changes
 
@@ -1587,19 +1626,147 @@ def _build_candidate_document_urls(url: str) -> List[str]:
     return list(dict.fromkeys(candidates))
 
 
+def get_drafts_cache_dir(agenda_dir: Path) -> Path:
+    """Returns canonical DraftsCache directory under `<meeting_dir>/Agenda/DraftsCache`."""
+    return Path(agenda_dir) / "DraftsCache"
+
+
+def _infer_agenda_dir_from_cache_dir(cache_dir: Optional[Path]) -> Optional[Path]:
+    if not cache_dir:
+        return None
+    p = Path(cache_dir)
+    if p.name == "InboxAttachments":
+        return p.parent
+    if p.parent.name in ("ThreadAttachments", "TDocEmailCache"):
+        return p.parent.parent
+    if p.name == "DraftsCache":
+        return p.parent
+    return None
+
+
+def resolve_draft_cache_target(url: str, drafts_root: Path) -> Path:
+    """
+    Maps a 10.10.10.10 / Drafts URL to a deterministic local file path inside `drafts_root`,
+    preserving subfolders after `/Drafts/` to prevent same-filename collisions across KIs.
+    """
+    import urllib.parse
+
+    drafts_root = Path(drafts_root)
+    parsed = urllib.parse.urlsplit((url or "").strip())
+    raw_segs = [urllib.parse.unquote(s) for s in parsed.path.split("/") if s]
+    low_segs = [s.strip().lower() for s in raw_segs]
+    rel_segs = raw_segs[low_segs.index("drafts") + 1 :] if "drafts" in low_segs else raw_segs[-1:]
+
+    clean_segs = []
+    for seg in rel_segs:
+        cleaned = "".join(c for c in seg if c not in '<>:"/\\|?*').strip()
+        if cleaned and cleaned not in (".", ".."):
+            clean_segs.append(cleaned)
+
+    if not clean_segs:
+        clean_segs = ["draft_document.docx"]
+
+    candidate = drafts_root.joinpath(*clean_segs)
+    if len(str(candidate)) < 220:
+        return candidate
+    h = hashlib.sha1(url.encode("utf-8", errors="ignore")).hexdigest()[:8]
+    return drafts_root / f"{h}_{clean_segs[-1]}"
+
+
+def _download_document_candidates(
+    url: str,
+    target_path: Path,
+    local_ip_unreachable: Optional[List[bool]] = None,
+) -> bool:
+    """Downloads a 3GPP / 10.10.10.10 URL to `target_path` with fast 10.10.10.10 connect timeout & failover."""
+    from core.network.session import NetworkSession
+
+    session = NetworkSession()
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    skip_local = bool(local_ip_unreachable and local_ip_unreachable[0])
+
+    for cand_url in _build_candidate_document_urls(url):
+        is_local = "://10.10.10.10/" in cand_url.lower()
+        if is_local and skip_local:
+            continue
+        timeout = (1.5, 12) if is_local else (4, 15)
+        try:
+            resp = session.get(cand_url, timeout=timeout)
+            if resp.status_code == 200 and resp.content:
+                target_path.write_bytes(resp.content)
+                return True
+        except Exception as e:
+            if is_local and local_ip_unreachable is not None:
+                local_ip_unreachable[0] = True
+                skip_local = True
+            logger.debug(f"Candidate URL download failed ({cand_url}): {e}")
+    return False
+
+
+def cache_drafts_for_messages(
+    messages: List[Dict[str, Any]],
+    agenda_dir: Path,
+    progress_cb: Optional[Callable[[str], None]] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
+) -> List[Path]:
+    """
+    Proactively downloads uncached 10.10.10.10 /Drafts/ document URLs referenced by emails into
+    `<agenda_dir>/DraftsCache/`, immediately skipping files that already exist locally.
+    """
+    draft_urls = extract_drafts_document_urls(messages, prefer_clean_body=True)
+    if not draft_urls:
+        return []
+
+    drafts_root = get_drafts_cache_dir(agenda_dir)
+    pending: List[tuple] = []
+    cached_paths: List[Path] = []
+    for u in draft_urls:
+        tgt = resolve_draft_cache_target(u, drafts_root)
+        if tgt.exists() and tgt.stat().st_size > 0:
+            cached_paths.append(tgt)
+        else:
+            pending.append((u, tgt))
+
+    if not pending:
+        return cached_paths
+
+    local_unreachable = [False]
+    total = len(pending)
+    for idx, (u, tgt) in enumerate(pending, 1):
+        if cancel_check and cancel_check():
+            break
+        if progress_cb:
+            progress_cb(f"Caching draft ({idx}/{total}): {tgt.name[:32]}")
+        if _download_document_candidates(u, tgt, local_ip_unreachable=local_unreachable):
+            cached_paths.append(tgt)
+    return cached_paths
+
+
+def _auto_cache_db_drafts(
+    db: Any,
+    messages: List[Dict[str, Any]],
+    progress_cb: Optional[Callable[[str], None]] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
+) -> List[Path]:
+    db_path = getattr(db, "db_path", None)
+    if not db_path or str(db_path) == ":memory:":
+        return []
+    agenda_dir = Path(db_path).parent
+    return cache_drafts_for_messages(messages, agenda_dir, progress_cb=progress_cb, cancel_check=cancel_check)
+
+
 def cache_and_open_thread_document_url(
     url: str,
     thread_dir: Path,
     open_after: bool = True,
+    drafts_root: Optional[Path] = None,
 ) -> Optional[Path]:
     """
     Downloads and caches a document linked in an email thread (e.g. 10.10.10.10 or 3gpp.org/ftp)
-    into thread_dir (<meeting_dir>/Agenda/ThreadAttachments/<thread_id>/) and optionally opens it.
+    into `DraftsCache/` (for Drafts URLs) or `thread_dir` and optionally opens it via sensitivity handler.
     """
-    import os
     import urllib.parse
     import zipfile
-    from core.network.session import NetworkSession
 
     if not url:
         return None
@@ -1608,21 +1775,27 @@ def cache_and_open_thread_document_url(
 
     raw_name = urllib.parse.unquote(urllib.parse.urlsplit(url).path.rsplit("/", 1)[-1]) or "document.docx"
     safe_name = "".join(c for c in raw_name if c not in '<>:"/\\|?*').strip() or "document.docx"
-    target_path = thread_dir / safe_name
+    flat_target = thread_dir / safe_name
+
+    eff_drafts_root = drafts_root
+    if eff_drafts_root is None:
+        inferred_agenda = _infer_agenda_dir_from_cache_dir(thread_dir)
+        if inferred_agenda is not None:
+            eff_drafts_root = get_drafts_cache_dir(inferred_agenda)
+
+    if is_drafts_document_url(url) and eff_drafts_root is not None:
+        draft_target = resolve_draft_cache_target(url, eff_drafts_root)
+        if draft_target.exists() and draft_target.stat().st_size > 0:
+            target_path = draft_target
+        elif flat_target.exists() and flat_target.stat().st_size > 0:
+            target_path = flat_target
+        else:
+            target_path = draft_target
+    else:
+        target_path = flat_target
 
     if not (target_path.exists() and target_path.stat().st_size > 0):
-        session = NetworkSession()
-        downloaded = False
-        for cand_url in _build_candidate_document_urls(url):
-            try:
-                resp = session.get(cand_url, timeout=12)
-                if resp.status_code == 200 and resp.content:
-                    target_path.write_bytes(resp.content)
-                    downloaded = True
-                    break
-            except Exception as e:
-                logger.debug(f"Candidate URL download failed ({cand_url}): {e}")
-        if not downloaded:
+        if not _download_document_candidates(url, target_path):
             return None
 
     open_target = target_path
@@ -1631,7 +1804,7 @@ def cache_and_open_thread_document_url(
             with zipfile.ZipFile(target_path, "r") as zf:
                 for member in zf.namelist():
                     if member.lower().endswith((".docx", ".doc", ".pptx", ".pdf", ".xlsx")) and not Path(member).name.startswith("~$"):
-                        extracted = thread_dir / Path(member).name
+                        extracted = target_path.parent / Path(member).name
                         if not extracted.exists():
                             extracted.write_bytes(zf.read(member))
                         open_target = extracted
