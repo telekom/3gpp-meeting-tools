@@ -188,10 +188,15 @@ class TrackedThreadsDatabase:
             conn.commit()
             return thread_id
 
-    def upsert_messages(self, thread_id: str, messages: List[Dict[str, Any]]) -> int:
-        """Inserts new messages for a thread without overwriting existing is_read states. Returns count of newly added messages."""
+    def upsert_messages(self, thread_id: str, messages: List[Dict[str, Any]], sync_unread: bool = False) -> int:
+        """Inserts/updates messages for a thread. When sync_unread=True, mirrors Outlook read/unread states too."""
         if not messages:
             return 0
+        read_expr = (
+            "CASE WHEN excluded.id LIKE 'MSG-%' THEN tracked_thread_messages.is_read ELSE excluded.is_read END"
+            if sync_unread
+            else "CASE WHEN excluded.is_read = 1 THEN 1 ELSE tracked_thread_messages.is_read END"
+        )
         new_count = 0
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -202,7 +207,7 @@ class TrackedThreadsDatabase:
                 if not exists:
                     new_count += 1
                 cursor.execute(
-                    """
+                    f"""
                     INSERT INTO tracked_thread_messages (
                         id, thread_id, subject, sender_name, sender_email, company,
                         date_sent, body_text, clean_body, message_id_header,
@@ -213,7 +218,7 @@ class TrackedThreadsDatabase:
                         body_text = excluded.body_text,
                         clean_body = excluded.clean_body,
                         attachments = excluded.attachments,
-                        is_read = CASE WHEN excluded.is_read = 1 THEN 1 ELSE tracked_thread_messages.is_read END,
+                        is_read = {read_expr},
                         flag_status = CASE WHEN excluded.id LIKE 'MSG-%' THEN tracked_thread_messages.flag_status ELSE excluded.flag_status END
                     """,
                     (

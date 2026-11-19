@@ -73,9 +73,14 @@ class GeneralEmailDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_gen_flagged ON general_emails(flag_status)")
             conn.commit()
 
-    def save_emails_batch(self, emails_data: List[dict], matches_data: List[dict]):
+    def save_emails_batch(self, emails_data: List[dict], matches_data: List[dict], sync_unread: bool = False):
         if not emails_data:
             return
+        read_expr = (
+            "CASE WHEN excluded.id LIKE 'MSG-%' THEN general_emails.is_read ELSE excluded.is_read END"
+            if sync_unread
+            else "CASE WHEN excluded.is_read = 1 THEN 1 ELSE general_emails.is_read END"
+        )
         with self._get_connection() as conn:
             cursor = conn.cursor()
             email_tuples = [
@@ -90,8 +95,8 @@ class GeneralEmailDatabase:
                 )
                 for e in emails_data
             ]
-            # Preserve existing is_ignored and local read marks while syncing read/flag updates from Outlook
-            cursor.executemany("""
+            # Preserve existing is_ignored; sync Outlook read/unread (when sync_unread=True) and flag_status both ways
+            cursor.executemany(f"""
                 INSERT INTO general_emails (
                     id, folder_tag, subject, sender_name, sender_email, company, date_received,
                     body_text, clean_body, attachments, is_read, is_ignored, flag_status
@@ -107,8 +112,8 @@ class GeneralEmailDatabase:
                     body_text = excluded.body_text,
                     clean_body = CASE WHEN excluded.clean_body != '' THEN excluded.clean_body ELSE general_emails.clean_body END,
                     attachments = CASE WHEN excluded.attachments != '[]' THEN excluded.attachments ELSE general_emails.attachments END,
-                    is_read = CASE WHEN excluded.is_read = 1 THEN 1 ELSE general_emails.is_read END,
-                    flag_status = CASE WHEN excluded.flag_status != 0 THEN excluded.flag_status ELSE general_emails.flag_status END
+                    is_read = {read_expr},
+                    flag_status = CASE WHEN excluded.id LIKE 'MSG-%' THEN general_emails.flag_status ELSE excluded.flag_status END
             """, email_tuples)
 
             email_ids = [e['id'] for e in emails_data]

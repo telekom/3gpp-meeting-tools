@@ -2152,3 +2152,113 @@ def test_cross_meeting_tdoc_direct_open(tmp_path):
             TDocsWindow._open_tdoc_document_directly(fake_win, "C1-269999")
             mock_info.assert_called_once()
             assert len(local_downloads) == prev_local_len
+
+
+def test_live_inbox_sync_and_outlook_bidirectional_updates(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+    from PyQt5.QtCore import QSettings
+    from PyQt5.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    from modules.emails.core.general_email_db import GeneralEmailDatabase
+    from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+    from modules.emails.core.tracked_threads_workers import InboxOutlookSyncWorker
+    from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
+    from modules.meetings.ui.tdocs_window import TDocsWindow
+
+    # 1. Bidirectional sync_unread & flag clearing in TrackedThreadsDatabase and GeneralEmailDatabase
+    tdb = TrackedThreadsDatabase(tmp_path / "threads.db")
+    tid = tdb.create_or_get_thread("Sync Thread", "Sync Thread", meeting_id="SA2#178")
+    tdb.upsert_messages(
+        tid,
+        [
+            {"id": "EID-REAL", "sender_name": "Alice", "date_sent": "2026-11-18 10:00:00", "is_read": 1, "flag_status": 2},
+            {"id": "MSG-LOCAL", "sender_name": "Bob", "date_sent": "2026-11-18 11:00:00", "is_read": 1, "flag_status": 2},
+        ],
+    )
+    # Without sync_unread=True, is_read=1 stays preserved
+    tdb.upsert_messages(
+        tid,
+        [{"id": "EID-REAL", "sender_name": "Alice", "date_sent": "2026-11-18 10:00:00", "is_read": 0, "flag_status": 0}],
+        sync_unread=False,
+    )
+    msgs = {m["id"]: m for m in tdb.get_thread_messages(tid)}
+    assert msgs["EID-REAL"]["is_read"] == 1
+    assert msgs["EID-REAL"]["flag_status"] == 0  # real EntryID flag cleared
+
+    # With sync_unread=True (live Outlook sync), real EntryID mirrors Unread from Outlook while MSG- stays local
+    tdb.upsert_messages(
+        tid,
+        [
+            {"id": "EID-REAL", "sender_name": "Alice", "date_sent": "2026-11-18 10:00:00", "is_read": 0, "flag_status": 0},
+            {"id": "MSG-LOCAL", "sender_name": "Bob", "date_sent": "2026-11-18 11:00:00", "is_read": 0, "flag_status": 0},
+        ],
+        sync_unread=True,
+    )
+    msgs2 = {m["id"]: m for m in tdb.get_thread_messages(tid)}
+    assert msgs2["EID-REAL"]["is_read"] == 0
+    assert msgs2["MSG-LOCAL"]["is_read"] == 1
+    assert msgs2["MSG-LOCAL"]["flag_status"] == 2
+
+    gdb = GeneralEmailDatabase(tmp_path / "general.db")
+    gdb.save_emails_batch(
+        [{"id": "EID-GEN", "subject": "S2-2612673", "sender_name": "Carol", "date_received": "2026-11-18 12:00:00", "is_read": 1, "flag_status": 2}],
+        [{"email_id": "EID-GEN", "tdoc_id": "S2-2612673", "match_location": "Subject"}],
+    )
+    gdb.save_emails_batch(
+        [{"id": "EID-GEN", "subject": "S2-2612673", "sender_name": "Carol", "date_received": "2026-11-18 12:00:00", "is_read": 0, "flag_status": 0}],
+        [{"email_id": "EID-GEN", "tdoc_id": "S2-2612673", "match_location": "Subject"}],
+        sync_unread=True,
+    )
+    row = gdb.get_all_emails_with_tdocs()[0]
+    assert row["is_read"] == 0
+    assert row["flag_status"] == 0
+
+    # 2. InboxOutlookSyncWorker syncs both tracked threads and WG folders cleanly
+    with patch("modules.emails.core.tracked_threads_workers.refresh_meeting_threads", return_value={tid: 2}) as mock_rmt, \
+         patch("modules.emails.core.tracked_threads_workers.load_wg_email_config", return_value=[{"folder_path": "Inbox", "tag": "SA2"}]), \
+         patch("modules.emails.core.tracked_threads_workers.GeneralEmailSyncThread.sync_folders", return_value=5):
+        worker = InboxOutlookSyncWorker(tdb.db_path, gdb.db_path, meeting_id="SA2#178", wg="SA2")
+        done = []
+        worker.finished_sync.connect(lambda ok, n_th, n_gen, err: done.append((ok, n_th, n_gen, err)))
+        worker.run()
+        mock_rmt.assert_called_once()
+        assert done == [(True, 2, 5, "")]
+
+    # 3. Open MeetingEmailInboxDialog reloads live when background sync/dialog updates occur on TDocsWindow
+    dlg = MeetingEmailInboxDialog(
+        tdb,
+        gdb,
+        meeting_id="SA2#178",
+        settings=QSettings(str(tmp_path / "live_inbox.ini"), QSettings.IniFormat),
+    )
+    assert dlg.sync_outlook_btn is not None
+    # Insert a brand-new unread email in DB and simulate TDocsWindow background sync notification
+    gdb.save_emails_batch(
+        [{"id": "EID-NEW", "subject": "S2-2612999 New", "sender_name": "Dave", "date_received": "2026-11-18 13:00:00", "is_read": 0}],
+        [{"email_id": "EID-NEW", "tdoc_id": "S2-2612999", "match_location": "Subject"}],
+    )
+    fake_win = SimpleNamespace()
+    fake_win._inbox_dialog = dlg
+    fake_win.general_email_db = gdb
+    fake_win.model = MagicMock()
+    fake_win._sync_tracked_threads_to_table = MagicMock()
+    fake_win._refresh_comboboxes = MagicMock()
+    fake_win._schedule_row_height_adjustment = MagicMock()
+    fake_win.sender = lambda: None
+    fake_win._refresh_inbox_dialog_if_open = lambda: TDocsWindow._refresh_inbox_dialog_if_open(fake_win)
+    dlg.show()  # visible so _refresh_inbox_dialog_if_open sees it as open
+    assert dlg.table.rowCount() == 2  # EID-REAL + EID-GEN
+
+    TDocsWindow._refresh_email_counts(fake_win)
+    assert dlg.table.rowCount() == 3  # EID-NEW appeared automatically!
+
+    # Also verify _on_tracked_thread_changed reloads open Inbox
+    tdb.upsert_messages(
+        tid,
+        [{"id": "EID-TH-NEW", "sender_name": "Eve", "date_sent": "2026-11-18 14:00:00", "is_read": 0}],
+    )
+    TDocsWindow._on_tracked_thread_changed(fake_win)
+    assert dlg.table.rowCount() == 4
+    dlg.close()

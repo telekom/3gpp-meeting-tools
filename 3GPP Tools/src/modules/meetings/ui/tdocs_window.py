@@ -3500,10 +3500,21 @@ class TDocsWindow(QWidget):
         dlg.finished.connect(lambda _, k=tid: self._tracked_thread_dialogs.pop(k, None))
         dlg.show()
 
+    def _refresh_inbox_dialog_if_open(self):
+        inbox = getattr(self, "_inbox_dialog", None)
+        if inbox is None:
+            return
+        try:
+            if inbox.isVisible():
+                inbox.reload_from_dbs()
+        except RuntimeError:
+            self._inbox_dialog = None
+
     def _on_tracked_thread_changed(self):
         self._sync_tracked_threads_to_table()
         self._refresh_comboboxes()
         self._schedule_row_height_adjustment()
+        self._refresh_inbox_dialog_if_open()
 
     def _build_tdoc_meta_map(self) -> dict:
         """Maps TDoc IDs to their Agenda Item, Sub-Item, and Related WIs for email link inheritance."""
@@ -3703,6 +3714,8 @@ class TDocsWindow(QWidget):
             ai_to_sub_items=ai_to_sub_items,
             tdoc_meta_map=self._build_tdoc_meta_map(),
             agenda_map=getattr(self, "agenda_map", None),
+            meeting_start=str(self.mtg_info.get("start_date", "") or ""),
+            meeting_end=str(self.mtg_info.get("end_date", "") or ""),
         )
         dlg.data_changed.connect(self._refresh_email_counts)
         self._inbox_dialog = dlg
@@ -3734,7 +3747,7 @@ class TDocsWindow(QWidget):
 
         worker = TrackedThreadsRefreshWorker(self.tracked_threads_db.db_path, meeting_id, parent=self)
         worker.progress.connect(self._on_tracked_threads_sync_progress)
-        worker.thread_updated.connect(lambda _tid, _n: self._sync_tracked_threads_to_table())
+        worker.thread_updated.connect(lambda _tid, _n: (self._sync_tracked_threads_to_table(), self._refresh_inbox_dialog_if_open()))
         worker.finished_sync.connect(self._on_tracked_threads_sync_finished)
         self._tracked_threads_sync_worker = worker
         worker.start()
@@ -3802,6 +3815,8 @@ class TDocsWindow(QWidget):
             counts = self.general_email_db.get_email_counts_per_tdoc()
             self.model.set_email_counts(counts)
             self._sync_tracked_threads_to_table()
+            if self.sender() is not getattr(self, "_inbox_dialog", None):
+                self._refresh_inbox_dialog_if_open()
         except Exception as e:
             logging.error(f"Error refreshing email counts: {e}")
 

@@ -93,12 +93,17 @@ class MeetingEmailInboxDialog(QDialog):
         tdoc_meta_map: Optional[Dict[str, Dict[str, Any]]] = None,
         agenda_map: Optional[Dict[str, Any]] = None,
         settings: Optional[QSettings] = None,
+        meeting_start: str = "",
+        meeting_end: str = "",
     ):
         super().__init__(parent)
         self.tracked_db = tracked_db
         self.general_email_db = general_email_db
         self.meeting_id = str(meeting_id or "").strip()
         self.wg = str(wg or "SA2").strip().upper()
+        self._meeting_start = str(meeting_start or "").strip()
+        self._meeting_end = str(meeting_end or "").strip()
+        self._sync_worker = None
         self.tdoc_ai_lookup = {str(k).upper(): str(v) for k, v in (tdoc_ai_lookup or {}).items()}
         self._tdoc_meta_map = tdoc_meta_map or {}
         self._agenda_map = agenda_map
@@ -358,9 +363,16 @@ class MeetingEmailInboxDialog(QDialog):
         top_row.addWidget(self.source_combo)
 
         self.refresh_btn = QPushButton("🔄 Reload")
-        self.refresh_btn.setToolTip("Reload latest synced messages from local meeting databases.")
+        self.refresh_btn.setToolTip("Reload latest messages already saved in local meeting databases.")
         self.refresh_btn.clicked.connect(self.reload_from_dbs)
         top_row.addWidget(self.refresh_btn)
+
+        self.sync_outlook_btn = QPushButton("📡 Sync Outlook")
+        self.sync_outlook_btn.setToolTip(
+            "Pull new Tracked Thread replies, TDoc emails, and Outlook read/flag updates asynchronously."
+        )
+        self.sync_outlook_btn.clicked.connect(self._on_sync_outlook_clicked)
+        top_row.addWidget(self.sync_outlook_btn)
 
         self.btn_layout_toggle = QPushButton("⬒ List on Top")
         self.btn_layout_toggle.setToolTip("Switch between Side-by-Side (desktop) and Top/Bottom (laptop) layout.")
@@ -630,6 +642,9 @@ class MeetingEmailInboxDialog(QDialog):
 
     def closeEvent(self, event):
         try:
+            if getattr(self, "_sync_worker", None) and self._sync_worker.isRunning():
+                self._sync_worker.request_cancel()
+                self._sync_worker.wait(1500)
             self._settings.setValue("geometry", self.saveGeometry())
             self._settings.setValue("layout_orientation", self._layout_orientation)
             if hasattr(self, "splitter"):
@@ -1848,3 +1863,52 @@ class MeetingEmailInboxDialog(QDialog):
                     variant="warning",
                 )
             QDesktopServices.openUrl(url)
+
+    def _on_sync_outlook_clicked(self):
+        if getattr(self, "_sync_worker", None) and self._sync_worker.isRunning():
+            return
+        tdb_path = getattr(self.tracked_db, "db_path", None) if self.tracked_db is not None else None
+        gdb_path = getattr(self.general_email_db, "db_path", None) if self.general_email_db is not None else None
+        if not tdb_path and not gdb_path:
+            self.reload_from_dbs()
+            return
+
+        from modules.emails.core.tracked_threads_workers import InboxOutlookSyncWorker
+
+        self.sync_outlook_btn.setEnabled(False)
+        self.sync_outlook_btn.setText("⏳ Syncing...")
+        worker = InboxOutlookSyncWorker(
+            tdb_path,
+            gdb_path,
+            meeting_id=self.meeting_id,
+            wg=self.wg,
+            start_date=self._meeting_start,
+            end_date=self._meeting_end,
+            parent=self,
+        )
+        worker.progress_text.connect(lambda msg: self.status_lbl.setText(f"⏳ {msg}"))
+        worker.finished_sync.connect(self._on_inbox_sync_finished)
+        self._sync_worker = worker
+        worker.start()
+
+    def _on_inbox_sync_finished(self, ok: bool, new_thread_msgs: int, general_synced: int, err_msg: str):
+        self.sync_outlook_btn.setEnabled(True)
+        self.sync_outlook_btn.setText("📡 Sync Outlook")
+        self.reload_from_dbs()
+        self.data_changed.emit()
+        if not ok:
+            notify_toast(
+                self,
+                "Outlook Sync Warning",
+                err_msg or "Outlook sync did not finish cleanly.",
+                variant="warning",
+            )
+            return
+        if new_thread_msgs > 0 or general_synced > 0:
+            notify_success(
+                self,
+                "Inbox Synced with Outlook",
+                f"Synced {new_thread_msgs} new tracked message(s) and {general_synced} TDoc email match(es).",
+            )
+        else:
+            notify_info(self, "Inbox Up to Date", "No new matching messages found in Outlook.")

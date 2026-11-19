@@ -572,7 +572,7 @@ def refresh_thread(
     discovered_cids = [m["conversation_id"] for m in found if m.get("conversation_id")]
     if discovered_cids:
         db.add_conversation_ids(thread_id, discovered_cids)
-    return db.upsert_messages(thread_id, found)
+    return db.upsert_messages(thread_id, found, sync_unread=True)
 
 
 def refresh_meeting_threads(

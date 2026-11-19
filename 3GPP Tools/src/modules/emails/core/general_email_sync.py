@@ -42,159 +42,169 @@ class GeneralEmailSyncThread(QThread):
         import pythoncom
         pythoncom.CoInitialize()
         try:
-            filter_start, filter_end = None, None
-            if self.start_date and self.end_date:
-                s_dt = datetime.datetime.strptime(self.start_date, "%Y-%m-%d")
-                e_dt = datetime.datetime.strptime(self.end_date, "%Y-%m-%d")
-                filter_start = s_dt - datetime.timedelta(days=self.days_buffer)
-                filter_end = e_dt + datetime.timedelta(days=self.days_buffer + 1)
-
-            total_synced = 0
-            folder_configs = list(self.folder_configs or [])
-            ns = OutlookClient.get_namespace()
-            if ns:
-                try:
-                    sent_path = getattr(ns.GetDefaultFolder(5), "FolderPath", "") or ""
-                    known_paths = {str(fc.get("folder_path", "")).strip().lower() for fc in folder_configs}
-                    if sent_path and sent_path.lower() not in known_paths:
-                        folder_configs.append({"folder_path": sent_path, "tag": "Sent"})
-                except Exception:
-                    pass
-
-            for folder_cfg in folder_configs:
-                if self.isInterruptionRequested():
-                    break
-                folder_path = folder_cfg.get("folder_path", "")
-                folder_tag = folder_cfg.get("tag", "General")
-                if not folder_path:
-                    continue
-
-                self.progress_msg.emit(f"Connecting to: {folder_path} [{folder_tag}]...")
-                folder = OutlookClient.get_folder_by_path(folder_path)
-                if not folder:
-                    logging.warning(f"Could not open Outlook folder: {folder_path}")
-                    continue
-
-                items = folder.Items
-                total_items = len(items)
-                items.Sort("[ReceivedTime]", True)
-
-                self.progress_msg.emit(f"Scanning {total_items} items in [{folder_tag}]...")
-
-                batch_emails = []
-                batch_matches = []
-
-                for i in range(1, total_items + 1):
-                    if self.isInterruptionRequested():
-                        break
-                    if i % 15 == 0:
-                        self.progress_val.emit(i, total_items)
-
-                    mail_item = items.Item(i)
-                    if mail_item.Class != 43:
-                        continue
-
-                    # Date Boundary Filter
-                    if filter_start and filter_end:
-                        mail_date = getattr(mail_item, "ReceivedTime", None) or getattr(mail_item, "SentOn", None)
-                        if mail_date:
-                            try:
-                                dt = datetime.datetime(mail_date.year, mail_date.month, mail_date.day,
-                                                       mail_date.hour, mail_date.minute, mail_date.second)
-                                if dt > filter_end:
-                                    continue
-                                if dt < filter_start:
-                                    break
-                            except Exception:
-                                pass
-
-                    entry_id = getattr(mail_item, "EntryID", "")
-                    if not entry_id:
-                        continue
-
-                    subject = getattr(mail_item, "Subject", "")
-                    body = getattr(mail_item, "Body", "")
-                    sender_name = getattr(mail_item, "SenderName", "")
-                    try:
-                        sender_email = getattr(mail_item, "SenderEmailAddress", "")
-                    except Exception:
-                        sender_email = ""
-
-                    # Resolve sender and internal Exchange addresses
-                    sender_name, sender_email = self._resolve_sender(mail_item, sender_name, sender_email, body)
-                    company = self._resolve_company(sender_name, sender_email)
-
-                    # Extract matches separating Direct Body from Quoted Reply content
-                    matches = self._extract_tdocs(subject, body)
-                    if not matches:
-                        continue
-
-                    rich_body = body
-                    try:
-                        html_body = getattr(mail_item, "HTMLBody", "") or ""
-                        if html_body and "<table" in html_body.lower():
-                            rich_body = inject_html_tables_into_body(rich_body, html_body)
-                    except Exception:
-                        pass
-                    rich_body = unwrap_outlook_safelinks(rich_body)
-                    quote_split = self.QUOTE_SPLIT_REGEX.search(rich_body)
-                    clean_body = (rich_body[: quote_split.start()].strip() if quote_split else rich_body.strip())
-
-                    attachments: List[str] = []
-                    try:
-                        atts = getattr(mail_item, "Attachments", None)
-                        if atts:
-                            for ai in range(1, atts.Count + 1):
-                                fname = getattr(atts.Item(ai), "FileName", "") or ""
-                                if fname:
-                                    attachments.append(fname)
-                    except Exception:
-                        pass
-
-                    dt_raw = getattr(mail_item, "ReceivedTime", None) or getattr(mail_item, "SentOn", None) or ""
-                    date_str = dt_raw.strftime("%Y-%m-%d %H:%M:%S") if hasattr(dt_raw, "strftime") else str(dt_raw)
-
-                    email_record = {
-                        "id": entry_id,
-                        "folder_tag": folder_tag,
-                        "subject": subject,
-                        "sender_name": sender_name,
-                        "sender_email": sender_email,
-                        "company": company,
-                        "date_received": date_str,
-                        "body_text": rich_body[:12000],
-                        "clean_body": clean_body[:12000],
-                        "attachments": attachments,
-                        "is_read": 1 if getattr(mail_item, "UnRead", False) is False else 0,
-                        "is_ignored": 0,
-                        "flag_status": 2 if int(getattr(mail_item, "FlagStatus", 0) or 0) == 2 else 0,
-                    }
-                    batch_emails.append(email_record)
-
-                    for m in matches:
-                        batch_matches.append({
-                            "email_id": entry_id,
-                            "tdoc_id": m["tdoc_id"],
-                            "rev_matched": m["rev_matched"],
-                            "match_location": m["location"]
-                        })
-
-                    total_synced += 1
-
-                    if len(batch_emails) >= 40:
-                        self.db.save_emails_batch(batch_emails, batch_matches)
-                        batch_emails.clear()
-                        batch_matches.clear()
-
-                if batch_emails:
-                    self.db.save_emails_batch(batch_emails, batch_matches)
-
+            total_synced = self.sync_folders(
+                progress_cb=lambda msg: self.progress_msg.emit(msg),
+                progress_val_cb=lambda cur, tot: self.progress_val.emit(cur, tot),
+                cancel_check=self.isInterruptionRequested,
+            )
             self.finished.emit(True, f"Successfully synced {total_synced} related email references.", total_synced)
         except Exception as e:
             logging.error(f"General email sync failed: {e}", exc_info=True)
             self.finished.emit(False, str(e), 0)
         finally:
             pythoncom.CoUninitialize()
+
+    def sync_folders(self, progress_cb=None, progress_val_cb=None, cancel_check=None) -> int:
+        filter_start, filter_end = None, None
+        if self.start_date and self.end_date:
+            s_dt = datetime.datetime.strptime(self.start_date, "%Y-%m-%d")
+            e_dt = datetime.datetime.strptime(self.end_date, "%Y-%m-%d")
+            filter_start = s_dt - datetime.timedelta(days=self.days_buffer)
+            filter_end = e_dt + datetime.timedelta(days=self.days_buffer + 1)
+
+        total_synced = 0
+        folder_configs = list(self.folder_configs or [])
+        ns = OutlookClient.get_namespace()
+        if ns:
+            try:
+                sent_path = getattr(ns.GetDefaultFolder(5), "FolderPath", "") or ""
+                known_paths = {str(fc.get("folder_path", "")).strip().lower() for fc in folder_configs}
+                if sent_path and sent_path.lower() not in known_paths:
+                    folder_configs.append({"folder_path": sent_path, "tag": "Sent"})
+            except Exception:
+                pass
+
+        for folder_cfg in folder_configs:
+            if cancel_check and cancel_check():
+                break
+            folder_path = folder_cfg.get("folder_path", "")
+            folder_tag = folder_cfg.get("tag", "General")
+            if not folder_path:
+                continue
+
+            if progress_cb:
+                progress_cb(f"Connecting to: {folder_path} [{folder_tag}]...")
+            folder = OutlookClient.get_folder_by_path(folder_path)
+            if not folder:
+                logging.warning(f"Could not open Outlook folder: {folder_path}")
+                continue
+
+            items = folder.Items
+            total_items = len(items)
+            items.Sort("[ReceivedTime]", True)
+
+            if progress_cb:
+                progress_cb(f"Scanning {total_items} items in [{folder_tag}]...")
+
+            batch_emails = []
+            batch_matches = []
+
+            for i in range(1, total_items + 1):
+                if cancel_check and cancel_check():
+                    break
+                if progress_val_cb and i % 15 == 0:
+                    progress_val_cb(i, total_items)
+
+                mail_item = items.Item(i)
+                if mail_item.Class != 43:
+                    continue
+
+                # Date Boundary Filter
+                if filter_start and filter_end:
+                    mail_date = getattr(mail_item, "ReceivedTime", None) or getattr(mail_item, "SentOn", None)
+                    if mail_date:
+                        try:
+                            dt = datetime.datetime(mail_date.year, mail_date.month, mail_date.day,
+                                                   mail_date.hour, mail_date.minute, mail_date.second)
+                            if dt > filter_end:
+                                continue
+                            if dt < filter_start:
+                                break
+                        except Exception:
+                            pass
+
+                entry_id = getattr(mail_item, "EntryID", "")
+                if not entry_id:
+                    continue
+
+                subject = getattr(mail_item, "Subject", "")
+                body = getattr(mail_item, "Body", "")
+                sender_name = getattr(mail_item, "SenderName", "")
+                try:
+                    sender_email = getattr(mail_item, "SenderEmailAddress", "")
+                except Exception:
+                    sender_email = ""
+
+                # Resolve sender and internal Exchange addresses
+                sender_name, sender_email = self._resolve_sender(mail_item, sender_name, sender_email, body)
+                company = self._resolve_company(sender_name, sender_email)
+
+                # Extract matches separating Direct Body from Quoted Reply content
+                matches = self._extract_tdocs(subject, body)
+                if not matches:
+                    continue
+
+                rich_body = body
+                try:
+                    html_body = getattr(mail_item, "HTMLBody", "") or ""
+                    if html_body and "<table" in html_body.lower():
+                        rich_body = inject_html_tables_into_body(rich_body, html_body)
+                except Exception:
+                    pass
+                rich_body = unwrap_outlook_safelinks(rich_body)
+                quote_split = self.QUOTE_SPLIT_REGEX.search(rich_body)
+                clean_body = (rich_body[: quote_split.start()].strip() if quote_split else rich_body.strip())
+
+                attachments: List[str] = []
+                try:
+                    atts = getattr(mail_item, "Attachments", None)
+                    if atts:
+                        for ai in range(1, atts.Count + 1):
+                            fname = getattr(atts.Item(ai), "FileName", "") or ""
+                            if fname:
+                                attachments.append(fname)
+                except Exception:
+                    pass
+
+                dt_raw = getattr(mail_item, "ReceivedTime", None) or getattr(mail_item, "SentOn", None) or ""
+                date_str = dt_raw.strftime("%Y-%m-%d %H:%M:%S") if hasattr(dt_raw, "strftime") else str(dt_raw)
+
+                email_record = {
+                    "id": entry_id,
+                    "folder_tag": folder_tag,
+                    "subject": subject,
+                    "sender_name": sender_name,
+                    "sender_email": sender_email,
+                    "company": company,
+                    "date_received": date_str,
+                    "body_text": rich_body[:12000],
+                    "clean_body": clean_body[:12000],
+                    "attachments": attachments,
+                    "is_read": 1 if getattr(mail_item, "UnRead", False) is False else 0,
+                    "is_ignored": 0,
+                    "flag_status": 2 if int(getattr(mail_item, "FlagStatus", 0) or 0) == 2 else 0,
+                }
+                batch_emails.append(email_record)
+
+                for m in matches:
+                    batch_matches.append({
+                        "email_id": entry_id,
+                        "tdoc_id": m["tdoc_id"],
+                        "rev_matched": m["rev_matched"],
+                        "match_location": m["location"]
+                    })
+
+                total_synced += 1
+
+                if len(batch_emails) >= 40:
+                    self.db.save_emails_batch(batch_emails, batch_matches, sync_unread=True)
+                    batch_emails.clear()
+                    batch_matches.clear()
+
+            if batch_emails:
+                self.db.save_emails_batch(batch_emails, batch_matches, sync_unread=True)
+
+        return total_synced
 
     def _extract_tdocs(self, subject: str, body: str) -> List[dict]:
         results = {}

@@ -3,15 +3,20 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import logging
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from modules.emails.core.email_config import load_wg_email_config
+from modules.emails.core.general_email_db import GeneralEmailDatabase
+from modules.emails.core.general_email_sync import GeneralEmailSyncThread
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.emails.core.tracked_threads_service import (
     list_recent_threads_in_folders,
+    refresh_meeting_threads,
     refresh_thread,
     reload_all_thread_messages_from_outlook,
 )
@@ -164,3 +169,97 @@ class OutlookFolderScanWorker(_BaseComWorker):
         except Exception as exc:
             logger.error("OutlookFolderScanWorker failed: %s", exc, exc_info=True)
             self.finished_scan.emit(False, [], str(exc))
+
+
+class InboxOutlookSyncWorker(_BaseComWorker):
+    """Incrementally syncs both Tracked Threads and WG Related Emails from Outlook off the UI thread."""
+
+    progress_text = pyqtSignal(str)
+    finished_sync = pyqtSignal(bool, int, int, str)  # ok, new_thread_msgs, general_synced, error_msg
+
+    def __init__(
+        self,
+        tracked_db_path: Optional[Path],
+        general_db_path: Optional[Path],
+        meeting_id: str,
+        wg: str,
+        start_date: str = "",
+        end_date: str = "",
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.tracked_db_path = Path(tracked_db_path) if tracked_db_path else None
+        self.general_db_path = Path(general_db_path) if general_db_path else None
+        self.meeting_id = str(meeting_id or "").strip()
+        self.wg = str(wg or "SA2").strip().upper()
+        self.start_date = str(start_date or "").strip()
+        self.end_date = str(end_date or "").strip()
+
+    @staticmethod
+    def _resolve_incremental_window(
+        general_db_path: Optional[Path],
+        start_date: str,
+        end_date: str,
+    ) -> tuple[str, str]:
+        today = datetime.now().date()
+        end_s = end_date or today.strftime("%Y-%m-%d")
+        if general_db_path and Path(general_db_path).exists():
+            try:
+                gdb = GeneralEmailDatabase(general_db_path)
+                with gdb._get_connection() as conn:
+                    row = conn.execute("SELECT MAX(date_received) FROM general_emails").fetchone()
+                if row and row[0]:
+                    latest_d = datetime.strptime(str(row[0])[:10], "%Y-%m-%d").date()
+                    inc_start = (latest_d - timedelta(days=2)).strftime("%Y-%m-%d")
+                    return inc_start, max(end_s, today.strftime("%Y-%m-%d"))
+            except Exception:
+                pass
+        start_s = start_date or (today - timedelta(days=10)).strftime("%Y-%m-%d")
+        return start_s, max(end_s, today.strftime("%Y-%m-%d"))
+
+    def run(self):
+        def _work():
+            new_thread_msgs = 0
+            general_synced = 0
+
+            if self.tracked_db_path and self.meeting_id and not self.is_cancelled():
+                self.progress_text.emit("Syncing pinned tracked threads...")
+                tdb = TrackedThreadsDatabase(self.tracked_db_path)
+                updates = refresh_meeting_threads(
+                    tdb,
+                    self.meeting_id,
+                    progress_cb=lambda idx, tot, cur, _rem: self.progress_text.emit(
+                        f"Threads ({idx + 1}/{tot}): {cur[:28]}"
+                    ),
+                    cancel_check=self.is_cancelled,
+                )
+                new_thread_msgs = sum((updates or {}).values())
+
+            if self.general_db_path and not self.is_cancelled():
+                folders = load_wg_email_config(self.wg) if self.wg else []
+                s_date, e_date = self._resolve_incremental_window(
+                    self.general_db_path, self.start_date, self.end_date
+                )
+                self.progress_text.emit("Scanning Outlook folders for TDoc emails...")
+                syncer = GeneralEmailSyncThread(
+                    folders,
+                    self.general_db_path,
+                    start_date=s_date,
+                    end_date=e_date,
+                    days_buffer=2,
+                )
+                general_synced = syncer.sync_folders(
+                    progress_cb=lambda m: self.progress_text.emit(m),
+                    cancel_check=self.is_cancelled,
+                )
+
+            if self.is_cancelled():
+                self.finished_sync.emit(False, new_thread_msgs, general_synced, "Outlook sync cancelled.")
+            else:
+                self.finished_sync.emit(True, new_thread_msgs, general_synced, "")
+
+        try:
+            self._run_with_com(_work)
+        except Exception as exc:
+            logger.error("InboxOutlookSyncWorker failed: %s", exc, exc_info=True)
+            self.finished_sync.emit(False, 0, 0, str(exc))
