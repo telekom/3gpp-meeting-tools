@@ -1129,3 +1129,53 @@ def test_tdocs_table_columns_fit_viewport_on_narrow_resize():
     assert w_wide[13] >= 100
     assert w_wide[7] > w_narrow[7]
     assert w_wide[2] > w_narrow[2]
+
+
+def test_thread_attachments_and_links_open_via_document_opener(tmp_path):
+    from unittest.mock import patch
+    from modules.emails.core.outlook_client import OutlookClient
+    from modules.emails.core.tracked_threads_service import (
+        cache_and_open_thread_document_url,
+        open_outlook_attachment,
+    )
+
+    class FakeAttachment:
+        def __init__(self, fname: str):
+            self.FileName = fname
+
+        def SaveAsFile(self, path_str: str):
+            Path(path_str).write_bytes(b"PK\x03\x04fake-docx")
+
+    class FakeAttachments:
+        def __init__(self, items):
+            self._items = items
+            self.Count = len(items)
+
+        def Item(self, idx: int):
+            return self._items[idx - 1]
+
+    class FakeItem:
+        def __init__(self):
+            self.Attachments = FakeAttachments([FakeAttachment("draft_S2-2612929.docx")])
+
+    class FakeNS:
+        def GetItemFromID(self, eid):
+            return FakeItem()
+
+    opened_paths = []
+    with patch.object(OutlookClient, "get_namespace", return_value=FakeNS()), \
+         patch("modules.word_tools.core.document_opener.open_document", side_effect=lambda p: opened_paths.append(Path(p))):
+        att_out = open_outlook_attachment("EID-ATT-1", "draft_S2-2612929.docx", save_dir=tmp_path)
+        assert att_out is not None and att_out.is_file()
+        assert opened_paths[-1].name == "draft_S2-2612929.docx"
+
+        # Pre-cached URL document also opens via open_document() so sensitivity labels apply
+        cached_doc = tmp_path / "S2-2612711_Conclusion.docx"
+        cached_doc.write_bytes(b"PK\x03\x04cached")
+        url_out = cache_and_open_thread_document_url(
+            "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/Docs/S2-2612711_Conclusion.docx",
+            tmp_path,
+            open_after=True,
+        )
+        assert url_out == cached_doc
+        assert opened_paths[-1].name == "S2-2612711_Conclusion.docx"

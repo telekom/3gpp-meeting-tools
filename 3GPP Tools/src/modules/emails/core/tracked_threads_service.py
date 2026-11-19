@@ -731,12 +731,11 @@ def reload_all_thread_messages_from_outlook(
 
 
 def open_outlook_attachment(entry_id: str, filename: str, save_dir: Optional[Path] = None) -> Optional[Path]:
-    """Saves an attachment from an Outlook MailItem to disk and opens it via os.startfile."""
-    import os
-
+    """Saves an attachment from an Outlook MailItem to disk and opens it via document_opener (applying sensitivity labels)."""
     if not entry_id or not filename or str(entry_id).startswith("MSG-"):
         return None
     from modules.emails.core.outlook_client import OutlookClient
+    from modules.word_tools.core.document_opener import open_document
 
     ns = OutlookClient.get_namespace()
     if not ns:
@@ -755,8 +754,7 @@ def open_outlook_attachment(entry_id: str, filename: str, save_dir: Optional[Pat
                 safe_name = "".join(c for c in fname if c not in '<>:"/\\|?*').strip() or "attachment.bin"
                 out_path = target_dir / safe_name
                 att.SaveAsFile(str(out_path.resolve()))
-                if hasattr(os, "startfile"):
-                    os.startfile(str(out_path.resolve()))
+                open_document(out_path.resolve())
                 return out_path
     except Exception as e:
         logger.error(f"Failed to open attachment '{filename}' from {entry_id}: {e}")
@@ -833,9 +831,10 @@ def cache_and_open_thread_document_url(
         except Exception:
             pass
 
-    if open_after and hasattr(os, "startfile"):
+    if open_after:
         try:
-            os.startfile(str(open_target.resolve()))
+            from modules.word_tools.core.document_opener import open_document
+            open_document(open_target.resolve())
         except Exception as e:
             logger.error(f"Could not open cached document {open_target}: {e}")
     return open_target
