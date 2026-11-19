@@ -3456,6 +3456,30 @@ class TDocsWindow(QWidget):
         self._refresh_comboboxes()
         self._schedule_row_height_adjustment()
 
+    def _build_tdoc_meta_map(self) -> dict:
+        """Maps TDoc IDs to their Agenda Item, Sub-Item, and Related WIs for email link inheritance."""
+        meta_map = {}
+        if not hasattr(self, "model") or not hasattr(self.model, "_data"):
+            return meta_map
+        for r in self.model._data:
+            if r.get("_is_tracked_thread"):
+                continue
+            td = str(r.get("TDoc") or "").strip().upper()
+            if not td:
+                continue
+            ai = str(r.get("Agenda Item") or "").strip()
+            if ai in ("N/A", "-", "None"):
+                ai = ""
+            sub = str(r.get("Sub-Item") or "").strip()
+            if sub in ("N/A", "-", "None"):
+                sub = ""
+            wis = [
+                w for w in self.model._split_related_wis(r.get("Related WIs", ""))
+                if w and w.lower() not in ("(no wi)", "none", "nan", "-")
+            ]
+            meta_map[td] = {"ai": ai, "sub_item": sub, "wis": wis}
+        return meta_map
+
     def _get_pin_meeting_context(self):
         """Returns (agenda_map, valid_wis) for resolving KI/AI/WI tokens against the active meeting."""
         _, wi_sugg, _, _, _ = self._build_thread_autocomplete_suggestions()
@@ -3466,6 +3490,7 @@ class TDocsWindow(QWidget):
         wg = str(self.mtg_info.get("wg_name", "SA2")).strip().upper()
         meeting_id = self._get_meeting_id_label()
         agenda_map, valid_wis = self._get_pin_meeting_context()
+        tdoc_meta_map = self._build_tdoc_meta_map()
         try:
             # First try reading Outlook ActiveExplorer Selection (most reliable for .msg drags in Windows)
             pinned_ids = pin_thread_from_outlook_selection(
@@ -3474,6 +3499,7 @@ class TDocsWindow(QWidget):
                 wg=wg,
                 agenda_map=agenda_map,
                 valid_wis=valid_wis,
+                tdoc_meta_map=tdoc_meta_map,
             )
             if not pinned_ids and mime_data:
                 # Fallback: try extracting FileContents if non-empty
@@ -3502,6 +3528,7 @@ class TDocsWindow(QWidget):
                                     wg=wg,
                                     agenda_map=agenda_map,
                                     valid_wis=valid_wis,
+                                    tdoc_meta_map=tdoc_meta_map,
                                 )
                                 if tid:
                                     pinned_ids.append(tid)
@@ -3523,6 +3550,7 @@ class TDocsWindow(QWidget):
         wg = str(self.mtg_info.get("wg_name", "SA2")).strip().upper()
         meeting_id = self._get_meeting_id_label()
         agenda_map, valid_wis = self._get_pin_meeting_context()
+        tdoc_meta_map = self._build_tdoc_meta_map()
         pinned_ids = []
         try:
             for mp in msg_files:
@@ -3533,6 +3561,7 @@ class TDocsWindow(QWidget):
                     wg=wg,
                     agenda_map=agenda_map,
                     valid_wis=valid_wis,
+                    tdoc_meta_map=tdoc_meta_map,
                 )
                 if tid:
                     pinned_ids.append(tid)
@@ -3580,6 +3609,7 @@ class TDocsWindow(QWidget):
             valid_tdocs=getattr(self.model, "valid_tdocs", set()),
             mtg_start_date=str(self.mtg_info.get("start_date") or ""),
             mtg_end_date=str(self.mtg_info.get("end_date") or ""),
+            tdoc_meta_map=self._build_tdoc_meta_map(),
         )
         if dlg.exec_() == QDialog.Accepted and dlg.pinned_thread_ids:
             self._on_tracked_thread_changed()
@@ -3613,6 +3643,8 @@ class TDocsWindow(QWidget):
             self.raise_()
             self.activateWindow()
 
+        wg = str(self.mtg_info.get("wg_name", "SA2")).strip().upper()
+        ai_sugg, wi_sugg, _tdoc_sugg, _sub_sugg, ai_to_sub_items = self._build_thread_autocomplete_suggestions()
         dlg = MeetingEmailInboxDialog(
             tracked_db=getattr(self, "tracked_threads_db", None),
             general_email_db=getattr(self, "general_email_db", None),
@@ -3621,6 +3653,12 @@ class TDocsWindow(QWidget):
             open_thread_callback=self._open_tracked_thread_dialog,
             open_tdoc_callback=_focus_tdoc,
             parent=None,
+            wg=wg,
+            ai_suggestions=ai_sugg,
+            wi_suggestions=wi_sugg,
+            ai_to_sub_items=ai_to_sub_items,
+            tdoc_meta_map=self._build_tdoc_meta_map(),
+            agenda_map=getattr(self, "agenda_map", None),
         )
         dlg.data_changed.connect(self._refresh_email_counts)
         self._inbox_dialog = dlg
@@ -3763,6 +3801,7 @@ class TDocsWindow(QWidget):
                 linked_tdocs=list(info.get("linked_tdocs") or family),
                 agenda_map=agenda_map,
                 valid_wis=valid_wis,
+                tdoc_meta_map=self._build_tdoc_meta_map(),
             )
             self._on_tracked_thread_changed()
             self._open_tracked_thread_dialog(tid)

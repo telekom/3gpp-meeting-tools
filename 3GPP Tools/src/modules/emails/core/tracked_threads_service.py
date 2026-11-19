@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 _PREFIX_RE = re.compile(r"^(?:\s*(?:re|fwd|fw|aw|wg|sv|antw|回复|答复|转发)\s*[:：]\s*)+", re.IGNORECASE)
 _TAG_RE = re.compile(r"^\s*\[[^\]]{2,80}\]\s*")
-_TDOC_RE = re.compile(r"\b(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,7}\b", re.IGNORECASE)
+_TDOC_RE = re.compile(r"\b(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,7}(?:(?:r|rev)\d{1,2}[a-z]?)?\b", re.IGNORECASE)
 _KI_AI_RE = re.compile(r"\b(?:KI\s*#?\s*\d+(?:[._]\d+)?|AI\s*\d+(?:\.\d+)+)\b", re.IGNORECASE)
 _WI_RE = re.compile(r"\b(?:FS|TEI\d+|e?[A-Z0-9]{2,})_[A-Z0-9_]{2,}\b")
 
@@ -83,17 +83,22 @@ def auto_suggest_links(
     agenda_map: Optional[Dict[str, Any]] = None,
     valid_ais: Optional[List[str]] = None,
     valid_wis: Optional[List[str]] = None,
+    tdoc_meta_map: Optional[Dict[str, Dict[str, Any]]] = None,
+    extra_tdocs: Optional[List[str]] = None,
 ) -> Dict[str, List[str]]:
     """
-    Extracts candidate AIs/KIs, WIs, and TDocs from an email subject and body.
-    When meeting metadata (`agenda_map`/`valid_ais`/`valid_wis`) is provided,
-    tokens are resolved strictly against real meeting Agenda Items and WIs.
+    Extracts candidate AIs/KIs, Sub-Topics, WIs, and TDocs from an email subject, body, and linked TDocs.
+    When meeting metadata (`agenda_map`/`valid_ais`/`valid_wis`/`tdoc_meta_map`) is provided,
+    tokens are resolved against real meeting Agenda Items, Sub-Items, and WIs.
     """
     text_subj = subject or ""
     text_all = f"{text_subj}\n{(body or '')[:2000]}"
     raw_ais = sorted({re.sub(r"\s+", "", m.upper()) for m in _KI_AI_RE.findall(text_subj)})
     raw_wis = sorted({m.strip() for m in _WI_RE.findall(text_subj)})
-    tdocs = sorted({m.upper() for m in _TDOC_RE.findall(text_all)})
+    tdocs = sorted(
+        {m.upper() for m in _TDOC_RE.findall(text_all)}
+        | {str(t).strip().upper() for t in (extra_tdocs or []) if str(t).strip()}
+    )
 
     if agenda_map is not None or valid_ais is not None:
         ais = _resolve_ais_against_agenda(raw_ais, raw_wis, agenda_map, valid_ais)
@@ -106,7 +111,34 @@ def auto_suggest_links(
     else:
         wis = raw_wis
 
-    return {"ais": ais, "wis": wis, "tdocs": tdocs}
+    sub_items: List[str] = []
+    if tdoc_meta_map:
+        wi_by_lower = (
+            {str(w).strip().lower(): str(w).strip() for w in valid_wis if str(w).strip()}
+            if valid_wis is not None
+            else None
+        )
+        for td in tdocs:
+            base_td = re.sub(r"(?:R|REV)\d{1,2}[A-Z]?$", "", td, flags=re.IGNORECASE)
+            meta = tdoc_meta_map.get(td) or tdoc_meta_map.get(base_td)
+            if not isinstance(meta, dict):
+                continue
+            ai_val = str(meta.get("ai") or "").strip()
+            if ai_val and ai_val not in ("N/A", "-", "None") and ai_val not in ais:
+                ais.append(ai_val)
+            sub_val = str(meta.get("sub_item") or "").strip()
+            if sub_val and sub_val not in ("N/A", "-", "None") and sub_val not in sub_items:
+                sub_items.append(sub_val)
+            for w in (meta.get("wis") or []):
+                wc = str(w).strip()
+                if not wc or wc.lower() in ("(no wi)", "none", "nan", "-"):
+                    continue
+                if wi_by_lower is not None:
+                    wc = wi_by_lower.get(wc.lower(), wc)
+                if wc not in wis:
+                    wis.append(wc)
+
+    return {"ais": sorted(set(ais)), "sub_items": sub_items, "wis": sorted(set(wis)), "tdocs": tdocs}
 
 
 def normalize_subject(subject: str) -> str:
@@ -410,9 +442,11 @@ def _pin_from_seed_dict(
     linked_ais: Optional[List[str]] = None,
     linked_wis: Optional[List[str]] = None,
     linked_tdocs: Optional[List[str]] = None,
+    linked_sub_items: Optional[List[str]] = None,
     seed_live_item: Any = None,
     agenda_map: Optional[Dict[str, Any]] = None,
     valid_wis: Optional[List[str]] = None,
+    tdoc_meta_map: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> str:
     norm_subj = normalize_subject(seed["subject"])
     folders = _extract_folder_paths(load_wg_email_config(wg)) if wg else []
@@ -421,6 +455,8 @@ def _pin_from_seed_dict(
         seed.get("clean_body") or seed.get("body_text", ""),
         agenda_map=agenda_map,
         valid_wis=valid_wis,
+        tdoc_meta_map=tdoc_meta_map,
+        extra_tdocs=linked_tdocs,
     )
     thread_id = db.create_or_get_thread(
         title=norm_subj or seed["subject"],
@@ -432,6 +468,7 @@ def _pin_from_seed_dict(
         linked_ais=linked_ais if linked_ais is not None else suggested["ais"],
         linked_wis=linked_wis if linked_wis is not None else suggested["wis"],
         linked_tdocs=linked_tdocs if linked_tdocs is not None else suggested["tdocs"],
+        linked_sub_items=linked_sub_items if linked_sub_items is not None else suggested.get("sub_items"),
     )
 
     conv_ids = [seed["conversation_id"]] if seed.get("conversation_id") else []
@@ -465,6 +502,7 @@ def pin_thread_from_msg(
     linked_tdocs: Optional[List[str]] = None,
     agenda_map: Optional[Dict[str, Any]] = None,
     valid_wis: Optional[List[str]] = None,
+    tdoc_meta_map: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Optional[str]:
     """Parses a dropped .msg, locates the full thread in configured Outlook folders, and pins it."""
     seed = parse_msg_file(msg_path)
@@ -473,7 +511,7 @@ def pin_thread_from_msg(
     return _pin_from_seed_dict(
         db, seed, meeting_id=meeting_id, wg=wg,
         linked_ais=linked_ais, linked_wis=linked_wis, linked_tdocs=linked_tdocs,
-        agenda_map=agenda_map, valid_wis=valid_wis,
+        agenda_map=agenda_map, valid_wis=valid_wis, tdoc_meta_map=tdoc_meta_map,
     )
 
 
@@ -483,6 +521,7 @@ def pin_thread_from_outlook_selection(
     wg: str,
     agenda_map: Optional[Dict[str, Any]] = None,
     valid_wis: Optional[List[str]] = None,
+    tdoc_meta_map: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> List[str]:
     """Pins thread(s) from the currently selected MailItem(s) in Microsoft Outlook's ActiveExplorer."""
     import win32com.client
@@ -501,7 +540,7 @@ def pin_thread_from_outlook_selection(
             seed = _mail_item_to_dict(item)
             tid = _pin_from_seed_dict(
                 db, seed, meeting_id=meeting_id, wg=wg, seed_live_item=item,
-                agenda_map=agenda_map, valid_wis=valid_wis,
+                agenda_map=agenda_map, valid_wis=valid_wis, tdoc_meta_map=tdoc_meta_map,
             )
             if tid and tid not in pinned:
                 pinned.append(tid)
@@ -794,6 +833,7 @@ def classify_discovered_threads(
     agenda_map: Optional[Dict[str, Any]] = None,
     valid_wis: Optional[List[str]] = None,
     ignored_keys: Optional[set] = None,
+    tdoc_meta_map: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Annotates discovered Outlook threads with tracking coverage:
@@ -858,12 +898,15 @@ def classify_discovered_threads(
             item.get("raw_subject") or item.get("title", ""),
             agenda_map=agenda_map,
             valid_wis=valid_wis,
+            tdoc_meta_map=tdoc_meta_map,
+            extra_tdocs=subj_tdocs,
         )
         item["coverage"] = cov
         item["coverage_label"] = "🚫 Ignored" if (is_ignored and not is_pinned) else cov_label
         item["is_pinned"] = is_pinned
         item["is_ignored"] = is_ignored
         item["suggested_ais"] = sugg.get("ais") or []
+        item["suggested_sub_items"] = sugg.get("sub_items") or []
         item["suggested_wis"] = sugg.get("wis") or []
         item["suggested_tdocs"] = subj_tdocs or (sugg.get("tdocs") or [])
         classified.append(item)
@@ -879,10 +922,23 @@ def pin_thread_by_subject_or_cid(
     wg: str,
     agenda_map: Optional[Dict[str, Any]] = None,
     valid_wis: Optional[List[str]] = None,
+    tdoc_meta_map: Optional[Dict[str, Dict[str, Any]]] = None,
+    linked_ais: Optional[List[str]] = None,
+    linked_wis: Optional[List[str]] = None,
+    linked_tdocs: Optional[List[str]] = None,
+    linked_sub_items: Optional[List[str]] = None,
+    seed_messages: Optional[List[Dict[str, Any]]] = None,
+    refresh_from_outlook: bool = True,
 ) -> str:
-    """Pins a thread selected from the configured Outlook folder browser and pulls all matching messages."""
+    """Pins a thread selected from the configured Outlook folder browser or inbox and pulls matching messages."""
     folders = _extract_folder_paths(load_wg_email_config(wg)) if wg else []
-    suggested = auto_suggest_links(title, agenda_map=agenda_map, valid_wis=valid_wis)
+    suggested = auto_suggest_links(
+        title,
+        agenda_map=agenda_map,
+        valid_wis=valid_wis,
+        tdoc_meta_map=tdoc_meta_map,
+        extra_tdocs=linked_tdocs,
+    )
     thread_id = db.create_or_get_thread(
         title=title,
         normalized_subject=normalized_subject,
@@ -890,11 +946,15 @@ def pin_thread_by_subject_or_cid(
         outlook_folders=folders,
         meeting_id=meeting_id,
         wg=wg,
-        linked_ais=suggested["ais"],
-        linked_wis=suggested["wis"],
-        linked_tdocs=suggested["tdocs"],
+        linked_ais=linked_ais if linked_ais is not None else suggested["ais"],
+        linked_wis=linked_wis if linked_wis is not None else suggested["wis"],
+        linked_tdocs=linked_tdocs if linked_tdocs is not None else suggested["tdocs"],
+        linked_sub_items=linked_sub_items if linked_sub_items is not None else suggested.get("sub_items"),
     )
-    refresh_thread(db, thread_id)
+    if seed_messages:
+        db.upsert_messages(thread_id, seed_messages)
+    if refresh_from_outlook:
+        refresh_thread(db, thread_id)
     return thread_id
 
 

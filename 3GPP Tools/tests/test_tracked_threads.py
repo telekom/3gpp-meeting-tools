@@ -1661,3 +1661,123 @@ def test_unified_tdoc_emails_dialog_timeline_and_actions(tmp_path):
         assert len(changes) >= 3
         dlg._settings.setValue("newest_first", True)
         dlg.close()
+
+
+def test_inbox_unassigned_filters_grouping_and_inline_assignment(tmp_path):
+    from unittest.mock import patch
+    from PyQt5.QtWidgets import QApplication
+    from modules.emails.core.general_email_db import GeneralEmailDatabase
+    from modules.emails.core.outlook_client import OutlookClient
+    from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+    from modules.emails.core.tracked_threads_service import auto_suggest_links
+    from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
+
+    app = QApplication.instance() or QApplication([])
+    tdoc_meta = {
+        "S2-2612711": {"ai": "20.6.1", "sub_item": "KI#4 Bullet 3", "wis": ["FS_6G_ARC"]},
+        "S2-2612999": {"ai": "", "sub_item": "", "wis": []},
+    }
+
+    # 1. TDoc metadata inheritance in auto_suggest_links (subject only mentions TDoc revision)
+    sugg = auto_suggest_links(
+        "Re: [SA2#178] draft S2-2612711r01 comments",
+        valid_wis=["FS_6G_ARC", "OTHER_WI"],
+        tdoc_meta_map=tdoc_meta,
+    )
+    assert sugg["ais"] == ["20.6.1"]
+    assert sugg["sub_items"] == ["KI#4 Bullet 3"]
+    assert sugg["wis"] == ["FS_6G_ARC"]
+
+    # 2. Setup mixed DB: (a) Tracked unassigned thread with 2 messages, (b) Tracked assigned thread, (c) Unpinned TDoc email
+    tdb = TrackedThreadsDatabase(tmp_path / "threads.db")
+    tid_unassigned = tdb.create_or_get_thread("Breakout No AI", "Breakout No AI", meeting_id="SA2#178")
+    tdb.upsert_messages(
+        tid_unassigned,
+        [
+            {"id": "M-U1", "sender_name": "Alice", "company": "Nokia", "date_sent": "2026-11-18 09:00:00", "body_text": "First msg", "is_read": 1},
+            {"id": "M-U2", "sender_name": "Bob", "company": "Samsung", "date_sent": "2026-11-18 10:00:00", "body_text": "Second msg", "is_read": 0},
+        ],
+    )
+    tid_assigned = tdb.create_or_get_thread(
+        "Assigned Thread", "Assigned Thread", meeting_id="SA2#178", linked_ais=["20.6.1"]
+    )
+    tdb.upsert_messages(
+        tid_assigned,
+        [{"id": "M-A1", "sender_name": "Carol", "company": "Ericsson", "date_sent": "2026-11-18 11:00:00", "body_text": "Assigned msg", "is_read": 0}],
+    )
+
+    gdb = GeneralEmailDatabase(tmp_path / "general.db")
+    gdb.save_emails_batch(
+        [
+            {
+                "id": "E-UNPIN",
+                "subject": "[SA2#178] Unpinned TDoc S2-2612999",
+                "sender_name": "Dave",
+                "company": "Huawei",
+                "date_received": "2026-11-18 12:00:00",
+                "body_text": "Need to discuss S2-2612999",
+                "is_read": 0,
+            }
+        ],
+        [{"email_id": "E-UNPIN", "tdoc_id": "S2-2612999", "match_location": "Subject"}],
+    )
+
+    with patch.object(OutlookClient, "set_messages_read_status", return_value=1), \
+         patch.object(OutlookClient, "get_namespace", return_value=None):
+        dlg = MeetingEmailInboxDialog(
+            tdb,
+            gdb,
+            meeting_id="SA2#178",
+            ai_suggestions=["20.6.1 — FS_6G_ARC", "20.2 — Architecture"],
+            wi_suggestions=["FS_6G_ARC"],
+            ai_to_sub_items={"20.6.1": ["KI#4 Bullet 3"], "20.2": ["Mobility"]},
+            tdoc_meta_map=tdoc_meta,
+        )
+        dlg._set_view_mode("MESSAGES")
+        # Default By Message has 3 unread rows (M-U2, M-A1, E-UNPIN)
+        assert dlg.table.rowCount() == 3
+
+        # Filter AI = __UNASSIGNED__ -> isolates M-U2 (no AI) and E-UNPIN (no AI)
+        idx_unassigned = dlg.ai_combo.findData("__UNASSIGNED__")
+        assert idx_unassigned >= 1
+        assert "(2)" in dlg.ai_combo.itemText(idx_unassigned)
+        dlg.ai_combo.setCurrentIndex(idx_unassigned)
+        assert dlg.table.rowCount() == 2
+
+        # Filter Source = UNPINNED -> isolates E-UNPIN only
+        dlg.source_combo.setCurrentIndex(dlg.source_combo.findData("UNPINNED"))
+        assert dlg.table.rowCount() == 1
+        assert dlg._current_item["id"] == "E-UNPIN"
+        assert not dlg.btn_pin_inline.isHidden()
+
+        # Assign AI inline directly on the unpinned email -> auto-pins in-place & links AI 20.2
+        dlg.source_combo.setCurrentIndex(0)
+        dlg.ai_combo.setCurrentIndex(0)
+        dlg.table.selectRow(0)  # E-UNPIN (newest: 12:00)
+        dlg.assign_ais_pills.add_tag("20.2")
+        pinned_list = [t for t in tdb.get_threads_for_meeting("SA2#178") if "S2-2612999" in (t.get("linked_tdocs") or [])]
+        assert len(pinned_list) == 1
+        assert pinned_list[0]["linked_ais"] == ["20.2"]
+
+        # Switch to By Thread grouped mode + All pill -> shows 3 distinct threads
+        dlg.pill_all.click()
+        dlg._set_view_mode("THREADS")
+        assert dlg.table.rowCount() == 3
+
+        # Select unassigned thread (tid_unassigned) and assign 20.6.1 + Sub-Topic inline
+        target_row = next(r for r, it in enumerate(dlg._visible_items) if it.get("thread_id") == tid_unassigned)
+        dlg.table.selectRow(target_row)
+        assert dlg._current_item["_total_count"] == 2
+        assert "First msg" in dlg.preview_browser.toPlainText()
+        assert "Second msg" in dlg.preview_browser.toPlainText()
+
+        dlg.assign_ais_pills.add_tag("20.6.1")
+        dlg.assign_subs_pills.add_tag("KI#4 Bullet 3")
+        dlg.assign_wis_pills.add_tag("FS_6G_ARC")
+        updated_th = tdb.get_thread(tid_unassigned)
+        assert updated_th["linked_ais"] == ["20.6.1"]
+        assert updated_th["linked_sub_items"] == ["KI#4 Bullet 3"]
+        assert updated_th["linked_wis"] == ["FS_6G_ARC"]
+
+        dlg._settings.setValue("view_mode", "MESSAGES")
+        dlg.close()

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 import urllib.parse
 
-from PyQt5.QtCore import QSettings, Qt, QUrl, pyqtSignal
+from PyQt5.QtCore import QSettings, Qt, QTimer, QUrl, pyqtSignal
 from PyQt5.QtGui import QColor, QDesktopServices
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
     QFrame,
-    QHBoxLayout,
+    QGridLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
@@ -29,25 +29,33 @@ from PyQt5.QtWidgets import (
 
 from core.ui.flow_layout import FlowLayout
 from core.ui.font_scale import install_reader_zoom, zoom_text_widget
-from core.ui.toast import notify_info, notify_toast
+from core.ui.toast import notify_info, notify_success, notify_toast
 from modules.emails.core.outlook_client import OutlookClient
 from modules.emails.core.thread_markdown_exporter import (
     escape_non_html_angles,
+    export_thread_to_markdown,
+    find_unread_heading_blocks,
     inject_html_tables_into_body,
     is_cacheable_document_url,
     linkify_markdown_urls,
+    scroll_browser_to_block,
 )
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.emails.core.tracked_threads_service import (
+    auto_suggest_links,
     cache_and_open_thread_document_url,
+    normalize_subject,
     open_outlook_attachment,
     open_outlook_message,
+    pin_thread_by_subject_or_cid,
+    reload_outlook_message,
     reply_to_outlook_message,
 )
+from modules.meetings.ui.topic_pills import TagCloudWidget
 
 
 class MeetingEmailInboxDialog(QDialog):
-    """Unified cockpit aggregating unread, flagged, and recent emails across Tracked Threads and Indexed TDoc emails."""
+    """Unified cockpit for triaging unread, flagged, unassigned, and unpinned emails/threads."""
 
     data_changed = pyqtSignal()
 
@@ -60,21 +68,48 @@ class MeetingEmailInboxDialog(QDialog):
         open_thread_callback: Optional[Callable[[str], None]] = None,
         open_tdoc_callback: Optional[Callable[[str], None]] = None,
         parent: Optional[QWidget] = None,
+        *,
+        wg: str = "SA2",
+        ai_suggestions: Optional[List[str]] = None,
+        wi_suggestions: Optional[List[str]] = None,
+        ai_to_sub_items: Optional[Dict[str, List[str]]] = None,
+        tdoc_meta_map: Optional[Dict[str, Dict[str, Any]]] = None,
+        agenda_map: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(parent)
         self.tracked_db = tracked_db
         self.general_email_db = general_email_db
         self.meeting_id = str(meeting_id or "").strip()
+        self.wg = str(wg or "SA2").strip().upper()
         self.tdoc_ai_lookup = {str(k).upper(): str(v) for k, v in (tdoc_ai_lookup or {}).items()}
+        self._tdoc_meta_map = tdoc_meta_map or {}
+        self._agenda_map = agenda_map
+        self._ai_suggestions = list(ai_suggestions or [])
+        self._wi_suggestions = list(wi_suggestions or [])
+        self._valid_wis = [s.split(" — ", 1)[0].strip() for s in self._wi_suggestions if str(s).strip()]
+        self._ai_to_sub_items: Dict[str, List[str]] = {
+            str(k).strip(): list(dict.fromkeys(str(v).strip() for v in vals if str(v).strip()))
+            for k, vals in (ai_to_sub_items or {}).items()
+            if str(k).strip()
+        }
+        self._ai_label_map: Dict[str, str] = {}
+        for item in self._ai_suggestions:
+            code = str(item).split(" — ", 1)[0].strip()
+            if code and code not in self._ai_label_map:
+                self._ai_label_map[code] = str(item)
+
         self._open_thread_callback = open_thread_callback
         self._open_tdoc_callback = open_tdoc_callback
 
         self._all_items: List[dict] = []
+        self._grouped_items: List[dict] = []
         self._visible_items: List[dict] = []
         self._items_by_id: Dict[str, dict] = {}
         self._current_item: Optional[dict] = None
         self._active_mode = "UNREAD"
         self._settings = QSettings("3GPP_Tools", "MeetingEmailInboxDialog")
+        self._view_mode = "THREADS" if self._settings.value("view_mode", "MESSAGES") == "THREADS" else "MESSAGES"
+        self._updating_assign_bar = False
 
         title_suffix = f" — {self.meeting_id}" if self.meeting_id else ""
         self.setWindowFlags(Qt.Window)
@@ -82,7 +117,7 @@ class MeetingEmailInboxDialog(QDialog):
         self.setSizeGripEnabled(True)
         self.setWindowTitle(f"📬 Unread & Flagged Email Inbox{title_suffix}")
         self.setMinimumSize(520, 420)
-        self.resize(1220, 760)
+        self.resize(1260, 780)
         saved_geom = self._settings.value("geometry")
         if saved_geom:
             try:
@@ -98,7 +133,7 @@ class MeetingEmailInboxDialog(QDialog):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(6)
 
-        # Row 1: Responsive FlowLayout for State Pills + Search + Company/AI dropdowns + Refresh
+        # Row 1: Responsive FlowLayout for State Pills + View Toggle + Search + Dropdown Filters + Reload
         top_widget = QWidget(self)
         top_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         top_sp.setHeightForWidth(True)
@@ -150,8 +185,36 @@ class MeetingEmailInboxDialog(QDialog):
         self.pill_all.clicked.connect(lambda: self._set_mode("ALL"))
         top_row.addWidget(self.pill_all)
 
+        # View Mode Toggle: By Message vs. By Thread
+        view_style = (
+            "QPushButton { padding: 4px 9px; border-radius: 5px; border: 1px solid #CBD5E1; "
+            "background-color: #F8FAFC; color: #334155; font-size: 12px; } "
+            "QPushButton:hover { background-color: #F1F5F9; } "
+            "QPushButton:checked { background-color: #EEF2FF; border-color: #6366F1; "
+            "color: #4338CA; font-weight: bold; }"
+        )
+        self.view_mode_group = QButtonGroup(self)
+        self.view_mode_group.setExclusive(True)
+        self.btn_view_messages = QPushButton("📨 By Message")
+        self.btn_view_messages.setCheckable(True)
+        self.btn_view_messages.setChecked(self._view_mode == "MESSAGES")
+        self.btn_view_messages.setStyleSheet(view_style)
+        self.btn_view_messages.setToolTip("Show individual email messages sorted newest first.")
+        self.btn_view_messages.clicked.connect(lambda: self._set_view_mode("MESSAGES"))
+        self.view_mode_group.addButton(self.btn_view_messages)
+        top_row.addWidget(self.btn_view_messages)
+
+        self.btn_view_threads = QPushButton("🧵 By Thread")
+        self.btn_view_threads.setCheckable(True)
+        self.btn_view_threads.setChecked(self._view_mode == "THREADS")
+        self.btn_view_threads.setStyleSheet(view_style)
+        self.btn_view_threads.setToolTip("Group emails by discussion thread for fast AI/WI assignment and thread triage.")
+        self.btn_view_threads.clicked.connect(lambda: self._set_view_mode("THREADS"))
+        self.view_mode_group.addButton(self.btn_view_threads)
+        top_row.addWidget(self.btn_view_threads)
+
         self.search_edit = QLineEdit()
-        self.search_edit.setMinimumWidth(200)
+        self.search_edit.setMinimumWidth(190)
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setPlaceholderText("🔍 Search subject, sender, company, TDoc, or body...")
         self.search_edit.textChanged.connect(self._apply_filters)
@@ -163,9 +226,19 @@ class MeetingEmailInboxDialog(QDialog):
         top_row.addWidget(self.company_combo)
 
         self.ai_combo = QComboBox()
+        self.ai_combo.setMaximumWidth(230)
         self.ai_combo.addItem("All AIs", "")
         self.ai_combo.currentIndexChanged.connect(self._apply_filters)
         top_row.addWidget(self.ai_combo)
+
+        self.source_combo = QComboBox()
+        self.source_combo.addItem("All Sources", "")
+        self.source_combo.addItem("⚠️ Needs Assignment (No AI / Unpinned)", "NEEDS_TRIAGE")
+        self.source_combo.addItem("🧵 Tracked Threads Only", "THREAD")
+        self.source_combo.addItem("📄 Unpinned Only", "UNPINNED")
+        self.source_combo.setToolTip("Filter by Tracked Thread vs. Unpinned TDoc Email, or isolate items needing assignment.")
+        self.source_combo.currentIndexChanged.connect(self._apply_filters)
+        top_row.addWidget(self.source_combo)
 
         self.refresh_btn = QPushButton("🔄 Reload")
         self.refresh_btn.setToolTip("Reload latest synced messages from local meeting databases.")
@@ -200,9 +273,9 @@ class MeetingEmailInboxDialog(QDialog):
         self.table.verticalHeader().setVisible(False)
         hdr = self.table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.Interactive)
-        hdr.resizeSection(0, 52)
+        hdr.resizeSection(0, 64)
         hdr.resizeSection(1, 165)
-        hdr.resizeSection(2, 68)
+        hdr.resizeSection(2, 72)
         hdr.setSectionResizeMode(3, QHeaderView.Stretch)
         hdr.resizeSection(4, 140)
         hdr.resizeSection(5, 115)
@@ -215,7 +288,7 @@ class MeetingEmailInboxDialog(QDialog):
 
         # Right Detail Pane
         right_widget = QWidget()
-        right_widget.setMinimumWidth(260)
+        right_widget.setMinimumWidth(280)
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(4, 0, 0, 0)
         right_layout.setSpacing(6)
@@ -226,8 +299,8 @@ class MeetingEmailInboxDialog(QDialog):
             "#InboxMetaFrame { background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; }"
         )
         meta_layout = QVBoxLayout(meta_frame)
-        meta_layout.setContentsMargins(10, 8, 10, 8)
-        meta_layout.setSpacing(3)
+        meta_layout.setContentsMargins(10, 8, 10, 6)
+        meta_layout.setSpacing(4)
 
         self.detail_subject_lbl = QLabel("Select an email to read")
         self.detail_subject_lbl.setWordWrap(True)
@@ -244,6 +317,79 @@ class MeetingEmailInboxDialog(QDialog):
         self.detail_links_lbl.setStyleSheet("color: #1D4ED8; font-size: 11px;")
         meta_layout.addWidget(self.detail_links_lbl)
 
+        # Inline Assignment Bar (AIs, Sub-Topics, WIs + Pin/Auto-Assign)
+        self.assign_frame = QFrame(meta_frame)
+        self.assign_frame.setObjectName("InboxAssignBar")
+        self.assign_frame.setStyleSheet(
+            "#InboxAssignBar { background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 5px; }"
+        )
+        assign_grid = QGridLayout(self.assign_frame)
+        assign_grid.setContentsMargins(6, 4, 6, 4)
+        assign_grid.setHorizontalSpacing(8)
+        assign_grid.setVerticalSpacing(3)
+        assign_grid.setColumnStretch(1, 1)
+        assign_grid.setColumnStretch(3, 1)
+
+        strict_ai = bool(self._ai_suggestions)
+        strict_wi = bool(self._wi_suggestions)
+
+        assign_grid.addWidget(QLabel("<b>AIs:</b>"), 0, 0, Qt.AlignVCenter)
+        self.assign_ais_pills = TagCloudWidget(
+            placeholder="AI # (e.g. 20.6.1)...",
+            pill_colors={"bg": "#EFF6FF", "fg": "#1D4ED8", "border": "#BFDBFE"},
+            strict_dropdown=strict_ai,
+            dropdown_label="+ AI ▾",
+            empty_dropdown_label="No meeting AIs",
+        )
+        if self._ai_suggestions:
+            self.assign_ais_pills.set_suggestions(
+                self._ai_suggestions,
+                value_extractor=lambda s: s.split(" — ", 1)[0].strip(),
+            )
+        self.assign_ais_pills.tagsChanged.connect(self._on_inline_links_changed)
+        assign_grid.addWidget(self.assign_ais_pills, 0, 1)
+
+        assign_grid.addWidget(QLabel("<b>Sub-Topics:</b>"), 0, 2, Qt.AlignVCenter)
+        self.assign_subs_pills = TagCloudWidget(
+            placeholder="Sub-Topic...",
+            pill_colors={"bg": "#F0FDFA", "fg": "#0F766E", "border": "#99F6E4"},
+            strict_dropdown=True,
+            dropdown_label="+ Sub-Topic ▾",
+            empty_dropdown_label="Assign AI first",
+        )
+        self.assign_subs_pills.tagsChanged.connect(self._on_inline_links_changed)
+        assign_grid.addWidget(self.assign_subs_pills, 0, 3)
+
+        assign_grid.addWidget(QLabel("<b>WIs:</b>"), 1, 0, Qt.AlignVCenter)
+        self.assign_wis_pills = TagCloudWidget(
+            placeholder="Work Item...",
+            pill_colors={"bg": "#EEF2FF", "fg": "#4338CA", "border": "#C7D2FE"},
+            strict_dropdown=strict_wi,
+            dropdown_label="+ WI ▾",
+            empty_dropdown_label="No meeting WIs",
+        )
+        if self._wi_suggestions:
+            self.assign_wis_pills.set_suggestions(
+                self._wi_suggestions,
+                value_extractor=lambda s: s.split(" — ", 1)[0].strip(),
+            )
+        self.assign_wis_pills.tagsChanged.connect(self._on_inline_links_changed)
+        assign_grid.addWidget(self.assign_wis_pills, 1, 1, 1, 2)
+
+        btn_assign_wrap = QWidget(self.assign_frame)
+        ba_layout = FlowLayout(btn_assign_wrap, margin=0, h_spacing=4, v_spacing=2)
+        self.btn_auto_assign = QPushButton("🪄 Auto-Assign")
+        self.btn_auto_assign.setToolTip("Infer and apply AIs, Sub-Topics, and WIs from subject and linked TDocs.")
+        self.btn_auto_assign.clicked.connect(self._on_auto_assign_clicked)
+        ba_layout.addWidget(self.btn_auto_assign)
+
+        self.btn_pin_inline = QPushButton("📌 Pin as Tracked Thread")
+        self.btn_pin_inline.setToolTip("Pin this email conversation as a Tracked Thread in-place so you can track replies and links.")
+        self.btn_pin_inline.clicked.connect(self._on_pin_inline_clicked)
+        ba_layout.addWidget(self.btn_pin_inline)
+        assign_grid.addWidget(btn_assign_wrap, 1, 3, Qt.AlignRight | Qt.AlignVCenter)
+
+        meta_layout.addWidget(self.assign_frame)
         right_layout.addWidget(meta_frame)
 
         # Triage Action Bar (FlowLayout wraps cleanly when pane narrows)
@@ -297,7 +443,7 @@ class MeetingEmailInboxDialog(QDialog):
 
         self.splitter.addWidget(left_widget)
         self.splitter.addWidget(right_widget)
-        self.splitter.setSizes([580, 620])
+        self.splitter.setSizes([580, 660])
         saved_split = self._settings.value("splitter_state")
         if saved_split:
             try:
@@ -319,7 +465,75 @@ class MeetingEmailInboxDialog(QDialog):
 
     def _set_mode(self, mode: str):
         self._active_mode = str(mode or "UNREAD").upper()
+        self._populate_filter_combos()
         self._apply_filters()
+
+    def _set_view_mode(self, view_mode: str):
+        norm = "THREADS" if str(view_mode or "").upper() == "THREADS" else "MESSAGES"
+        if self._view_mode != norm:
+            self._view_mode = norm
+            self._settings.setValue("view_mode", norm)
+        self._populate_filter_combos()
+        self._update_pill_counts()
+        self._apply_filters()
+
+    def _active_dataset(self) -> List[dict]:
+        return self._grouped_items if self._view_mode == "THREADS" else self._all_items
+
+    def _build_grouped_thread_items(self) -> List[dict]:
+        buckets: Dict[str, List[dict]] = {}
+        for it in self._all_items:
+            if it.get("in_tracked_db") and it.get("thread_id"):
+                key = f"THR::{it['thread_id']}"
+            else:
+                norm = normalize_subject(it.get("subject") or "").lower()
+                key = f"UNPIN::{norm or it['id']}"
+            buckets.setdefault(key, []).append(it)
+
+        grouped: List[dict] = []
+        for gkey, msgs in buckets.items():
+            msgs_asc = sorted(msgs, key=lambda m: str(m.get("date_str") or ""))
+            latest = msgs_asc[-1]
+            in_tracked = any(m.get("in_tracked_db") for m in msgs_asc)
+            tid = next((m.get("thread_id") for m in msgs_asc if m.get("thread_id")), "")
+            th_title = next((m.get("thread_title") for m in msgs_asc if m.get("thread_title")), "")
+            linked_ais = list(dict.fromkeys(ai for m in msgs_asc for ai in (m.get("linked_ais") or []) if ai))
+            linked_subs = list(dict.fromkeys(s for m in msgs_asc for s in (m.get("linked_sub_items") or []) if s))
+            linked_wis = list(dict.fromkeys(w for m in msgs_asc for w in (m.get("linked_wis") or []) if w))
+            linked_tdocs = list(dict.fromkeys(td for m in msgs_asc for td in (m.get("linked_tdocs") or []) if td))
+            companies = list(dict.fromkeys(m.get("company") for m in msgs_asc if m.get("company")))
+            unread_cnt = sum(1 for m in msgs_asc if not m["is_read"])
+            flagged_cnt = sum(1 for m in msgs_asc if m["is_flagged"])
+
+            grouped.append({
+                "id": gkey,
+                "_is_group": True,
+                "_group_messages": msgs_asc,
+                "_unread_count": unread_cnt,
+                "_total_count": len(msgs_asc),
+                "_flagged_count": flagged_cnt,
+                "_companies": companies,
+                "source_kind": "thread" if in_tracked else "tdoc",
+                "thread_id": tid,
+                "thread_title": th_title or normalize_subject(latest.get("subject") or ""),
+                "subject": th_title or latest.get("subject") or "(No Subject)",
+                "sender_name": latest.get("sender_name") or "",
+                "sender_email": latest.get("sender_email") or "",
+                "company": ", ".join(companies) if companies else (latest.get("company") or ""),
+                "date_str": latest.get("date_str") or "",
+                "body_text": latest.get("body_text") or "",
+                "is_read": unread_cnt == 0,
+                "is_flagged": flagged_cnt > 0,
+                "attachments": latest.get("attachments") or [],
+                "linked_ais": linked_ais,
+                "linked_sub_items": linked_subs,
+                "linked_wis": linked_wis,
+                "linked_tdocs": linked_tdocs,
+                "in_tracked_db": in_tracked,
+                "in_general_db": any(m.get("in_general_db") for m in msgs_asc),
+                "conversation_id": next((m.get("conversation_id") for m in msgs_asc if m.get("conversation_id")), ""),
+            })
+        return sorted(grouped, key=lambda x: x.get("date_str", ""), reverse=True)
 
     def reload_from_dbs(self, preserve_id: Optional[str] = None):
         """Loads and deduplicates emails from TrackedThreadsDatabase and GeneralEmailDatabase."""
@@ -331,6 +545,8 @@ class MeetingEmailInboxDialog(QDialog):
                 tid = str(th.get("thread_id") or "")
                 th_title = str(th.get("title") or "").strip()
                 th_ais = [str(a).strip() for a in (th.get("linked_ais") or []) if str(a).strip()]
+                th_subs = [str(s).strip() for s in (th.get("linked_sub_items") or []) if str(s).strip()]
+                th_wis = [str(w).strip() for w in (th.get("linked_wis") or []) if str(w).strip()]
                 th_tdocs = [str(t).strip().upper() for t in (th.get("linked_tdocs") or []) if str(t).strip()]
                 for m in self.tracked_db.get_thread_messages(tid):
                     eid = str(m.get("id") or "").strip()
@@ -347,13 +563,17 @@ class MeetingEmailInboxDialog(QDialog):
                         "company": str(m.get("company") or "").strip(),
                         "date_str": str(m.get("date_sent") or "").strip(),
                         "body_text": str(m.get("clean_body") or m.get("body_text") or ""),
+                        "clean_body": str(m.get("clean_body") or ""),
                         "raw_body_text": str(m.get("body_text") or ""),
                         "html_body": "",
                         "is_read": int(m.get("is_read", 0) or 0) == 1,
                         "is_flagged": int(m.get("flag_status", 0) or 0) == 2,
                         "attachments": list(m.get("attachments") or []),
                         "linked_ais": list(th_ais),
+                        "linked_sub_items": list(th_subs),
+                        "linked_wis": list(th_wis),
                         "linked_tdocs": list(th_tdocs),
+                        "conversation_id": str(m.get("conversation_id") or ""),
                         "in_tracked_db": True,
                         "in_general_db": False,
                     }
@@ -365,10 +585,21 @@ class MeetingEmailInboxDialog(QDialog):
                     continue
                 matched_tdocs = [t.strip().upper() for t in str(row.get("matched_tdocs") or "").split(",") if t.strip()]
                 inferred_ais = []
+                inferred_subs = []
+                inferred_wis = []
                 for td in matched_tdocs:
                     ai = self.tdoc_ai_lookup.get(td, "")
+                    meta = self._tdoc_meta_map.get(td) or {}
+                    if not ai:
+                        ai = str(meta.get("ai") or "").strip()
                     if ai and ai not in inferred_ais:
                         inferred_ais.append(ai)
+                    sub = str(meta.get("sub_item") or "").strip()
+                    if sub and sub not in inferred_subs:
+                        inferred_subs.append(sub)
+                    for w in (meta.get("wis") or []):
+                        if w and w not in inferred_wis:
+                            inferred_wis.append(w)
 
                 if eid in by_id:
                     item = by_id[eid]
@@ -395,31 +626,56 @@ class MeetingEmailInboxDialog(QDialog):
                         "sender_email": str(row.get("sender_email") or "").strip(),
                         "company": str(row.get("company") or row.get("sender_company") or "").strip(),
                         "date_str": str(row.get("date_received") or "").strip(),
-                        "body_text": str(row.get("body_text") or ""),
+                        "body_text": str(row.get("clean_body") or row.get("body_text") or ""),
+                        "clean_body": str(row.get("clean_body") or ""),
                         "raw_body_text": str(row.get("body_text") or ""),
                         "html_body": str(row.get("html_body") or ""),
                         "is_read": int(row.get("is_read", 0) or 0) == 1,
                         "is_flagged": int(row.get("flag_status", 0) or 0) == 2,
-                        "attachments": [],
+                        "attachments": list(row.get("attachments") or []),
                         "linked_ais": inferred_ais,
+                        "linked_sub_items": inferred_subs,
+                        "linked_wis": inferred_wis,
                         "linked_tdocs": matched_tdocs,
+                        "conversation_id": "",
                         "in_tracked_db": False,
                         "in_general_db": True,
                     }
 
         self._all_items = sorted(by_id.values(), key=lambda x: x.get("date_str", ""), reverse=True)
+        self._grouped_items = self._build_grouped_thread_items()
         self._items_by_id = {it["id"]: it for it in self._all_items}
 
         self._populate_filter_combos()
         self._update_pill_counts()
         self._apply_filters(preserve_id=preserve_id)
 
+    def _item_matches_mode(self, it: dict, mode: str, cutoff: str) -> bool:
+        if mode == "UNREAD" and it["is_read"]:
+            return False
+        if mode == "FLAGGED" and not it["is_flagged"]:
+            return False
+        if mode == "RECENT" and str(it.get("date_str") or "") < cutoff:
+            return False
+        return True
+
     def _populate_filter_combos(self):
         cur_comp = self.company_combo.currentData() or ""
         cur_ai = self.ai_combo.currentData() or ""
+        cutoff = self._recent_cutoff_str()
+        dataset = [it for it in self._active_dataset() if self._item_matches_mode(it, self._active_mode, cutoff)]
 
-        companies = sorted({it["company"] for it in self._all_items if it.get("company")}, key=str.lower)
-        ais = sorted({ai for it in self._all_items for ai in (it.get("linked_ais") or []) if ai})
+        companies = sorted(
+            {
+                c
+                for it in dataset
+                for c in (it.get("_companies") if it.get("_is_group") else [it.get("company")])
+                if c
+            },
+            key=str.lower,
+        )
+        ais = sorted({ai for it in dataset for ai in (it.get("linked_ais") or []) if ai})
+        unassigned_cnt = sum(1 for it in dataset if not (it.get("linked_ais") or []))
 
         self.company_combo.blockSignals(True)
         self.company_combo.clear()
@@ -433,8 +689,12 @@ class MeetingEmailInboxDialog(QDialog):
         self.ai_combo.blockSignals(True)
         self.ai_combo.clear()
         self.ai_combo.addItem("All AIs", "")
+        self.ai_combo.addItem(f"❓ Unassigned (No AI) ({unassigned_cnt})", "__UNASSIGNED__")
         for ai in ais:
-            self.ai_combo.addItem(ai, ai)
+            label = self._ai_label_map.get(ai, ai)
+            if len(label) > 48:
+                label = label[:45] + "..."
+            self.ai_combo.addItem(label, ai)
         a_idx = self.ai_combo.findData(cur_ai)
         self.ai_combo.setCurrentIndex(max(0, a_idx))
         self.ai_combo.blockSignals(False)
@@ -445,10 +705,11 @@ class MeetingEmailInboxDialog(QDialog):
 
     def _update_pill_counts(self):
         cutoff = self._recent_cutoff_str()
-        unread_cnt = sum(1 for it in self._all_items if not it["is_read"])
-        flagged_cnt = sum(1 for it in self._all_items if it["is_flagged"])
-        recent_cnt = sum(1 for it in self._all_items if str(it.get("date_str") or "") >= cutoff)
-        total_cnt = len(self._all_items)
+        dataset = self._active_dataset()
+        unread_cnt = sum(1 for it in dataset if not it["is_read"])
+        flagged_cnt = sum(1 for it in dataset if it["is_flagged"])
+        recent_cnt = sum(1 for it in dataset if str(it.get("date_str") or "") >= cutoff)
+        total_cnt = len(dataset)
 
         self.pill_unread.setText(f"🔵 Unread Only ({unread_cnt})")
         self.pill_flagged.setText(f"🚩 Flagged ({flagged_cnt})")
@@ -462,18 +723,35 @@ class MeetingEmailInboxDialog(QDialog):
         q = self.search_edit.text().strip().lower()
         comp_filter = (self.company_combo.currentData() or "").strip().lower()
         ai_filter = (self.ai_combo.currentData() or "").strip()
+        source_filter = (self.source_combo.currentData() or "").strip()
 
+        dataset = self._active_dataset()
         visible: List[dict] = []
-        for it in self._all_items:
+        for it in dataset:
             if mode == "UNREAD" and it["is_read"]:
                 continue
             if mode == "FLAGGED" and not it["is_flagged"]:
                 continue
             if mode == "RECENT" and str(it.get("date_str") or "") < cutoff:
                 continue
-            if comp_filter and str(it.get("company") or "").strip().lower() != comp_filter:
+            if source_filter == "THREAD" and not it["in_tracked_db"]:
                 continue
-            if ai_filter and ai_filter not in (it.get("linked_ais") or []):
+            if source_filter == "UNPINNED" and it["in_tracked_db"]:
+                continue
+            if source_filter == "NEEDS_TRIAGE" and it["in_tracked_db"] and bool(it.get("linked_ais")):
+                continue
+            if comp_filter:
+                item_comps = (
+                    [str(c).strip().lower() for c in (it.get("_companies") or [])]
+                    if it.get("_is_group")
+                    else [str(it.get("company") or "").strip().lower()]
+                )
+                if comp_filter not in item_comps:
+                    continue
+            if ai_filter == "__UNASSIGNED__":
+                if it.get("linked_ais"):
+                    continue
+            elif ai_filter and ai_filter not in (it.get("linked_ais") or []):
                 continue
             if q:
                 hay = " ".join([
@@ -494,14 +772,19 @@ class MeetingEmailInboxDialog(QDialog):
         self.table.setRowCount(len(visible))
         row_to_select = -1
         for r, it in enumerate(visible):
-            state_parts = []
-            if not it["is_read"]:
-                state_parts.append("🔵")
-            if it["is_flagged"]:
-                state_parts.append("🚩")
-            if not state_parts:
-                state_parts.append("✓")
-            state_item = QTableWidgetItem(" ".join(state_parts))
+            if it.get("_is_group"):
+                u_cnt = int(it.get("_unread_count", 0))
+                t_cnt = int(it.get("_total_count", 1))
+                f_part = "🚩" if it["is_flagged"] else ""
+                state_txt = f"🔵 {u_cnt}/{t_cnt} {f_part}".strip() if u_cnt > 0 else f"✓ {t_cnt} {f_part}".strip()
+            else:
+                state_parts = []
+                if not it["is_read"]:
+                    state_parts.append("🔵")
+                if it["is_flagged"]:
+                    state_parts.append("🚩")
+                state_txt = " ".join(state_parts) if state_parts else "✓"
+            state_item = QTableWidgetItem(state_txt)
             state_item.setData(Qt.UserRole, it["id"])
             state_item.setTextAlignment(Qt.AlignCenter)
 
@@ -515,7 +798,10 @@ class MeetingEmailInboxDialog(QDialog):
                 ctx = "📧 Email"
             ctx_item = QTableWidgetItem(ctx)
 
-            ai_item = QTableWidgetItem(", ".join(it.get("linked_ais") or []) or "—")
+            ais = it.get("linked_ais") or []
+            ai_item = QTableWidgetItem(", ".join(ais) if ais else "❓ —")
+            if not ais:
+                ai_item.setForeground(QColor("#B45309"))
 
             subj_item = QTableWidgetItem(str(it.get("subject") or ""))
             if not it["is_read"]:
@@ -553,7 +839,8 @@ class MeetingEmailInboxDialog(QDialog):
             self.table.selectRow(row_to_select)
         self.table.blockSignals(False)
 
-        self.status_lbl.setText(f"Showing {len(visible)} of {len(self._all_items)} indexed email(s)")
+        noun = "thread(s)" if self._view_mode == "THREADS" else "indexed email(s)"
+        self.status_lbl.setText(f"Showing {len(visible)} of {len(dataset)} {noun}")
         self._on_selection_changed()
 
     def _on_selection_changed(self):
@@ -569,33 +856,73 @@ class MeetingEmailInboxDialog(QDialog):
         self.detail_subject_lbl.setText("No matching emails in this filter")
         self.detail_meta_lbl.setText("")
         self.detail_links_lbl.setText("")
+        self.assign_frame.setVisible(False)
         self.preview_browser.setMarkdown("*Select another filter tab or adjust search criteria.*")
         for btn in (self.btn_mark_next, self.btn_toggle_read, self.btn_toggle_flag, self.btn_reply, self.btn_open_outlook, self.btn_open_context):
             btn.setEnabled(False)
 
+    def _refresh_assign_sub_suggestions(self, selected_ais: List[str]):
+        allowed: List[str] = []
+        seen = set()
+        for ai in selected_ais:
+            for s in self._ai_to_sub_items.get(ai, []):
+                if s not in seen:
+                    seen.add(s)
+                    allowed.append(s)
+        self.assign_subs_pills.set_suggestions(allowed)
+        if not selected_ais:
+            self.assign_subs_pills.set_empty_dropdown_label("Assign AI first")
+        elif not allowed:
+            self.assign_subs_pills.set_empty_dropdown_label("No sub-topics for AI")
+
+    def _populate_assign_bar(self, it: dict):
+        self._updating_assign_bar = True
+        try:
+            self.assign_frame.setVisible(True)
+            ais = list(it.get("linked_ais") or [])
+            subs = list(it.get("linked_sub_items") or [])
+            wis = list(it.get("linked_wis") or [])
+            self._refresh_assign_sub_suggestions(ais)
+            self.assign_ais_pills.setText(", ".join(ais))
+            self.assign_subs_pills.setText(", ".join(subs))
+            self.assign_wis_pills.setText(", ".join(wis))
+            self.btn_pin_inline.setVisible(not it.get("in_tracked_db") and self.tracked_db is not None)
+            self.btn_pin_inline.setEnabled(not it.get("in_tracked_db") and self.tracked_db is not None)
+            self.btn_auto_assign.setEnabled(self.tracked_db is not None)
+        finally:
+            self._updating_assign_bar = False
+
     def _render_detail(self, it: dict):
         self.detail_subject_lbl.setText(it.get("subject") or "(No Subject)")
-        sender = it.get("sender_name") or it.get("sender_email") or "Unknown"
-        comp = f" ({it['company']})" if it.get("company") else ""
-        badges = []
-        if not it["is_read"]:
-            badges.append("🔵 UNREAD")
-        if it["is_flagged"]:
-            badges.append("🚩 FLAGGED")
-        badge_str = f"  ·  {' · '.join(badges)}" if badges else "  ·  ✓ Read"
-        self.detail_meta_lbl.setText(f"From: {sender}{comp}  |  Date: {it.get('date_str') or 'Unknown'}{badge_str}")
+        if it.get("_is_group"):
+            self.detail_meta_lbl.setText(
+                f"{it.get('_total_count', 1)} message(s) ({it.get('_unread_count', 0)} unread)  |  "
+                f"Latest: {it.get('date_str') or 'Unknown'}  |  Participants: {it.get('company') or 'Unknown'}"
+            )
+        else:
+            sender = it.get("sender_name") or it.get("sender_email") or "Unknown"
+            comp = f" ({it['company']})" if it.get("company") else ""
+            badges = []
+            if not it["is_read"]:
+                badges.append("🔵 UNREAD")
+            if it["is_flagged"]:
+                badges.append("🚩 FLAGGED")
+            badge_str = f"  ·  {' · '.join(badges)}" if badges else "  ·  ✓ Read"
+            self.detail_meta_lbl.setText(f"From: {sender}{comp}  |  Date: {it.get('date_str') or 'Unknown'}{badge_str}")
 
         links = []
-        if it.get("thread_title"):
-            links.append(f"🧵 Thread: {it['thread_title']}")
-        if it.get("linked_ais"):
-            links.append("AIs: " + ", ".join(it["linked_ais"]))
+        if it.get("in_tracked_db") and it.get("thread_title"):
+            links.append(f"🧵 Tracked: {it['thread_title']}")
+        else:
+            links.append("📄 Unpinned (TDoc match only)")
         if it.get("linked_tdocs"):
             links.append("TDocs: " + ", ".join(it["linked_tdocs"][:6]))
         self.detail_links_lbl.setText("  |  ".join(links))
         self.detail_links_lbl.setVisible(bool(links))
 
-        can_outlook = not str(it.get("id") or "").startswith("MSG-")
+        self._populate_assign_bar(it)
+
+        can_outlook = not str(it.get("id") or "").startswith("MSG-") and not it.get("_is_group")
         has_context = bool(
             (it.get("thread_id") and self._open_thread_callback)
             or (it.get("linked_tdocs") and self._open_tdoc_callback)
@@ -615,6 +942,44 @@ class MeetingEmailInboxDialog(QDialog):
         else:
             self.btn_open_context.setText("📂 Open Context")
 
+        if it.get("_is_group"):
+            synth = {
+                "thread_id": it.get("thread_id") or it["id"],
+                "title": it.get("thread_title") or it.get("subject") or "Thread",
+                "normalized_subject": normalize_subject(it.get("subject") or "").lower(),
+                "linked_tdocs": it.get("linked_tdocs") or [],
+            }
+            group_msgs = [
+                {
+                    "id": m["id"],
+                    "sender_name": m.get("sender_name", ""),
+                    "sender_email": m.get("sender_email", ""),
+                    "company": m.get("company", ""),
+                    "date_sent": m.get("date_str", ""),
+                    "subject": m.get("subject", ""),
+                    "body_text": m.get("raw_body_text") or m.get("body_text", ""),
+                    "clean_body": m.get("clean_body") or m.get("body_text", ""),
+                    "is_read": 1 if m["is_read"] else 0,
+                    "flag_status": 2 if m["is_flagged"] else 0,
+                    "attachments": m.get("attachments") or [],
+                }
+                for m in (it.get("_group_messages") or [])
+            ]
+            md = export_thread_to_markdown(
+                synth,
+                group_msgs,
+                deduplicate_quotes=True,
+                interactive_links=True,
+                newest_first=True,
+                include_metadata=False,
+                enable_tdoc_links=bool(self._open_tdoc_callback),
+            )
+            self.preview_browser.setMarkdown(md)
+            blocks = find_unread_heading_blocks(self.preview_browser)
+            if blocks:
+                QTimer.singleShot(0, lambda b=blocks[0]: scroll_browser_to_block(self.preview_browser, b))
+            return
+
         lines: List[str] = []
         atts = it.get("attachments") or []
         if atts and can_outlook:
@@ -633,27 +998,192 @@ class MeetingEmailInboxDialog(QDialog):
         lines.append(body if body else "*(Empty message body)*")
         self.preview_browser.setMarkdown("\n\n".join(lines))
 
+    def _seed_messages_for_item(self, it: dict) -> List[dict]:
+        raw_msgs = it.get("_group_messages") if it.get("_is_group") else [it]
+        out: List[dict] = []
+        for m in (raw_msgs or []):
+            out.append({
+                "id": m["id"],
+                "subject": m.get("subject", ""),
+                "sender_name": m.get("sender_name", ""),
+                "sender_email": m.get("sender_email", ""),
+                "company": m.get("company", ""),
+                "date_sent": m.get("date_str", ""),
+                "body_text": m.get("raw_body_text") or m.get("body_text", ""),
+                "clean_body": m.get("clean_body") or m.get("body_text", ""),
+                "conversation_id": m.get("conversation_id", ""),
+                "is_read": 1 if m.get("is_read") else 0,
+                "flag_status": 2 if m.get("is_flagged") else 0,
+                "attachments": list(m.get("attachments") or []),
+            })
+        return out
+
+    def _pin_item_in_place(
+        self,
+        it: dict,
+        *,
+        linked_ais: Optional[List[str]] = None,
+        linked_wis: Optional[List[str]] = None,
+        linked_sub_items: Optional[List[str]] = None,
+    ) -> Optional[str]:
+        if self.tracked_db is None or not it:
+            return None
+        subj = str(it.get("thread_title") or it.get("subject") or "Email Discussion").strip()
+        norm = normalize_subject(subj) or subj
+        tid = pin_thread_by_subject_or_cid(
+            self.tracked_db,
+            title=norm,
+            normalized_subject=norm,
+            conversation_id=str(it.get("conversation_id") or ""),
+            meeting_id=self.meeting_id,
+            wg=self.wg,
+            agenda_map=self._agenda_map,
+            valid_wis=self._valid_wis if self._wi_suggestions else None,
+            tdoc_meta_map=self._tdoc_meta_map,
+            linked_ais=linked_ais,
+            linked_wis=linked_wis,
+            linked_tdocs=list(it.get("linked_tdocs") or []),
+            linked_sub_items=linked_sub_items,
+            seed_messages=self._seed_messages_for_item(it),
+            refresh_from_outlook=True,
+        )
+        new_preserve = f"THR::{tid}" if self._view_mode == "THREADS" else it["id"]
+        self.reload_from_dbs(preserve_id=new_preserve)
+        self.data_changed.emit()
+        return tid
+
+    def _on_pin_inline_clicked(self):
+        if not self._current_item or self._current_item.get("in_tracked_db"):
+            return
+        tid = self._pin_item_in_place(self._current_item)
+        if tid:
+            notify_success(self, "Thread Pinned", "Email conversation pinned as a Tracked Thread.")
+
+    def _on_auto_assign_clicked(self):
+        if not self._current_item or self.tracked_db is None:
+            return
+        it = self._current_item
+        sugg = auto_suggest_links(
+            it.get("subject", ""),
+            it.get("body_text", ""),
+            agenda_map=self._agenda_map,
+            valid_wis=self._valid_wis if self._wi_suggestions else None,
+            tdoc_meta_map=self._tdoc_meta_map,
+            extra_tdocs=it.get("linked_tdocs") or [],
+        )
+        ais = list(dict.fromkeys((it.get("linked_ais") or []) + (sugg.get("ais") or [])))
+        subs = list(dict.fromkeys((it.get("linked_sub_items") or []) + (sugg.get("sub_items") or [])))
+        wis = list(dict.fromkeys((it.get("linked_wis") or []) + (sugg.get("wis") or [])))
+        if not it.get("in_tracked_db"):
+            self._pin_item_in_place(it, linked_ais=ais, linked_wis=wis, linked_sub_items=subs)
+            return
+        tid = it["thread_id"]
+        self.tracked_db.update_thread_links(tid, linked_ais=ais, linked_sub_items=subs, linked_wis=wis)
+        self.reload_from_dbs(preserve_id=it["id"])
+        self.data_changed.emit()
+
+    def _on_inline_links_changed(self):
+        if self._updating_assign_bar or not self._current_item or self.tracked_db is None:
+            return
+        it = self._current_item
+        selected_ais = self.assign_ais_pills.tags()
+        self._refresh_assign_sub_suggestions(selected_ais)
+        allowed_subs = {
+            sub
+            for ai in selected_ais
+            for sub in self._ai_to_sub_items.get(ai, [])
+        }
+        selected_subs = self.assign_subs_pills.tags()
+        if self._ai_to_sub_items:
+            pruned_subs = [s for s in selected_subs if s in allowed_subs]
+            if pruned_subs != selected_subs:
+                selected_subs = pruned_subs
+                self._updating_assign_bar = True
+                try:
+                    self.assign_subs_pills.setText(", ".join(pruned_subs))
+                finally:
+                    self._updating_assign_bar = False
+        selected_wis = self.assign_wis_pills.tags()
+
+        if not it.get("in_tracked_db"):
+            self._pin_item_in_place(
+                it,
+                linked_ais=selected_ais,
+                linked_wis=selected_wis,
+                linked_sub_items=selected_subs,
+            )
+            return
+
+        tid = it["thread_id"]
+        self.tracked_db.update_thread_links(
+            tid,
+            linked_ais=selected_ais,
+            linked_sub_items=selected_subs,
+            linked_wis=selected_wis,
+        )
+        for m in self._all_items:
+            if m.get("thread_id") == tid:
+                m["linked_ais"] = list(selected_ais)
+                m["linked_sub_items"] = list(selected_subs)
+                m["linked_wis"] = list(selected_wis)
+        self._grouped_items = self._build_grouped_thread_items()
+        cur_row = self.table.currentRow()
+        if 0 <= cur_row < len(self._visible_items):
+            self._visible_items[cur_row]["linked_ais"] = list(selected_ais)
+            self._visible_items[cur_row]["linked_sub_items"] = list(selected_subs)
+            self._visible_items[cur_row]["linked_wis"] = list(selected_wis)
+            ai_cell = self.table.item(cur_row, 2)
+            if ai_cell:
+                ai_cell.setText(", ".join(selected_ais) if selected_ais else "❓ —")
+                ai_cell.setForeground(QColor("#0F172A" if selected_ais else "#B45309"))
+        self._populate_filter_combos()
+        self.data_changed.emit()
+
     def _mutate_read(self, it: dict, is_read: bool):
-        eid = it["id"]
+        targets = (
+            [m["id"] for m in (it.get("_group_messages") or []) if m["is_read"] != is_read]
+            if it.get("_is_group")
+            else [it["id"]]
+        )
+        if not targets:
+            return
         if self.tracked_db is not None:
-            self.tracked_db.set_message_read_status(eid, is_read)
+            for eid in targets:
+                self.tracked_db.set_message_read_status(eid, is_read)
         if self.general_email_db is not None and hasattr(self.general_email_db, "set_emails_read_status"):
-            self.general_email_db.set_emails_read_status([eid], is_read, sync_outlook=False)
-        if not eid.startswith("MSG-"):
-            OutlookClient.set_messages_read_status([eid], is_read=is_read)
-        it["is_read"] = bool(is_read)
+            self.general_email_db.set_emails_read_status(targets, is_read, sync_outlook=False)
+        outlook_ids = [eid for eid in targets if not str(eid).startswith("MSG-")]
+        if outlook_ids:
+            OutlookClient.set_messages_read_status(outlook_ids, is_read=is_read)
+
+        tset = set(targets)
+        for m in self._all_items:
+            if m["id"] in tset:
+                m["is_read"] = bool(is_read)
+        self._grouped_items = self._build_grouped_thread_items()
         self._update_pill_counts()
         self.data_changed.emit()
 
     def _mutate_flag(self, it: dict, is_flagged: bool):
-        eid = it["id"]
+        targets = (
+            [it["_group_messages"][-1]["id"]]
+            if it.get("_is_group") and it.get("_group_messages")
+            else [it["id"]]
+        )
         if self.tracked_db is not None:
-            self.tracked_db.set_message_flag_status(eid, is_flagged)
+            for eid in targets:
+                self.tracked_db.set_message_flag_status(eid, is_flagged)
         if self.general_email_db is not None and hasattr(self.general_email_db, "set_emails_flag_status"):
-            self.general_email_db.set_emails_flag_status([eid], is_flagged, sync_outlook=False)
-        if not eid.startswith("MSG-"):
-            OutlookClient.set_messages_flag_status([eid], is_flagged=is_flagged)
-        it["is_flagged"] = bool(is_flagged)
+            self.general_email_db.set_emails_flag_status(targets, is_flagged, sync_outlook=False)
+        outlook_ids = [eid for eid in targets if not str(eid).startswith("MSG-")]
+        if outlook_ids:
+            OutlookClient.set_messages_flag_status(outlook_ids, is_flagged=is_flagged)
+
+        tset = set(targets)
+        for m in self._all_items:
+            if m["id"] in tset:
+                m["is_flagged"] = bool(is_flagged)
+        self._grouped_items = self._build_grouped_thread_items()
         self._update_pill_counts()
         self.data_changed.emit()
 
@@ -724,11 +1254,55 @@ class MeetingEmailInboxDialog(QDialog):
 
     def _on_anchor_clicked(self, url: QUrl):
         scheme = url.scheme().lower()
+        if scheme == "tdoc" and self._open_tdoc_callback:
+            target_tdoc = url.path().strip() or url.toString().split(":", 1)[1].strip()
+            if target_tdoc:
+                self._open_tdoc_callback(target_tdoc.upper())
+            return
+
         if scheme == "outlook":
             host = url.host().lower()
             path_parts = [urllib.parse.unquote(p) for p in url.path().strip("/").split("/") if p]
-            if host == "att" and len(path_parts) >= 2:
-                msg_id = path_parts[0]
+            if not path_parts:
+                return
+            msg_id = path_parts[0]
+            if host == "msg":
+                if not open_outlook_message(msg_id):
+                    QMessageBox.warning(self, "Outlook Message", "Could not open the selected message in Microsoft Outlook.")
+            elif host == "reply":
+                if not reply_to_outlook_message(msg_id, reply_all=True):
+                    QMessageBox.warning(self, "Outlook Reply", "Could not open a Reply window in Microsoft Outlook.")
+            elif host == "reload" and self._current_item and self._current_item.get("thread_id") and self.tracked_db:
+                sb = self.preview_browser.verticalScrollBar()
+                prev_scroll = sb.value()
+                if reload_outlook_message(self.tracked_db, self._current_item["thread_id"], msg_id):
+                    self.reload_from_dbs(preserve_id=self._current_item["id"])
+                    sb.setValue(min(prev_scroll, sb.maximum()))
+                    self.data_changed.emit()
+            elif host in ("read", "unread"):
+                target_item = self._items_by_id.get(msg_id)
+                if target_item:
+                    sb = self.preview_browser.verticalScrollBar()
+                    prev_scroll = sb.value()
+                    cur_sel = self._current_item["id"] if self._current_item else None
+                    self._mutate_read(target_item, is_read=(host == "read"))
+                    self._apply_filters(preserve_id=cur_sel)
+                    sb.setValue(min(prev_scroll, sb.maximum()))
+            elif host in ("flag", "unflag"):
+                target_item = self._items_by_id.get(msg_id)
+                if target_item:
+                    sb = self.preview_browser.verticalScrollBar()
+                    prev_scroll = sb.value()
+                    cur_sel = self._current_item["id"] if self._current_item else None
+                    self._mutate_flag(target_item, is_flagged=(host == "flag"))
+                    self._apply_filters(preserve_id=cur_sel)
+                    sb.setValue(min(prev_scroll, sb.maximum()))
+            elif host == "copy":
+                target_item = self._items_by_id.get(msg_id)
+                if target_item:
+                    QApplication.clipboard().setText(str(target_item.get("body_text") or "").strip())
+                    notify_info(self, "Copied", "Message copied to clipboard.")
+            elif host == "att" and len(path_parts) >= 2:
                 att_name = "/".join(path_parts[1:])
                 cache_dir = Path(self.tracked_db.db_path).parent / "InboxAttachments" if self.tracked_db else Path.home() / ".3gpp_tools_inbox"
                 cache_dir.mkdir(parents=True, exist_ok=True)

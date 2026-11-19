@@ -991,6 +991,7 @@ class PinFromOutlookDialog(QDialog):
         mtg_start_date: str = "",
         mtg_end_date: str = "",
         auto_scan: bool = True,
+        tdoc_meta_map: Optional[Dict[str, dict]] = None,
     ):
         super().__init__(parent)
         self.db = db
@@ -1001,6 +1002,7 @@ class PinFromOutlookDialog(QDialog):
         self._meeting_dir = Path(meeting_dir) if meeting_dir else None
         self._general_email_db = general_email_db
         self._valid_tdocs = set(valid_tdocs) if valid_tdocs else set()
+        self._tdoc_meta_map = tdoc_meta_map or {}
         self.pinned_thread_ids: List[str] = []
         self._raw_threads: List[dict] = []
         self._threads: List[dict] = []
@@ -1258,6 +1260,7 @@ class PinFromOutlookDialog(QDialog):
             agenda_map=self._agenda_map,
             valid_wis=self._valid_wis,
             ignored_keys=ignored_set,
+            tdoc_meta_map=self._tdoc_meta_map,
         )
 
     def _on_scan_finished(self, ok: bool, threads: list, err: str):
@@ -1467,6 +1470,7 @@ class PinFromOutlookDialog(QDialog):
                 wg=self.wg,
                 agenda_map=self._agenda_map,
                 valid_wis=self._valid_wis,
+                tdoc_meta_map=self._tdoc_meta_map,
             )
             self.pinned_thread_ids.append(tid)
         if changed_ignored:

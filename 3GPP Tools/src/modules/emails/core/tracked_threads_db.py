@@ -133,6 +133,7 @@ class TrackedThreadsDatabase:
         linked_ais: Optional[List[str]] = None,
         linked_wis: Optional[List[str]] = None,
         linked_tdocs: Optional[List[str]] = None,
+        linked_sub_items: Optional[List[str]] = None,
     ) -> str:
         """Creates a new tracked thread or returns an existing matching thread_id."""
         with self._get_connection() as conn:
@@ -163,9 +164,9 @@ class TrackedThreadsDatabase:
                 """
                 INSERT INTO tracked_threads (
                     thread_id, title, normalized_subject, conversation_ids, subject_patterns,
-                    outlook_folders, meeting_id, wg, linked_ais, linked_wis, linked_tdocs,
+                    outlook_folders, meeting_id, wg, linked_ais, linked_wis, linked_tdocs, linked_sub_items,
                     unread_count, message_count, last_message_date, last_synced_at, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, '', ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, '', ?, ?)
                 """,
                 (
                     thread_id,
@@ -179,6 +180,7 @@ class TrackedThreadsDatabase:
                     json.dumps(linked_ais or []),
                     json.dumps(linked_wis or []),
                     json.dumps(linked_tdocs or []),
+                    json.dumps(linked_sub_items or []),
                     now,
                     now,
                 ),
