@@ -1135,35 +1135,55 @@ class TDocsWindow(QWidget):
         if not getattr(self, "_programmatic_column_resize", False):
             self._user_resized_cols = True
 
-    def _apply_scaled_table_columns(self):
-        """Scale TDocsWindow table column widths with a guaranteed Secretary Remarks floor."""
-        header = self.table.horizontalHeader()
-        col_count = len(self.model._headers)
+    @staticmethod
+    def compute_fitted_column_widths(viewport_width: int, col_count: int, scale_fn=None) -> dict:
+        """
+        Computes responsive TDocs table column widths that expand on wide monitors
+        and proportionally shrink flexible columns on narrower windows so the
+        rightmost Emails unread/flag column remains visible without horizontal clipping.
+        """
+        sc = scale_fn or scale_px
         base_widths = {
-            0: scale_px(98),
-            1: scale_px(86),
-            2: scale_px(200),
-            3: scale_px(112),
-            4: scale_px(64),
-            5: scale_px(70),
-            6: scale_px(26),
-            7: scale_px(225),
-            8: scale_px(70),
-            9: scale_px(26),
-            10: scale_px(116),
-            11: scale_px(86),
-            12: scale_px(114),
+            0: sc(92),
+            1: sc(86),
+            2: sc(200),
+            3: sc(112),
+            4: sc(64),
+            5: sc(70),
+            6: sc(26),
+            7: sc(220),
+            8: sc(70),
+            9: sc(26),
+            10: sc(114),
+            11: sc(86),
+            12: sc(110),
         }
         if col_count > 13:
-            base_widths[13] = scale_px(56)
+            base_widths[13] = sc(84)
+
+        min_widths = {
+            0: sc(74),
+            1: sc(74),
+            2: sc(110),
+            3: sc(68),
+            4: sc(52),
+            5: sc(48),
+            6: sc(26),
+            7: sc(115),
+            8: sc(54),
+            9: sc(26),
+            10: sc(72),
+            11: sc(60),
+            12: sc(60),
+            13: sc(74),
+        }
 
         widths = {col: w for col, w in base_widths.items() if col < col_count}
-        vp_w = self.table.viewport().width()
         total_base = sum(widths.values())
-        if vp_w > total_base > 0:
-            surplus = vp_w - total_base
-            rem_extra = int(surplus * 0.55)
-            title_extra = int(surplus * 0.35)
+        if viewport_width > total_base > 0:
+            surplus = viewport_width - total_base
+            rem_extra = int(surplus * 0.52)
+            title_extra = int(surplus * 0.34)
             source_extra = surplus - rem_extra - title_extra
             if 7 in widths:
                 widths[7] += rem_extra
@@ -1171,6 +1191,39 @@ class TDocsWindow(QWidget):
                 widths[2] += title_extra
             if 3 in widths:
                 widths[3] += source_extra
+        elif 0 < viewport_width < total_base:
+            deficit = total_base - viewport_width
+            shrinkable = {
+                c: max(0, widths[c] - min_widths.get(c, widths[c]))
+                for c in widths
+            }
+            total_shrinkable = sum(shrinkable.values())
+            if total_shrinkable > 0:
+                target_cut = min(deficit, total_shrinkable)
+                removed = 0
+                for c, avail in shrinkable.items():
+                    if avail > 0:
+                        cut = int(target_cut * avail / total_shrinkable)
+                        widths[c] -= cut
+                        removed += cut
+                # Distribute remaining rounding pixels from widest flexible columns
+                leftover = target_cut - removed
+                for c in sorted(shrinkable, key=lambda k: widths[k] - min_widths.get(k, widths[k]), reverse=True):
+                    if leftover <= 0:
+                        break
+                    room = widths[c] - min_widths.get(c, widths[c])
+                    if room > 0:
+                        take = min(room, leftover)
+                        widths[c] -= take
+                        leftover -= take
+        return widths
+
+    def _apply_scaled_table_columns(self):
+        """Scale and fit TDocsWindow table column widths to the active viewport."""
+        header = self.table.horizontalHeader()
+        col_count = len(self.model._headers)
+        vp_w = self.table.viewport().width()
+        widths = self.compute_fitted_column_widths(vp_w, col_count)
 
         self._programmatic_column_resize = True
         try:
