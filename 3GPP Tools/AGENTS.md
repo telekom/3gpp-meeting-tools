@@ -302,7 +302,7 @@ python -m main_tools
   - **Row 2 (Filter Engine):** `🔍 Search` (number, city, title), TSG quick-toggle pills (`[All] [SA] [RAN] [CT]`), `Working Group` checkable multi-select combo, Nature (`Regular` / `Ad-Hoc`), Format (`In-Person` / `Electronic`), and Date presets dropdown (`All Dates`, `Upcoming`, `This Year`, `Past 12 Months`, `Custom Range...`) with dynamic calendar pickers.
 - **7-Column Table & Domain Visual Hierarchy:**
   - **Working Group Badges (`WGTagDelegate`):** Color-coded domain pills by TSG (Soft Indigo for SA, Soft Emerald for RAN, Soft Amber for CT) using `core.ui.ui_components.get_wg_colors`.
-  - **Consolidated English Dates:** Formatted into human-readable ranges (`12 – 16 Oct 2026`) with temporal tooltips (`🟢 Ongoing`, `🔵 Upcoming`, `⚪ Past`).
+  - **Consolidated English Dates:** Formatted into human-readable ranges (`12 – 16 Oct 2026`) with concise temporal badges (`🟢 Ongoing`, `🔵 Upcoming`, `⚪ Past`) in tooltip without obstructive multi-line text dumps.
   - **Preserved Allocated TDoc Range:** Formatted with full WG prefixes (`C4-264009 → C4-264023`, `—` when not yet allocated).
   - **Location Icons:** Clean icon prefixes (`📍 City, Country` vs `🌐 Online (eMeeting)`).
   - **Double-Click Navigation:** Double-clicking any meeting row directly launches the meeting viewer or opens the metadata dialog.

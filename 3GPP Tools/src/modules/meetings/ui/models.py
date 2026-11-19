@@ -1,6 +1,5 @@
 # --- File: modules/meetings/ui/models.py ---
 from PyQt5.QtCore import Qt, QAbstractTableModel, QModelIndex, QDate
-from modules.meetings.ui.meeting_details_dialogs import _format_meeting_info
 from core.ui.ui_components import WG_DESCRIPTIONS
 
 
@@ -121,23 +120,22 @@ class MeetingsTableModel(QAbstractTableModel):
                 start_str = row_data.get("start_date", "")
                 end_str = row_data.get("end_date", "")
                 today = QDate.currentDate()
-                status_prefix = ""
                 try:
                     d1 = QDate.fromString(start_str, "yyyy-MM-dd")
                     d2 = QDate.fromString(end_str, "yyyy-MM-dd")
                     if d1.isValid() and d2.isValid():
                         if d1 <= today <= d2:
-                            status_prefix = "🟢 ONGOING MEETING\n"
+                            return "🟢 Ongoing Meeting"
                         elif today < d1:
                             days = today.daysTo(d1)
-                            status_prefix = f"🔵 UPCOMING MEETING (in {days} days)\n"
+                            return f"🔵 Upcoming Meeting (in {days} days)"
                         else:
-                            status_prefix = "⚪ PAST MEETING\n"
+                            return "⚪ Past Meeting"
                 except Exception:
                     pass
-                return f"{status_prefix}{_format_meeting_info(row_data)}"
+                return None
 
-            return _format_meeting_info(row_data)
+            return None
 
         return None
 

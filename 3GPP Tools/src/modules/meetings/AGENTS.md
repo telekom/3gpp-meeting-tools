@@ -60,7 +60,7 @@ src/modules/meetings/
     ├── meetings_actions.py            # Async download, caching, and export actions for MeetingsTab
     ├── meetings_delegates.py          # DynamicHoverMenuDelegate, TDocsButtonDelegate, WGTagDelegate
     ├── meetings_menu.py               # Meetings table context menu & shared 3GU meeting portal actions (`add_meeting_portal_actions`)
-    ├── models.py                      # MeetingsTableModel (7 consolidated columns, English date ranges)
+    ├── models.py                      # MeetingsTableModel (7 consolidated columns, English date ranges, clean tooltips)
     ├── dialogs/                       # Modal export & parameter configuration dialogs
     │   ├── post_meeting_export_dialog.py  # Post-meeting report generator dialog
     │   ├── pre_meeting_export_dialog.py   # Pre-meeting briefing generator dialog
