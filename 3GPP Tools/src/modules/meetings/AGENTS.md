@@ -73,7 +73,7 @@ src/modules/meetings/
     ├── tdocs_dialogs.py               # Statistics parameters, export configuration dialogs
     ├── tdocs_menus.py                 # Right-click context menus & centralized Quick Copy menu (table & quick bar)
     ├── tdocs_models.py                # High-performance TDocsTableModel & TDocsFilterProxyModel
-    ├── tdocs_window.py                # Primary TDoc list viewer window
+    ├── tdocs_window.py                # Re-export shim → tdocs/window/ package (TDoc list viewer mixins; see tdocs/window/README.md)
     └── ui_tabs.py                     # MeetingsTab (full-width browser, 2-row top ribbon, floating cart)
 ```
 

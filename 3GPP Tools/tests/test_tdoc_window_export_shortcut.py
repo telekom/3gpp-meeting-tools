@@ -80,7 +80,7 @@ class TestTDocWindowExportShortcut(unittest.TestCase):
         action_texts = [a.text() for a in self.window.folder_menu.actions()]
         self.assertIn("📂 Local: Export Folder", action_texts)
 
-    @patch("modules.meetings.ui.tdocs_window._open_folder")
+    @patch("modules.meetings.ui.tdocs.window.mixins.exports._open_folder")
     def test_open_export_folder_calls_open_folder(self, mock_open_folder):
         from modules.meetings.ui.tdocs_window import TDocsWindow
 

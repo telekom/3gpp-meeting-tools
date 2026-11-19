@@ -67,7 +67,7 @@ class TestTDocsQuickOpenEmailSendAndFilterPreserve(unittest.TestCase):
         shutil.rmtree(self.tmp_path, ignore_errors=True)
 
     def _make_window(self):
-        with patch("modules.meetings.ui.tdocs_window.MeetingWIEnricherThread"):
+        with patch("modules.meetings.ui.tdocs.window.mixins.meeting_data.MeetingWIEnricherThread"):
             win = TDocsWindow(self.mtg_info, list(self.sample_data), str(self.agenda_file))
         win.docs_ftp_url = "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178/Docs/"
         win.main_ftp_url = "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178/"

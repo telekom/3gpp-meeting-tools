@@ -2158,7 +2158,7 @@ def test_cross_meeting_tdoc_direct_open(tmp_path):
     mock_db = MagicMock()
     mock_db.find_meeting_by_tdoc.side_effect = lambda td: {"mtg_id": 999, "wg_name": "RAN3"} if td.startswith("R3-") else {}
 
-    with patch("modules.meetings.ui.tdocs_window.get_project_root", return_value=tmp_path), \
+    with patch("modules.meetings.ui.tdocs.window.mixins.tdoc_actions.get_project_root", return_value=tmp_path), \
          patch("modules.meetings.core.meetings_db.MeetingsDatabase", return_value=mock_db):
         TDocsWindow._open_tdoc_document_directly(fake_win, "S2-2612999")
         assert local_downloads[-1] == ("S2-2612999", "S2-2612999", fake_win.docs_ftp_url)
