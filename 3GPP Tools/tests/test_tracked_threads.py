@@ -1804,3 +1804,50 @@ def test_inbox_unassigned_filters_grouping_and_inline_assignment(tmp_path):
 
         dlg._settings.setValue("view_mode", "MESSAGES")
         dlg.close()
+
+
+def test_cross_meeting_tdoc_direct_open(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import patch, MagicMock
+    from modules.meetings.ui.tdocs_window import TDocsWindow
+
+    fake_win = SimpleNamespace()
+    fake_win.mtg_info = {"wg_name": "SA2", "meeting_number": "178", "mtg_id": 178, "first_tdoc": "S2-2611000"}
+    fake_win.model = SimpleNamespace(valid_tdocs={"S2-2612556"})
+    fake_win.docs_ftp_url = "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178_Calgary_2026-11/Docs"
+    fake_win.revisions_url = "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178_Calgary_2026-11/INBOX/Revisions"
+    fake_win._get_tdoc_prefix = lambda: "S2-26"
+    fake_win._get_meeting_id_label = lambda: "SA2#178"
+    emitted_global = []
+    local_downloads = []
+    fake_win.global_action_requested = SimpleNamespace(emit=lambda tdoc, act: emitted_global.append((tdoc, act)))
+    fake_win._trigger_download_thread = lambda base, td, url, is_silent_compare=False: local_downloads.append((base, td, url))
+    fake_win._scroll_to_tdoc = lambda td: None
+
+    # 1. Local meeting TDoc downloads via current meeting's FTP
+    TDocsWindow._open_tdoc_document_directly(fake_win, "S2-2612556r01")
+    assert local_downloads[-1] == ("S2-2612556", "S2-2612556R01", fake_win.revisions_url)
+
+    # 2. Unindexed current-meeting draft (prefix S2-26 matches) still tries local Inbox when no other meeting owns it
+    db_file = tmp_path / "db" / "3gpp_data.db"
+    db_file.parent.mkdir(parents=True, exist_ok=True)
+    db_file.write_bytes(b"")
+    mock_db = MagicMock()
+    mock_db.find_meeting_by_tdoc.side_effect = lambda td: {"mtg_id": 999, "wg_name": "RAN3"} if td.startswith("R3-") else {}
+
+    with patch("modules.meetings.ui.tdocs_window.get_project_root", return_value=tmp_path), \
+         patch("modules.meetings.core.meetings_db.MeetingsDatabase", return_value=mock_db):
+        TDocsWindow._open_tdoc_document_directly(fake_win, "S2-2612999")
+        assert local_downloads[-1] == ("S2-2612999", "S2-2612999", fake_win.docs_ftp_url)
+
+        # 3. External TDoc (e.g. R3-263595 from RAN3) routes via global_action_requested("open_doc"), NOT SA2 FTP
+        prev_local_len = len(local_downloads)
+        TDocsWindow._open_tdoc_document_directly(fake_win, "R3-263595")
+        assert len(local_downloads) == prev_local_len
+        assert emitted_global == [("R3-263595", "open_doc")]
+
+        # 4. Unsynced external TDoc (e.g. C1-269999 not in DB) notifies cleanly without hitting SA2 FTP
+        with patch("modules.meetings.ui.tdocs_window.QMessageBox.information") as mock_info:
+            TDocsWindow._open_tdoc_document_directly(fake_win, "C1-269999")
+            mock_info.assert_called_once()
+            assert len(local_downloads) == prev_local_len

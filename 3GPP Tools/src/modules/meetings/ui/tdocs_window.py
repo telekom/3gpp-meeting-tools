@@ -3422,17 +3422,51 @@ class TDocsWindow(QWidget):
             logging.error(f"Error syncing tracked email threads to table: {e}")
 
     def _open_tdoc_document_directly(self, tdoc_id: str):
-        """Downloads/opens a TDoc contribution (or revision) directly without stealing focus from email dialogs."""
+        """
+        Downloads/opens a TDoc contribution (or revision) directly without stealing focus from email dialogs.
+        Automatically routes external / cross-WG TDocs (e.g. R3-263595, older SA2 TDocs) via
+        global_action_requested -> MeetingsTab instead of failing against this meeting's FTP folder.
+        """
         td = str(tdoc_id or "").strip().upper()
         if not td:
             return
+        match = re.search(r"^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$", td, re.IGNORECASE)
+        base_tdoc = match.group(1).upper() if match else td
+        valid_tdocs = getattr(self.model, "valid_tdocs", set()) if hasattr(self, "model") else set()
+        in_current_meeting = (base_tdoc in valid_tdocs) or (td in valid_tdocs)
+
+        if not in_current_meeting:
+            try:
+                from modules.meetings.core.meetings_db import MeetingsDatabase
+                db_path = get_project_root() / "db" / "3gpp_data.db"
+                if db_path.is_file():
+                    ext_mtg = MeetingsDatabase(db_path).find_meeting_by_tdoc(base_tdoc)
+                    if ext_mtg and ext_mtg.get("mtg_id") != self.mtg_info.get("mtg_id"):
+                        self.global_action_requested.emit(td, "open_doc")
+                        return
+            except Exception as exc:
+                logging.debug(f"Global TDoc lookup skipped for {td}: {exc}")
+
+            cur_prefix = str(self._get_tdoc_prefix() or "").upper()
+            if cur_prefix and not base_tdoc.startswith(cur_prefix):
+                QMessageBox.information(
+                    self,
+                    "External TDoc",
+                    f"{td} does not belong to {self._get_meeting_id_label()} and its meeting "
+                    f"could not be resolved in the local Meetings Database.\n\n"
+                    f"Sync that Working Group / meeting in the Meetings tab to open it directly.",
+                )
+                return
+
         is_rev = bool(re.search(r"(?:r|rev)\d{1,2}[a-zA-Z]?$", td, re.IGNORECASE))
-        target_url = getattr(self, "revisions_url", "") if is_rev and getattr(self, "revisions_url", "") else getattr(self, "docs_ftp_url", "")
+        target_url = (
+            getattr(self, "revisions_url", "")
+            if is_rev and getattr(self, "revisions_url", "")
+            else getattr(self, "docs_ftp_url", "")
+        )
         if not target_url:
             self._scroll_to_tdoc(td)
             return
-        match = re.search(r"^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$", td, re.IGNORECASE)
-        base_tdoc = match.group(1).upper() if match else td
         self._trigger_download_thread(base_tdoc, td, target_url, is_silent_compare=False)
 
     def _open_tracked_thread_dialog(self, thread_id: str):
