@@ -47,7 +47,9 @@ from core.ui.font_scale import install_reader_zoom, zoom_text_widget
 from core.ui.toast import notify_info, notify_success, notify_toast
 from modules.emails.core.thread_markdown_exporter import (
     export_thread_to_markdown,
+    find_unread_heading_blocks,
     is_cacheable_document_url,
+    scroll_browser_to_block,
 )
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.emails.core.tracked_threads_service import (
@@ -111,7 +113,7 @@ class TrackedThreadDialog(QDialog):
         self._tdoc_family_expander = tdoc_family_expander
         self._loading = False
         self._refresh_worker: Optional[SingleThreadRefreshWorker] = None
-        self._unread_anchors: List[str] = []
+        self._unread_blocks: List[object] = []
         self._unread_cursor: int = -1
         self._initial_scroll_done: bool = False
         self._settings = QSettings("3GPP_Tools", "TrackedThreadDialog")
@@ -126,7 +128,11 @@ class TrackedThreadDialog(QDialog):
                 pass
         self._build_ui()
         self._load_data()
-        QTimer.singleShot(0, self._scroll_to_initial_unread)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._initial_scroll_done:
+            QTimer.singleShot(50, self._scroll_to_initial_unread)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -543,15 +549,15 @@ class TrackedThreadDialog(QDialog):
             newest_first=newest_first,
             include_metadata=include_meta,
         )
-        self._unread_anchors = re.findall(r'<a name="(unread-\d+)"></a>', md)
+        self.browser.setMarkdown(md)
+        self._unread_blocks = find_unread_heading_blocks(self.browser)
         self._unread_cursor = -1
         self._update_next_unread_button()
-        self.browser.setMarkdown(md)
 
     def _update_next_unread_button(self):
         if not hasattr(self, "next_unread_btn"):
             return
-        cnt = len(self._unread_anchors)
+        cnt = len(self._unread_blocks)
         self.next_unread_btn.setText(f"🔵 Next Unread ({cnt})")
         self.next_unread_btn.setEnabled(cnt > 0)
         if cnt <= 0:
@@ -567,16 +573,21 @@ class TrackedThreadDialog(QDialog):
         if self._initial_scroll_done:
             return
         self._initial_scroll_done = True
-        if self._unread_anchors:
+        blocks = find_unread_heading_blocks(self.browser)
+        self._unread_blocks = blocks
+        if blocks:
             self._unread_cursor = 0
-            self.browser.scrollToAnchor(self._unread_anchors[0])
+            scroll_browser_to_block(self.browser, blocks[0])
             self._update_next_unread_button()
 
     def _on_next_unread_clicked(self):
-        if not self._unread_anchors:
+        blocks = find_unread_heading_blocks(self.browser)
+        self._unread_blocks = blocks
+        if not blocks:
+            self._update_next_unread_button()
             return
-        self._unread_cursor = (self._unread_cursor + 1) % len(self._unread_anchors)
-        self.browser.scrollToAnchor(self._unread_anchors[self._unread_cursor])
+        self._unread_cursor = (self._unread_cursor + 1) % len(blocks)
+        scroll_browser_to_block(self.browser, blocks[self._unread_cursor])
         self._update_next_unread_button()
 
     def _get_thread_cache_dir(self) -> Path:

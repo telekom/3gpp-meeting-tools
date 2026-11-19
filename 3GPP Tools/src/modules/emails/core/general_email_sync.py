@@ -8,6 +8,10 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from modules.emails.core.outlook_client import OutlookClient
 from modules.emails.core.general_email_db import GeneralEmailDatabase
+from modules.emails.core.thread_markdown_exporter import (
+    inject_html_tables_into_body,
+    unwrap_outlook_safelinks,
+)
 from core.utils.company_sanitizer import CompanySanitizer
 
 
@@ -46,8 +50,18 @@ class GeneralEmailSyncThread(QThread):
                 filter_end = e_dt + datetime.timedelta(days=self.days_buffer + 1)
 
             total_synced = 0
+            folder_configs = list(self.folder_configs or [])
+            ns = OutlookClient.get_namespace()
+            if ns:
+                try:
+                    sent_path = getattr(ns.GetDefaultFolder(5), "FolderPath", "") or ""
+                    known_paths = {str(fc.get("folder_path", "")).strip().lower() for fc in folder_configs}
+                    if sent_path and sent_path.lower() not in known_paths:
+                        folder_configs.append({"folder_path": sent_path, "tag": "Sent"})
+                except Exception:
+                    pass
 
-            for folder_cfg in self.folder_configs:
+            for folder_cfg in folder_configs:
                 if self.isInterruptionRequested():
                     break
                 folder_path = folder_cfg.get("folder_path", "")
@@ -82,7 +96,7 @@ class GeneralEmailSyncThread(QThread):
 
                     # Date Boundary Filter
                     if filter_start and filter_end:
-                        mail_date = getattr(mail_item, "ReceivedTime", None)
+                        mail_date = getattr(mail_item, "ReceivedTime", None) or getattr(mail_item, "SentOn", None)
                         if mail_date:
                             try:
                                 dt = datetime.datetime(mail_date.year, mail_date.month, mail_date.day,
@@ -115,6 +129,31 @@ class GeneralEmailSyncThread(QThread):
                     if not matches:
                         continue
 
+                    rich_body = body
+                    try:
+                        html_body = getattr(mail_item, "HTMLBody", "") or ""
+                        if html_body and "<table" in html_body.lower():
+                            rich_body = inject_html_tables_into_body(rich_body, html_body)
+                    except Exception:
+                        pass
+                    rich_body = unwrap_outlook_safelinks(rich_body)
+                    quote_split = self.QUOTE_SPLIT_REGEX.search(rich_body)
+                    clean_body = (rich_body[: quote_split.start()].strip() if quote_split else rich_body.strip())
+
+                    attachments: List[str] = []
+                    try:
+                        atts = getattr(mail_item, "Attachments", None)
+                        if atts:
+                            for ai in range(1, atts.Count + 1):
+                                fname = getattr(atts.Item(ai), "FileName", "") or ""
+                                if fname:
+                                    attachments.append(fname)
+                    except Exception:
+                        pass
+
+                    dt_raw = getattr(mail_item, "ReceivedTime", None) or getattr(mail_item, "SentOn", None) or ""
+                    date_str = dt_raw.strftime("%Y-%m-%d %H:%M:%S") if hasattr(dt_raw, "strftime") else str(dt_raw)
+
                     email_record = {
                         "id": entry_id,
                         "folder_tag": folder_tag,
@@ -122,8 +161,10 @@ class GeneralEmailSyncThread(QThread):
                         "sender_name": sender_name,
                         "sender_email": sender_email,
                         "company": company,
-                        "date_received": str(getattr(mail_item, "ReceivedTime", "")),
-                        "body_text": body[:12000],
+                        "date_received": date_str,
+                        "body_text": rich_body[:12000],
+                        "clean_body": clean_body[:12000],
+                        "attachments": attachments,
                         "is_read": 1 if getattr(mail_item, "UnRead", False) is False else 0,
                         "is_ignored": 0,
                         "flag_status": 2 if int(getattr(mail_item, "FlagStatus", 0) or 0) == 2 else 0,

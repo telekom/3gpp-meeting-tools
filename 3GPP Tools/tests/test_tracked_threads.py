@@ -649,11 +649,10 @@ def test_per_message_read_unread_and_flag_sync(tmp_path):
     )
     with patch.object(OutlookClient, "get_namespace", return_value=FakeNamespace()):
         edlg = TDocEmailsDialog("S2-2612673", ["S2-2612673"], tmp_path / "general.db", wg="SA2")
-        assert edlg._get_selected_indices() == [0]
-        edlg._toggle_selected_flag()
+        edlg._on_anchor_clicked(QUrl("outlook://flag/EID-GEN-1"))
         assert fake_items["EID-GEN-1"].FlagStatus == 2
-        assert "🚩" in edlg.model.item(0, 0).text()
         assert "1 Flagged" in edlg.lbl_counts.text()
+        assert "FLAGGED" in edlg.browser.toPlainText()
 
         counts = gdb.get_email_counts_per_tdoc()
         assert counts["S2-2612673"]["flagged"] == 1
@@ -670,7 +669,7 @@ def test_per_message_read_unread_and_flag_sync(tmp_path):
         assert "🚩 1" in str(model.data(model.index(0, email_col), Qt.DisplayRole))
         assert "🚩 2" in str(model.data(model.index(1, email_col), Qt.DisplayRole))
 
-        edlg._toggle_selected_flag()
+        edlg._on_anchor_clicked(QUrl("outlook://unflag/EID-GEN-1"))
         assert fake_items["EID-GEN-1"].FlagStatus == 0
         edlg.close()
 
@@ -1332,6 +1331,7 @@ def test_tdocs_email_state_quick_filters():
 
 
 def test_tracked_thread_auto_scroll_and_next_unread(tmp_path):
+    import time
     from PyQt5.QtWidgets import QApplication
     from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
     from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
@@ -1339,27 +1339,42 @@ def test_tracked_thread_auto_scroll_and_next_unread(tmp_path):
     app = QApplication.instance() or QApplication([])
     db = TrackedThreadsDatabase(tmp_path / "threads.db")
     tid = db.create_or_get_thread("Auto Scroll Thread", "Auto Scroll Thread", meeting_id="SA2#178")
+    long_block = "\n\n".join(f"Paragraph {i}: detailed 3GPP discussion text" for i in range(25))
     db.upsert_messages(
         tid,
         [
-            {"id": "M1", "sender_name": "Alice", "date_sent": "2026-11-18 09:00:00", "body_text": "Old read msg", "is_read": 1},
-            {"id": "M2", "sender_name": "Bob", "date_sent": "2026-11-18 10:00:00", "body_text": "First unread msg", "is_read": 0},
-            {"id": "M3", "sender_name": "Carol", "date_sent": "2026-11-18 11:00:00", "body_text": "Second unread msg", "is_read": 0},
+            {"id": "M1", "sender_name": "Alice", "date_sent": "2026-11-18 09:00:00", "body_text": long_block, "is_read": 1},
+            {"id": "M2", "sender_name": "Bob", "date_sent": "2026-11-18 10:00:00", "body_text": long_block, "is_read": 0},
+            {"id": "M3", "sender_name": "Carol", "date_sent": "2026-11-18 11:00:00", "body_text": long_block, "is_read": 0},
         ],
     )
     dlg = TrackedThreadDialog(db, tid)
+    dlg.resize(700, 420)
+    dlg.order_combo.setCurrentIndex(1)  # Oldest First -> M1 (read) at top, M2/M3 below fold
+    dlg._initial_scroll_done = False
+    dlg.show()
     app.processEvents()
+    deadline = time.time() + 0.6
+    while time.time() < deadline and not dlg._initial_scroll_done:
+        app.processEvents()
 
-    assert dlg._unread_anchors == ["unread-1", "unread-2"]
+    assert len(dlg._unread_blocks) == 2
     assert dlg.next_unread_btn.isEnabled()
     assert dlg.next_unread_btn.text() == "🔵 Next Unread (2)"
     assert dlg._initial_scroll_done is True
     assert dlg._unread_cursor == 0
+    first_pos = dlg.browser.verticalScrollBar().value()
+    assert first_pos > 0
 
     dlg._on_next_unread_clicked()
     assert dlg._unread_cursor == 1
+    second_pos = dlg.browser.verticalScrollBar().value()
+    assert second_pos > first_pos
     dlg._on_next_unread_clicked()
     assert dlg._unread_cursor == 0
+    assert dlg.browser.verticalScrollBar().value() < second_pos
+    assert abs(dlg.browser.verticalScrollBar().value() - first_pos) <= 50
+    dlg._settings.setValue("newest_first", True)
     dlg.close()
 
 
@@ -1444,4 +1459,143 @@ def test_meeting_email_inbox_dialog_triage(tmp_path):
         # Open TDoc callback from E-TDOC-ONLY
         dlg._on_open_context()
         assert opened_tdocs == ["S2-2612345"]
+        dlg.close()
+
+
+def test_unified_tdoc_emails_dialog_timeline_and_actions(tmp_path):
+    import time
+    from unittest.mock import patch
+    from PyQt5.QtCore import QUrl
+    from PyQt5.QtWidgets import QApplication
+    from modules.emails.core.general_email_db import GeneralEmailDatabase
+    from modules.emails.core.outlook_client import OutlookClient
+    from modules.emails.ui.tdoc_emails_dialog import TDocEmailsDialog
+
+    app = QApplication.instance() or QApplication([])
+    db_path = tmp_path / "general.db"
+    gdb = GeneralEmailDatabase(db_path)
+
+    long_filler = "\n\n".join(f"Line {i}: Technical evaluation of S2-2612673 and S2-2612674." for i in range(25))
+    gdb.save_emails_batch(
+        [
+            {
+                "id": "E-OLD-READ",
+                "folder_tag": "SA2",
+                "subject": "[SA2#178] S2-2612673 Initial Draft",
+                "sender_name": "Alice",
+                "sender_email": "alice@nokia.com",
+                "company": "Nokia",
+                "date_received": "2026-11-18 09:00:00",
+                "body_text": long_filler + "\n\n| Col1 | Col2 |\n| --- | --- |\n| V1 | V2 |",
+                "clean_body": long_filler + "\n\n| Col1 | Col2 |\n| --- | --- |\n| V1 | V2 |",
+                "attachments": ["S2-2612673_clean.docx"],
+                "is_read": 1,
+                "flag_status": 0,
+            },
+            {
+                "id": "E-UNREAD-QUOTED",
+                "folder_tag": "Sent",
+                "subject": "RE: [SA2#178] Offline comment",
+                "sender_name": "Bob",
+                "sender_email": "bob@samsung.com",
+                "company": "Samsung",
+                "date_received": "2026-11-18 11:00:00",
+                "body_text": long_filler + "\n\n-----Original Message-----\nSee S2-2612673.",
+                "clean_body": long_filler,
+                "attachments": [],
+                "is_read": 0,
+                "flag_status": 0,
+            },
+        ],
+        [
+            {"email_id": "E-OLD-READ", "tdoc_id": "S2-2612673", "rev_matched": "r00", "match_location": "Subject"},
+            {"email_id": "E-UNREAD-QUOTED", "tdoc_id": "S2-2612673", "rev_matched": "", "match_location": "Quoted"},
+        ],
+    )
+
+    class FakeItem:
+        def __init__(self):
+            self.EntryID = "E-OLD-READ"
+            self.Subject = "[SA2#178] S2-2612673 Reloaded Subject"
+            self.SenderName = "Alice"
+            self.SenderEmailAddress = "alice@nokia.com"
+            self.Body = "Reloaded Header\nA\nB\n1\n2"
+            self.HTMLBody = "<table><tr><td>A</td><td>B</td></tr><tr><td>1</td><td>2</td></tr></table>"
+            self.ConversationID = "CID-TDOC"
+            self.UnRead = False
+            self.FlagStatus = 0
+
+    class FakeNS:
+        def GetItemFromID(self, eid):
+            return FakeItem()
+
+    pinned_calls = []
+    tdoc_jumps = []
+    changes = []
+
+    with patch.object(OutlookClient, "set_messages_read_status", return_value=1), \
+         patch.object(OutlookClient, "set_messages_flag_status", return_value=1), \
+         patch.object(OutlookClient, "get_namespace", return_value=FakeNS()):
+        dlg = TDocEmailsDialog(
+            "S2-2612673",
+            ["S2-2612673"],
+            db_path,
+            wg="SA2",
+            pin_thread_callback=lambda info: pinned_calls.append(info),
+        )
+        # Auto-read timer is removed
+        assert not hasattr(dlg, "auto_read_timer")
+
+        dlg.resize(760, 440)
+        dlg.order_combo.setCurrentIndex(1)  # Oldest First -> E-OLD-READ at top, E-UNREAD-QUOTED below fold
+        dlg._initial_scroll_done = False
+        dlg.show()
+        deadline = time.time() + 0.5
+        while time.time() < deadline and not dlg._initial_scroll_done:
+            app.processEvents()
+
+        assert dlg.browser.verticalScrollBar().value() > 0
+        assert len(dlg._unread_blocks) == 1
+        assert dlg.next_unread_btn.text() == "🔵 Next Unread (1)"
+        assert "<table" in dlg.browser.toHtml()
+
+        dlg.data_changed.connect(lambda: changes.append(True))
+        dlg.tdoc_selected.connect(lambda td: tdoc_jumps.append(td))
+
+        # Clickable TDoc link inside timeline emits tdoc_selected
+        dlg._on_anchor_clicked(QUrl("tdoc:S2-2612674"))
+        assert tdoc_jumps == ["S2-2612674"]
+
+        # Include Quoted toggle hides quoted match, restoring restores it
+        dlg.chk_include_quoted.setChecked(False)
+        assert len(dlg.emails) == 1
+        dlg.chk_include_quoted.setChecked(True)
+        assert len(dlg.emails) == 2
+
+        # Inline mark read, ignore/show ignored, reload, pin, and CLI launch
+        dlg._on_anchor_clicked(QUrl("outlook://read/E-UNREAD-QUOTED"))
+        assert "0 Unread" in dlg.lbl_counts.text()
+
+        dlg._on_anchor_clicked(QUrl("outlook://ignore/E-UNREAD-QUOTED"))
+        assert len(dlg.emails) == 1
+        dlg.chk_show_ignored.setChecked(True)
+        assert len(dlg.emails) == 2
+        assert "IGNORED" in dlg.browser.toPlainText()
+
+        dlg._on_anchor_clicked(QUrl("outlook://reload/E-OLD-READ"))
+        reloaded_rows = {r["id"]: r for r in gdb.get_emails_for_tdocs({"S2-2612673"}, show_ignored=True)}
+        assert "| A | B |" in reloaded_rows["E-OLD-READ"]["body_text"]
+
+        dlg._on_pin_as_tracked_thread()
+        assert len(pinned_calls) == 1
+        assert "S2-2612673" in pinned_calls[0]["linked_tdocs"]
+
+        with patch("modules.emails.ui.tdoc_emails_dialog.launch_cli_in_terminal", return_value=True) as mock_cli:
+            dlg._on_launch_cli("codex")
+            mock_cli.assert_called_once()
+            assert mock_cli.call_args.kwargs.get("auto_execute") is False
+            assert (mock_cli.call_args.args[1] / "_CLI_CONTEXT.md").is_file()
+
+        assert len(changes) >= 3
+        dlg._settings.setValue("newest_first", True)
         dlg.close()

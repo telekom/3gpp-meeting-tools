@@ -1,39 +1,72 @@
 # --- File: src/modules/emails/ui/tdoc_emails_dialog.py ---
 import html
 import logging
-import re
-import webbrowser
+import os
 from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
+import urllib.parse
+import webbrowser
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QUrl
-from PyQt5.QtGui import QColor, QFont, QStandardItemModel, QStandardItem
+from PyQt5.QtCore import QSettings, Qt, QTimer, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
-    QAbstractItemView,
+    QAction,
+    QApplication,
     QCheckBox,
+    QComboBox,
     QDialog,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
+    QLineEdit,
     QMenu,
     QMessageBox,
     QPushButton,
-    QSplitter,
-    QTableView,
+    QSizePolicy,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
 
-from modules.emails.core.general_email_db import GeneralEmailDatabase
-from modules.emails.core.outlook_client import OutlookClient
-from modules.emails.ui.email_summary_dialog import EmailSummaryDialog
+from core.ai.cli_detector import detect_cli_agents, format_active_model_badge
+from core.ai.cli_launcher import (
+    launch_cli_in_terminal,
+    open_mcp_agent_setup_dialog,
+    write_cli_context_file,
+)
+from core.ui.flow_layout import FlowLayout
+from core.ui.font_scale import install_reader_zoom, zoom_text_widget
+from core.ui.toast import notify_info, notify_success, notify_toast
 from modules.emails.core.email_config import load_wg_email_config
+from modules.emails.core.general_email_db import (
+    GeneralEmailDatabase,
+    reload_general_email_from_outlook,
+    reload_tdoc_emails_from_outlook,
+)
+from modules.emails.core.outlook_client import OutlookClient
+from modules.emails.core.thread_markdown_exporter import (
+    export_thread_to_markdown,
+    extract_thread_document_urls,
+    find_unread_heading_blocks,
+    is_cacheable_document_url,
+    scroll_browser_to_block,
+)
+from modules.emails.core.tracked_threads_service import (
+    cache_and_open_thread_document_url,
+    normalize_subject,
+    open_outlook_attachment,
+    open_outlook_message,
+    reply_to_outlook_message,
+)
+from modules.emails.ui.email_summary_dialog import EmailSummaryDialog
 
 logger = logging.getLogger(__name__)
 
+
 class StandaloneEmailReaderWindow(QWidget):
     """Independent, fully resizable top-level window for reading emails on laptops/secondary monitors."""
+
     tdoc_selected = pyqtSignal(str)
 
     def __init__(self, parent=None):
@@ -53,7 +86,6 @@ class StandaloneEmailReaderWindow(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
 
-        # Top banner with quick controls
         top_bar = QHBoxLayout()
         self.lbl_title = QLabel("<b>Message Details</b>")
         self.lbl_title.setStyleSheet("font-size: 13px; color: #005A9E;")
@@ -86,13 +118,22 @@ class StandaloneEmailReaderWindow(QWidget):
             webbrowser.open(url_str)
 
 
-
 class TDocEmailsDialog(QDialog):
+    """Unified continuous Markdown timeline viewer for emails linked to a 3GPP TDoc family."""
+
     data_changed = pyqtSignal()
     tdoc_selected = pyqtSignal(str)
 
-    def __init__(self, target_tdoc: str, family_tdocs: list, db_path: Path, wg: str = "SA2", save_callback=None,
-                 parent=None):
+    def __init__(
+        self,
+        target_tdoc: str,
+        family_tdocs: list,
+        db_path: Path,
+        wg: str = "SA2",
+        save_callback=None,
+        parent=None,
+        pin_thread_callback: Optional[Callable[[dict], None]] = None,
+    ):
         super().__init__(None)  # Pass None so Win32 does not set parent as GW_OWNER
         self._parent_ref = parent
         if parent:
@@ -100,178 +141,210 @@ class TDocEmailsDialog(QDialog):
                 parent.destroyed.connect(self.close)
             except Exception:
                 pass
-        self.target_tdoc = target_tdoc.upper()
-        self.family_tdocs = [t.upper() for t in family_tdocs]
-        if self.target_tdoc not in self.family_tdocs:
+        self.target_tdoc = str(target_tdoc or "").strip().upper()
+        self.family_tdocs = [str(t).strip().upper() for t in (family_tdocs or []) if str(t).strip()]
+        if self.target_tdoc and self.target_tdoc not in self.family_tdocs:
             self.family_tdocs.insert(0, self.target_tdoc)
 
-        self.wg = wg
+        self.wg = str(wg or "SA2").strip().upper()
         self.save_callback = save_callback
+        self._pin_thread_callback = pin_thread_callback
         self.db = GeneralEmailDatabase(db_path)
         self._summary_dialog = None
-        self.tag_colors = {f.get("tag", "").upper(): f.get("color", "#0078D7") for f in load_wg_email_config(self.wg)}
+        self.emails: List[dict] = []
+        self._filtered_emails: List[dict] = []
+        self._unread_blocks: List[Any] = []
+        self._unread_cursor: int = -1
+        self._initial_scroll_done: bool = False
+        self._loading = False
+        self._settings = QSettings("3GPP_Tools", "TDocEmailsDialog")
 
-        # Modeless top-level window configuration
         self.setWindowFlags(Qt.Window)
         self.setWindowModality(Qt.NonModal)
         self.setWindowTitle(f"📧 Related Emails: {self.target_tdoc}")
-        self.resize(1100, 720)
-        self.setStyleSheet("QDialog { background-color: #FAFAFA; }")
-
-        # Reference to standalone reader pop-out
-        self._standalone_reader = None
-
-        self.auto_read_timer = QTimer(self)
-        self.auto_read_timer.setSingleShot(True)
-        self.auto_read_timer.setInterval(800)
-        self.auto_read_timer.timeout.connect(self._mark_current_read)
+        self.setMinimumSize(620, 460)
+        self.resize(1100, 760)
+        saved_geom = self._settings.value("geometry")
+        if saved_geom:
+            try:
+                self.restoreGeometry(saved_geom)
+            except Exception:
+                pass
 
         self._init_ui()
         self._load_emails()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._initial_scroll_done:
+            QTimer.singleShot(50, self._scroll_to_initial_unread)
+
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
 
-        # Top Bar: Lineage & Breadcrumbs
-        top_card = QFrame()
-        top_card.setStyleSheet("QFrame { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 6px; padding: 6px; }")
+        # Row 1: Compact Family Breadcrumb & TDoc Match Scope Controls
+        top_card = QFrame(self)
+        top_card.setObjectName("TDocEmailHeader")
+        top_card.setStyleSheet(
+            "#TDocEmailHeader { background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; }"
+        )
         top_layout = QHBoxLayout(top_card)
+        top_layout.setContentsMargins(10, 6, 10, 6)
+        top_layout.setSpacing(10)
 
-        chips_text = " ➔ ".join([f"<b>{t}</b>" if t == self.target_tdoc else t for t in self.family_tdocs])
+        chips_text = " ➔ ".join(
+            f"<b>{html.escape(t)}</b>" if t == self.target_tdoc else html.escape(t)
+            for t in self.family_tdocs
+        )
         lbl_chips = QLabel(f"<b>Document Family:</b> {chips_text}")
-        top_layout.addWidget(lbl_chips)
-        top_layout.addStretch()
+        lbl_chips.setWordWrap(True)
+        top_layout.addWidget(lbl_chips, 1)
 
         self.chk_family = QCheckBox("Show Family Revisions")
         self.chk_family.setChecked(True)
+        self.chk_family.setToolTip("Include emails mentioning any predecessor or revision in this TDoc family.")
         self.chk_family.toggled.connect(self._load_emails)
         top_layout.addWidget(self.chk_family)
 
         self.chk_include_quoted = QCheckBox("Include Quoted Matches")
-        self.chk_include_quoted.setToolTip("Uncheck to hide emails where the TDoc was only cited in previous email quotations.")
+        self.chk_include_quoted.setToolTip("Uncheck to hide emails where the TDoc was only cited inside quoted reply history.")
         self.chk_include_quoted.setChecked(True)
         self.chk_include_quoted.toggled.connect(self._load_emails)
         top_layout.addWidget(self.chk_include_quoted)
 
         self.chk_show_ignored = QCheckBox("Show Ignored")
+        self.chk_show_ignored.setToolTip("Show emails previously marked as Ignored for this TDoc.")
         self.chk_show_ignored.setChecked(False)
         self.chk_show_ignored.toggled.connect(self._load_emails)
         top_layout.addWidget(self.chk_show_ignored)
 
-        self.lbl_counts = QLabel("0 Emails")
-        self.lbl_counts.setStyleSheet("font-weight: bold; color: #0078D7; margin-left: 10px;")
+        self.lbl_counts = QLabel("0 Total (0 Unread)")
+        self.lbl_counts.setStyleSheet("font-weight: bold; color: #1D4ED8;")
         top_layout.addWidget(self.lbl_counts)
         layout.addWidget(top_card)
 
-        # Action Toolbar
-        act_row = QHBoxLayout()
-        self.btn_mark_read = QPushButton("✔️ Mark Read")
-        self.btn_mark_read.clicked.connect(lambda: self._set_selected_read(True))
+        # Row 2: Lean Action Toolbar (mirrors TrackedThreadDialog)
+        toolbar_widget = QWidget(self)
+        toolbar_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        toolbar_sp.setHeightForWidth(True)
+        toolbar_widget.setSizePolicy(toolbar_sp)
+        toolbar = FlowLayout(toolbar_widget, margin=0, h_spacing=6, v_spacing=4)
 
-        self.btn_mark_unread = QPushButton("✉️ Mark Unread")
-        self.btn_mark_unread.clicked.connect(lambda: self._set_selected_read(False))
-
-        self.btn_flag = QPushButton("🚩 Flag")
-        self.btn_flag.setToolTip("Toggle Outlook flag on selected email(s).")
-        self.btn_flag.clicked.connect(self._toggle_selected_flag)
-
-        self.btn_ignore = QPushButton("🚫 Ignore")
-        self.btn_ignore.setToolTip("Exclude selected email(s) from counts without deleting them.")
-        self.btn_ignore.clicked.connect(self._toggle_selected_ignore)
-
-        self.btn_delete = QPushButton("🗑️ Delete")
-        self.btn_delete.setToolTip("Permanently delete selected email records from database.")
-        self.btn_delete.clicked.connect(self._delete_selected)
+        self.btn_reload_outlook = QPushButton("🔄 Reload from Outlook")
+        self.btn_reload_outlook.setToolTip(
+            "Re-fetch these cached emails from Microsoft Outlook to populate HTML tables, attachments, and read/flag state."
+        )
+        self.btn_reload_outlook.clicked.connect(self._on_reload_all_from_outlook)
+        toolbar.addWidget(self.btn_reload_outlook)
 
         self.btn_mark_all_read = QPushButton("✔️ Mark All Read")
+        self.btn_mark_all_read.setToolTip("Mark all emails for this TDoc family as read in local DB and Outlook.")
         self.btn_mark_all_read.clicked.connect(self._mark_all_family_read)
+        toolbar.addWidget(self.btn_mark_all_read)
 
-        self.btn_ai_summary = QPushButton("🤖 AI Summarize Discussion")
-        self.btn_ai_summary.setStyleSheet("""
-                    QPushButton {
-                        font-weight: bold; background-color: #F0F4F8; color: #005A9E;
-                        border: 1px solid #D2E3FC; border-radius: 4px; padding: 4px 10px;
-                    }
-                    QPushButton:hover { background-color: #E1EFFF; border-color: #005A9E; }
-                """)
-        self.btn_ai_summary.clicked.connect(self._on_ai_summarize_clicked)
+        self.llm_export_btn = QPushButton("🤖 LLM && Export")
+        self.llm_export_btn.setToolTip("AI Summarize Discussion (Ollama), Launch LLM CLI, or Copy/Save Markdown.")
+        self.llm_export_menu = QMenu(self)
+        self.llm_export_menu.aboutToShow.connect(self._populate_llm_export_menu)
+        self.llm_export_btn.setMenu(self.llm_export_menu)
+        toolbar.addWidget(self.llm_export_btn)
 
-        self.btn_open_outlook = QPushButton("🚀 Open in Outlook")
-        self.btn_open_outlook.setStyleSheet("font-weight: bold; background-color: #0078D7; color: white; border-radius: 4px; padding: 4px 12px;")
-        self.btn_open_outlook.clicked.connect(self._open_in_outlook)
+        docs_btn = QPushButton("📂 Docs")
+        docs_menu = QMenu(self)
+        act_cache_docs = docs_menu.addAction("📥 Cache All Linked Docs && Attachments")
+        act_cache_docs.triggered.connect(self._on_cache_all_docs)
+        act_open_folder = docs_menu.addAction("📂 Open Cached Docs Folder")
+        act_open_folder.triggered.connect(self._on_open_cache_folder)
+        docs_btn.setMenu(docs_menu)
+        toolbar.addWidget(docs_btn)
 
-        act_row.addWidget(self.btn_mark_read)
-        act_row.addWidget(self.btn_mark_unread)
-        act_row.addWidget(self.btn_flag)
-        act_row.addWidget(self.btn_ignore)
-        act_row.addWidget(self.btn_delete)
-        act_row.addSpacing(10)
-        act_row.addWidget(self.btn_mark_all_read)
-        act_row.addWidget(self.btn_ai_summary)
-        act_row.addStretch()
-        act_row.addWidget(self.btn_open_outlook)
-        layout.addLayout(act_row)
+        self.btn_pin_thread = QPushButton("📌 Pin as Tracked Thread")
+        self.btn_pin_thread.setToolTip("Promote this email discussion into a persistent Tracked Email Thread in the TDocs table.")
+        self.btn_pin_thread.clicked.connect(self._on_pin_as_tracked_thread)
+        self.btn_pin_thread.setVisible(self._pin_thread_callback is not None)
+        toolbar.addWidget(self.btn_pin_thread)
 
-        # Main Table Setup
-        self.table = QTableView()
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.table.setAlternatingRowColors(True)
-        self.table.setStyleSheet("QTableView { background: white; border: 1px solid #CCC; } QHeaderView::section { background: #F0F0F0; font-weight: bold; }")
+        more_btn = QPushButton("⚙️ More")
+        more_menu = QMenu(self)
+        self.dedup_check = QAction("Deduplicate trailing quotes", self)
+        self.dedup_check.setCheckable(True)
+        self.dedup_check.setChecked(True)
+        self.dedup_check.toggled.connect(self._render_messages)
+        more_menu.addAction(self.dedup_check)
 
-        self.model = QStandardItemModel()
-        self.headers = ["Status", "Tag", "Match In", "Rev", "Sender", "Company", "Date", "Subject"]
-        self.model.setHorizontalHeaderLabels(self.headers)
-        self.table.setModel(self.model)
-        self.table.selectionModel().selectionChanged.connect(self._on_email_selection_changed)
-        self.table.doubleClicked.connect(self._open_in_outlook)
+        self.show_meta_action = QAction("Show Metadata && Linked Docs Header", self)
+        self.show_meta_action.setCheckable(True)
+        self.show_meta_action.setChecked(self._settings.value("show_metadata_header", False, type=bool))
+        self.show_meta_action.toggled.connect(self._on_show_metadata_toggled)
+        more_menu.addAction(self.show_meta_action)
 
-        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self._show_context_menu)
+        self.export_chrono_check = QAction("Export Oldest First (for LLMs)", self)
+        self.export_chrono_check.setCheckable(True)
+        self.export_chrono_check.setChecked(self._settings.value("export_oldest_first", True, type=bool))
+        self.export_chrono_check.toggled.connect(lambda v: self._settings.setValue("export_oldest_first", bool(v)))
 
-        hdr = self.table.horizontalHeader()
-        hdr.setSectionResizeMode(QHeaderView.Interactive)
-        hdr.resizeSection(0, 75)
-        hdr.resizeSection(1, 80)
-        hdr.resizeSection(2, 85)
-        hdr.resizeSection(3, 75)
-        hdr.resizeSection(4, 130)
-        hdr.resizeSection(5, 110)
-        hdr.resizeSection(6, 120)
-        hdr.setSectionResizeMode(7, QHeaderView.Stretch)
+        more_btn.setMenu(more_menu)
+        toolbar.addWidget(more_btn)
+        layout.addWidget(toolbar_widget)
 
-        # Reading Pane Container with Dedicated Pop-Out Control
-        reader_container = QWidget()
-        reader_layout = QVBoxLayout(reader_container)
-        reader_layout.setContentsMargins(0, 0, 0, 0)
-        reader_layout.setSpacing(4)
+        # Row 3: Search, Company, Read/Flag State, Display Order & Next Unread
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(6)
+        self.msg_search_edit = QLineEdit()
+        self.msg_search_edit.setClearButtonEnabled(True)
+        self.msg_search_edit.setPlaceholderText("🔍 Filter messages by keyword, TDoc, or sender...")
+        self.msg_search_edit.textChanged.connect(self._render_messages)
+        filter_row.addWidget(self.msg_search_edit, 1)
 
-        reader_header = QHBoxLayout()
-        lbl_preview = QLabel("<b>📖 Message Preview</b>")
-        lbl_preview.setStyleSheet("color: #555;")
-        self.btn_popout = QPushButton("⧉ Pop Out View")
-        self.btn_popout.setToolTip("Open this message preview in a separate, independent resizable window.")
-        self.btn_popout.setStyleSheet("font-weight: bold; background: #FFFFFF; border: 1px solid #CCC; border-radius: 3px; padding: 2px 8px;")
-        self.btn_popout.clicked.connect(self._pop_out_reader)
-        reader_header.addWidget(lbl_preview)
-        reader_header.addStretch()
-        reader_header.addWidget(self.btn_popout)
-        reader_layout.addLayout(reader_header)
+        self.company_filter_combo = QComboBox()
+        self.company_filter_combo.addItem("All Companies", "")
+        self.company_filter_combo.currentIndexChanged.connect(self._render_messages)
+        filter_row.addWidget(self.company_filter_combo)
 
-        self.reading_pane = QTextBrowser()
-        self.reading_pane.setOpenLinks(False)
-        self.reading_pane.anchorClicked.connect(self._on_anchor_clicked)
-        self.reading_pane.setStyleSheet("background: white; border: 1px solid #CCC; border-radius: 4px; padding: 8px;")
-        reader_layout.addWidget(self.reading_pane)
+        self.state_filter_combo = QComboBox()
+        self.state_filter_combo.addItem("All Messages", "all")
+        self.state_filter_combo.addItem("🔵 Unread Only", "unread")
+        self.state_filter_combo.addItem("🚩 Flagged Only", "flagged")
+        self.state_filter_combo.setToolTip("Filter messages by read or Outlook flag state.")
+        self.state_filter_combo.currentIndexChanged.connect(self._render_messages)
+        filter_row.addWidget(self.state_filter_combo)
 
-        # Interactive Vertical Splitter replacing rigid layout
-        self.splitter = QSplitter(Qt.Vertical)
-        self.splitter.addWidget(self.table)
-        self.splitter.addWidget(reader_container)
-        self.splitter.setSizes([380, 260])
-        layout.addWidget(self.splitter, stretch=1)
+        self.order_combo = QComboBox()
+        self.order_combo.addItem("⬇️ Newest First", True)
+        self.order_combo.addItem("⬆️ Oldest First", False)
+        saved_newest = self._settings.value("newest_first", True, type=bool)
+        self.order_combo.setCurrentIndex(0 if saved_newest else 1)
+        self.order_combo.currentIndexChanged.connect(self._on_order_changed)
+        filter_row.addWidget(self.order_combo)
+
+        self.next_unread_btn = QPushButton("🔵 Next Unread (0)")
+        self.next_unread_btn.setToolTip("Jump to the next unread email in the discussion timeline.")
+        self.next_unread_btn.setStyleSheet(
+            "QPushButton { padding: 3px 9px; border-radius: 4px; border: 1px solid #93C5FD; "
+            "background-color: #EFF6FF; color: #1D4ED8; font-weight: bold; } "
+            "QPushButton:hover { background-color: #DBEAFE; } "
+            "QPushButton:disabled { background-color: #F8FAFC; color: #94A3B8; border-color: #E2E8F0; font-weight: normal; }"
+        )
+        self.next_unread_btn.clicked.connect(self._on_next_unread_clicked)
+        filter_row.addWidget(self.next_unread_btn)
+
+        self.msg_count_lbl = QLabel("")
+        self.msg_count_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
+        filter_row.addWidget(self.msg_count_lbl)
+        layout.addLayout(filter_row)
+
+        # Row 4: Continuous Timeline Browser
+        self.browser = QTextBrowser()
+        self.browser.setOpenLinks(False)
+        self.browser.setToolTip("Tip: Hold Ctrl + Mouse Wheel to zoom text size (Ctrl+0 to reset).")
+        self.browser.anchorClicked.connect(self._on_anchor_clicked)
+        install_reader_zoom()
+        saved_zoom = self._settings.value("zoom_steps", 0, type=int)
+        if saved_zoom:
+            zoom_text_widget(self.browser, int(saved_zoom))
+        layout.addWidget(self.browser, 1)
 
     @staticmethod
     def _compress_blank_lines(text: str, max_consecutive_empty: int = 1) -> str:
@@ -291,384 +364,451 @@ class TDocEmailsDialog(QDialog):
                 cleaned_lines.append(line.rstrip())
         return "\n".join(cleaned_lines).strip()
 
-    def _linkify_tdocs(self, text_escaped: str) -> str:
-        tdoc_pattern = re.compile(r'\b([A-Za-z0-9]{2,4}-\d{6,8}(?:r\d{1,2}[a-zA-Z]?)?)\b')
-        family_set = {t.upper() for t in self.family_tdocs}
+    def _on_order_changed(self):
+        self._settings.setValue("newest_first", bool(self.order_combo.currentData()))
+        self._render_messages()
 
-        def replace_tdoc(m):
-            full_match = m.group(1)
-            match_upper = full_match.upper()
-            base_tdoc = re.sub(r'(?:R|REV)\d{1,2}[A-Z]?$', '', match_upper, flags=re.IGNORECASE)
+    def _on_show_metadata_toggled(self, checked: bool):
+        self._settings.setValue("show_metadata_header", bool(checked))
+        self._render_messages()
 
-            is_current_family = (match_upper in family_set) or (base_tdoc in family_set)
+    def _build_synthetic_thread_dict(self) -> dict:
+        scope = self.family_tdocs if self.chk_family.isChecked() else [self.target_tdoc]
+        base_title = normalize_subject(self.emails[0].get("subject", "")) if self.emails else ""
+        return {
+            "thread_id": f"TDOC-{self.target_tdoc}",
+            "title": f"Emails Referencing {self.target_tdoc}" + (f": {base_title}" if base_title else ""),
+            "normalized_subject": base_title.lower(),
+            "wg": self.wg,
+            "linked_tdocs": list(scope),
+        }
 
-            if is_current_family:
-                return (
-                    f'<a href="tdoc:{match_upper}" '
-                    f'style="background-color: #FFF176; color: #004085; font-weight: bold; text-decoration: underline; padding: 0 2px; border-radius: 2px;" '
-                    f'title="Currently inspecting: {match_upper} (Click to refresh/open)">{full_match}</a>'
-                )
-            else:
-                return (
-                    f'<a href="tdoc:{match_upper}" '
-                    f'style="color: #005A9E; font-weight: bold; text-decoration: underline; padding: 0 2px;" '
-                    f'title="Click to view related emails for {match_upper}">🔗 {full_match}</a>'
-                )
-
-        return tdoc_pattern.sub(replace_tdoc, text_escaped)
-
-    def _on_anchor_clicked(self, url: QUrl):
-        url_str = url.toString()
-        if url_str.startswith("tdoc:"):
-            target_tdoc = url_str.split(":", 1)[1].strip()
-            self.tdoc_selected.emit(target_tdoc)
-        elif url_str.startswith("mailto:") or url_str.startswith("http://") or url_str.startswith("https://"):
-            webbrowser.open(url_str)
+    def _populate_company_filter(self, messages: List[dict]):
+        current = self.company_filter_combo.currentData() or ""
+        companies = sorted(
+            {
+                str(m.get("company") or "").strip()
+                for m in messages
+                if str(m.get("company") or "").strip()
+                and str(m.get("company") or "").strip().lower() not in ("unknown", "list")
+            },
+            key=str.lower,
+        )
+        self.company_filter_combo.blockSignals(True)
+        self.company_filter_combo.clear()
+        self.company_filter_combo.addItem("All Companies", "")
+        for c in companies:
+            self.company_filter_combo.addItem(c, c)
+        idx = self.company_filter_combo.findData(current)
+        self.company_filter_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.company_filter_combo.blockSignals(False)
 
     def _load_emails(self):
-        query_set = set(self.family_tdocs) if self.chk_family.isChecked() else {self.target_tdoc}
-        raw_emails = self.db.get_emails_for_tdocs(query_set, show_ignored=self.chk_show_ignored.isChecked())
+        self._loading = True
+        try:
+            query_set = set(self.family_tdocs) if self.chk_family.isChecked() else {self.target_tdoc}
+            raw_emails = self.db.get_emails_for_tdocs(query_set, show_ignored=self.chk_show_ignored.isChecked())
+            if not self.chk_include_quoted.isChecked():
+                self.emails = [e for e in raw_emails if e.get("match_location") != "Quoted"]
+            else:
+                self.emails = raw_emails
 
-        if not self.chk_include_quoted.isChecked():
-            self.emails = [e for e in raw_emails if e.get("match_location") != "Quoted"]
-        else:
-            self.emails = raw_emails
-
-        self.model.removeRows(0, self.model.rowCount())
-        unread_count = 0
-
-        for r_idx, e in enumerate(self.emails):
-            is_read = (int(e.get("is_read", 0)) == 1)
-            is_ignored = (int(e.get("is_ignored", 0)) == 1)
-            is_flagged = (int(e.get("flag_status", 0) or 0) == 2)
-
-            if not is_read and not is_ignored:
-                unread_count += 1
-
-            status_item = QStandardItem("")
-            self._apply_status_cell_style(status_item, is_read=is_read, is_ignored=is_ignored, is_flagged=is_flagged)
-
-            tag_str = e.get("folder_tag", "WG")
-            tag_item = QStandardItem(f"[{tag_str}]")
-            tag_item.setTextAlignment(Qt.AlignCenter)
-
-            color_hex = self.tag_colors.get(tag_str.upper(), "#0078D7")
-            tag_item.setForeground(QColor(color_hex))
-            tag_item.setFont(QFont("Segoe UI", weight=QFont.Bold))
-
-            loc_str = e.get("match_location", "Body")
-            loc_item = QStandardItem(loc_str)
-            loc_item.setTextAlignment(Qt.AlignCenter)
-
-            # Show all matched family documents in the tooltip
-            matched_docs = e.get("matched_tdoc", "")
-            tooltip_parts = []
-            if matched_docs:
-                tooltip_parts.append(f"Matched TDoc(s): {matched_docs}")
-            if loc_str == "Quoted":
-                loc_item.setForeground(QColor("#888888"))
-                tooltip_parts.append("TDoc was cited inside previous email quotations below.")
-            elif loc_str == "Subject":
-                loc_item.setForeground(QColor("#0C6B0C"))
-                loc_item.setFont(QFont("Segoe UI", weight=QFont.Bold))
-            if tooltip_parts:
-                loc_item.setToolTip("\n".join(tooltip_parts))
-
-            rev_item = QStandardItem(e.get("rev_matched") or "-")
-            rev_item.setTextAlignment(Qt.AlignCenter)
-
-            sender_item = QStandardItem(e.get("sender_name", ""))
-            company_item = QStandardItem(e.get("company", ""))
-            date_item = QStandardItem(str(e.get("date_received", ""))[:16])
-            subj_item = QStandardItem(e.get("subject", ""))
-
-            if is_ignored:
-                for item in [loc_item, rev_item, sender_item, company_item, date_item, subj_item]:
-                    item.setForeground(QColor("#999999"))
-
-            row = [status_item, tag_item, loc_item, rev_item, sender_item, company_item, date_item, subj_item]
-            self.model.appendRow(row)
-
-        self._update_unread_count_label()
-        if self.emails:
-            self.table.selectRow(0)
-
-    def _get_selected_indices(self) -> list:
-        return [idx.row() for idx in self.table.selectionModel().selectedRows() if idx.isValid()]
-
-    def _on_email_selection_changed(self):
-        rows = self._get_selected_indices()
-        if not rows:
-            self.reading_pane.clear()
-            if self._standalone_reader and self._standalone_reader.isVisible():
-                self._standalone_reader.update_content("")
-            return
-
-        primary_idx = rows[0]
-        e = self.emails[primary_idx]
-
-        raw_body = e.get("body_text", "")
-        cleaned = self._compress_blank_lines(raw_body, max_consecutive_empty=1)
-        body_escaped = html.escape(cleaned)
-
-        # Convert all TDocs in body to clickable links
-        body_html = self._linkify_tdocs(body_escaped).replace("\n", "<br>")
-
-        # Match Context Excerpt
-        match_excerpt = ""
-        pattern = re.compile(rf"\b({'|'.join(re.escape(t) for t in self.family_tdocs)})\b", re.IGNORECASE)
-        found_matches = list(pattern.finditer(cleaned))
-        if found_matches:
-            m = found_matches[0]
-            start = max(0, m.start() - 60)
-            end = min(len(cleaned), m.end() + 60)
-            snippet = html.escape(cleaned[start:end]).replace("\n", " ")
-            snippet_hl = self._linkify_tdocs(snippet)
-            loc_label = e.get("match_location", "Body")
-            matched_tdocs = e.get("matched_tdoc", "")
-            tdoc_chip = f" | <b>TDocs:</b> {html.escape(matched_tdocs)}" if matched_tdocs else ""
-            match_excerpt = f"""
-                    <div style='background-color: #FFF8E1; border: 1px solid #FFE082; border-radius: 4px; padding: 6px; margin: 6px 0; font-size: 11px;'>
-                        <b>💡 Match Found ({loc_label}{tdoc_chip}):</b> ...{snippet_hl}...
-                    </div>
-                    """
-
-        # Linkify the Subject Header
-        subject_escaped = html.escape(e.get('subject', ''))
-        subject_html = self._linkify_tdocs(subject_escaped)
-
-        ignored_banner = "<p style='color: #D83B01; font-weight: bold; margin: 4px 0;'>⚠️ This email is currently IGNORED from TDoc counts.</p>" if e.get("is_ignored") else ""
-
-        full_html = f"""
-        {ignored_banner}
-        <h3 style='margin: 0 0 4px 0; color: #005A9E;'>{subject_html}</h3>
-        <p style='color: #555; margin: 0 0 6px 0; font-size: 12px;'>
-            <b>From:</b> {html.escape(e.get('sender_name', ''))} &lt;{html.escape(e.get('sender_email', ''))}&gt; ({html.escape(e.get('company', ''))}) | 
-            <b>Date:</b> {html.escape(e.get('date_received', ''))}
-        </p>
-        {match_excerpt}
-        <hr style='border: 0; border-top: 1px solid #E0E0E0; margin: 6px 0;'>
-        <div style='font-family: Segoe UI, sans-serif; font-size: 12px; color: #222; line-height: 1.4;'>{body_html}</div>
-        """
-        self.reading_pane.setHtml(full_html)
-
-        # Synchronize live standalone reader if detached
-        if self._standalone_reader and self._standalone_reader.isVisible():
-            self._standalone_reader.update_content(full_html, e.get('subject', ''))
-
-        if len(rows) == 1 and int(e.get("is_read", 0)) == 0 and int(e.get("is_ignored", 0)) == 0:
-            self.auto_read_timer.start()
-
-    def _pop_out_reader(self):
-        """Detaches the reading view into an independent top-level window."""
-        if not self._standalone_reader:
-            self._standalone_reader = StandaloneEmailReaderWindow()
-            self._standalone_reader.tdoc_selected.connect(self.tdoc_selected.emit)
-
-        rows = self._get_selected_indices()
-        if rows:
-            e = self.emails[rows[0]]
-            self._standalone_reader.update_content(self.reading_pane.toHtml(), e.get('subject', ''))
-        else:
-            self._standalone_reader.update_content("<p style='color:#777;'><i>No email selected.</i></p>")
-
-        self._standalone_reader.show()
-        self._standalone_reader.raise_()
-        self._standalone_reader.activateWindow()
-
-    @staticmethod
-    def _apply_status_cell_style(item: QStandardItem, is_read: bool, is_ignored: bool, is_flagged: bool):
-        item.setTextAlignment(Qt.AlignCenter)
-        if is_ignored:
-            item.setText("🚫 Ignored")
-            item.setForeground(QColor("#888888"))
-            item.setFont(QFont("Segoe UI"))
-            return
-        flag_suffix = " 🚩" if is_flagged else ""
-        if is_read:
-            item.setText(f"⚪ Read{flag_suffix}")
-            item.setForeground(QColor("#C2410C") if is_flagged else QColor("#333"))
-            item.setFont(QFont("Segoe UI", weight=QFont.Bold if is_flagged else QFont.Normal))
-        else:
-            item.setText(f"🔵 Unread{flag_suffix}")
-            item.setForeground(QColor("#0078D7"))
-            item.setFont(QFont("Segoe UI", weight=QFont.Bold))
-
-    def _mark_current_read(self):
-        rows = self._get_selected_indices()
-        if len(rows) == 1:
-            idx = rows[0]
-            e = self.emails[idx]
-            if int(e.get("is_read", 0)) == 0 and int(e.get("is_ignored", 0)) == 0:
-                self.db.set_emails_read_status([e["id"]], True)
-                e["is_read"] = 1
-                is_flagged = (int(e.get("flag_status", 0) or 0) == 2)
-                self._apply_status_cell_style(self.model.item(idx, 0), is_read=True, is_ignored=False, is_flagged=is_flagged)
-                self.data_changed.emit()
-                self._update_unread_count_label()
-
-    def _set_selected_read(self, is_read: bool):
-        rows = self._get_selected_indices()
-        if not rows:
-            return
-        email_ids = [self.emails[r]["id"] for r in rows]
-        self.db.set_emails_read_status(email_ids, is_read)
-        for r in rows:
-            self.emails[r]["is_read"] = 1 if is_read else 0
-            is_ignored = bool(self.emails[r].get("is_ignored"))
-            is_flagged = (int(self.emails[r].get("flag_status", 0) or 0) == 2)
-            self._apply_status_cell_style(self.model.item(r, 0), is_read=is_read, is_ignored=is_ignored, is_flagged=is_flagged)
-        self.data_changed.emit()
-        self._update_unread_count_label()
-
-    def _toggle_selected_flag(self):
-        rows = self._get_selected_indices()
-        if not rows:
-            return
-        any_unflagged = any(int(self.emails[r].get("flag_status", 0) or 0) != 2 for r in rows)
-        target_flagged = True if any_unflagged else False
-        email_ids = [self.emails[r]["id"] for r in rows]
-        self.db.set_emails_flag_status(email_ids, target_flagged)
-        new_flag_val = 2 if target_flagged else 0
-        for r in rows:
-            self.emails[r]["flag_status"] = new_flag_val
-            is_read = (int(self.emails[r].get("is_read", 0)) == 1)
-            is_ignored = bool(self.emails[r].get("is_ignored"))
-            self._apply_status_cell_style(self.model.item(r, 0), is_read=is_read, is_ignored=is_ignored, is_flagged=target_flagged)
-        self.data_changed.emit()
-        self._update_unread_count_label()
-
-    def _toggle_selected_ignore(self):
-        rows = self._get_selected_indices()
-        if not rows:
-            return
-        any_active = any(int(self.emails[r].get("is_ignored", 0)) == 0 for r in rows)
-        target_state = True if any_active else False
-
-        email_ids = [self.emails[r]["id"] for r in rows]
-        self.db.set_emails_ignored_status(email_ids, target_state)
-        self.data_changed.emit()
-        self._load_emails()
-
-    def _delete_selected(self):
-        rows = self._get_selected_indices()
-        if not rows:
-            return
-        reply = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            f"Are you sure you want to permanently delete {len(rows)} email record(s)?\n\n"
-            "Note: Re-syncing Outlook will re-import them unless they are Ignored instead.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        if reply != QMessageBox.Yes:
-            return
-
-        email_ids = [self.emails[r]["id"] for r in rows]
-        self.db.delete_emails(email_ids)
-        self.data_changed.emit()
-        self._load_emails()
-
-    def _mark_all_family_read(self):
-        query_set = set(self.family_tdocs) if self.chk_family.isChecked() else {self.target_tdoc}
-        self.db.set_tdocs_read_status(query_set, True)
-        self.data_changed.emit()
-        self._load_emails()
+            # Normalize chronological ascending order internally; display order respects order_combo
+            self.emails.sort(key=lambda m: str(m.get("date_received") or m.get("date_sent") or ""))
+            self._populate_company_filter(self.emails)
+            self._update_unread_count_label()
+        finally:
+            self._loading = False
+        self._render_messages()
 
     def _update_unread_count_label(self):
-        unread = sum(1 for e in self.emails if int(e.get("is_read", 0)) == 0 and int(e.get("is_ignored", 0)) == 0)
-        flagged = sum(1 for e in self.emails if int(e.get("flag_status", 0) or 0) == 2 and int(e.get("is_ignored", 0)) == 0)
+        unread = sum(1 for e in self.emails if int(e.get("is_read", 0) or 0) == 0 and int(e.get("is_ignored", 0) or 0) == 0)
+        flagged = sum(1 for e in self.emails if int(e.get("flag_status", 0) or 0) == 2 and int(e.get("is_ignored", 0) or 0) == 0)
         flag_part = f", {flagged} Flagged" if flagged > 0 else ""
         self.lbl_counts.setText(f"{len(self.emails)} Total ({unread} Unread{flag_part})")
 
-    def _open_in_outlook(self):
-        rows = self._get_selected_indices()
-        if not rows:
+    def _render_messages(self):
+        if self._loading:
             return
-        e = self.emails[rows[0]]
-        entry_id = e.get("id")
+        query = self.msg_search_edit.text().strip().lower()
+        comp_filter = (self.company_filter_combo.currentData() or "").strip().lower()
+        state_filter = (self.state_filter_combo.currentData() or "all").strip().lower()
 
+        filtered: List[dict] = []
+        for m in self.emails:
+            if state_filter == "unread" and int(m.get("is_read", 0) or 0) != 0:
+                continue
+            if state_filter == "flagged" and int(m.get("flag_status", 0) or 0) != 2:
+                continue
+            if comp_filter and str(m.get("company") or "").strip().lower() != comp_filter:
+                continue
+            if query:
+                hay = " ".join([
+                    str(m.get("sender_name") or ""),
+                    str(m.get("sender_email") or ""),
+                    str(m.get("company") or ""),
+                    str(m.get("subject") or ""),
+                    str(m.get("matched_tdoc") or ""),
+                    str(m.get("body_text") or ""),
+                ]).lower()
+                if query not in hay:
+                    continue
+            filtered.append(m)
+
+        self._filtered_emails = filtered
+        if len(filtered) == len(self.emails):
+            self.msg_count_lbl.setText(f"{len(self.emails)} message(s)")
+        else:
+            self.msg_count_lbl.setText(f"Showing {len(filtered)} of {len(self.emails)}")
+
+        newest_first = bool(self.order_combo.currentData())
+        include_meta = self.show_meta_action.isChecked()
+        thread_meta = self._build_synthetic_thread_dict()
+        md = export_thread_to_markdown(
+            thread_meta,
+            filtered,
+            deduplicate_quotes=self.dedup_check.isChecked(),
+            interactive_links=True,
+            newest_first=newest_first,
+            include_metadata=include_meta,
+            include_ignore_action=True,
+            enable_tdoc_links=True,
+        )
+        self.browser.setMarkdown(md)
+        self._unread_blocks = find_unread_heading_blocks(self.browser)
+        self._unread_cursor = -1
+        self._update_next_unread_button()
+
+    def _update_next_unread_button(self):
+        cnt = len(self._unread_blocks)
+        self.next_unread_btn.setText(f"🔵 Next Unread ({cnt})")
+        self.next_unread_btn.setEnabled(cnt > 0)
+        if cnt <= 0:
+            self.next_unread_btn.setToolTip("No unread emails in the current view.")
+        elif self._unread_cursor >= 0:
+            self.next_unread_btn.setToolTip(f"Jump to next unread email ({self._unread_cursor + 1}/{cnt}).")
+        else:
+            self.next_unread_btn.setToolTip(f"Jump to the first of {cnt} unread email(s).")
+
+    def _scroll_to_initial_unread(self):
+        if self._initial_scroll_done:
+            return
+        self._initial_scroll_done = True
+        blocks = find_unread_heading_blocks(self.browser)
+        self._unread_blocks = blocks
+        if blocks:
+            self._unread_cursor = 0
+            scroll_browser_to_block(self.browser, blocks[0])
+            self._update_next_unread_button()
+
+    def _on_next_unread_clicked(self):
+        blocks = find_unread_heading_blocks(self.browser)
+        self._unread_blocks = blocks
+        if not blocks:
+            self._update_next_unread_button()
+            return
+        self._unread_cursor = (self._unread_cursor + 1) % len(blocks)
+        scroll_browser_to_block(self.browser, blocks[self._unread_cursor])
+        self._update_next_unread_button()
+
+    def _get_cache_dir(self) -> Path:
+        d = self.db.db_path.parent / "TDocEmailCache" / self.target_tdoc
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _on_reload_all_from_outlook(self):
+        eids = [str(e.get("id") or "") for e in self.emails if e.get("id") and not str(e.get("id")).startswith("MSG-")]
+        if not eids:
+            notify_info(self, "Reload Emails", "No Outlook-backed emails found to reload.")
+            return
+        sb = self.browser.verticalScrollBar()
+        prev_scroll = sb.value()
+        updated = reload_tdoc_emails_from_outlook(self.db, eids)
+        self._load_emails()
+        sb.setValue(min(prev_scroll, sb.maximum()))
+        self.data_changed.emit()
+        if updated > 0:
+            notify_success(self, "Emails Reloaded", f"Re-parsed {updated} Outlook email(s) (tables, links & attachments).")
+        else:
+            notify_toast(
+                self,
+                "Reload Warning",
+                "Could not reload emails from Outlook (check Outlook connection or moved items).",
+                variant="warning",
+            )
+
+    def _mark_all_family_read(self):
+        query_set = set(self.family_tdocs) if self.chk_family.isChecked() else {self.target_tdoc}
+        self.db.set_tdocs_read_status(query_set, True, sync_outlook=True)
+        self.data_changed.emit()
+        self._load_emails()
+
+    def _on_pin_as_tracked_thread(self):
+        if not self._pin_thread_callback or not self.emails:
+            return
+        latest = self.emails[-1]
+        self._pin_thread_callback(
+            {
+                "subject": latest.get("subject") or f"Discussion on {self.target_tdoc}",
+                "normalized_subject": normalize_subject(latest.get("subject") or ""),
+                "linked_tdocs": list(self.family_tdocs),
+            }
+        )
+
+    def _on_cache_all_docs(self):
+        cache_dir = self._get_cache_dir()
+        cached: List[Path] = []
+        for doc_url in extract_thread_document_urls(self.emails):
+            p = cache_and_open_thread_document_url(doc_url, cache_dir, open_after=False)
+            if p:
+                cached.append(p)
+        ns = OutlookClient.get_namespace()
+        if ns:
+            for m in self.emails:
+                eid = str(m.get("id") or "").strip()
+                if not eid or eid.startswith("MSG-") or not m.get("attachments"):
+                    continue
+                try:
+                    item = ns.GetItemFromID(eid)
+                    atts = getattr(item, "Attachments", None)
+                    if not atts:
+                        continue
+                    for i in range(1, atts.Count + 1):
+                        att = atts.Item(i)
+                        fname = getattr(att, "FileName", "") or ""
+                        if not fname or fname.lower().endswith((".jpg", ".jpeg", ".png", ".gif")):
+                            continue
+                        safe_name = "".join(c for c in fname if c not in '<>:"/\\|?*').strip()
+                        if safe_name:
+                            out_path = cache_dir / safe_name
+                            if not out_path.exists():
+                                att.SaveAsFile(str(out_path.resolve()))
+                            cached.append(out_path)
+                except Exception:
+                    continue
+        QMessageBox.information(
+            self,
+            "Discussion Documents Cached",
+            f"Cached {len(cached)} document(s)/attachment(s) into:\n{cache_dir}",
+        )
+
+    def _on_open_cache_folder(self):
+        folder = self._get_cache_dir()
+        if hasattr(os, "startfile"):
+            os.startfile(str(folder.resolve()))
+
+    def _populate_llm_export_menu(self):
+        menu = self.llm_export_menu
+        menu.clear()
+        menu.setToolTipsVisible(True)
+
+        act_ai_sum = menu.addAction("🤖 AI Summarize Discussion (Ollama)...")
+        act_ai_sum.setToolTip("Generate a structured stance summary using local Ollama and optionally append it to TDoc My Notes.")
+        act_ai_sum.triggered.connect(self._on_ai_summarize_clicked)
+
+        menu.addSeparator()
         try:
-            namespace = OutlookClient.get_namespace()
-            if namespace and entry_id:
-                mail = namespace.GetItemFromID(entry_id)
-                mail.Display(False)
-                self._mark_current_read()
-            else:
-                QMessageBox.warning(self, "Outlook Error", "Could not connect to Microsoft Outlook MAPI.")
-        except Exception as err:
-            QMessageBox.warning(self, "Item Not Found",
-                                f"Could not open email in Outlook:\n{err}\n\n(It may have been moved across PSTs or deleted).")
-
-    def _show_context_menu(self, pos):
-        rows = self._get_selected_indices()
-        if not rows:
-            return
-
-        menu = QMenu(self)
-        act_open = menu.addAction("🚀 Open in Outlook")
-        act_open.triggered.connect(self._open_in_outlook)
-
-        act_popout = menu.addAction("⧉ Pop Out Reader")
-        act_popout.triggered.connect(self._pop_out_reader)
-        menu.addSeparator()
-
-        act_read = menu.addAction("✔️ Mark as Read")
-        act_read.triggered.connect(lambda: self._set_selected_read(True))
-
-        act_unread = menu.addAction("✉️ Mark as Unread")
-        act_unread.triggered.connect(lambda: self._set_selected_read(False))
-
-        any_unflagged = any(int(self.emails[r].get("flag_status", 0) or 0) != 2 for r in rows)
-        act_flag = menu.addAction("🚩 Flag Email(s)" if any_unflagged else "🏳️ Clear Flag")
-        act_flag.triggered.connect(self._toggle_selected_flag)
+            statuses = detect_cli_agents()
+        except Exception:
+            statuses = {}
+        installed = [st for st in statuses.values() if st.installed]
+        if installed:
+            for st in installed:
+                badge = format_active_model_badge(st.agent_id)
+                act = menu.addAction(f"{st.icon} Launch {st.label} [{badge}]")
+                act.setToolTip(
+                    f"Prepare discussion Markdown + cached docs and open {st.label} idle "
+                    "(prompt copied to clipboard for Ctrl+V — zero auto token burn)."
+                )
+                act.triggered.connect(lambda _=False, aid=st.agent_id: self._on_launch_cli(aid))
+        else:
+            no_cli = menu.addAction("⚪ No LLM CLI Detected (codex / claude / gemini)")
+            no_cli.setEnabled(False)
 
         menu.addSeparator()
-        any_active = any(int(self.emails[r].get("is_ignored", 0)) == 0 for r in rows)
-        act_ignore = menu.addAction("🚫 Ignore Email(s)" if any_active else "↩️ Un-ignore Email(s)")
-        act_ignore.triggered.connect(self._toggle_selected_ignore)
+        act_copy = menu.addAction("📋 Copy Discussion Markdown")
+        act_copy.triggered.connect(self._on_copy_markdown)
+        act_save = menu.addAction("💾 Save Discussion .md...")
+        act_save.triggered.connect(self._on_save_markdown)
+        menu.addSeparator()
+        menu.addAction(self.export_chrono_check)
+        menu.addSeparator()
+        act_cfg = menu.addAction("⚙️ Configure CLI Agents && MCP...")
+        act_cfg.triggered.connect(lambda _=False: open_mcp_agent_setup_dialog(self))
 
-        act_del = menu.addAction("🗑️ Delete Email(s)")
-        act_del.triggered.connect(self._delete_selected)
+    def _get_export_newest_first(self) -> bool:
+        if hasattr(self, "export_chrono_check") and self.export_chrono_check.isChecked():
+            return False
+        return bool(self.order_combo.currentData()) if hasattr(self, "order_combo") else False
 
-        menu.exec_(self.table.viewport().mapToGlobal(pos))
+    def _get_markdown(self) -> str:
+        return export_thread_to_markdown(
+            self._build_synthetic_thread_dict(),
+            self.emails,
+            deduplicate_quotes=self.dedup_check.isChecked(),
+            interactive_links=False,
+            newest_first=self._get_export_newest_first(),
+            include_metadata=True,
+        )
+
+    def _on_copy_markdown(self):
+        QApplication.clipboard().setText(self._get_markdown())
+        notify_success(self, "Copied", "Discussion Markdown copied to clipboard.")
+
+    def _on_save_markdown(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save TDoc Emails Markdown",
+            f"{self.target_tdoc}_emails.md",
+            "Markdown (*.md)",
+        )
+        if path:
+            Path(path).write_text(self._get_markdown(), encoding="utf-8")
+
+    def _on_launch_cli(self, agent_id: Optional[str] = None):
+        cli = (agent_id or "codex").strip().lower()
+        cache_dir = self._get_cache_dir()
+        ws_dir = cache_dir / "llm_workspace"
+        ws_dir.mkdir(parents=True, exist_ok=True)
+        md_path = ws_dir / f"{self.target_tdoc}_emails.md"
+        md_path.write_text(self._get_markdown(), encoding="utf-8")
+
+        doc_mds: List[Path] = []
+        for existing in cache_dir.iterdir():
+            if existing.is_file() and existing.suffix.lower() in (".docx", ".docm"):
+                out_md = ws_dir / f"{existing.stem}.md"
+                if not out_md.exists():
+                    try:
+                        from modules.meetings.core.tdoc_markdown_converter import convert_document_to_markdown
+                        convert_document_to_markdown(str(existing), str(out_md))
+                    except Exception:
+                        pass
+                if out_md.exists():
+                    doc_mds.append(out_md)
+
+        extra_docs = ""
+        if doc_mds:
+            extra_docs = f" Companion converted documents are also in {ws_dir} ({', '.join(p.name for p in doc_mds[:10])})."
+        prompt = (
+            f"Analyze the 3GPP email discussion referencing {self.target_tdoc} in {md_path} and summarize "
+            f"company positions, key technical objections, revisions, and open points.{extra_docs}"
+        )
+        write_cli_context_file(
+            ws_dir,
+            task_mode="custom",
+            custom_question=prompt,
+            markdown_files=[md_path] + doc_mds,
+            briefing_title=f"TDoc Related Emails: {self.target_tdoc}",
+        )
+        launch_cli_in_terminal(
+            cli,
+            ws_dir,
+            bootstrap_prompt=prompt,
+            parent=self,
+            auto_execute=False,
+        )
 
     def _on_ai_summarize_clicked(self):
-        if not hasattr(self, "emails") or not self.emails:
+        target_emails = list(self._filtered_emails or self.emails)
+        if not target_emails:
             QMessageBox.warning(self, "No Emails", "There are no emails to summarize for this document.")
             return
-
-        selected_indices = self._get_selected_indices()
-        if len(selected_indices) > 1:
-            target_emails = [self.emails[i] for i in selected_indices]
-        else:
-            target_emails = list(self.emails)
-
         if self._summary_dialog and self._summary_dialog.isVisible():
             self._summary_dialog.setWindowState(
-                self._summary_dialog.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+                self._summary_dialog.windowState() & ~Qt.WindowMinimized | Qt.WindowActive
+            )
             self._summary_dialog.raise_()
             self._summary_dialog.activateWindow()
             return
-
         self._summary_dialog = EmailSummaryDialog(
             tdoc_id=self.target_tdoc,
             family_tdocs=self.family_tdocs,
             emails_data=target_emails,
             save_callback=self.save_callback,
-            parent=None
+            parent=None,
         )
         self._summary_dialog.show()
 
+    def _on_anchor_clicked(self, url: QUrl):
+        scheme = url.scheme().lower()
+        if scheme == "tdoc":
+            target_tdoc = url.path().strip() or url.toString().split(":", 1)[1].strip()
+            if target_tdoc:
+                self.tdoc_selected.emit(target_tdoc.upper())
+            return
+
+        if scheme == "outlook":
+            host = url.host().lower()
+            path_parts = [urllib.parse.unquote(p) for p in url.path().strip("/").split("/") if p]
+            if not path_parts:
+                return
+            msg_id = path_parts[0]
+            sb = self.browser.verticalScrollBar()
+            prev_scroll = sb.value()
+
+            if host == "msg":
+                if not open_outlook_message(msg_id):
+                    QMessageBox.warning(self, "Outlook Message", "Could not open the selected message in Microsoft Outlook.")
+            elif host == "reply":
+                if not reply_to_outlook_message(msg_id, reply_all=True):
+                    QMessageBox.warning(self, "Outlook Reply", "Could not open a Reply window in Microsoft Outlook.")
+            elif host == "reload":
+                if reload_general_email_from_outlook(self.db, msg_id):
+                    self._load_emails()
+                    sb.setValue(min(prev_scroll, sb.maximum()))
+                    self.data_changed.emit()
+                    notify_success(self, "Email Reloaded", "Message body, tables, links, and attachments re-loaded from Outlook.")
+                else:
+                    notify_toast(self, "Reload Failed", "Could not re-fetch this message from Outlook.", variant="warning")
+            elif host in ("read", "unread"):
+                self.db.set_emails_read_status([msg_id], is_read=(host == "read"), sync_outlook=True)
+                self._load_emails()
+                sb.setValue(min(prev_scroll, sb.maximum()))
+                self.data_changed.emit()
+            elif host in ("flag", "unflag"):
+                self.db.set_emails_flag_status([msg_id], is_flagged=(host == "flag"), sync_outlook=True)
+                self._load_emails()
+                sb.setValue(min(prev_scroll, sb.maximum()))
+                self.data_changed.emit()
+            elif host in ("ignore", "unignore"):
+                self.db.set_emails_ignored_status([msg_id], is_ignored=(host == "ignore"))
+                self._load_emails()
+                sb.setValue(min(prev_scroll, sb.maximum()))
+                self.data_changed.emit()
+            elif host == "copy":
+                msg = next((m for m in self.emails if str(m.get("id") or "") == msg_id), None)
+                if msg:
+                    body = (msg.get("clean_body") if self.dedup_check.isChecked() and msg.get("clean_body") else msg.get("body_text")) or ""
+                    clip_txt = f"[{msg.get('date_received', '')}] {msg.get('sender_name', '')} ({msg.get('company', '')}):\n{body.strip()}"
+                    QApplication.clipboard().setText(clip_txt)
+                    notify_info(self, "Copied", "Message copied to clipboard.")
+            elif host == "att" and len(path_parts) >= 2:
+                att_name = "/".join(path_parts[1:])
+                if not open_outlook_attachment(msg_id, att_name, save_dir=self._get_cache_dir()):
+                    QMessageBox.warning(self, "Attachment", f"Could not open attachment '{att_name}' from Outlook.")
+            return
+
+        url_str = url.toString()
+        if is_cacheable_document_url(url_str):
+            cached_path = cache_and_open_thread_document_url(url_str, self._get_cache_dir(), open_after=True)
+            if cached_path:
+                notify_info(self, "3GPP Document Opened", f"Cached and opened {cached_path.name}.")
+                return
+            notify_toast(
+                self,
+                "Direct Download Unavailable",
+                "Could not download automatically — opening link in browser.",
+                variant="warning",
+            )
+        QDesktopServices.openUrl(url)
+
     def closeEvent(self, event):
-        if hasattr(self, "auto_read_timer"):
-            self.auto_read_timer.stop()
-        if getattr(self, "_standalone_reader", None):
-            try:
-                self._standalone_reader.close()
-            except Exception:
-                pass
+        try:
+            self._settings.setValue("geometry", self.saveGeometry())
+            if hasattr(self, "browser"):
+                self._settings.setValue("zoom_steps", int(self.browser.property("_reader_zoom_steps") or 0))
+        except Exception:
+            pass
         if getattr(self, "_summary_dialog", None):
             try:
                 self._summary_dialog.close()

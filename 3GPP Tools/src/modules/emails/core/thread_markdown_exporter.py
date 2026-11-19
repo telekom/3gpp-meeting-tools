@@ -313,6 +313,52 @@ def linkify_markdown_urls(text: str) -> str:
     return _BARE_URL_RE.sub(_linkify_match, unwrapped)
 
 
+_TDOC_LINK_OR_EXISTING_MD_RE = re.compile(
+    r"(\[[^\]]*\]\([^\)]*\))|\b((?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,7}(?:r\d{1,2}[a-zA-Z]?)?)\b",
+    re.IGNORECASE,
+)
+
+
+def linkify_tdoc_tokens(text: str) -> str:
+    """Turns bare 3GPP TDoc IDs into clickable Markdown tdoc: links while leaving existing Markdown links intact."""
+    if not text:
+        return ""
+
+    def _repl(m: re.Match) -> str:
+        if m.group(1):
+            return m.group(1)
+        tok = m.group(2)
+        return f"[{tok}](tdoc:{tok.upper()})"
+
+    return _TDOC_LINK_OR_EXISTING_MD_RE.sub(_repl, text)
+
+
+def find_unread_heading_blocks(browser: Any) -> List[Any]:
+    """Returns QTextBlock headings representing unread messages in a QTextBrowser rendered with export_thread_to_markdown."""
+    doc = browser.document()
+    blocks: List[Any] = []
+    block = doc.firstBlock()
+    while block.isValid():
+        if block.blockFormat().headingLevel() == 3 and "🔵 NEW" in block.text():
+            blocks.append(block)
+        block = block.next()
+    return blocks
+
+
+def scroll_browser_to_block(browser: Any, block: Any) -> int:
+    """Deterministically scrolls a QTextBrowser viewport to the vertical coordinate of `block`."""
+    if browser is None or block is None or not block.isValid():
+        return 0
+    doc = browser.document()
+    layout = doc.documentLayout()
+    layout.documentSize()
+    top_y = int(layout.blockBoundingRect(block).top()) - 6
+    sb = browser.verticalScrollBar()
+    target = max(0, min(top_y, sb.maximum()))
+    sb.setValue(target)
+    return sb.value()
+
+
 def export_thread_to_markdown(
     thread: Dict[str, Any],
     messages: List[Dict[str, Any]],
@@ -320,6 +366,8 @@ def export_thread_to_markdown(
     interactive_links: bool = False,
     newest_first: bool = False,
     include_metadata: bool = True,
+    include_ignore_action: bool = False,
+    enable_tdoc_links: bool = False,
 ) -> str:
     """
     Exports a tracked email thread to a lossless, human- and LLM-readable Markdown document.
@@ -396,8 +444,10 @@ def export_thread_to_markdown(
         msg_id = str(msg.get("id") or "").strip()
         is_unread = int(msg.get("is_read", 1) or 0) == 0
         is_flagged = int(msg.get("flag_status", 0) or 0) == 2
+        is_ignored = int(msg.get("is_ignored", 0) or 0) == 1
         new_badge = " 🔵 **NEW**" if (interactive_links and is_unread) else ""
         flag_badge = " 🚩 **FLAGGED**" if (interactive_links and is_flagged) else ""
+        ignored_badge = " 🚫 **IGNORED**" if (interactive_links and is_ignored) else ""
         can_open_outlook = interactive_links and msg_id and not msg_id.startswith("MSG-")
 
         if interactive_links:
@@ -418,12 +468,31 @@ def export_thread_to_markdown(
                 action_parts.append(
                     f"[🏳️ Clear Flag](outlook://unflag/{enc_id})" if is_flagged else f"[🚩 Flag](outlook://flag/{enc_id})"
                 )
+                if include_ignore_action:
+                    action_parts.append(
+                        f"[↩️ Un-ignore](outlook://unignore/{enc_id})" if is_ignored else f"[🚫 Ignore](outlook://ignore/{enc_id})"
+                    )
             action_parts.append(f"[📋 Copy](outlook://copy/{enc_id})")
-            lines.append(f"### {anchors}{idx}. [{date_str}] {sender_disp}{new_badge}{flag_badge} · {' · '.join(action_parts)}")
+            lines.append(
+                f"### {anchors}{idx}. [{date_str}] {sender_disp}{new_badge}{flag_badge}{ignored_badge} · {' · '.join(action_parts)}"
+            )
         else:
             lines.append(f"### {idx}. [{date_str}] {sender_disp}")
         if subj and subj.lower() != base_subject:
-            lines.append(f"**Subject:** {subj}  ")
+            subj_disp = linkify_tdoc_tokens(subj) if (interactive_links and enable_tdoc_links) else subj
+            lines.append(f"**Subject:** {subj_disp}  ")
+        match_loc = str(msg.get("match_location") or "").strip()
+        folder_tag = str(msg.get("folder_tag") or "").strip()
+        matched_tdoc = str(msg.get("matched_tdoc") or "").strip()
+        rev_matched = str(msg.get("rev_matched") or "").strip()
+        if match_loc or folder_tag or matched_tdoc:
+            meta_bits = []
+            if folder_tag:
+                meta_bits.append(f"**Tag:** `[{folder_tag}]`")
+            if match_loc:
+                td_detail = f" ({matched_tdoc}" + (f" · {rev_matched}" if rev_matched else "") + ")" if matched_tdoc else ""
+                meta_bits.append(f"**Match In:** {match_loc}{td_detail}")
+            lines.append(" · ".join(meta_bits) + "  ")
         if msg.get("attachments"):
             if can_open_outlook:
                 enc_id = urllib.parse.quote(msg_id, safe="")
@@ -439,6 +508,8 @@ def export_thread_to_markdown(
         body = (msg.get("clean_body") if deduplicate_quotes and msg.get("clean_body") else msg.get("body_text")) or ""
         body = _normalize_outlook_list_spacing(body.strip())
         body = linkify_markdown_urls(body)
+        if interactive_links and enable_tdoc_links:
+            body = linkify_tdoc_tokens(body)
         if interactive_links:
             body = escape_non_html_angles(body)
         if body:

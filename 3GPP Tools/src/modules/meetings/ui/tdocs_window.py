@@ -77,6 +77,7 @@ from modules.emails.core.general_email_sync import GeneralEmailSyncThread
 from modules.emails.core.outlook_client import OutlookClient
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.emails.core.tracked_threads_service import (
+    pin_thread_by_subject_or_cid,
     pin_thread_from_msg,
     pin_thread_from_outlook_selection,
 )
@@ -3747,13 +3748,33 @@ class TDocsWindow(QWidget):
             merged_notes = f"{curr_notes}\n\n{new_notes}" if curr_notes else new_notes
             self._save_user_data(target_id, status_to_use, merged_notes)
 
+        def _pin_discussion_as_thread(info: dict):
+            if not hasattr(self, "tracked_threads_db"):
+                return
+            agenda_map, valid_wis = self._get_pin_meeting_context()
+            subj = str(info.get("subject") or f"Discussion on {base_tdoc}").strip()
+            norm = str(info.get("normalized_subject") or subj).strip()
+            tid = pin_thread_by_subject_or_cid(
+                self.tracked_threads_db,
+                title=norm or subj,
+                normalized_subject=norm,
+                meeting_id=self._get_meeting_id_label(),
+                wg=wg,
+                linked_tdocs=list(info.get("linked_tdocs") or family),
+                agenda_map=agenda_map,
+                valid_wis=valid_wis,
+            )
+            self._on_tracked_thread_changed()
+            self._open_tracked_thread_dialog(tid)
+
         dialog = TDocEmailsDialog(
             base_tdoc,
             family,
             self.general_email_db.db_path,
             wg=wg,
             save_callback=_save_notes_proxy,
-            parent=None
+            parent=None,
+            pin_thread_callback=_pin_discussion_as_thread,
         )
         dialog.data_changed.connect(self._refresh_email_counts)
         dialog.tdoc_selected.connect(self._open_tdoc_emails)

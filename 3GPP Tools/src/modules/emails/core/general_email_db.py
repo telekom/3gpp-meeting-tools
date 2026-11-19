@@ -1,8 +1,9 @@
 # --- File: src/modules/emails/core/general_email_db.py ---
 import contextlib
+import json
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 
 class GeneralEmailDatabase:
@@ -35,6 +36,8 @@ class GeneralEmailDatabase:
                     company TEXT,
                     date_received TEXT,
                     body_text TEXT,
+                    clean_body TEXT DEFAULT '',
+                    attachments TEXT DEFAULT '[]',
                     is_read INTEGER DEFAULT 0,
                     is_ignored INTEGER DEFAULT 0,
                     flag_status INTEGER DEFAULT 0
@@ -51,13 +54,17 @@ class GeneralEmailDatabase:
                 )
             """)
 
-            # Schema migration: add is_ignored and flag_status if existing DB lacks them
+            # Schema migration: add missing columns on existing DBs
             cursor.execute("PRAGMA table_info(general_emails)")
             columns = [info[1] for info in cursor.fetchall()]
             if 'is_ignored' not in columns:
                 cursor.execute("ALTER TABLE general_emails ADD COLUMN is_ignored INTEGER DEFAULT 0")
             if 'flag_status' not in columns:
                 cursor.execute("ALTER TABLE general_emails ADD COLUMN flag_status INTEGER DEFAULT 0")
+            if 'clean_body' not in columns:
+                cursor.execute("ALTER TABLE general_emails ADD COLUMN clean_body TEXT DEFAULT ''")
+            if 'attachments' not in columns:
+                cursor.execute("ALTER TABLE general_emails ADD COLUMN attachments TEXT DEFAULT '[]'")
 
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_gen_tdoc ON general_email_tdoc_matches(tdoc_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_gen_email_id ON general_email_tdoc_matches(email_id)")
@@ -76,15 +83,20 @@ class GeneralEmailDatabase:
                     e['id'], e.get('folder_tag', ''), e.get('subject', ''),
                     e.get('sender_name', ''), e.get('sender_email', ''),
                     e.get('company', ''), e.get('date_received', ''),
-                    e.get('body_text', ''), e.get('is_read', 0),
+                    e.get('body_text', ''), e.get('clean_body', ''),
+                    json.dumps(e.get('attachments', []) or []),
+                    e.get('is_read', 0),
                     e.get('is_ignored', 0), 2 if int(e.get('flag_status', 0) or 0) == 2 else 0
                 )
                 for e in emails_data
             ]
             # Preserve existing is_ignored and local read marks while syncing read/flag updates from Outlook
             cursor.executemany("""
-                INSERT INTO general_emails (id, folder_tag, subject, sender_name, sender_email, company, date_received, body_text, is_read, is_ignored, flag_status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO general_emails (
+                    id, folder_tag, subject, sender_name, sender_email, company, date_received,
+                    body_text, clean_body, attachments, is_read, is_ignored, flag_status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     folder_tag = excluded.folder_tag,
                     subject = excluded.subject,
@@ -93,6 +105,8 @@ class GeneralEmailDatabase:
                     company = excluded.company,
                     date_received = excluded.date_received,
                     body_text = excluded.body_text,
+                    clean_body = CASE WHEN excluded.clean_body != '' THEN excluded.clean_body ELSE general_emails.clean_body END,
+                    attachments = CASE WHEN excluded.attachments != '[]' THEN excluded.attachments ELSE general_emails.attachments END,
                     is_read = CASE WHEN excluded.is_read = 1 THEN 1 ELSE general_emails.is_read END,
                     flag_status = CASE WHEN excluded.flag_status != 0 THEN excluded.flag_status ELSE general_emails.flag_status END
             """, email_tuples)
@@ -146,6 +160,21 @@ class GeneralEmailDatabase:
                 for tdoc, data in raw_stats.items()
             }
 
+    @staticmethod
+    def _decode_row(row: sqlite3.Row) -> dict:
+        d = dict(row)
+        raw_atts = d.get("attachments")
+        if isinstance(raw_atts, str):
+            try:
+                parsed = json.loads(raw_atts)
+                d["attachments"] = parsed if isinstance(parsed, list) else []
+            except Exception:
+                d["attachments"] = []
+        elif not isinstance(raw_atts, list):
+            d["attachments"] = []
+        d.setdefault("date_sent", d.get("date_received", ""))
+        return d
+
     def get_emails_for_tdocs(self, tdoc_ids: Set[str], show_ignored: bool = False) -> List[dict]:
         """
         Retrieves unique emails matching any of the specified TDocs.
@@ -174,7 +203,7 @@ class GeneralEmailDatabase:
                 GROUP BY e.id
                 ORDER BY e.date_received DESC
             """, [t.upper() for t in tdoc_ids])
-            return [dict(row) for row in cursor.fetchall()]
+            return [self._decode_row(row) for row in cursor.fetchall()]
 
     def get_all_emails_with_tdocs(self, show_ignored: bool = False) -> List[dict]:
         """Retrieves all indexed meeting emails annotated with their matched TDoc(s) for the unified inbox."""
@@ -182,7 +211,7 @@ class GeneralEmailDatabase:
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             return [
-                dict(row)
+                self._decode_row(row)
                 for row in conn.execute(
                     f"""
                     SELECT
@@ -330,6 +359,41 @@ class GeneralEmailDatabase:
             conn.commit()
         return self._sync_outlook_read_status(to_sync, True) if sync_outlook else 0
 
+    def update_reloaded_message(self, email_id: str, parsed: dict):
+        """Updates an existing general_emails record with richly parsed Outlook fields."""
+        eid = str(email_id or "").strip()
+        if not eid or not parsed:
+            return
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE general_emails
+                SET subject = ?,
+                    sender_name = COALESCE(NULLIF(?, ''), sender_name),
+                    sender_email = COALESCE(NULLIF(?, ''), sender_email),
+                    company = COALESCE(NULLIF(?, ''), company),
+                    body_text = ?,
+                    clean_body = ?,
+                    attachments = ?,
+                    is_read = ?,
+                    flag_status = ?
+                WHERE id = ?
+                """,
+                (
+                    parsed.get("subject", ""),
+                    parsed.get("sender_name", ""),
+                    parsed.get("sender_email", ""),
+                    parsed.get("company", ""),
+                    parsed.get("body_text", ""),
+                    parsed.get("clean_body", ""),
+                    json.dumps(parsed.get("attachments", []) or []),
+                    int(parsed.get("is_read", 0) or 0),
+                    2 if int(parsed.get("flag_status", 0) or 0) == 2 else 0,
+                    eid,
+                ),
+            )
+            conn.commit()
+
     def wipe_generic_emails(self):
         """High-speed purge of generic tables only; preserves SA2 eMeeting tables."""
         with self._get_connection() as conn:
@@ -337,3 +401,34 @@ class GeneralEmailDatabase:
             conn.execute("DELETE FROM general_emails")
             conn.execute("PRAGMA optimize")
             conn.commit()
+
+
+def reload_general_email_from_outlook(db: GeneralEmailDatabase, email_id: str) -> bool:
+    """Re-fetches an indexed TDoc email from Outlook COM to populate HTML tables, attachments, and read/flag status."""
+    eid = str(email_id or "").strip()
+    if not eid or eid.startswith("MSG-"):
+        return False
+    from modules.emails.core.outlook_client import OutlookClient
+    from modules.emails.core.tracked_threads_service import _mail_item_to_dict
+
+    ns = OutlookClient.get_namespace()
+    if not ns:
+        return False
+    try:
+        item = ns.GetItemFromID(eid)
+        if not item:
+            return False
+        parsed = _mail_item_to_dict(item)
+        db.update_reloaded_message(eid, parsed)
+        return True
+    except Exception:
+        return False
+
+
+def reload_tdoc_emails_from_outlook(db: GeneralEmailDatabase, email_ids: List[str]) -> int:
+    """Batch reloads multiple cached TDoc emails from Outlook COM."""
+    updated = 0
+    for eid in (email_ids or []):
+        if reload_general_email_from_outlook(db, eid):
+            updated += 1
+    return updated
