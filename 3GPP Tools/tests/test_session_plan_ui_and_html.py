@@ -271,31 +271,52 @@ class TestSessionPlanUIAndHTMLConsistency(unittest.TestCase):
                 self.assertIn('period-end-row', html_txt)
                 self.assertNotIn('chkEmptyBreaks', html_txt)
                 self.assertNotIn('class="tz-banner"', html_txt)
+                # Click-activated slide-in inspector drawer replaces hover-follow tooltips
+                self.assertIn('id="slotInspectorDrawer"', html_txt)
+                self.assertIn('id="slotInspectorBody"', html_txt)
+                self.assertNotIn('id="floatingTooltip"', html_txt)
+                self.assertNotIn("addEventListener('mouseenter'", html_txt)
+                self.assertNotIn("addEventListener('mousemove'", html_txt)
 
-                # Verify JS updates liveClockPill and handles day filter / banner dismiss cleanly in Node.js
+                # Verify JS updates liveClockPill, handles day filter / banner dismiss, and toggles slotInspectorDrawer cleanly in Node.js
                 node_bin = shutil.which("node")
                 if node_bin:
                     scripts = re.findall(r"<script>(.*?)</script>", html_txt, re.DOTALL)
                     full_js = "\n".join(scripts)
                     harness = f"""
+const makeClassList = () => {{
+  const set = new Set();
+  return {{
+    toggle: (c, force) => (force === undefined ? (set.has(c) ? set.delete(c) : set.add(c)) : (force ? set.add(c) : set.delete(c))),
+    remove: (c) => set.delete(c),
+    add: (c) => set.add(c),
+    contains: (c) => set.has(c),
+  }};
+}};
 const mockEl = () => ({{
-  classList: {{ toggle: () => {{}}, remove: () => {{}}, add: () => {{}}, contains: () => false }},
+  classList: makeClassList(),
   style: {{ setProperty: () => {{}} }},
-  getAttribute: () => '',
+  attrs: {{}},
+  setAttribute: function(k, v) {{ this.attrs[k] = v; }},
+  getAttribute: function(k) {{ return this.attrs[k] || ''; }},
   querySelectorAll: () => [],
   querySelector: () => null,
   addEventListener: () => {{}},
   scrollIntoView: () => {{}},
+  scrollTop: 0,
   innerHTML: '',
   textContent: '',
   value: ''
 }});
 const clockPill = mockEl();
+const drawerEl = mockEl();
+const drawerBodyEl = mockEl();
 global.document = {{
   documentElement: {{ style: {{ setProperty: () => {{}} }} }},
-  getElementById: (id) => (id === 'liveClockPill' ? clockPill : mockEl()),
+  getElementById: (id) => (id === 'liveClockPill' ? clockPill : (id === 'slotInspectorDrawer' ? drawerEl : (id === 'slotInspectorBody' ? drawerBodyEl : mockEl()))),
   querySelectorAll: () => [],
   querySelector: () => mockEl(),
+  addEventListener: () => {{}},
   body: {{ appendChild: () => {{}}, removeChild: () => {{}} }}
 }};
 global.window = {{ innerWidth: 1280, innerHeight: 900, addEventListener: () => {{}} }};
@@ -309,6 +330,14 @@ selectDayFilter(2);
 selectDayFilter('TODAY_PLUS');
 selectDayFilter('ALL');
 dismissLiveBanner({{ stopPropagation: () => {{}} }});
+const fakeCell = mockEl();
+openSlotInspector(fakeCell, '<div class="tt-header">KI#1.1</div>');
+if (!drawerEl.classList.contains('open')) throw new Error('drawer did not open');
+if (!fakeCell.classList.contains('is-inspected')) throw new Error('cell not marked inspected');
+if (!drawerBodyEl.innerHTML.includes('KI#1.1')) throw new Error('drawer body not populated');
+closeSlotInspector();
+if (drawerEl.classList.contains('open')) throw new Error('drawer did not close');
+if (fakeCell.classList.contains('is-inspected')) throw new Error('cell inspected mark not cleared');
 """
                     js_file = td / "verify_parity.js"
                     js_file.write_text(harness, encoding="utf-8")

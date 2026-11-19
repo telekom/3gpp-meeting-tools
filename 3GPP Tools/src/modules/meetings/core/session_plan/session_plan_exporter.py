@@ -1262,9 +1262,15 @@ class SessionPlanExporter:
   .slot-card-body {
     flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px;
   }
+  .grid-cell.slot-cell, .cards-slot-row { cursor: pointer; }
   .grid-cell.slot-cell:hover .slot-card {
     box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
     border-color: #94A3B8;
+  }
+  .grid-cell.slot-cell.is-inspected .slot-card {
+    outline: 2px solid #2563EB;
+    outline-offset: -1px;
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.18);
   }
   .grid-cell.empty-slot-cell {
     text-align: center; color: #CBD5E1; font-weight: 500; vertical-align: middle !important;
@@ -1407,6 +1413,9 @@ class SessionPlanExporter:
   .cards-slot-row {
     padding: 10px 12px; border-bottom: 1px solid #F1F5F9; transition: background 0.15s ease;
   }
+  .cards-slot-row.is-inspected {
+    outline: 2px solid #2563EB; outline-offset: -2px; background: #EFF6FF;
+  }
   .cards-slot-row:last-child { border-bottom: none; }
   .cards-slot-row.drafting { background: var(--drafting-bg); border-left: 4px solid var(--drafting); }
   .cards-slot-row.unassigned { background: var(--unassigned-bg); border-left: 4px solid var(--unassigned); }
@@ -1535,25 +1544,63 @@ class SessionPlanExporter:
     padding: 32px 20px; text-align: center; color: #475569; font-size: 13px;
   }
 
-  /* Floating Rich Tooltip Popover */
-  .floating-tooltip {
-    position: fixed; z-index: 9999; pointer-events: none; max-width: 420px;
-    background: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 8px;
-    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.16); padding: 10px 14px;
-    font-family: inherit; font-size: 12px; color: #0F172A; display: none;
+  /* Click-Activated Slide-In Slot Inspector Drawer */
+  .slot-inspector-drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 9999;
+    width: 390px; max-width: 92vw;
+    background: #FFFFFF; border-left: 1px solid #CBD5E1;
+    box-shadow: -8px 0 28px rgba(15, 23, 42, 0.14);
+    display: flex; flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none; visibility: hidden;
   }
-  .tt-header { font-weight: 700; font-size: 13px; color: #0F172A; margin-bottom: 3px; }
-  .tt-time { color: var(--subtext); font-size: 11.5px; margin-bottom: 2px; }
-  .tt-meta { color: var(--subtext); font-size: 11px; margin-bottom: 4px; }
-  .tt-sep { border: none; border-top: 1px solid #E2E8F0; margin: 6px 0; }
-  .tt-body { font-weight: 600; font-size: 12px; margin-bottom: 4px; }
-  .tt-ais { font-size: 11px; color: #334155; line-height: 1.4; margin-top: 4px; }
-  .tt-section { margin-top: 4px; font-size: 11px; }
-  .tt-note { background: #FEF3C7; color: #92400E; padding: 3px 6px; border-radius: 4px; }
+  .slot-inspector-drawer.open {
+    transform: translateX(0); pointer-events: auto; visibility: visible;
+  }
+  .drawer-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 11px 14px; background: #F8FAFC; border-bottom: 1px solid #E2E8F0;
+    flex-shrink: 0;
+  }
+  .drawer-heading-group { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .drawer-kicker { font-size: 12px; font-weight: 700; color: #0F172A; letter-spacing: 0.01em; }
+  .drawer-hint { font-size: 10.5px; color: var(--subtext); }
+  .drawer-close-btn {
+    border: 1px solid #CBD5E1; background: #FFFFFF; color: #475569;
+    width: 28px; height: 28px; border-radius: 6px; font-size: 13px; font-weight: 700;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .drawer-close-btn:hover { background: #F1F5F9; color: #0F172A; border-color: #94A3B8; }
+  .drawer-body {
+    padding: 14px 16px; overflow-y: auto; flex: 1 1 auto;
+    font-family: inherit; font-size: 12.5px; line-height: 1.45; color: #0F172A;
+    user-select: text;
+  }
+  .tt-header { font-weight: 700; font-size: 14px; color: #0F172A; margin-bottom: 4px; }
+  .tt-time { color: var(--subtext); font-size: 12px; margin-bottom: 3px; }
+  .tt-meta { color: var(--subtext); font-size: 11.5px; margin-bottom: 4px; }
+  .tt-sep { border: none; border-top: 1px solid #E2E8F0; margin: 8px 0; }
+  .tt-body { font-weight: 600; font-size: 12.5px; margin-bottom: 6px; }
+  .tt-ais { font-size: 12px; color: #334155; line-height: 1.5; margin-top: 4px; }
+  .tt-section { margin-top: 6px; font-size: 12px; }
+  .tt-note { background: #FEF3C7; color: #92400E; padding: 6px 8px; border-radius: 5px; }
+
+  @media (max-width: 768px) {
+    .slot-inspector-drawer {
+      top: auto; left: 0; right: 0; bottom: 0;
+      width: 100%; max-width: 100%; max-height: 62vh;
+      border-left: none; border-top: 1px solid #CBD5E1;
+      border-radius: 14px 14px 0 0;
+      box-shadow: 0 -8px 28px rgba(15, 23, 42, 0.18);
+      transform: translateY(100%);
+    }
+    .slot-inspector-drawer.open { transform: translateY(0); }
+  }
 
   /* Print Stylesheet */
   @media print {
-    header, .del-strip, .filter-controls-row, .controls-bar, .view-switcher, .day-tabs, .now-dispatch-panel { display: none !important; }
+    header, .del-strip, .filter-controls-row, .controls-bar, .view-switcher, .day-tabs, .now-dispatch-panel, .slot-inspector-drawer { display: none !important; }
     #nowView, #cardsView, #conflictsView, #unassignedView { display: none !important; }
     #overviewView { display: block !important; padding: 0 !important; }
     .overview-grid-container { max-height: none !important; overflow: visible !important; border: none !important; margin: 0 !important; }
@@ -1859,39 +1906,65 @@ class SessionPlanExporter:
     });
   }
 
-  // Floating Rich Tooltip Implementation
-  const tooltip = document.getElementById('floatingTooltip');
+  // Click-Activated Slide-In Slot Inspector Drawer
+  const inspectorDrawer = document.getElementById('slotInspectorDrawer');
+  const inspectorBody = document.getElementById('slotInspectorBody');
+  let inspectedCellEl = null;
+
+  function openSlotInspector(cellEl, htmlContent) {
+    if (!inspectorDrawer || !inspectorBody) return;
+    if (inspectedCellEl && inspectedCellEl !== cellEl && inspectedCellEl.classList) {
+      inspectedCellEl.classList.remove('is-inspected');
+    }
+    inspectedCellEl = cellEl || null;
+    if (inspectedCellEl && inspectedCellEl.classList) {
+      inspectedCellEl.classList.add('is-inspected');
+    }
+    inspectorBody.innerHTML = htmlContent || '';
+    inspectorBody.scrollTop = 0;
+    inspectorDrawer.classList.add('open');
+    if (inspectorDrawer.setAttribute) inspectorDrawer.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeSlotInspector() {
+    if (inspectedCellEl && inspectedCellEl.classList) {
+      inspectedCellEl.classList.remove('is-inspected');
+    }
+    inspectedCellEl = null;
+    if (inspectorDrawer) {
+      inspectorDrawer.classList.remove('open');
+      if (inspectorDrawer.setAttribute) inspectorDrawer.setAttribute('aria-hidden', 'true');
+    }
+  }
 
   document.querySelectorAll('.slot-cell, .cards-slot-row').forEach(cell => {
     const dataEl = cell.querySelector('.slot-tooltip-data');
     if (!dataEl) return;
 
-    cell.addEventListener('mouseenter', e => {
-      tooltip.innerHTML = dataEl.innerHTML;
-      tooltip.style.display = 'block';
-      positionTooltip(e);
-    });
-
-    cell.addEventListener('mousemove', e => {
-      positionTooltip(e);
-    });
-
-    cell.addEventListener('mouseleave', () => {
-      tooltip.style.display = 'none';
+    cell.addEventListener('click', e => {
+      if (e && e.target && e.target.closest && e.target.closest('a, button')) return;
+      if (inspectedCellEl === cell && inspectorDrawer && inspectorDrawer.classList.contains('open')) {
+        closeSlotInspector();
+        return;
+      }
+      openSlotInspector(cell, dataEl.innerHTML);
     });
   });
 
-  function positionTooltip(e) {
-    const w = tooltip.offsetWidth;
-    const h = tooltip.offsetHeight;
-    let x = e.clientX + 14;
-    let y = e.clientY + 14;
-    if (x + w > window.innerWidth - 12) x = window.innerWidth - w - 12;
-    if (y + h > window.innerHeight - 12) y = window.innerHeight - h - 12;
-    if (x < 10) x = 10;
-    if (y < 10) y = 10;
-    tooltip.style.left = x + 'px';
-    tooltip.style.top = y + 'px';
+  if (document && document.addEventListener) {
+    document.addEventListener('keydown', e => {
+      if (e && e.key === 'Escape' && inspectorDrawer && inspectorDrawer.classList.contains('open')) {
+        closeSlotInspector();
+      }
+    });
+
+    document.addEventListener('click', e => {
+      if (!inspectorDrawer || !inspectorDrawer.classList.contains('open')) return;
+      if (e && e.target && e.target.closest && e.target.closest('#slotInspectorDrawer, .slot-cell, .cards-slot-row')) {
+        return;
+      }
+      closeSlotInspector();
+    });
   }
 
   // RFC 5545 Client-Side .ics Calendar Generation & Download
@@ -3060,8 +3133,17 @@ class SessionPlanExporter:
   </div>
 </div>
 
-<!-- Floating Rich Tooltip Element -->
-<div id="floatingTooltip" class="floating-tooltip"></div>
+<!-- Click-Activated Slide-In Slot Inspector Drawer -->
+<aside id="slotInspectorDrawer" class="slot-inspector-drawer" aria-hidden="true" role="dialog" aria-label="Session Details">
+  <div class="drawer-header">
+    <div class="drawer-heading-group">
+      <span class="drawer-kicker">Session Details</span>
+      <span class="drawer-hint">Click another slot to switch · Esc to close</span>
+    </div>
+    <button type="button" class="drawer-close-btn" onclick="closeSlotInspector()" aria-label="Close session details" title="Close (Esc)">✕</button>
+  </div>
+  <div id="slotInspectorBody" class="drawer-body"></div>
+</aside>
 
 <script>
   const CAL_EVENTS = {cal_events_json};
