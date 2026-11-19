@@ -12,7 +12,8 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
+from weakref import WeakKeyDictionary
 
 from PyQt5.QtCore import QEvent, QObject, QSettings, Qt, pyqtSignal
 from PyQt5.QtGui import QFont, QTextDocument
@@ -20,14 +21,19 @@ from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QComboBox,
+    QFrame,
     QHeaderView,
     QLabel,
+    QMenu,
     QPlainTextEdit,
+    QPushButton,
     QTableView,
     QTextBrowser,
     QTextEdit,
     QTreeView,
+    QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from core.ui.shell_state import create_shell_settings
@@ -531,6 +537,7 @@ def apply_font_scale(
 
 _MIN_READER_ZOOM = -4
 _MAX_READER_ZOOM = 10
+_ZOOM_CHANGE_CALLBACKS: "WeakKeyDictionary[QWidget, Callable[[int], None]]" = WeakKeyDictionary()
 
 
 def _unwrap_zoomable_widget(widget: Optional[QWidget]) -> Optional[QWidget]:
@@ -611,7 +618,91 @@ def zoom_text_widget(widget: Optional[QWidget], delta_steps: int, reset: bool = 
             doc.setDefaultFont(cur_font)
 
     target.setProperty("_reader_zoom_steps", nxt_steps)
+    cb = _ZOOM_CHANGE_CALLBACKS.get(target)
+    if cb is not None and (nxt_steps != cur_steps or reset):
+        try:
+            cb(nxt_steps)
+        except Exception:
+            pass
     return nxt_steps
+
+
+def bind_reader_zoom_settings(widget: Optional[QWidget], settings: QSettings, key: str = "zoom_steps") -> None:
+    """
+    Install reader zoom, restore `zoom_steps` from `settings`, and flush updates immediately on every zoom change.
+    """
+    install_reader_zoom()
+    target = _unwrap_zoomable_widget(widget)
+    if target is None or settings is None:
+        return
+
+    try:
+        saved_zoom = int(settings.value(key, 0, type=int) or 0)
+    except Exception:
+        saved_zoom = 0
+    if saved_zoom:
+        zoom_text_widget(target, saved_zoom)
+
+    def _persist(steps: int, _s: QSettings = settings, _k: str = key) -> None:
+        try:
+            _s.setValue(_k, int(steps))
+            _s.sync()
+        except Exception:
+            pass
+
+    _ZOOM_CHANGE_CALLBACKS[target] = _persist
+
+
+def create_help_tips_pill(
+    tips: List[str],
+    parent: Optional[QWidget] = None,
+    *,
+    button_text: str = "? Help",
+    title: str = "Quick Tips & Shortcuts",
+) -> QPushButton:
+    """Creates a compact, discrete Help pill button that opens a clean tips popup on click."""
+    from core.ui.theme import C
+
+    btn = QPushButton(button_text, parent)
+    btn.setCursor(Qt.PointingHandCursor)
+    btn.setToolTip("\n".join(f"• {t}" for t in tips))
+    btn.setStyleSheet(
+        f"QPushButton {{ background: {C.BG_SURFACE}; color: {C.TEXT_MUTED}; "
+        f"border: 1px solid {C.BORDER_STRONG}; border-radius: 10px; "
+        "padding: 2px 9px; font-size: 11px; font-weight: 500; } "
+        f"QPushButton:hover {{ background: {C.INFO_SOFT}; color: {C.INFO_DARK}; "
+        f"border-color: {C.INFO_BORDER}; }}"
+    )
+
+    def _show_tips_popup():
+        import html as _html
+
+        menu = QMenu(btn)
+        menu.setStyleSheet(
+            f"QMenu {{ background: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; "
+            "border-radius: 6px; padding: 0px; }}"
+        )
+        card = QFrame(menu)
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(4)
+        hdr = QLabel(f"<b>{_html.escape(title)}</b>", card)
+        hdr.setStyleSheet(f"color: {C.TEXT_PRIMARY}; font-size: 12px;")
+        lay.addWidget(hdr)
+        items_html = "<br>".join(f"• {_html.escape(t)}" for t in tips)
+        body = QLabel(items_html, card)
+        body.setWordWrap(True)
+        body.setMaximumWidth(scale_px(380))
+        body.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 11px;")
+        lay.addWidget(body)
+
+        wa = QWidgetAction(menu)
+        wa.setDefaultWidget(card)
+        menu.addAction(wa)
+        menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft()))
+
+    btn.clicked.connect(_show_tips_popup)
+    return btn
 
 
 _ZOOM_EVENT_FILTER: Optional[QObject] = None

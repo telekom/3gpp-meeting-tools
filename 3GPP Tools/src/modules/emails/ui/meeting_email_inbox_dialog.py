@@ -31,7 +31,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.flow_layout import FlowLayout
-from core.ui.font_scale import install_reader_zoom, scale_px, zoom_text_widget
+from core.ui.font_scale import bind_reader_zoom_settings, create_help_tips_pill, install_reader_zoom, scale_px, zoom_text_widget
 from core.ui.toast import notify_info, notify_success, notify_toast
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.emails.core.outlook_client import OutlookClient
@@ -379,6 +379,18 @@ class MeetingEmailInboxDialog(QDialog):
         self.btn_layout_toggle.clicked.connect(self._toggle_layout_orientation)
         top_row.addWidget(self.btn_layout_toggle)
 
+        self.help_pill_btn = create_help_tips_pill(
+            [
+                "Ctrl + Mouse Wheel in reading pane: zoom text larger/smaller (Ctrl+0 to reset; saved automatically)",
+                "Ctrl + Click / Shift + Click rows: select multiple emails or threads to batch-assign AI, Sub-Topics, WI, Pin, Read, or Flag",
+                "Click blue TDoc links (e.g. S2-xxxxxx, R3-xxxxxx) to open documents directly",
+                "Side-by-Side / List on Top: switch desktop vs. laptop split layout",
+            ],
+            parent=top_widget,
+            title="Email Inbox Tips",
+        )
+        top_row.addWidget(self.help_pill_btn)
+
         layout.addWidget(top_widget)
 
         # Row 2: Master-Detail Splitter
@@ -403,10 +415,6 @@ class MeetingEmailInboxDialog(QDialog):
         ])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.table.setToolTip(
-            "Select one row to inspect, or hold Ctrl/Shift to select multiple emails/threads "
-            "and bulk-assign AIs, Sub-Topics, WIs, Pin, Read, or Flag."
-        )
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
@@ -577,12 +585,8 @@ class MeetingEmailInboxDialog(QDialog):
 
         self.preview_browser = QTextBrowser()
         self.preview_browser.setOpenLinks(False)
-        self.preview_browser.setToolTip("Tip: Hold Ctrl + Mouse Wheel to zoom text size (Ctrl+0 to reset).")
         self.preview_browser.anchorClicked.connect(self._on_anchor_clicked)
-        install_reader_zoom()
-        saved_zoom = self._settings.value("zoom_steps", 0, type=int)
-        if saved_zoom:
-            zoom_text_widget(self.preview_browser, int(saved_zoom))
+        bind_reader_zoom_settings(self.preview_browser, self._settings, key="zoom_steps")
         right_layout.addWidget(self.preview_browser, 1)
 
         self.splitter.addWidget(left_widget)

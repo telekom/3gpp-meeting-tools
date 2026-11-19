@@ -36,7 +36,7 @@ from core.ai.cli_launcher import (
     write_cli_context_file,
 )
 from core.ui.flow_layout import FlowLayout
-from core.ui.font_scale import install_reader_zoom, scale_px, zoom_text_widget
+from core.ui.font_scale import bind_reader_zoom_settings, create_help_tips_pill, scale_px
 from core.ui.toast import notify_info, notify_success, notify_toast
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.emails.core.email_config import load_wg_email_config
@@ -100,10 +100,10 @@ class StandaloneEmailReaderWindow(QWidget):
 
         self.browser = QTextBrowser()
         self.browser.setOpenLinks(False)
-        self.browser.setToolTip("Tip: Hold Ctrl + Mouse Wheel to zoom text size (Ctrl+0 to reset).")
-        install_reader_zoom()
         self.browser.anchorClicked.connect(self._on_anchor_clicked)
         self.browser.setStyleSheet("background: white; border: 1px solid #CCC; border-radius: 4px; padding: 12px;")
+        self._reader_settings = QSettings("3GPP_Tools", "StandaloneEmailReaderWindow")
+        bind_reader_zoom_settings(self.browser, self._reader_settings, key="zoom_steps")
         layout.addWidget(self.browser)
 
     def update_content(self, html_content: str, subject: str = ""):
@@ -338,17 +338,24 @@ class TDocEmailsDialog(QDialog):
         self.msg_count_lbl = QLabel("")
         self.msg_count_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
         filter_row.addWidget(self.msg_count_lbl)
+
+        self.help_pill_btn = create_help_tips_pill(
+            [
+                "Ctrl + Mouse Wheel in reading pane: zoom text larger/smaller (Ctrl+0 to reset; saved automatically)",
+                "🔵 Next Unread jumps through unread messages in the timeline",
+                "Click TDoc links or [📎 ...] attachments to open documents directly",
+            ],
+            parent=self,
+            title="TDoc Emails Tips",
+        )
+        filter_row.addWidget(self.help_pill_btn)
         layout.addLayout(filter_row)
 
         # Row 4: Continuous Timeline Browser
         self.browser = QTextBrowser()
         self.browser.setOpenLinks(False)
-        self.browser.setToolTip("Tip: Hold Ctrl + Mouse Wheel to zoom text size (Ctrl+0 to reset).")
         self.browser.anchorClicked.connect(self._on_anchor_clicked)
-        install_reader_zoom()
-        saved_zoom = self._settings.value("zoom_steps", 0, type=int)
-        if saved_zoom:
-            zoom_text_widget(self.browser, int(saved_zoom))
+        bind_reader_zoom_settings(self.browser, self._settings, key="zoom_steps")
         layout.addWidget(self.browser, 1)
 
     @staticmethod

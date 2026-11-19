@@ -43,7 +43,7 @@ from core.ai.cli_launcher import (
     write_cli_context_file,
 )
 from core.ui.flow_layout import FlowLayout
-from core.ui.font_scale import install_reader_zoom, scale_px, zoom_text_widget
+from core.ui.font_scale import bind_reader_zoom_settings, create_help_tips_pill, scale_px
 from core.ui.toast import notify_info, notify_success, notify_toast
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.emails.core.thread_markdown_exporter import (
@@ -360,17 +360,24 @@ class TrackedThreadDialog(QDialog):
         self.msg_count_lbl = QLabel("")
         self.msg_count_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
         filter_row.addWidget(self.msg_count_lbl)
+
+        self.help_pill_btn = create_help_tips_pill(
+            [
+                "Ctrl + Mouse Wheel in reading pane: zoom text larger/smaller (Ctrl+0 to reset; saved automatically)",
+                "🔵 Next Unread jumps through unread replies in timeline order",
+                "Click TDoc links or [📎 ...] attachments to open documents directly",
+            ],
+            parent=self,
+            title="Thread Viewer Tips",
+        )
+        filter_row.addWidget(self.help_pill_btn)
         layout.addLayout(filter_row)
 
         # Timeline browser (supports Ctrl+Wheel zoom and Ctrl+0 reset)
         self.browser = QTextBrowser()
         self.browser.setOpenLinks(False)
-        self.browser.setToolTip("Tip: Hold Ctrl + Mouse Wheel to zoom text size (Ctrl+0 to reset).")
         self.browser.anchorClicked.connect(self._on_anchor_clicked)
-        install_reader_zoom()
-        saved_zoom = self._settings.value("zoom_steps", 0, type=int)
-        if saved_zoom:
-            zoom_text_widget(self.browser, int(saved_zoom))
+        bind_reader_zoom_settings(self.browser, self._settings, key="zoom_steps")
         layout.addWidget(self.browser, 1)
 
     def _on_order_changed(self):

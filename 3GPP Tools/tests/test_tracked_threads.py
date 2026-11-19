@@ -380,9 +380,12 @@ def test_ctrl_wheel_reader_zoom_on_thread_browser(tmp_path):
     ctrl_zero = QKeyEvent(QEvent.KeyPress, Qt.Key_0, Qt.ControlModifier)
     QApplication.sendEvent(dlg.browser, ctrl_zero)
     assert int(dlg.browser.property("_reader_zoom_steps") or 0) == 0
+    assert not dlg.browser.toolTip()
+    assert "? Help" in dlg.help_pill_btn.text()
     dlg.close()
 
     # Also verify Ctrl+Wheel zoom on MeetingEmailInboxDialog.preview_browser even with pixel-sized QSS fonts
+    # AND immediate QSettings persistence without requiring closeEvent
     from PyQt5.QtCore import QSettings
     from PyQt5.QtGui import QFont
     from modules.emails.core.general_email_db import GeneralEmailDatabase
@@ -393,12 +396,16 @@ def test_ctrl_wheel_reader_zoom_on_thread_browser(tmp_path):
         [{"id": "E-Z1", "subject": "Zoom test", "sender_name": "Alice", "date_received": "2026-11-18 10:00:00", "body_text": "Line 1\nLine 2", "is_read": 0}],
         [{"email_id": "E-Z1", "tdoc_id": "S2-2612000", "match_location": "Subject"}],
     )
+    zoom_ini = str(tmp_path / "zoom_inbox.ini")
     idlg = MeetingEmailInboxDialog(
         db,
         gdb,
         meeting_id="SA2#178",
-        settings=QSettings(str(tmp_path / "zoom_inbox.ini"), QSettings.IniFormat),
+        settings=QSettings(zoom_ini, QSettings.IniFormat),
     )
+    assert not idlg.preview_browser.toolTip()
+    assert not idlg.table.toolTip()
+    assert "? Help" in idlg.help_pill_btn.text()
     px_f = QFont(idlg.preview_browser.font())
     px_f.setPixelSize(16)
     idlg.preview_browser.setFont(px_f)
@@ -408,9 +415,21 @@ def test_ctrl_wheel_reader_zoom_on_thread_browser(tmp_path):
     assert int(idlg.preview_browser.property("_reader_zoom_steps") or 0) == 1
     assert idlg.preview_browser.font().pointSizeF() > 7.0
     zoomed_up_pt = idlg.preview_browser.font().pointSizeF()
+
+    # New Inbox instance opened BEFORE idlg.close() must already see zoom_steps == 1
+    idlg_reopened = MeetingEmailInboxDialog(
+        db,
+        gdb,
+        meeting_id="SA2#178",
+        settings=QSettings(zoom_ini, QSettings.IniFormat),
+    )
+    assert int(idlg_reopened.preview_browser.property("_reader_zoom_steps") or 0) == 1
+    idlg_reopened.close()
+
     QApplication.sendEvent(ivp, wheel_down)
     assert int(idlg.preview_browser.property("_reader_zoom_steps") or 0) == 0
     assert idlg.preview_browser.font().pointSizeF() < zoomed_up_pt
+    assert QSettings(zoom_ini, QSettings.IniFormat).value("zoom_steps", -99, type=int) == 0
     idlg.close()
 
 

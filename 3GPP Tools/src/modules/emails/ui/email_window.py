@@ -7,13 +7,13 @@ import webbrowser
 import logging
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, pyqtSignal, QDate, QTimer
+from PyQt5.QtCore import Qt, pyqtSignal, QDate, QSettings, QTimer
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QLineEdit, QTableView, QHeaderView, QSplitter, QTextBrowser,
                              QMessageBox, QInputDialog, QDialog, QDateEdit, QMenu, QApplication,
                              QAbstractItemView, QFormLayout, QTextEdit, QFrame)
 
-from core.ui.font_scale import install_reader_zoom
+from core.ui.font_scale import bind_reader_zoom_settings, create_help_tips_pill
 from modules.emails.core.email_db import EmailDatabase
 from modules.emails.core.email_threads import EmailSyncThread, EmailMoveThread, EmailTargetRescanThread
 from modules.emails.core.stats.statistics_threads import EmailStatsExporterThread
@@ -279,10 +279,16 @@ class EmailManagerWindow(QWidget):
         btn_layout.addWidget(self.btn_toggle_star)
         btn_layout.addWidget(self.btn_toggle_follow)
         btn_layout.addStretch()
+        self.help_pill_btn = create_help_tips_pill(
+            ["Ctrl + Mouse Wheel in reading pane: zoom text larger/smaller (Ctrl+0 to reset; saved automatically)"],
+            parent=pane_widget,
+            title="Email Reader Tips",
+        )
+        btn_layout.addWidget(self.help_pill_btn)
 
         self.reading_pane = QTextBrowser()
-        self.reading_pane.setToolTip("Tip: Hold Ctrl + Mouse Wheel to zoom text size (Ctrl+0 to reset).")
-        install_reader_zoom()
+        self._reader_settings = QSettings("3GPP_Tools", "EmailManagerWindow")
+        bind_reader_zoom_settings(self.reading_pane, self._reader_settings, key="zoom_steps")
         self.reading_pane.setStyleSheet(
             "background: white; border: 1px solid #CCC; border-radius: 4px; padding: 10px; color: #333;")
         pane_layout.addLayout(btn_layout)
