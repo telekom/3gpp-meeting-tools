@@ -195,7 +195,8 @@ def test_safelinks_unwrapping_and_clickable_links():
         }
     ]
     md_ui = export_thread_to_markdown(thread, msgs, interactive_links=True)
-    assert "[📧 Open in Outlook](outlook://msg/00000000ABCD1234)" in md_ui
+    assert "[📧 Outlook](outlook://msg/00000000ABCD1234)" in md_ui
+    assert "[↩️ Reply](outlook://reply/00000000ABCD1234)" in md_ui
     assert "[📎 S2-2612673_draft.docx](outlook://att/00000000ABCD1234/S2-2612673_draft.docx)" in md_ui
 
     md_export = export_thread_to_markdown(thread, msgs, interactive_links=False)
@@ -2280,4 +2281,105 @@ def test_live_inbox_sync_and_outlook_bidirectional_updates(tmp_path):
     )
     TDocsWindow._on_tracked_thread_changed(fake_win)
     assert dlg.table.rowCount() == 4
+    dlg.close()
+
+
+def test_reader_formatting_cleanup_and_compact_inbox_header(tmp_path):
+    from PyQt5.QtCore import QSettings
+    from PyQt5.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    from modules.emails.core.general_email_db import GeneralEmailDatabase
+    from modules.emails.core.thread_markdown_exporter import (
+        clean_tdoc_id,
+        export_thread_to_markdown,
+        format_sender_display,
+    )
+    from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+    from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
+
+    assert clean_tdoc_id("20S2-2611844") == "S2-2611844"
+    assert clean_tdoc_id("2FS2-2612556") == "S2-2612556"
+    assert format_sender_display("Lazaros Gkatzikis (Nokia)", "Nokia") == "Lazaros Gkatzikis (Nokia)"
+    assert format_sender_display("Alice", "Nokia") == "Alice (Nokia)"
+
+    thread = {
+        "thread_id": "THR-UI-CLEAN",
+        "title": "5G/6G interworking - Interim agreements - S2-2612805",
+        "normalized_subject": "5G/6G interworking - Interim agreements - S2-2612805",
+        "linked_tdocs": ["S2-2612805", "20S2-2611844"],
+    }
+    msgs = [
+        {
+            "id": "E1",
+            "subject": "Re: [SA2#178, FS_6G_ARC, KI#17] 5G/6G interworking - Interim agreements - S2-2612805",
+            "sender_name": "Lazaros Gkatzikis (Nokia)",
+            "company": "Nokia",
+            "date_sent": "2026-11-19 14:05:15.123000+00:00",
+            "body_text": "Agreed.\nFrom: Miguel\nSent: Thursday, November 19, 2026 12:00\nSubject: Re: ...",
+            "clean_body": "",
+            "is_read": 0,
+            "flag_status": 0,
+            "attachments": ["image001.png", "image002.jpg"],
+        },
+        {
+            "id": "E2",
+            "subject": "Re: [SA2#178] Forked Sub-Discussion Topic",
+            "sender_name": "Bob",
+            "company": "Ericsson",
+            "date_sent": "2026-11-19 15:10:00",
+            "body_text": "New sub-thread.\n",
+            "clean_body": "New sub-thread.",
+            "is_read": 1,
+            "flag_status": 0,
+            "attachments": ["image001.png", "S2-2612805r01.docx"],
+        },
+    ]
+    md = export_thread_to_markdown(
+        thread,
+        msgs,
+        deduplicate_quotes=True,
+        interactive_links=True,
+        newest_first=True,
+        include_metadata=False,
+        include_discussion_heading=False,
+    )
+    assert "## Discussion" not in md
+    assert "(Nokia) (Nokia)" not in md
+    assert "2026-11-19 14:05`" in md
+    # Same normalized subject is omitted; forked subject is preserved
+    assert "5G/6G interworking" not in md
+    assert "**Subject:** Re: [SA2#178] Forked Sub-Discussion Topic" in md
+    # Minimalist actions & inline signature image filtering
+    assert "[↩️ Reply](outlook://reply/E1)" in md
+    assert "[📧 Outlook](outlook://msg/E1)" in md
+    assert "image001.png" not in md
+    assert "image002.jpg" not in md
+    assert "S2-2612805r01.docx" in md
+    assert "(+1 inline)" in md
+    # Trailing quote formatted as blockquote
+    assert "\n> From: Miguel" in md
+
+    # Compact Inbox header & collapsible assign bar + 20S2- cleanup
+    tdb = TrackedThreadsDatabase(tmp_path / "threads.db")
+    gdb = GeneralEmailDatabase(tmp_path / "gen.db")
+    gdb.save_emails_batch(
+        [{"id": "E-CLEAN", "subject": "[SA2#178] Check", "sender_name": "Vivian (Vivo)", "company": "Vivo", "date_received": "2026-11-19 18:00:00", "body_text": "Hi", "is_read": 0}],
+        [{"email_id": "E-CLEAN", "tdoc_id": "20S2-2611844", "match_location": "Body"}],
+    )
+    dlg = MeetingEmailInboxDialog(
+        tdb,
+        gdb,
+        meeting_id="SA2#178",
+        settings=QSettings(str(tmp_path / "compact.ini"), QSettings.IniFormat),
+    )
+    assert dlg.table.rowCount() == 1
+    assert "(Vivo) (Vivo)" not in dlg.detail_meta_lbl.text()
+    assert "20S2-" not in dlg.detail_links_lbl.text()
+    assert "S2-2611844" in dlg.detail_links_lbl.text()
+    assert not dlg.assign_frame.isHidden()
+    dlg.btn_toggle_assign_bar.click()
+    assert dlg.assign_frame.isHidden()
+    dlg.btn_toggle_assign_bar.click()
+    assert not dlg.assign_frame.isHidden()
     dlg.close()

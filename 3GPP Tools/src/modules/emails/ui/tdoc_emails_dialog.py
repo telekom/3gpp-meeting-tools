@@ -47,6 +47,7 @@ from modules.emails.core.general_email_db import (
 )
 from modules.emails.core.outlook_client import OutlookClient
 from modules.emails.core.thread_markdown_exporter import (
+    apply_email_reader_document_style,
     export_thread_to_markdown,
     extract_thread_document_urls,
     find_unread_heading_blocks,
@@ -100,6 +101,7 @@ class StandaloneEmailReaderWindow(QWidget):
 
         self.browser = QTextBrowser()
         self.browser.setOpenLinks(False)
+        apply_email_reader_document_style(self.browser)
         self.browser.anchorClicked.connect(self._on_anchor_clicked)
         self.browser.setStyleSheet("background: white; border: 1px solid #CCC; border-radius: 4px; padding: 12px;")
         self._reader_settings = QSettings("3GPP_Tools", "StandaloneEmailReaderWindow")
@@ -354,6 +356,7 @@ class TDocEmailsDialog(QDialog):
         # Row 4: Continuous Timeline Browser
         self.browser = QTextBrowser()
         self.browser.setOpenLinks(False)
+        apply_email_reader_document_style(self.browser)
         self.browser.anchorClicked.connect(self._on_anchor_clicked)
         bind_reader_zoom_settings(self.browser, self._settings, key="zoom_steps")
         layout.addWidget(self.browser, 1)

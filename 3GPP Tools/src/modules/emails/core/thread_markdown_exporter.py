@@ -5,6 +5,98 @@ from typing import Any, Dict, List
 
 
 _TDOC_RE = re.compile(r"\b(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,7}\b", re.IGNORECASE)
+_TDOC_URL_PREFIX_ARTIFACT_RE = re.compile(
+    r"^(?:2F|20|2520)+(?=(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,8}\b)",
+    re.IGNORECASE,
+)
+_INLINE_SIG_ATT_RE = re.compile(
+    r"^(?:image\d{3,4}\.(?:png|jpe?g|gif|bmp)|oledata\.mso|winmail\.dat)$",
+    re.IGNORECASE,
+)
+_SUBJ_PREFIX_RE = re.compile(r"^(?:(?:re|aw|fwd?|wg|回覆|回复|答复|转发)\s*:\s*)+", re.IGNORECASE)
+_SUBJ_TAG_RE = re.compile(r"^(?:\[[^\]]{1,80}\]\s*)+")
+_QUOTE_HEADER_LINE_RE = re.compile(
+    r"^(?:-----Original Message-----|_____+|From:\s+.+|Von:\s+.+|De:\s+.+|发件人:\s+.+)$",
+    re.IGNORECASE,
+)
+
+
+def clean_tdoc_id(raw: Any) -> str:
+    """Normalizes a TDoc token and strips URL-encoding prefix artifacts like 2F or 20."""
+    td = str(raw or "").strip().upper()
+    if not td:
+        return ""
+    return _TDOC_URL_PREFIX_ARTIFACT_RE.sub("", td)
+
+
+def format_sender_display(sender: str, company: str = "") -> str:
+    """Formats 'Sender (Company)' without duplicating '(Company)' when already inside sender."""
+    s = str(sender or "").strip() or "Unknown"
+    c = str(company or "").strip()
+    if not c or c.lower() in s.lower():
+        return s
+    return f"{s} ({c})"
+
+
+def format_compact_timestamp(raw_date: Any) -> str:
+    """Formats timestamps cleanly as YYYY-MM-DD HH:MM, dropping seconds/microseconds/offsets."""
+    text = str(raw_date or "").strip()
+    if not text:
+        return "Unknown Date"
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$", text)
+    if m:
+        return f"{m.group(1)} {m.group(2)}"
+    return text
+
+
+def _normalize_subject_for_comparison(subject: str) -> str:
+    """Strips Re:/AW:/[External]/[Meeting Tag] prefixes so true subject forks can be detected."""
+    s = " ".join(str(subject or "").split()).strip()
+    while s:
+        s2 = _SUBJ_PREFIX_RE.sub("", s).strip()
+        s2 = _SUBJ_TAG_RE.sub("", s2).strip()
+        if s2 == s:
+            break
+        s = s2
+    return s.lower()
+
+
+def partition_email_attachments(attachments: List[str]) -> tuple:
+    """Splits attachments into (real_attachments, inline_signature_images)."""
+    real_atts: List[str] = []
+    inline_imgs: List[str] = []
+    for raw in (attachments or []):
+        name = str(raw or "").strip()
+        if not name:
+            continue
+        if _INLINE_SIG_ATT_RE.match(name):
+            inline_imgs.append(name)
+        else:
+            real_atts.append(name)
+    return real_atts, inline_imgs
+
+
+def _format_trailing_quoted_history(body: str) -> str:
+    """Converts trailing inline reply headers ('From: ... Sent: ...' / '发件人:') into Markdown blockquotes."""
+    if not body:
+        return ""
+    lines = body.splitlines()
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or not _QUOTE_HEADER_LINE_RE.match(stripped):
+            continue
+        # Confirm it is an Outlook quote block (contains Sent:/发送时间: on same/next line or separator rule)
+        window = "\n".join(lines[idx : min(len(lines), idx + 4)])
+        is_quote_start = (
+            stripped.startswith(("-----Original Message-----", "____"))
+            or bool(re.search(r"\b(?:Sent|Gesendet|Envoyé|Date|To|Subject)\s*:|发送时间|主题\s*:", window, re.IGNORECASE))
+        )
+        if not is_quote_start:
+            continue
+        head = lines[:idx]
+        tail = ["> " + ql if ql.strip() and not ql.lstrip().startswith(">") else (">" if not ql.strip() else ql) for ql in lines[idx:]]
+        return "\n".join(head + ([""] if head and head[-1].strip() else []) + tail)
+    return body
 _SAFELINK_RE = re.compile(
     r"<?https?://[a-z0-9.-]*safelinks\.protection\.outlook\.com/\?[^\s<>\"\)\]]+>?",
     re.IGNORECASE,
@@ -345,6 +437,19 @@ def find_unread_heading_blocks(browser: Any) -> List[Any]:
     return blocks
 
 
+def apply_email_reader_document_style(browser: Any) -> None:
+    """Applies clean heading, paragraph, and blockquote readability styling to a QTextBrowser."""
+    if browser is None:
+        return
+    doc = browser.document() if hasattr(browser, "document") else None
+    if doc is not None:
+        doc.setDefaultStyleSheet(
+            "h3 { margin-top: 6px; margin-bottom: 3px; font-size: 105%; } "
+            "p { margin-top: 3px; margin-bottom: 4px; } "
+            "blockquote { margin: 4px 0 4px 10px; padding-left: 8px; color: #64748B; border-left: 2px solid #CBD5E1; }"
+        )
+
+
 def scroll_browser_to_block(browser: Any, block: Any) -> int:
     """Deterministically scrolls a QTextBrowser viewport to the vertical coordinate of `block`."""
     if browser is None or block is None or not block.isValid():
@@ -368,6 +473,7 @@ def export_thread_to_markdown(
     include_metadata: bool = True,
     include_ignore_action: bool = False,
     enable_tdoc_links: bool = False,
+    include_discussion_heading: bool = True,
 ) -> str:
     """
     Exports a tracked email thread to a lossless, human- and LLM-readable Markdown document.
@@ -376,17 +482,19 @@ def export_thread_to_markdown(
     """
     participants = []
     seen_p = set()
-    tdocs_mentioned = set(thread.get("linked_tdocs") or [])
+    tdocs_mentioned = {clean_tdoc_id(t) for t in (thread.get("linked_tdocs") or []) if clean_tdoc_id(t)}
 
     for msg in messages:
         name = (msg.get("sender_name") or msg.get("sender_email") or "Unknown").strip()
         comp = (msg.get("company") or "").strip()
-        label = f"{name} ({comp})" if comp else name
+        label = format_sender_display(name, comp)
         if label not in seen_p:
             seen_p.add(label)
             participants.append(label)
         for m in _TDOC_RE.findall(f"{msg.get('subject', '')} {msg.get('body_text', '')}"):
-            tdocs_mentioned.add(m.upper())
+            cleaned_m = clean_tdoc_id(m)
+            if cleaned_m:
+                tdocs_mentioned.add(cleaned_m)
 
     dates = [m.get("date_sent", "") for m in messages if m.get("date_sent")]
     date_range = f"{min(dates)} to {max(dates)}" if dates else "N/A"
@@ -427,9 +535,12 @@ def export_thread_to_markdown(
             for nline in user_notes.splitlines():
                 lines.append(f"> {nline}" if nline.strip() else ">")
         lines.extend(["", "---", ""])
-    lines.extend([disc_heading, ""])
+    if include_discussion_heading:
+        lines.extend([disc_heading, ""])
 
-    base_subject = thread.get("normalized_subject", "").lower()
+    base_subject_norm = _normalize_subject_for_comparison(
+        thread.get("normalized_subject") or thread.get("title") or ""
+    )
     indexed_msgs = list(enumerate(messages, 1))
     if newest_first:
         indexed_msgs.reverse()
@@ -438,8 +549,9 @@ def export_thread_to_markdown(
     for idx, msg in indexed_msgs:
         sender = (msg.get("sender_name") or msg.get("sender_email") or "Unknown").strip()
         comp = (msg.get("company") or "").strip()
-        sender_disp = f"{sender} ({comp})" if comp else sender
-        date_str = msg.get("date_sent", "Unknown Date")
+        sender_disp = format_sender_display(sender, comp)
+        date_raw = msg.get("date_sent", "Unknown Date")
+        date_disp = format_compact_timestamp(date_raw) if interactive_links else date_raw
         subj = (msg.get("subject") or "").strip()
         msg_id = str(msg.get("id") or "").strip()
         is_unread = int(msg.get("is_read", 1) or 0) == 0
@@ -458,32 +570,34 @@ def export_thread_to_markdown(
             enc_id = urllib.parse.quote(msg_id, safe="")
             action_parts = []
             if can_open_outlook:
-                action_parts.append(f"[📧 Open in Outlook](outlook://msg/{enc_id})")
                 action_parts.append(f"[↩️ Reply](outlook://reply/{enc_id})")
-                action_parts.append(f"[🔄 Reload](outlook://reload/{enc_id})")
+                action_parts.append(f"[📧 Outlook](outlook://msg/{enc_id})")
+                action_parts.append(f"[🔄](outlook://reload/{enc_id})")
             if msg_id:
                 action_parts.append(
-                    f"[✓ Mark Read](outlook://read/{enc_id})" if is_unread else f"[🔵 Mark Unread](outlook://unread/{enc_id})"
+                    f"[✓ Read](outlook://read/{enc_id})" if is_unread else f"[🔵 Unread](outlook://unread/{enc_id})"
                 )
                 action_parts.append(
-                    f"[🏳️ Clear Flag](outlook://unflag/{enc_id})" if is_flagged else f"[🚩 Flag](outlook://flag/{enc_id})"
+                    f"[🏳️ Unflag](outlook://unflag/{enc_id})" if is_flagged else f"[🚩](outlook://flag/{enc_id})"
                 )
                 if include_ignore_action:
                     action_parts.append(
-                        f"[↩️ Un-ignore](outlook://unignore/{enc_id})" if is_ignored else f"[🚫 Ignore](outlook://ignore/{enc_id})"
+                        f"[↩️ Un-ignore](outlook://unignore/{enc_id})" if is_ignored else f"[🚫](outlook://ignore/{enc_id})"
                     )
-            action_parts.append(f"[📋 Copy](outlook://copy/{enc_id})")
+            action_parts.append(f"[📋](outlook://copy/{enc_id})")
             lines.append(
-                f"### {anchors}{idx}. [{date_str}] {sender_disp}{new_badge}{flag_badge}{ignored_badge} · {' · '.join(action_parts)}"
+                f"### {anchors}{idx}. {sender_disp} · `{date_disp}`{new_badge}{flag_badge}{ignored_badge} · {' · '.join(action_parts)}"
             )
         else:
-            lines.append(f"### {idx}. [{date_str}] {sender_disp}")
-        if subj and subj.lower() != base_subject:
+            lines.append(f"### {idx}. [{date_disp}] {sender_disp}")
+
+        subj_norm = _normalize_subject_for_comparison(subj)
+        if subj and base_subject_norm and subj_norm and subj_norm != base_subject_norm:
             subj_disp = linkify_tdoc_tokens(subj) if (interactive_links and enable_tdoc_links) else subj
             lines.append(f"**Subject:** {subj_disp}  ")
         match_loc = str(msg.get("match_location") or "").strip()
         folder_tag = str(msg.get("folder_tag") or "").strip()
-        matched_tdoc = str(msg.get("matched_tdoc") or "").strip()
+        matched_tdoc = clean_tdoc_id(msg.get("matched_tdoc") or "")
         rev_matched = str(msg.get("rev_matched") or "").strip()
         if match_loc or folder_tag or matched_tdoc:
             meta_bits = []
@@ -493,20 +607,28 @@ def export_thread_to_markdown(
                 td_detail = f" ({matched_tdoc}" + (f" · {rev_matched}" if rev_matched else "") + ")" if matched_tdoc else ""
                 meta_bits.append(f"**Match In:** {match_loc}{td_detail}")
             lines.append(" · ".join(meta_bits) + "  ")
-        if msg.get("attachments"):
-            if can_open_outlook:
-                enc_id = urllib.parse.quote(msg_id, safe="")
-                att_links = [
-                    f"[📎 {a}](outlook://att/{enc_id}/{urllib.parse.quote(str(a), safe='')})"
-                    for a in msg["attachments"]
-                ]
-                lines.append(f"**Attachments:** {' · '.join(att_links)}  ")
-            else:
-                lines.append(f"**Attachments:** {', '.join(msg['attachments'])}  ")
+        raw_atts = msg.get("attachments") or []
+        if raw_atts:
+            real_atts, inline_imgs = partition_email_attachments(raw_atts) if interactive_links else (raw_atts, [])
+            if real_atts:
+                if can_open_outlook:
+                    enc_id = urllib.parse.quote(msg_id, safe="")
+                    att_links = [
+                        f"[📎 {a}](outlook://att/{enc_id}/{urllib.parse.quote(str(a), safe='')})"
+                        for a in real_atts
+                    ]
+                    att_line = f"**Attachments:** {' · '.join(att_links)}"
+                else:
+                    att_line = f"**Attachments:** {', '.join(real_atts)}"
+                if inline_imgs:
+                    att_line += f" *(+{len(inline_imgs)} inline)*"
+                lines.append(att_line + "  ")
         lines.append("")
 
         body = (msg.get("clean_body") if deduplicate_quotes and msg.get("clean_body") else msg.get("body_text")) or ""
         body = _normalize_outlook_list_spacing(body.strip())
+        if interactive_links:
+            body = _format_trailing_quoted_history(body)
         body = linkify_markdown_urls(body)
         if interactive_links and enable_tdoc_links:
             body = linkify_tdoc_tokens(body)

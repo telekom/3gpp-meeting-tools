@@ -47,6 +47,7 @@ from core.ui.font_scale import bind_reader_zoom_settings, create_help_tips_pill,
 from core.ui.toast import notify_info, notify_success, notify_toast
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.emails.core.thread_markdown_exporter import (
+    apply_email_reader_document_style,
     export_thread_to_markdown,
     find_unread_heading_blocks,
     is_cacheable_document_url,
@@ -376,6 +377,7 @@ class TrackedThreadDialog(QDialog):
         # Timeline browser (supports Ctrl+Wheel zoom and Ctrl+0 reset)
         self.browser = QTextBrowser()
         self.browser.setOpenLinks(False)
+        apply_email_reader_document_style(self.browser)
         self.browser.anchorClicked.connect(self._on_anchor_clicked)
         bind_reader_zoom_settings(self.browser, self._settings, key="zoom_steps")
         layout.addWidget(self.browser, 1)

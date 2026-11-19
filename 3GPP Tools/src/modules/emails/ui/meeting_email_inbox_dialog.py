@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
     QFrame,
-    QGridLayout,
+    QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
@@ -36,13 +36,19 @@ from core.ui.toast import notify_info, notify_success, notify_toast
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.emails.core.outlook_client import OutlookClient
 from modules.emails.core.thread_markdown_exporter import (
+    _format_trailing_quoted_history,
+    apply_email_reader_document_style,
+    clean_tdoc_id,
     escape_non_html_angles,
     export_thread_to_markdown,
     find_unread_heading_blocks,
+    format_compact_timestamp,
+    format_sender_display,
     inject_html_tables_into_body,
     is_cacheable_document_url,
     linkify_markdown_urls,
     linkify_tdoc_tokens,
+    partition_email_attachments,
     scroll_browser_to_block,
 )
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
@@ -439,7 +445,7 @@ class MeetingEmailInboxDialog(QDialog):
         right_widget.setMinimumWidth(280)
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(4, 0, 0, 0)
-        right_layout.setSpacing(6)
+        right_layout.setSpacing(4)
 
         meta_frame = QFrame(right_widget)
         meta_frame.setObjectName("InboxMetaFrame")
@@ -447,18 +453,21 @@ class MeetingEmailInboxDialog(QDialog):
             "#InboxMetaFrame { background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; }"
         )
         meta_layout = QVBoxLayout(meta_frame)
-        meta_layout.setContentsMargins(10, 8, 10, 6)
-        meta_layout.setSpacing(4)
+        meta_layout.setContentsMargins(8, 4, 8, 4)
+        meta_layout.setSpacing(2)
 
         self.detail_subject_lbl = QLabel("Select an email to read")
         self.detail_subject_lbl.setWordWrap(True)
         self.detail_subject_lbl.setStyleSheet("font-size: 13px; font-weight: bold; color: #0F172A;")
         meta_layout.addWidget(self.detail_subject_lbl)
 
+        meta_info_row = QHBoxLayout()
+        meta_info_row.setContentsMargins(0, 0, 0, 0)
+        meta_info_row.setSpacing(8)
         self.detail_meta_lbl = QLabel("")
         self.detail_meta_lbl.setWordWrap(True)
         self.detail_meta_lbl.setStyleSheet("color: #475569; font-size: 11px;")
-        meta_layout.addWidget(self.detail_meta_lbl)
+        meta_info_row.addWidget(self.detail_meta_lbl)
 
         self.detail_links_lbl = QLabel("")
         self.detail_links_lbl.setWordWrap(True)
@@ -467,31 +476,30 @@ class MeetingEmailInboxDialog(QDialog):
         self.detail_links_lbl.setOpenExternalLinks(False)
         self.detail_links_lbl.linkActivated.connect(lambda href: self._on_anchor_clicked(QUrl(href)))
         self.detail_links_lbl.setStyleSheet("color: #1D4ED8; font-size: 11px;")
-        meta_layout.addWidget(self.detail_links_lbl)
+        meta_info_row.addWidget(self.detail_links_lbl, 1)
+        meta_layout.addLayout(meta_info_row)
 
-        # Inline Assignment Bar (AIs, Sub-Topics, WIs + Pin/Auto-Assign)
+        # Inline Assignment Bar (Single compact row: AIs, Sub-Topics, WIs + Auto/Pin)
+        self._show_assign_bar = bool(self._settings.value("show_assign_bar", True, type=bool))
         self.assign_frame = QFrame(meta_frame)
         self.assign_frame.setObjectName("InboxAssignBar")
         self.assign_frame.setStyleSheet(
             "#InboxAssignBar { background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 5px; }"
         )
-        assign_grid = QGridLayout(self.assign_frame)
-        assign_grid.setContentsMargins(6, 4, 6, 4)
-        assign_grid.setHorizontalSpacing(8)
-        assign_grid.setVerticalSpacing(3)
-        assign_grid.setColumnStretch(1, 1)
-        assign_grid.setColumnStretch(3, 1)
+        assign_row = QHBoxLayout(self.assign_frame)
+        assign_row.setContentsMargins(6, 2, 6, 2)
+        assign_row.setSpacing(6)
 
         strict_ai = bool(self._ai_suggestions)
         strict_wi = bool(self._wi_suggestions)
 
-        assign_grid.addWidget(QLabel("<b>AIs:</b>"), 0, 0, Qt.AlignVCenter)
+        assign_row.addWidget(QLabel("<b>AI:</b>"))
         self.assign_ais_pills = TagCloudWidget(
-            placeholder="AI # (e.g. 20.6.1)...",
+            placeholder="AI #...",
             pill_colors={"bg": "#EFF6FF", "fg": "#1D4ED8", "border": "#BFDBFE"},
             strict_dropdown=strict_ai,
             dropdown_label="+ AI ▾",
-            empty_dropdown_label="No meeting AIs",
+            empty_dropdown_label="No AIs",
         )
         if self._ai_suggestions:
             self.assign_ais_pills.set_suggestions(
@@ -499,26 +507,26 @@ class MeetingEmailInboxDialog(QDialog):
                 value_extractor=lambda s: s.split(" — ", 1)[0].strip(),
             )
         self.assign_ais_pills.tagsChanged.connect(self._on_inline_links_changed)
-        assign_grid.addWidget(self.assign_ais_pills, 0, 1)
+        assign_row.addWidget(self.assign_ais_pills, 2)
 
-        assign_grid.addWidget(QLabel("<b>Sub-Topics:</b>"), 0, 2, Qt.AlignVCenter)
+        assign_row.addWidget(QLabel("<b>Sub:</b>"))
         self.assign_subs_pills = TagCloudWidget(
             placeholder="Sub-Topic...",
             pill_colors={"bg": "#F0FDFA", "fg": "#0F766E", "border": "#99F6E4"},
             strict_dropdown=True,
-            dropdown_label="+ Sub-Topic ▾",
-            empty_dropdown_label="Assign AI first",
+            dropdown_label="+ Sub ▾",
+            empty_dropdown_label="Assign AI",
         )
         self.assign_subs_pills.tagsChanged.connect(self._on_inline_links_changed)
-        assign_grid.addWidget(self.assign_subs_pills, 0, 3)
+        assign_row.addWidget(self.assign_subs_pills, 3)
 
-        assign_grid.addWidget(QLabel("<b>WIs:</b>"), 1, 0, Qt.AlignVCenter)
+        assign_row.addWidget(QLabel("<b>WI:</b>"))
         self.assign_wis_pills = TagCloudWidget(
-            placeholder="Work Item...",
+            placeholder="WI...",
             pill_colors={"bg": "#EEF2FF", "fg": "#4338CA", "border": "#C7D2FE"},
             strict_dropdown=strict_wi,
             dropdown_label="+ WI ▾",
-            empty_dropdown_label="No meeting WIs",
+            empty_dropdown_label="No WIs",
         )
         if self._wi_suggestions:
             self.assign_wis_pills.set_suggestions(
@@ -526,21 +534,19 @@ class MeetingEmailInboxDialog(QDialog):
                 value_extractor=lambda s: s.split(" — ", 1)[0].strip(),
             )
         self.assign_wis_pills.tagsChanged.connect(self._on_inline_links_changed)
-        assign_grid.addWidget(self.assign_wis_pills, 1, 1, 1, 2)
+        assign_row.addWidget(self.assign_wis_pills, 2)
 
-        btn_assign_wrap = QWidget(self.assign_frame)
-        ba_layout = FlowLayout(btn_assign_wrap, margin=0, h_spacing=4, v_spacing=2)
-        self.btn_auto_assign = QPushButton("🪄 Auto-Assign")
+        self.btn_auto_assign = QPushButton("🪄 Auto")
         self.btn_auto_assign.setToolTip("Infer and apply AIs, Sub-Topics, and WIs from subject and linked TDocs.")
         self.btn_auto_assign.clicked.connect(self._on_auto_assign_clicked)
-        ba_layout.addWidget(self.btn_auto_assign)
+        assign_row.addWidget(self.btn_auto_assign)
 
-        self.btn_pin_inline = QPushButton("📌 Pin as Tracked Thread")
-        self.btn_pin_inline.setToolTip("Pin this email conversation as a Tracked Thread in-place so you can track replies and links.")
+        self.btn_pin_inline = QPushButton("📌 Pin")
+        self.btn_pin_inline.setToolTip("Pin this email conversation as a Tracked Thread in-place.")
         self.btn_pin_inline.clicked.connect(self._on_pin_inline_clicked)
-        ba_layout.addWidget(self.btn_pin_inline)
-        assign_grid.addWidget(btn_assign_wrap, 1, 3, Qt.AlignRight | Qt.AlignVCenter)
+        assign_row.addWidget(self.btn_pin_inline)
 
+        self.assign_frame.setVisible(self._show_assign_bar)
         meta_layout.addWidget(self.assign_frame)
         right_layout.addWidget(meta_frame)
 
@@ -554,7 +560,7 @@ class MeetingEmailInboxDialog(QDialog):
         self.btn_mark_next = QPushButton("✔️ Mark Read && Next Unread")
         self.btn_mark_next.setStyleSheet(
             "QPushButton { background-color: #2563EB; color: white; font-weight: bold; "
-            "padding: 5px 11px; border-radius: 5px; border: none; } "
+            "padding: 4px 10px; border-radius: 5px; border: none; } "
             "QPushButton:hover { background-color: #1D4ED8; } "
             "QPushButton:disabled { background-color: #CBD5E1; color: #64748B; }"
         )
@@ -581,10 +587,18 @@ class MeetingEmailInboxDialog(QDialog):
         self.btn_open_context.clicked.connect(self._on_open_context)
         act_row.addWidget(self.btn_open_context)
 
+        self.btn_toggle_assign_bar = QPushButton("🏷️ AI / WI ▴" if self._show_assign_bar else "🏷️ AI / WI ▾")
+        self.btn_toggle_assign_bar.setCheckable(True)
+        self.btn_toggle_assign_bar.setChecked(self._show_assign_bar)
+        self.btn_toggle_assign_bar.setToolTip("Show or hide the inline AI / Sub-Topic / WI assignment bar.")
+        self.btn_toggle_assign_bar.clicked.connect(self._on_toggle_assign_bar)
+        act_row.addWidget(self.btn_toggle_assign_bar)
+
         right_layout.addWidget(act_widget)
 
         self.preview_browser = QTextBrowser()
         self.preview_browser.setOpenLinks(False)
+        apply_email_reader_document_style(self.preview_browser)
         self.preview_browser.anchorClicked.connect(self._on_anchor_clicked)
         bind_reader_zoom_settings(self.preview_browser, self._settings, key="zoom_steps")
         right_layout.addWidget(self.preview_browser, 1)
@@ -879,10 +893,7 @@ class MeetingEmailInboxDialog(QDialog):
 
     @staticmethod
     def _clean_tdoc_id(raw: Any) -> str:
-        td = str(raw or "").strip().upper()
-        if not td:
-            return ""
-        return re.sub(r"^2F(?=(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-)", "", td, flags=re.IGNORECASE)
+        return clean_tdoc_id(raw)
 
     def _item_matches_mode(self, it: dict, mode: str, cutoff: str) -> bool:
         if mode == "UNREAD" and it["is_read"]:
@@ -1078,9 +1089,10 @@ class MeetingEmailInboxDialog(QDialog):
                 f.setBold(True)
                 subj_item.setFont(f)
 
-            sender_disp = it["sender_name"] or it["sender_email"] or "Unknown"
-            if it.get("company"):
-                sender_disp = f"{sender_disp} ({it['company']})"
+            sender_disp = format_sender_display(
+                it["sender_name"] or it["sender_email"] or "Unknown",
+                it.get("company") or "",
+            )
             sender_item = QTableWidgetItem(sender_disp)
             sender_item.setToolTip(
                 f"{sender_disp} <{it['sender_email']}>" if it.get("sender_email") else sender_disp
@@ -1161,6 +1173,16 @@ class MeetingEmailInboxDialog(QDialog):
         for btn in (self.btn_mark_next, self.btn_toggle_read, self.btn_toggle_flag, self.btn_reply, self.btn_open_outlook, self.btn_open_context):
             btn.setEnabled(False)
 
+    def _on_toggle_assign_bar(self, checked: bool):
+        self._show_assign_bar = bool(checked)
+        self.assign_frame.setVisible(self._show_assign_bar)
+        self.btn_toggle_assign_bar.setText("🏷️ AI / WI ▴" if self._show_assign_bar else "🏷️ AI / WI ▾")
+        try:
+            self._settings.setValue("show_assign_bar", self._show_assign_bar)
+            self._settings.sync()
+        except Exception:
+            pass
+
     def _refresh_assign_sub_suggestions(self, selected_ais: List[str]):
         allowed: List[str] = []
         seen = set()
@@ -1171,14 +1193,14 @@ class MeetingEmailInboxDialog(QDialog):
                     allowed.append(s)
         self.assign_subs_pills.set_suggestions(allowed)
         if not selected_ais:
-            self.assign_subs_pills.set_empty_dropdown_label("Assign AI first")
+            self.assign_subs_pills.set_empty_dropdown_label("Assign AI")
         elif not allowed:
-            self.assign_subs_pills.set_empty_dropdown_label("No sub-topics for AI")
+            self.assign_subs_pills.set_empty_dropdown_label("No sub-topics")
 
     def _populate_assign_bar(self, it: dict):
         self._updating_assign_bar = True
         try:
-            self.assign_frame.setVisible(True)
+            self.assign_frame.setVisible(self._show_assign_bar)
             ais = list(it.get("linked_ais") or [])
             subs = list(it.get("linked_sub_items") or [])
             wis = list(it.get("linked_wis") or [])
@@ -1196,7 +1218,7 @@ class MeetingEmailInboxDialog(QDialog):
     def _populate_assign_bar_multi(self, selected: List[dict]):
         self._updating_assign_bar = True
         try:
-            self.assign_frame.setVisible(True)
+            self.assign_frame.setVisible(self._show_assign_bar)
             common_ais = [
                 a for a in (selected[0].get("linked_ais") or [])
                 if all(a in (it.get("linked_ais") or []) for it in selected[1:])
@@ -1293,28 +1315,43 @@ class MeetingEmailInboxDialog(QDialog):
         self.preview_browser.setMarkdown("\n".join(md_lines))
 
     def _render_detail(self, it: dict):
-        self.detail_subject_lbl.setText(it.get("subject") or "(No Subject)")
+        subject_text = str(it.get("subject") or "(No Subject)")
+        self.detail_subject_lbl.setText(subject_text)
         if it.get("_is_group"):
+            raw_comps = [str(c).strip() for c in (it.get("_companies") or []) if str(c).strip()]
+            comp_disp = ", ".join(raw_comps[:5]) + (f" (+{len(raw_comps) - 5})" if len(raw_comps) > 5 else "")
+            if not comp_disp:
+                comp_disp = it.get("company") or "Unknown"
             self.detail_meta_lbl.setText(
-                f"{it.get('_total_count', 1)} message(s) ({it.get('_unread_count', 0)} unread)  |  "
-                f"Latest: {it.get('date_str') or 'Unknown'}  |  Participants: {it.get('company') or 'Unknown'}"
+                f"{it.get('_total_count', 1)} msgs ({it.get('_unread_count', 0)} unread) · "
+                f"{format_compact_timestamp(it.get('date_str'))} · {comp_disp}"
             )
+            self.detail_meta_lbl.setToolTip(", ".join(raw_comps) if raw_comps else comp_disp)
         else:
-            sender = it.get("sender_name") or it.get("sender_email") or "Unknown"
-            comp = f" ({it['company']})" if it.get("company") else ""
+            sender_disp = format_sender_display(
+                it.get("sender_name") or it.get("sender_email") or "Unknown",
+                it.get("company") or "",
+            )
             badges = []
             if not it["is_read"]:
-                badges.append("🔵 UNREAD")
+                badges.append("🔵 NEW")
             if it["is_flagged"]:
-                badges.append("🚩 FLAGGED")
-            badge_str = f"  ·  {' · '.join(badges)}" if badges else "  ·  ✓ Read"
-            self.detail_meta_lbl.setText(f"From: {sender}{comp}  |  Date: {it.get('date_str') or 'Unknown'}{badge_str}")
+                badges.append("🚩")
+            badge_str = f" · {' '.join(badges)}" if badges else " · ✓"
+            self.detail_meta_lbl.setText(
+                f"{sender_disp} · {format_compact_timestamp(it.get('date_str'))}{badge_str}"
+            )
+            self.detail_meta_lbl.setToolTip("")
 
         links_html = []
         if it.get("in_tracked_db") and it.get("thread_title"):
-            links_html.append(f"🧵 Tracked: {html.escape(str(it['thread_title']))}")
+            tt = str(it["thread_title"]).strip()
+            if tt.lower() == subject_text.strip().lower():
+                links_html.append("🧵 Tracked")
+            else:
+                links_html.append(f"🧵 {html.escape(tt)}")
         else:
-            links_html.append("📄 Unpinned (TDoc match only)")
+            links_html.append("📄 Unpinned")
         cleaned_tdocs = list(dict.fromkeys(
             self._clean_tdoc_id(td) for td in (it.get("linked_tdocs") or []) if self._clean_tdoc_id(td)
         ))
@@ -1324,14 +1361,14 @@ class MeetingEmailInboxDialog(QDialog):
                     f'<a href="tdoc:{html.escape(td)}" '
                     f'style="color: #1D4ED8; font-weight: 600; text-decoration: underline;">'
                     f'{html.escape(td)}</a>'
-                    for td in cleaned_tdocs[:8]
+                    for td in cleaned_tdocs[:6]
                 )
             else:
-                td_anchors = ", ".join(html.escape(td) for td in cleaned_tdocs[:8])
-            if len(cleaned_tdocs) > 8:
-                td_anchors += f" (+{len(cleaned_tdocs) - 8} more)"
+                td_anchors = ", ".join(html.escape(td) for td in cleaned_tdocs[:6])
+            if len(cleaned_tdocs) > 6:
+                td_anchors += f" (+{len(cleaned_tdocs) - 6})"
             links_html.append(f"TDocs: {td_anchors}")
-        self.detail_links_lbl.setText(" &nbsp;|&nbsp; ".join(links_html))
+        self.detail_links_lbl.setText(" · ".join(links_html))
         self.detail_links_lbl.setVisible(bool(links_html))
 
         self._populate_assign_bar(it)
@@ -1387,6 +1424,7 @@ class MeetingEmailInboxDialog(QDialog):
                 newest_first=True,
                 include_metadata=False,
                 enable_tdoc_links=bool(self._open_tdoc_callback),
+                include_discussion_heading=False,
             )
             self.preview_browser.setMarkdown(md)
             blocks = find_unread_heading_blocks(self.preview_browser)
@@ -1395,19 +1433,24 @@ class MeetingEmailInboxDialog(QDialog):
             return
 
         lines: List[str] = []
-        atts = it.get("attachments") or []
-        if atts and can_outlook:
+        raw_atts = it.get("attachments") or []
+        real_atts, inline_imgs = partition_email_attachments(raw_atts)
+        if real_atts and can_outlook:
             enc_id = urllib.parse.quote(it["id"], safe="")
             att_links = [
                 f"[📎 {a}](outlook://att/{enc_id}/{urllib.parse.quote(str(a), safe='')})"
-                for a in atts
+                for a in real_atts
             ]
-            lines.append(f"**Attachments:** {' · '.join(att_links)}\n")
+            att_line = f"**Attachments:** {' · '.join(att_links)}"
+            if inline_imgs:
+                att_line += f" *(+{len(inline_imgs)} inline)*"
+            lines.append(att_line + "\n")
 
         body = str(it.get("body_text") or "")
         if it.get("html_body"):
             body = inject_html_tables_into_body(body, str(it["html_body"]))
-        body = linkify_markdown_urls(body.strip())
+        body = _format_trailing_quoted_history(body.strip())
+        body = linkify_markdown_urls(body)
         if self._open_tdoc_callback:
             body = linkify_tdoc_tokens(body)
         body = escape_non_html_angles(body)
