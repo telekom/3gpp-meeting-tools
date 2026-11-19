@@ -17,6 +17,7 @@ from core.ui.font_scale import bind_reader_zoom_settings, create_help_tips_pill
 from modules.emails.core.email_db import EmailDatabase
 from modules.emails.core.email_threads import EmailSyncThread, EmailMoveThread, EmailTargetRescanThread
 from modules.emails.core.stats.statistics_threads import EmailStatsExporterThread
+from modules.emails.core.thread_markdown_exporter import apply_email_reader_document_style
 from modules.emails.ui.email_models import EmailTableModel, EmailProxyModel, TDocSummaryModel, TDocProxyModel
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 
@@ -289,6 +290,7 @@ class EmailManagerWindow(QWidget):
         self.reading_pane = QTextBrowser()
         self._reader_settings = QSettings("3GPP_Tools", "EmailManagerWindow")
         bind_reader_zoom_settings(self.reading_pane, self._reader_settings, key="zoom_steps")
+        apply_email_reader_document_style(self.reading_pane)
         self.reading_pane.setStyleSheet(
             "background: white; border: 1px solid #CCC; border-radius: 4px; padding: 10px; color: #333;")
         pane_layout.addLayout(btn_layout)

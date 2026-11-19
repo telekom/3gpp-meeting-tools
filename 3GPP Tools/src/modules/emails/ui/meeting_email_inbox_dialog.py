@@ -1450,7 +1450,7 @@ class MeetingEmailInboxDialog(QDialog):
         if it.get("html_body"):
             body = inject_html_tables_into_body(body, str(it["html_body"]))
         body = _format_trailing_quoted_history(body.strip())
-        body = linkify_markdown_urls(body)
+        body = linkify_markdown_urls(body, shorten_long_urls=True)
         if self._open_tdoc_callback:
             body = linkify_tdoc_tokens(body)
         body = escape_non_html_angles(body)

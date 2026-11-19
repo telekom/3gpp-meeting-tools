@@ -1,7 +1,10 @@
 # --- File: src/modules/emails/core/thread_markdown_exporter.py ---
+import html
 import re
 import urllib.parse
 from typing import Any, Dict, List
+
+from core.ui.theme import C
 
 
 _TDOC_RE = re.compile(r"\b(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,7}\b", re.IGNORECASE)
@@ -27,6 +30,23 @@ def clean_tdoc_id(raw: Any) -> str:
     if not td:
         return ""
     return _TDOC_URL_PREFIX_ARTIFACT_RE.sub("", td)
+
+
+def split_sender_company(sender: str, company: str = "") -> tuple:
+    """Splits sender into (display_name, company_badge) without duplicating '(Company)'."""
+    s = str(sender or "").strip() or "Unknown"
+    c = str(company or "").strip()
+    if c:
+        cleaned = re.sub(rf"\s*\({re.escape(c)}\)\s*$", "", s, flags=re.IGNORECASE).strip()
+        if cleaned:
+            return cleaned, c
+        if c.lower() in s.lower():
+            return s, ""
+        return s, c
+    m = re.match(r"^(.*?)\s*\(([^()]{1,48})\)\s*$", s)
+    if m and m.group(1).strip():
+        return m.group(1).strip(), m.group(2).strip()
+    return s, ""
 
 
 def format_sender_display(sender: str, company: str = "") -> str:
@@ -354,7 +374,7 @@ def unwrap_outlook_safelinks(text: str) -> str:
     cleaned = _normalize_doc_url_spaces(cleaned)
     # Collapse Outlook's "https://example.com https://example.com" or "https://example.com<https://example.com>"
     cleaned = re.sub(r"(https?://[^\s<>\"\)\]]+)\s*<+\1>+", r"\1", cleaned)
-    cleaned = re.sub(r"(https?://[^\s<>\"\)\]]+)(?:\1)+", r"\1", cleaned)
+    cleaned = re.sub(r"(https?://[^\s<>\"\)\]]+)(?:[ \t]*\1)+", r"\1", cleaned)
     return cleaned
 
 
@@ -365,6 +385,34 @@ def is_cacheable_document_url(url: str) -> bool:
         return False
     path = urllib.parse.urlsplit(u).path
     return bool(_DOC_EXT_RE.search(path))
+
+
+def _format_short_url_label(url: str) -> str:
+    """Returns a concise human-readable label for long URLs and 3GPP/10.10.10.10 document links."""
+    u = str(url or "").strip()
+    if is_cacheable_document_url(u):
+        raw_name = urllib.parse.urlsplit(u).path.rsplit("/", 1)[-1]
+        fname = urllib.parse.unquote(raw_name).strip() or u
+        fname = fname.replace("[", "(").replace("]", ")")
+        if len(fname) > 95:
+            stem, dot, ext = fname.rpartition(".")
+            if dot and len(ext) <= 8:
+                keep = max(20, 95 - len(ext) - 2)
+                fname = f"{stem[:keep]}…{dot}{ext}"
+            else:
+                fname = fname[:94] + "…"
+        return f"📄 {fname}"
+    if len(u) <= 72:
+        return u
+    parsed = urllib.parse.urlsplit(u)
+    netloc = parsed.netloc or "link"
+    tail = urllib.parse.unquote(parsed.path.rstrip("/").rsplit("/", 1)[-1] or parsed.query or "")
+    tail = tail.replace("[", "(").replace("]", ")")
+    if tail:
+        if len(tail) > 32:
+            tail = tail[:31] + "…"
+        return f"🔗 {netloc}/…/{tail}"
+    return f"🔗 {netloc}/…"
 
 
 def extract_thread_document_urls(messages: List[Dict[str, Any]]) -> List[str]:
@@ -381,14 +429,19 @@ def extract_thread_document_urls(messages: List[Dict[str, Any]]) -> List[str]:
     return found
 
 
-def linkify_markdown_urls(text: str) -> str:
-    """Converts bare http(s):// URLs in text into clickable Markdown links [url](url)."""
+def linkify_markdown_urls(text: str, shorten_long_urls: bool = False) -> str:
+    """Converts bare http(s):// URLs in text into clickable Markdown links [label](url)."""
     if not text:
         return ""
     unwrapped = unwrap_outlook_safelinks(text)
+
+    def _fmt_link(url: str, trailing: str = "") -> str:
+        label = _format_short_url_label(url) if shorten_long_urls else url
+        return f"[{label}]({url}){trailing}"
+
     unwrapped = re.sub(
         r"<(https?://[^\s<>\"\)\]]+)>",
-        lambda m: f"[{m.group(1)}]({m.group(1)})",
+        lambda m: _fmt_link(m.group(1)),
         unwrapped,
     )
 
@@ -400,7 +453,7 @@ def linkify_markdown_urls(text: str) -> str:
             url = url[:-1]
         if not url:
             return m.group(0)
-        return f"[{url}]({url}){trailing}"
+        return _fmt_link(url, trailing)
 
     return _BARE_URL_RE.sub(_linkify_match, unwrapped)
 
@@ -437,8 +490,29 @@ def find_unread_heading_blocks(browser: Any) -> List[Any]:
     return blocks
 
 
+def _wrap_hover_url(url: str, width: int = 84) -> str:
+    """Wraps long URLs across multiple lines so hover tooltips fit comfortably on screen."""
+    u = str(url or "").strip()
+    if len(u) <= width:
+        return u
+    return "\n".join(u[i : i + width] for i in range(0, len(u), width))
+
+
+def handle_reader_link_hover(browser: Any, href: str) -> bool:
+    """Shows full URL tooltip only on http(s) links and hides it otherwise. Returns True if shown."""
+    from PyQt5.QtGui import QCursor
+    from PyQt5.QtWidgets import QToolTip
+
+    url = str(href or "").strip()
+    if url.lower().startswith(("http://", "https://")):
+        QToolTip.showText(QCursor.pos(), _wrap_hover_url(url), browser)
+        return True
+    QToolTip.hideText()
+    return False
+
+
 def apply_email_reader_document_style(browser: Any) -> None:
-    """Applies clean heading, paragraph, and blockquote readability styling to a QTextBrowser."""
+    """Applies clean readability styling and targeted http(s) link hover tooltips to a QTextBrowser."""
     if browser is None:
         return
     doc = browser.document() if hasattr(browser, "document") else None
@@ -446,8 +520,14 @@ def apply_email_reader_document_style(browser: Any) -> None:
         doc.setDefaultStyleSheet(
             "h3 { margin-top: 6px; margin-bottom: 3px; font-size: 105%; } "
             "p { margin-top: 3px; margin-bottom: 4px; } "
-            "blockquote { margin: 4px 0 4px 10px; padding-left: 8px; color: #64748B; border-left: 2px solid #CBD5E1; }"
+            f"blockquote {{ margin: 4px 0 4px 10px; padding-left: 8px; color: {C.TEXT_MUTED}; border-left: 2px solid {C.BORDER_STRONG}; }}"
         )
+    if hasattr(browser, "highlighted") and not browser.property("_email_link_hover_installed"):
+        browser.setProperty("_email_link_hover_installed", True)
+        try:
+            browser.highlighted[str].connect(lambda href, b=browser: handle_reader_link_hover(b, href))
+        except Exception:
+            pass
 
 
 def scroll_browser_to_block(browser: Any, block: Any) -> int:
@@ -557,9 +637,6 @@ def export_thread_to_markdown(
         is_unread = int(msg.get("is_read", 1) or 0) == 0
         is_flagged = int(msg.get("flag_status", 0) or 0) == 2
         is_ignored = int(msg.get("is_ignored", 0) or 0) == 1
-        new_badge = " 🔵 **NEW**" if (interactive_links and is_unread) else ""
-        flag_badge = " 🚩 **FLAGGED**" if (interactive_links and is_flagged) else ""
-        ignored_badge = " 🚫 **IGNORED**" if (interactive_links and is_ignored) else ""
         can_open_outlook = interactive_links and msg_id and not msg_id.startswith("MSG-")
 
         if interactive_links:
@@ -568,26 +645,75 @@ def export_thread_to_markdown(
                 unread_seq += 1
                 anchors += f'<a name="unread-{unread_seq}"></a>'
             enc_id = urllib.parse.quote(msg_id, safe="")
-            action_parts = []
+            if is_unread:
+                card_bg, card_accent, card_border = C.INFO_SOFT, C.ACCENT_ALT, C.INFO_BORDER
+            elif is_flagged:
+                card_bg, card_accent, card_border = C.WARNING_SOFT, C.WARNING_ACCENT, C.WARNING_BORDER
+            elif is_ignored:
+                card_bg, card_accent, card_border = C.BG_SURFACE, C.BORDER_STRONG, C.BORDER_SUBTLE
+            else:
+                card_bg, card_accent, card_border = C.BG_CANVAS, C.BORDER_HOVER, C.BORDER_SUBTLE
+
+            name_part, comp_part = split_sender_company(sender, comp)
+            sender_html = f'<b style="color:{C.TEXT_PRIMARY};">{html.escape(name_part)}</b>'
+            if comp_part:
+                sender_html += f' <span style="color:{C.TEXT_SECONDARY};">({html.escape(comp_part)})</span>'
+            badge_parts = []
+            if is_unread:
+                badge_parts.append(f'<span style="color:{C.INFO}; font-weight:bold;">🔵 NEW</span>')
+            if is_flagged:
+                badge_parts.append(f'<span style="color:{C.WARNING}; font-weight:bold;">🚩 FLAGGED</span>')
+            if is_ignored:
+                badge_parts.append(f'<span style="color:{C.TEXT_MUTED}; font-weight:bold;">🚫 IGNORED</span>')
+            badges_html = (" · " + " · ".join(badge_parts)) if badge_parts else ""
+            left_html = (
+                f'{anchors}<span style="color:{C.TEXT_MUTED};">{idx}.</span> {sender_html}'
+                f' <span style="color:{C.TEXT_MUTED};">· {html.escape(str(date_disp))}</span>{badges_html}'
+            )
+
+            action_links = []
             if can_open_outlook:
-                action_parts.append(f"[↩️ Reply](outlook://reply/{enc_id})")
-                action_parts.append(f"[📧 Outlook](outlook://msg/{enc_id})")
-                action_parts.append(f"[🔄](outlook://reload/{enc_id})")
-            if msg_id:
-                action_parts.append(
-                    f"[✓ Read](outlook://read/{enc_id})" if is_unread else f"[🔵 Unread](outlook://unread/{enc_id})"
+                action_links.append(
+                    f'<a href="outlook://reply/{enc_id}" style="text-decoration:none; color:{C.ACCENT_ALT};">↩️&nbsp;Reply</a>'
                 )
-                action_parts.append(
-                    f"[🏳️ Unflag](outlook://unflag/{enc_id})" if is_flagged else f"[🚩](outlook://flag/{enc_id})"
+                action_links.append(
+                    f'<a href="outlook://msg/{enc_id}" style="text-decoration:none; color:{C.ACCENT_ALT};">📧&nbsp;Outlook</a>'
+                )
+                action_links.append(
+                    f'<a href="outlook://reload/{enc_id}" style="text-decoration:none; color:{C.ACCENT_ALT};">🔄</a>'
+                )
+            if msg_id:
+                action_links.append(
+                    f'<a href="outlook://read/{enc_id}" style="text-decoration:none; color:{C.ACCENT_ALT};">✓&nbsp;Read</a>'
+                    if is_unread
+                    else f'<a href="outlook://unread/{enc_id}" style="text-decoration:none; color:{C.ACCENT_ALT};">🔵&nbsp;Unread</a>'
+                )
+                action_links.append(
+                    f'<a href="outlook://unflag/{enc_id}" style="text-decoration:none; color:{C.ACCENT_ALT};">🏳️&nbsp;Unflag</a>'
+                    if is_flagged
+                    else f'<a href="outlook://flag/{enc_id}" style="text-decoration:none; color:{C.ACCENT_ALT};">🚩</a>'
                 )
                 if include_ignore_action:
-                    action_parts.append(
-                        f"[↩️ Un-ignore](outlook://unignore/{enc_id})" if is_ignored else f"[🚫](outlook://ignore/{enc_id})"
+                    action_links.append(
+                        f'<a href="outlook://unignore/{enc_id}" style="text-decoration:none; color:{C.ACCENT_ALT};">↩️&nbsp;Un-ignore</a>'
+                        if is_ignored
+                        else f'<a href="outlook://ignore/{enc_id}" style="text-decoration:none; color:{C.ACCENT_ALT};">🚫</a>'
                     )
-            action_parts.append(f"[📋](outlook://copy/{enc_id})")
-            lines.append(
-                f"### {anchors}{idx}. {sender_disp} · `{date_disp}`{new_badge}{flag_badge}{ignored_badge} · {' · '.join(action_parts)}"
+            action_links.append(
+                f'<a href="outlook://copy/{enc_id}" style="text-decoration:none; color:{C.ACCENT_ALT};">📋</a>'
             )
+            right_html = f' <span style="color:{C.BORDER_STRONG};">·</span> '.join(action_links)
+            lines.append(
+                f'<table width="100%" cellspacing="0" cellpadding="4" '
+                f'style="background-color:{card_bg}; border-top:1px solid {card_border}; '
+                f'border-bottom:1px solid {card_border}; margin-top:6px; margin-bottom:4px;">'
+                f'<tr>'
+                f'<td width="4" style="background-color:{card_accent};"></td>'
+                f'<td valign="middle"><h3 style="margin:0; font-size:medium; font-weight:normal;">{left_html}</h3></td>'
+                f'<td align="right" valign="middle" style="font-size:90%;">{right_html}</td>'
+                f'</tr></table>'
+            )
+            lines.append("")
         else:
             lines.append(f"### {idx}. [{date_disp}] {sender_disp}")
 
@@ -629,7 +755,7 @@ def export_thread_to_markdown(
         body = _normalize_outlook_list_spacing(body.strip())
         if interactive_links:
             body = _format_trailing_quoted_history(body)
-        body = linkify_markdown_urls(body)
+        body = linkify_markdown_urls(body, shorten_long_urls=interactive_links)
         if interactive_links and enable_tdoc_links:
             body = linkify_tdoc_tokens(body)
         if interactive_links:
@@ -639,7 +765,8 @@ def export_thread_to_markdown(
         else:
             lines.append("*(Empty message body)*")
         lines.append("")
-        lines.append("---")
-        lines.append("")
+        if not interactive_links:
+            lines.append("---")
+            lines.append("")
 
     return "\n".join(lines).strip() + "\n"

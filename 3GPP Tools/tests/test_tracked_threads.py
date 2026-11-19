@@ -195,12 +195,13 @@ def test_safelinks_unwrapping_and_clickable_links():
         }
     ]
     md_ui = export_thread_to_markdown(thread, msgs, interactive_links=True)
-    assert "[📧 Outlook](outlook://msg/00000000ABCD1234)" in md_ui
-    assert "[↩️ Reply](outlook://reply/00000000ABCD1234)" in md_ui
+    assert '<a href="outlook://msg/00000000ABCD1234"' in md_ui and "Outlook</a>" in md_ui
+    assert '<a href="outlook://reply/00000000ABCD1234"' in md_ui and "Reply</a>" in md_ui
     assert "[📎 S2-2612673_draft.docx](outlook://att/00000000ABCD1234/S2-2612673_draft.docx)" in md_ui
 
     md_export = export_thread_to_markdown(thread, msgs, interactive_links=False)
     assert "outlook://" not in md_export
+    assert "<table" not in md_export
     assert "**Attachments:** S2-2612673_draft.docx" in md_export
 
     # Test 10.10.10.10 space-containing document links & Proofpoint urldefense unwrapping
@@ -279,7 +280,7 @@ def test_newest_first_ordering_filters_and_llm_workspace(tmp_path):
     msgs = db.get_thread_messages(tid)
 
     md_newest = export_thread_to_markdown(thread, msgs, interactive_links=True, newest_first=True)
-    assert "🔵 **NEW**" in md_newest
+    assert "🔵 NEW" in md_newest
     assert "· ·" not in md_newest
     assert "outlook://reply/000000002222" in md_newest
     assert "outlook://copy/000000002222" in md_newest
@@ -301,7 +302,7 @@ def test_newest_first_ordering_filters_and_llm_workspace(tmp_path):
     assert "&lt;Ashok&gt; What does this mean?" in md_tag
     assert "2. Item two" in md_tag
     disc_newest = md_newest.split("## Discussion (Newest First)", 1)[1]
-    assert disc_newest.index("Bob (Ericsson)") < disc_newest.index("Alice (Nokia)")
+    assert disc_newest.index("Bob") < disc_newest.index("Alice")
 
     md_oldest = export_thread_to_markdown(thread, msgs, interactive_links=False, newest_first=False)
     disc_oldest = md_oldest.split("## Chronological Discussion", 1)[1]
@@ -656,7 +657,7 @@ def test_per_message_read_unread_and_flag_sync(tmp_path):
     assert "outlook://flag/EID-M1" in md
     assert "outlook://unread/EID-M2" in md
     assert "outlook://unflag/EID-M2" in md
-    assert "🚩 **FLAGGED**" in md
+    assert "🚩 FLAGGED" in md
 
     with patch.object(OutlookClient, "get_namespace", return_value=FakeNamespace()):
         # Toggle individual read/unread and flag via service & anchor clicks
@@ -990,7 +991,8 @@ def test_html_table_injection_and_list_normalization():
     browser = QTextBrowser()
     browser.setMarkdown(md)
     rendered = browser.toHtml()
-    assert rendered.count("<table") == 2
+    # 1 Option A message header banner table + 2 injected email data tables
+    assert rendered.count("<table") == 3
     assert "<pre" not in rendered
 
     # Test table cells containing Safelinked <a href> hyperlinks (Outlook appends <https://safelink...> in Body)
@@ -2346,19 +2348,59 @@ def test_reader_formatting_cleanup_and_compact_inbox_header(tmp_path):
     )
     assert "## Discussion" not in md
     assert "(Nokia) (Nokia)" not in md
-    assert "2026-11-19 14:05`" in md
+    assert "2026-11-19 14:05" in md
+    # Option A header card highlighting & pure UI visual separation
+    assert "background-color:#EFF6FF;" in md
+    assert "background-color:#F1F5F9;" in md
+    assert "background-color:#2563EB;" in md
+    assert '<b style="color:#0F172A;">Lazaros Gkatzikis</b>' in md
+    assert '<span style="color:#475569;">(Nokia)</span>' in md
     # Same normalized subject is omitted; forked subject is preserved
     assert "5G/6G interworking" not in md
     assert "**Subject:** Re: [SA2#178] Forked Sub-Discussion Topic" in md
     # Minimalist actions & inline signature image filtering
-    assert "[↩️ Reply](outlook://reply/E1)" in md
-    assert "[📧 Outlook](outlook://msg/E1)" in md
+    assert '<a href="outlook://reply/E1"' in md and "Reply</a>" in md
+    assert '<a href="outlook://msg/E1"' in md and "Outlook</a>" in md
     assert "image001.png" not in md
     assert "image002.jpg" not in md
     assert "S2-2612805r01.docx" in md
     assert "(+1 inline)" in md
     # Trailing quote formatted as blockquote
     assert "\n> From: Miguel" in md
+
+    # Preserve heading-based unread scroll inside Option A banner + URL shortening & hover tooltip
+    from unittest.mock import patch
+    from PyQt5.QtWidgets import QTextBrowser
+    from modules.emails.core.thread_markdown_exporter import (
+        apply_email_reader_document_style,
+        find_unread_heading_blocks,
+        handle_reader_link_hover,
+        linkify_markdown_urls,
+        unwrap_outlook_safelinks,
+    )
+
+    dup_doc_url = "http://10.10.10.10/ftp/SA/SA2/Inbox/Drafts/FS_6G_ARC/KI%2317/S2-2612805_wasS2-2612594%20v3.docx"
+    collapsed = unwrap_outlook_safelinks(f"Draft: {dup_doc_url} {dup_doc_url}")
+    assert collapsed.count(dup_doc_url) == 1
+    shortened = linkify_markdown_urls(
+        f"Draft: {dup_doc_url} {dup_doc_url} and https://www.3gpp.org/ftp/Specs/archive/23_series/23.501/very/long/path/status-overview-page",
+        shorten_long_urls=True,
+    )
+    assert f"[📄 S2-2612805_wasS2-2612594 v3.docx]({dup_doc_url})" in shortened
+    assert shortened.count("S2-2612805_wasS2-2612594 v3.docx") == 1
+    assert "[🔗 www.3gpp.org/…/status-overview-page](" in shortened
+
+    reader = QTextBrowser()
+    apply_email_reader_document_style(reader)
+    reader.setMarkdown(md)
+    assert len(find_unread_heading_blocks(reader)) == 1
+    with patch("PyQt5.QtWidgets.QToolTip.showText") as mock_show, patch("PyQt5.QtWidgets.QToolTip.hideText") as mock_hide:
+        assert handle_reader_link_hover(reader, dup_doc_url) is True
+        mock_show.assert_called_once()
+        assert dup_doc_url[:50] in mock_show.call_args[0][1]
+        assert handle_reader_link_hover(reader, "outlook://reply/E1") is False
+        mock_hide.assert_called_once()
+        assert handle_reader_link_hover(reader, "") is False
 
     # Compact Inbox header & collapsible assign bar + 20S2- cleanup
     tdb = TrackedThreadsDatabase(tmp_path / "threads.db")
