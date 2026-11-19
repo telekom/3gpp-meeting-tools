@@ -6,7 +6,14 @@ from pathlib import Path
 from typing import List, Dict, Set
 from PyQt5.QtCore import QThread, pyqtSignal
 
-from modules.emails.core.outlook_client import OutlookClient
+from modules.emails.core.outlook_client import (
+    PR_FLAG_STATUS_PROP,
+    OutlookClient,
+    add_mapi_table_columns,
+    extract_item_read_flag,
+    extract_table_read_flag,
+    safe_mapi_row_val,
+)
 from modules.emails.core.general_email_db import GeneralEmailDatabase
 from modules.emails.core.thread_markdown_exporter import (
     inject_html_tables_into_body,
@@ -54,6 +61,101 @@ class GeneralEmailSyncThread(QThread):
         finally:
             pythoncom.CoUninitialize()
 
+    @staticmethod
+    def _to_naive_dt(raw_dt):
+        if raw_dt and hasattr(raw_dt, "year"):
+            try:
+                return datetime.datetime(
+                    raw_dt.year, raw_dt.month, raw_dt.day,
+                    getattr(raw_dt, "hour", 0), getattr(raw_dt, "minute", 0), getattr(raw_dt, "second", 0),
+                )
+            except Exception:
+                return None
+        return None
+
+    def _build_email_record(
+        self,
+        mail_item,
+        folder_tag: str,
+        entry_id: str = "",
+        require_tdoc: bool = True,
+        fallback_tdocs: List[str] = None,
+    ):
+        """Extracts email record + TDoc matches from an Outlook MailItem, short-circuiting before heavy COM reads."""
+        eid = entry_id or getattr(mail_item, "EntryID", "")
+        if not eid:
+            return None, []
+        subject = getattr(mail_item, "Subject", "") or ""
+        body = getattr(mail_item, "Body", "") or ""
+        matches = self._extract_tdocs(subject, body)
+        if not matches and fallback_tdocs:
+            matches = [
+                {"tdoc_id": str(t).upper(), "rev_matched": "", "location": "Thread"}
+                for t in fallback_tdocs
+                if str(t or "").strip()
+            ]
+        if require_tdoc and not matches:
+            return None, []
+
+        sender_name = getattr(mail_item, "SenderName", "") or ""
+        try:
+            sender_email = getattr(mail_item, "SenderEmailAddress", "") or ""
+        except Exception:
+            sender_email = ""
+        sender_name, sender_email = self._resolve_sender(mail_item, sender_name, sender_email, body)
+        company = self._resolve_company(sender_name, sender_email)
+
+        rich_body = body
+        try:
+            html_body = getattr(mail_item, "HTMLBody", "") or ""
+            if html_body and "<table" in html_body.lower():
+                rich_body = inject_html_tables_into_body(rich_body, html_body)
+        except Exception:
+            pass
+        rich_body = unwrap_outlook_safelinks(rich_body)
+        quote_split = self.QUOTE_SPLIT_REGEX.search(rich_body)
+        clean_body = (rich_body[: quote_split.start()].strip() if quote_split else rich_body.strip())
+
+        attachments: List[str] = []
+        try:
+            atts = getattr(mail_item, "Attachments", None)
+            if atts:
+                for ai in range(1, atts.Count + 1):
+                    fname = getattr(atts.Item(ai), "FileName", "") or ""
+                    if fname:
+                        attachments.append(fname)
+        except Exception:
+            pass
+
+        dt_raw = getattr(mail_item, "ReceivedTime", None) or getattr(mail_item, "SentOn", None) or ""
+        date_str = dt_raw.strftime("%Y-%m-%d %H:%M:%S") if hasattr(dt_raw, "strftime") else str(dt_raw)
+
+        email_record = {
+            "id": eid,
+            "folder_tag": folder_tag,
+            "subject": subject,
+            "sender_name": sender_name,
+            "sender_email": sender_email,
+            "company": company,
+            "date_received": date_str,
+            "body_text": rich_body[:12000],
+            "clean_body": clean_body[:12000],
+            "attachments": attachments,
+            "is_read": 1 if getattr(mail_item, "UnRead", False) is False else 0,
+            "is_ignored": 0,
+            "flag_status": 2 if int(getattr(mail_item, "FlagStatus", 0) or 0) == 2 else 0,
+        }
+        email_matches = [
+            {
+                "email_id": eid,
+                "tdoc_id": m["tdoc_id"],
+                "rev_matched": m["rev_matched"],
+                "match_location": m["location"],
+            }
+            for m in matches
+        ]
+        return email_record, email_matches
+
     def sync_folders(self, progress_cb=None, progress_val_cb=None, cancel_check=None) -> int:
         filter_start, filter_end = None, None
         if self.start_date and self.end_date:
@@ -63,6 +165,8 @@ class GeneralEmailSyncThread(QThread):
             filter_end = e_dt + datetime.timedelta(days=self.days_buffer + 1)
 
         total_synced = 0
+        total_flags_updated = 0
+        cached_states = self.db.get_cached_email_states()
         folder_configs = list(self.folder_configs or [])
         ns = OutlookClient.get_namespace()
         if ns:
@@ -89,122 +193,151 @@ class GeneralEmailSyncThread(QThread):
                 logging.warning(f"Could not open Outlook folder: {folder_path}")
                 continue
 
-            items = folder.Items
-            total_items = len(items)
-            items.Sort("[ReceivedTime]", True)
-
-            if progress_cb:
-                progress_cb(f"Scanning {total_items} items in [{folder_tag}]...")
-
             batch_emails = []
             batch_matches = []
+            flag_updates = []
 
-            for i in range(1, total_items + 1):
-                if cancel_check and cancel_check():
-                    break
-                if progress_val_cb and i % 15 == 0:
-                    progress_val_cb(i, total_items)
+            tbl = None
+            if hasattr(folder, "GetTable"):
+                try:
+                    tbl = folder.GetTable()
+                except Exception:
+                    tbl = None
 
-                mail_item = items.Item(i)
-                if mail_item.Class != 43:
-                    continue
+            if tbl is not None and ns is not None:
+                try:
+                    tbl.Sort("[ReceivedTime]", True)
+                except Exception:
+                    try:
+                        tbl.Sort("[SentOn]", True)
+                    except Exception:
+                        pass
+                add_mapi_table_columns(
+                    tbl,
+                    ("EntryID", "MessageClass", "ReceivedTime", "SentOn", "UnRead", "FlagStatus", PR_FLAG_STATUS_PROP),
+                )
+                row_count = getattr(tbl, "GetRowCount", lambda: 0)() or 0
+                if progress_cb:
+                    progress_cb(f"Scanning {row_count or 'recent'} items in [{folder_tag}]...")
 
-                # Date Boundary Filter
-                if filter_start and filter_end:
-                    mail_date = getattr(mail_item, "ReceivedTime", None) or getattr(mail_item, "SentOn", None)
-                    if mail_date:
-                        try:
-                            dt = datetime.datetime(mail_date.year, mail_date.month, mail_date.day,
-                                                   mail_date.hour, mail_date.minute, mail_date.second)
+                idx = 0
+                while not tbl.EndOfTable:
+                    if cancel_check and cancel_check():
+                        break
+                    idx += 1
+                    if progress_val_cb and row_count and idx % 20 == 0:
+                        progress_val_cb(idx, row_count)
+                    try:
+                        row = tbl.GetNextRow()
+                    except Exception:
+                        break
+                    msg_cls = str(safe_mapi_row_val(row, "MessageClass", default="") or "")
+                    if msg_cls and not msg_cls.startswith("IPM.Note"):
+                        continue
+
+                    if filter_start and filter_end:
+                        dt = self._to_naive_dt(safe_mapi_row_val(row, "ReceivedTime", "SentOn"))
+                        if dt:
                             if dt > filter_end:
                                 continue
                             if dt < filter_start:
                                 break
-                        except Exception:
-                            pass
 
-                entry_id = getattr(mail_item, "EntryID", "")
-                if not entry_id:
-                    continue
+                    entry_id = str(safe_mapi_row_val(row, "EntryID", default="") or "")
+                    if not entry_id:
+                        continue
 
-                subject = getattr(mail_item, "Subject", "")
-                body = getattr(mail_item, "Body", "")
-                sender_name = getattr(mail_item, "SenderName", "")
-                try:
-                    sender_email = getattr(mail_item, "SenderEmailAddress", "")
-                except Exception:
-                    sender_email = ""
+                    cached = cached_states.get(entry_id)
+                    if cached and cached.get("has_body"):
+                        state = extract_table_read_flag(row)
+                        if state is None:
+                            state = extract_item_read_flag(ns, entry_id)
+                        if state is not None and (state[0] != cached["is_read"] or state[1] != cached["flag_status"]):
+                            flag_updates.append((entry_id, state[0], state[1]))
+                            cached["is_read"], cached["flag_status"] = state
+                        continue
 
-                # Resolve sender and internal Exchange addresses
-                sender_name, sender_email = self._resolve_sender(mail_item, sender_name, sender_email, body)
-                company = self._resolve_company(sender_name, sender_email)
+                    try:
+                        mail_item = ns.GetItemFromID(entry_id)
+                    except Exception:
+                        continue
+                    if not mail_item or getattr(mail_item, "Class", 43) != 43:
+                        continue
+                    rec, rec_matches = self._build_email_record(mail_item, folder_tag, entry_id=entry_id, require_tdoc=True)
+                    if rec is None:
+                        continue
+                    cached_states[entry_id] = {
+                        "is_read": rec["is_read"],
+                        "flag_status": rec["flag_status"],
+                        "has_body": bool(rec["body_text"]),
+                    }
+                    batch_emails.append(rec)
+                    batch_matches.extend(rec_matches)
+                    total_synced += 1
+                    if len(batch_emails) >= 40:
+                        self.db.save_emails_batch(batch_emails, batch_matches, sync_unread=True)
+                        batch_emails.clear()
+                        batch_matches.clear()
+            else:
+                items = folder.Items
+                total_items = len(items)
+                items.Sort("[ReceivedTime]", True)
+                if progress_cb:
+                    progress_cb(f"Scanning {total_items} items in [{folder_tag}]...")
 
-                # Extract matches separating Direct Body from Quoted Reply content
-                matches = self._extract_tdocs(subject, body)
-                if not matches:
-                    continue
+                for i in range(1, total_items + 1):
+                    if cancel_check and cancel_check():
+                        break
+                    if progress_val_cb and i % 15 == 0:
+                        progress_val_cb(i, total_items)
 
-                rich_body = body
-                try:
-                    html_body = getattr(mail_item, "HTMLBody", "") or ""
-                    if html_body and "<table" in html_body.lower():
-                        rich_body = inject_html_tables_into_body(rich_body, html_body)
-                except Exception:
-                    pass
-                rich_body = unwrap_outlook_safelinks(rich_body)
-                quote_split = self.QUOTE_SPLIT_REGEX.search(rich_body)
-                clean_body = (rich_body[: quote_split.start()].strip() if quote_split else rich_body.strip())
+                    mail_item = items.Item(i)
+                    if getattr(mail_item, "Class", 43) != 43:
+                        continue
 
-                attachments: List[str] = []
-                try:
-                    atts = getattr(mail_item, "Attachments", None)
-                    if atts:
-                        for ai in range(1, atts.Count + 1):
-                            fname = getattr(atts.Item(ai), "FileName", "") or ""
-                            if fname:
-                                attachments.append(fname)
-                except Exception:
-                    pass
+                    if filter_start and filter_end:
+                        dt = self._to_naive_dt(getattr(mail_item, "ReceivedTime", None) or getattr(mail_item, "SentOn", None))
+                        if dt:
+                            if dt > filter_end:
+                                continue
+                            if dt < filter_start:
+                                break
 
-                dt_raw = getattr(mail_item, "ReceivedTime", None) or getattr(mail_item, "SentOn", None) or ""
-                date_str = dt_raw.strftime("%Y-%m-%d %H:%M:%S") if hasattr(dt_raw, "strftime") else str(dt_raw)
+                    entry_id = getattr(mail_item, "EntryID", "")
+                    if not entry_id:
+                        continue
 
-                email_record = {
-                    "id": entry_id,
-                    "folder_tag": folder_tag,
-                    "subject": subject,
-                    "sender_name": sender_name,
-                    "sender_email": sender_email,
-                    "company": company,
-                    "date_received": date_str,
-                    "body_text": rich_body[:12000],
-                    "clean_body": clean_body[:12000],
-                    "attachments": attachments,
-                    "is_read": 1 if getattr(mail_item, "UnRead", False) is False else 0,
-                    "is_ignored": 0,
-                    "flag_status": 2 if int(getattr(mail_item, "FlagStatus", 0) or 0) == 2 else 0,
-                }
-                batch_emails.append(email_record)
+                    cached = cached_states.get(entry_id)
+                    if cached and cached.get("has_body"):
+                        is_read = 1 if getattr(mail_item, "UnRead", False) is False else 0
+                        flag_status = 2 if int(getattr(mail_item, "FlagStatus", 0) or 0) == 2 else 0
+                        if is_read != cached["is_read"] or flag_status != cached["flag_status"]:
+                            flag_updates.append((entry_id, is_read, flag_status))
+                            cached["is_read"], cached["flag_status"] = is_read, flag_status
+                        continue
 
-                for m in matches:
-                    batch_matches.append({
-                        "email_id": entry_id,
-                        "tdoc_id": m["tdoc_id"],
-                        "rev_matched": m["rev_matched"],
-                        "match_location": m["location"]
-                    })
-
-                total_synced += 1
-
-                if len(batch_emails) >= 40:
-                    self.db.save_emails_batch(batch_emails, batch_matches, sync_unread=True)
-                    batch_emails.clear()
-                    batch_matches.clear()
+                    rec, rec_matches = self._build_email_record(mail_item, folder_tag, entry_id=entry_id, require_tdoc=True)
+                    if rec is None:
+                        continue
+                    cached_states[entry_id] = {
+                        "is_read": rec["is_read"],
+                        "flag_status": rec["flag_status"],
+                        "has_body": bool(rec["body_text"]),
+                    }
+                    batch_emails.append(rec)
+                    batch_matches.extend(rec_matches)
+                    total_synced += 1
+                    if len(batch_emails) >= 40:
+                        self.db.save_emails_batch(batch_emails, batch_matches, sync_unread=True)
+                        batch_emails.clear()
+                        batch_matches.clear()
 
             if batch_emails:
                 self.db.save_emails_batch(batch_emails, batch_matches, sync_unread=True)
+            if flag_updates:
+                total_flags_updated += self.db.update_email_flags_batch(flag_updates)
 
-        return total_synced
+        return total_synced + total_flags_updated
 
     def _extract_tdocs(self, subject: str, body: str) -> List[dict]:
         results = {}

@@ -188,6 +188,53 @@ class TrackedThreadsDatabase:
             conn.commit()
             return thread_id
 
+    def get_existing_message_states(self, thread_id: str = "") -> Dict[str, Dict[str, Any]]:
+        """Returns {msg_id: {'is_read': int, 'flag_status': int, 'has_body': bool}} for cached messages."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            if thread_id:
+                cursor.execute(
+                    "SELECT id, is_read, COALESCE(flag_status, 0), body_text FROM tracked_thread_messages WHERE thread_id = ?",
+                    (thread_id,),
+                )
+            else:
+                cursor.execute(
+                    "SELECT id, is_read, COALESCE(flag_status, 0), body_text FROM tracked_thread_messages"
+                )
+            return {
+                row[0]: {
+                    "is_read": int(row[1] or 0),
+                    "flag_status": 2 if int(row[2] or 0) == 2 else 0,
+                    "has_body": bool(str(row[3] or "").strip()),
+                }
+                for row in cursor.fetchall()
+            }
+
+    def update_message_flags_batch(self, thread_id: str, states: List[tuple]) -> int:
+        """Applies light read/flag status updates [(msg_id, is_read, flag_status)] for existing Outlook items."""
+        if not states:
+            return 0
+        updated = 0
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            for msg_id, is_read, flag_status in states:
+                if not msg_id or str(msg_id).startswith("MSG-"):
+                    continue
+                ir = 1 if int(is_read or 0) else 0
+                fs = 2 if int(flag_status or 0) == 2 else 0
+                cursor.execute(
+                    """
+                    UPDATE tracked_thread_messages
+                    SET is_read = ?, flag_status = ?
+                    WHERE id = ? AND thread_id = ? AND (is_read != ? OR COALESCE(flag_status, 0) != ?)
+                    """,
+                    (ir, fs, msg_id, thread_id, ir, fs),
+                )
+                updated += cursor.rowcount
+            self._recompute_thread_stats(cursor, thread_id)
+            conn.commit()
+        return updated
+
     def upsert_messages(self, thread_id: str, messages: List[Dict[str, Any]], sync_unread: bool = False) -> int:
         """Inserts/updates messages for a thread. When sync_unread=True, mirrors Outlook read/unread states too."""
         if not messages:

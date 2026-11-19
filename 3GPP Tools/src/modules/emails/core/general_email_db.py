@@ -73,6 +73,46 @@ class GeneralEmailDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_gen_flagged ON general_emails(flag_status)")
             conn.commit()
 
+    def get_cached_email_states(self) -> Dict[str, Dict[str, Any]]:
+        """Returns {email_id: {'is_read': int, 'flag_status': int, 'has_body': bool}} for cached emails."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, is_read, COALESCE(flag_status, 0), body_text FROM general_emails"
+            )
+            return {
+                row[0]: {
+                    "is_read": int(row[1] or 0),
+                    "flag_status": 2 if int(row[2] or 0) == 2 else 0,
+                    "has_body": bool(str(row[3] or "").strip()),
+                }
+                for row in cursor.fetchall()
+            }
+
+    def update_email_flags_batch(self, states: List[tuple]) -> int:
+        """Applies lightweight read/flag status updates [(email_id, is_read, flag_status)] for cached emails."""
+        if not states:
+            return 0
+        updated = 0
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            for eid, is_read, flag_status in states:
+                if not eid or str(eid).startswith("MSG-"):
+                    continue
+                ir = 1 if int(is_read or 0) else 0
+                fs = 2 if int(flag_status or 0) == 2 else 0
+                cursor.execute(
+                    """
+                    UPDATE general_emails
+                    SET is_read = ?, flag_status = ?
+                    WHERE id = ? AND (is_read != ? OR COALESCE(flag_status, 0) != ?)
+                    """,
+                    (ir, fs, eid, ir, fs),
+                )
+                updated += cursor.rowcount
+            conn.commit()
+        return updated
+
     def save_emails_batch(self, emails_data: List[dict], matches_data: List[dict], sync_unread: bool = False):
         if not emails_data:
             return

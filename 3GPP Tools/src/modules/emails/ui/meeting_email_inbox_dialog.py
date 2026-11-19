@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -26,12 +27,14 @@ from PyQt5.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTextBrowser,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from core.ui.flow_layout import FlowLayout
 from core.ui.font_scale import bind_reader_zoom_settings, create_help_tips_pill, install_reader_zoom, scale_px, zoom_text_widget
+from core.ui.theme import C
 from core.ui.toast import notify_info, notify_success, notify_toast
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.emails.core.outlook_client import OutlookClient
@@ -373,11 +376,21 @@ class MeetingEmailInboxDialog(QDialog):
         self.refresh_btn.clicked.connect(self.reload_from_dbs)
         top_row.addWidget(self.refresh_btn)
 
-        self.sync_outlook_btn = QPushButton("📡 Sync Outlook")
+        self.sync_outlook_btn = QToolButton()
+        self.sync_outlook_btn.setText("📡 Sync Outlook")
+        self.sync_outlook_btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.sync_outlook_btn.setPopupMode(QToolButton.MenuButtonPopup)
         self.sync_outlook_btn.setToolTip(
             "Pull new Tracked Thread replies, TDoc emails, and Outlook read/flag updates asynchronously."
         )
+        self._sync_menu = QMenu(self.sync_outlook_btn)
+        self._act_sync_filtered = self._sync_menu.addAction("⚡ Sync Filtered Only")
+        self._act_sync_filtered.triggered.connect(lambda: self._start_outlook_sync(scoped=True))
+        self._act_sync_full = self._sync_menu.addAction("📡 Full Sync (All Threads && Folders)")
+        self._act_sync_full.triggered.connect(lambda: self._start_outlook_sync(scoped=False))
+        self.sync_outlook_btn.setMenu(self._sync_menu)
         self.sync_outlook_btn.clicked.connect(self._on_sync_outlook_clicked)
+        self._default_sync_scoped = False
         top_row.addWidget(self.sync_outlook_btn)
 
         self.btn_layout_toggle = QPushButton("⬒ List on Top")
@@ -1148,6 +1161,11 @@ class MeetingEmailInboxDialog(QDialog):
 
         noun = "thread(s)" if self._view_mode == "THREADS" else "indexed email(s)"
         self.status_lbl.setText(f"Showing {len(visible)} of {len(dataset)} {noun}")
+        self._update_sync_button_state(
+            total_count=len(dataset),
+            visible_count=len(visible),
+            has_narrow_filter=bool(filter_comp or filter_ai or q or source_filter or mode == "FLAGGED"),
+        )
         self._on_selection_changed()
 
     def _on_selection_changed(self):
@@ -1911,7 +1929,71 @@ class MeetingEmailInboxDialog(QDialog):
                 )
             QDesktopServices.openUrl(url)
 
+    def _update_sync_button_state(self, total_count: int = 0, visible_count: int = 0, has_narrow_filter: bool = False):
+        if not hasattr(self, "sync_outlook_btn"):
+            return
+        can_scope = (0 < visible_count < total_count)
+        self._default_sync_scoped = bool(can_scope and has_narrow_filter)
+        self._act_sync_filtered.setEnabled(visible_count > 0)
+        self._act_sync_filtered.setText(f"⚡ Sync Filtered Only ({visible_count})")
+        if self._default_sync_scoped:
+            self.sync_outlook_btn.setStyleSheet(
+                f"QToolButton {{ background-color: {C.INFO_SOFT}; color: {C.INFO}; "
+                f"border: 1px solid {C.INFO_BORDER}; border-radius: 5px; padding: 4px 20px 4px 9px; font-weight: bold; }} "
+                f"QToolButton:hover {{ background-color: {C.ACCENT_SOFT_HOVER}; }} "
+                f"QToolButton:disabled {{ background-color: {C.BG_MUTED}; color: {C.TEXT_FAINT}; border: 1px solid {C.BORDER_STRONG}; }} "
+                f"QToolButton::menu-button {{ border-left: 1px solid {C.INFO_BORDER}; width: 18px; }}"
+            )
+        else:
+            self.sync_outlook_btn.setStyleSheet(
+                f"QToolButton {{ background-color: {C.BG_CARD}; color: {C.TEXT_BODY}; "
+                f"border: 1px solid {C.BORDER_STRONG}; border-radius: 5px; padding: 4px 20px 4px 9px; }} "
+                f"QToolButton:hover {{ background-color: {C.BG_HOVER}; }} "
+                f"QToolButton:disabled {{ background-color: {C.BG_MUTED}; color: {C.TEXT_FAINT}; border: 1px solid {C.BORDER_STRONG}; }} "
+                f"QToolButton::menu-button {{ border-left: 1px solid {C.BORDER_SUBTLE}; width: 18px; }}"
+            )
+        if not (getattr(self, "_sync_worker", None) and self._sync_worker.isRunning()):
+            if self._default_sync_scoped:
+                self.sync_outlook_btn.setText(f"⚡ Sync Filtered ({visible_count})")
+                self.sync_outlook_btn.setToolTip(
+                    f"Fast sync ONLY the {visible_count} filtered conversation(s) with Outlook (skips full folder scan). "
+                    "Use dropdown ▾ for Full Sync."
+                )
+            else:
+                self.sync_outlook_btn.setText("📡 Sync Outlook")
+                self.sync_outlook_btn.setToolTip(
+                    "Pull new Tracked Thread replies, TDoc emails, and Outlook read/flag updates asynchronously. "
+                    "Use dropdown ▾ to sync only currently visible items."
+                )
+
+    def _collect_scoped_sync_targets(self) -> tuple:
+        tracked_ids: List[str] = []
+        seen_t = set()
+        unpinned_ids: List[str] = []
+        seen_u = set()
+        for it in (self._visible_items or []):
+            tid = str(it.get("thread_id") or "").strip()
+            if it.get("in_tracked_db") and tid:
+                if tid not in seen_t:
+                    seen_t.add(tid)
+                    tracked_ids.append(tid)
+            elif it.get("_is_group") and it.get("_group_messages"):
+                for gm in it["_group_messages"]:
+                    gid = str(gm.get("id") or "").strip()
+                    if gid and gid not in seen_u:
+                        seen_u.add(gid)
+                        unpinned_ids.append(gid)
+            else:
+                eid = str(it.get("id") or "").strip()
+                if eid and eid not in seen_u:
+                    seen_u.add(eid)
+                    unpinned_ids.append(eid)
+        return tracked_ids, unpinned_ids
+
     def _on_sync_outlook_clicked(self):
+        self._start_outlook_sync(scoped=bool(getattr(self, "_default_sync_scoped", False)))
+
+    def _start_outlook_sync(self, scoped: bool = False):
         if getattr(self, "_sync_worker", None) and self._sync_worker.isRunning():
             return
         tdb_path = getattr(self.tracked_db, "db_path", None) if self.tracked_db is not None else None
@@ -1921,6 +2003,14 @@ class MeetingEmailInboxDialog(QDialog):
             return
 
         from modules.emails.core.tracked_threads_workers import InboxOutlookSyncWorker
+
+        scoped_tids = None
+        scoped_eids = None
+        if scoped:
+            scoped_tids, scoped_eids = self._collect_scoped_sync_targets()
+            if not scoped_tids and not scoped_eids:
+                notify_info(self, "Nothing in Filter", "No conversations in the current filter to sync.")
+                return
 
         self.sync_outlook_btn.setEnabled(False)
         self.sync_outlook_btn.setText("⏳ Syncing...")
@@ -1932,6 +2022,8 @@ class MeetingEmailInboxDialog(QDialog):
             start_date=self._meeting_start,
             end_date=self._meeting_end,
             parent=self,
+            scoped_thread_ids=scoped_tids,
+            scoped_email_ids=scoped_eids,
         )
         worker.progress_text.connect(lambda msg: self.status_lbl.setText(f"⏳ {msg}"))
         worker.finished_sync.connect(self._on_inbox_sync_finished)
@@ -1940,7 +2032,7 @@ class MeetingEmailInboxDialog(QDialog):
 
     def _on_inbox_sync_finished(self, ok: bool, new_thread_msgs: int, general_synced: int, err_msg: str):
         self.sync_outlook_btn.setEnabled(True)
-        self.sync_outlook_btn.setText("📡 Sync Outlook")
+        self._sync_worker = None
         self.reload_from_dbs()
         self.data_changed.emit()
         if not ok:

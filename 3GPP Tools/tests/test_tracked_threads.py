@@ -2425,3 +2425,298 @@ def test_reader_formatting_cleanup_and_compact_inbox_header(tmp_path):
     dlg.btn_toggle_assign_bar.click()
     assert not dlg.assign_frame.isHidden()
     dlg.close()
+
+
+def test_batch_folder_sync_fast_skip_and_filter_scoped_sync(tmp_path):
+    from unittest.mock import patch
+    from PyQt5.QtCore import QSettings
+    from PyQt5.QtWidgets import QApplication
+    from modules.emails.core.general_email_db import GeneralEmailDatabase
+    from modules.emails.core.general_email_sync import GeneralEmailSyncThread
+    from modules.emails.core.outlook_client import OutlookClient, PR_FLAG_STATUS_PROP
+    from modules.emails.core.tracked_threads_service import refresh_meeting_threads, sync_scoped_inbox_items
+    from modules.emails.core.tracked_threads_workers import InboxOutlookSyncWorker
+    from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
+
+    app = QApplication.instance() or QApplication([])
+    tdb = TrackedThreadsDatabase(tmp_path / "threads.db")
+    gdb = GeneralEmailDatabase(tmp_path / "gen.db")
+
+    t1 = tdb.create_or_get_thread(
+        "Topic Alpha",
+        "topic alpha",
+        conversation_id="CID-ALPHA",
+        outlook_folders=["\\\\me@example.com\\Inbox\\SA2"],
+        meeting_id="SA2#178",
+        wg="SA2",
+        linked_ais=["20.6.17"],
+    )
+    tdb.upsert_messages(
+        t1,
+        [
+            {
+                "id": "EID-T1-OLD",
+                "subject": "Topic Alpha",
+                "sender_name": "Alice",
+                "sender_email": "alice@example.com",
+                "date_sent": "2026-11-19 10:00:00",
+                "body_text": "Cached initial message",
+                "clean_body": "Cached initial message",
+                "conversation_id": "CID-ALPHA",
+                "is_read": 0,
+                "flag_status": 0,
+            }
+        ],
+    )
+    t2 = tdb.create_or_get_thread(
+        "Topic Beta",
+        "topic beta",
+        conversation_id="CID-BETA",
+        outlook_folders=["\\\\me@example.com\\Inbox\\SA2"],
+        meeting_id="SA2#178",
+        wg="SA2",
+        linked_ais=["20.6.21"],
+    )
+
+    gdb.save_emails_batch(
+        [
+            {
+                "id": "G-OLD",
+                "folder_tag": "SA2",
+                "subject": "[SA2#178] S2-2612800 Cached",
+                "sender_name": "Bob",
+                "sender_email": "bob@example.com",
+                "company": "Nokia",
+                "date_received": "2026-11-19 09:00:00",
+                "body_text": "Cached S2-2612800 body",
+                "clean_body": "Cached S2-2612800 body",
+                "is_read": 0,
+                "flag_status": 0,
+            }
+        ],
+        [{"email_id": "G-OLD", "tdoc_id": "S2-2612800", "match_location": "Subject"}],
+    )
+
+    class _Row:
+        def __init__(self, d):
+            self._d = d
+
+        def __call__(self, k):
+            if k not in self._d:
+                raise KeyError(k)
+            return self._d[k]
+
+    class _Tbl:
+        def __init__(self, rows):
+            self._rows = list(rows)
+            self._idx = 0
+            self.Columns = type("Cols", (), {"Add": lambda _s, _c: None})()
+
+        @property
+        def EndOfTable(self):
+            return self._idx >= len(self._rows)
+
+        def Sort(self, *_a):
+            pass
+
+        def GetRowCount(self):
+            return len(self._rows)
+
+        def GetNextRow(self):
+            r = self._rows[self._idx]
+            self._idx += 1
+            return _Row(r)
+
+    class _Dt:
+        def __init__(self, y, m, d, h, mi, s):
+            self.year, self.month, self.day, self.hour, self.minute, self.second = y, m, d, h, mi, s
+
+        def strftime(self, fmt):
+            import datetime
+            return datetime.datetime(self.year, self.month, self.day, self.hour, self.minute, self.second).strftime(fmt)
+
+    class _Item:
+        Class = 43
+
+        def __init__(self, eid, subj, sender, cid, body, unread=False, flag=0, conv_rows=None):
+            self.EntryID = eid
+            self.Subject = subj
+            self.SenderName = sender
+            self.SenderEmailAddress = f"{sender.lower()}@example.com"
+            self.ConversationID = cid
+            self.Body = body
+            self.HTMLBody = ""
+            self.UnRead = unread
+            self.FlagStatus = flag
+            self.ReceivedTime = _Dt(2026, 11, 19, 12, 0, 0)
+            self._conv_rows = conv_rows or []
+
+        def GetConversation(self):
+            rows = self._conv_rows
+            return type("Conv", (), {"GetTable": lambda _s: _Tbl(rows)})()
+
+    item_calls = []
+    conv_items_map = {
+        "EID-T1-OLD": _Item(
+            "EID-T1-OLD", "Topic Alpha", "Alice", "CID-ALPHA", "Cached initial message",
+            unread=False, flag=2,
+            conv_rows=[
+                {"EntryID": "EID-T1-OLD", "MessageClass": "IPM.Note", "UnRead": False, PR_FLAG_STATUS_PROP: 2},
+                {"EntryID": "EID-T1-REPLY", "MessageClass": "IPM.Note", "UnRead": True, PR_FLAG_STATUS_PROP: 0},
+            ],
+        ),
+        "EID-T1-REPLY": _Item("EID-T1-REPLY", "Re: Topic Alpha", "Carol", "CID-ALPHA", "New Alpha reply", unread=True, flag=0),
+        "EID-T2-NEW": _Item("EID-T2-NEW", "Topic Beta", "Dave", "CID-BETA", "First Beta body", unread=True, flag=0),
+        "G-NEW": _Item("G-NEW", "[SA2#178] S2-2612805 Fresh", "Eve", "CID-GNEW", "Fresh S2-2612805 details", unread=True, flag=0),
+        "G-OLD": _Item(
+            "G-OLD", "[SA2#178] S2-2612800 Cached", "Bob", "CID-GOLD", "Cached S2-2612800 body",
+            unread=False, flag=2,
+            conv_rows=[
+                {"EntryID": "G-OLD", "MessageClass": "IPM.Note", "UnRead": False, PR_FLAG_STATUS_PROP: 2},
+                {"EntryID": "G-CONV-REPLY", "MessageClass": "IPM.Note", "UnRead": True, PR_FLAG_STATUS_PROP: 0},
+            ],
+        ),
+        "G-CONV-REPLY": _Item("G-CONV-REPLY", "Re: [SA2#178] S2-2612800 Cached", "Alice", "CID-GOLD", "Agreed on update", unread=True, flag=0),
+    }
+
+    folder_open_count = 0
+
+    def fake_get_folder(path):
+        nonlocal folder_open_count
+        folder_open_count += 1
+        return type(
+            "Folder",
+            (),
+            {
+                "FolderPath": path,
+                "GetTable": lambda _s: _Tbl(
+                    [
+                        {
+                            "EntryID": "EID-T1-OLD",
+                            "Subject": "Topic Alpha",
+                            "MessageClass": "IPM.Note",
+                            "ConversationID": "CID-ALPHA",
+                            "UnRead": False,
+                            PR_FLAG_STATUS_PROP: 2,
+                            "ReceivedTime": _Dt(2026, 11, 19, 10, 0, 0),
+                        },
+                        {
+                            "EntryID": "EID-T2-NEW",
+                            "Subject": "Topic Beta",
+                            "MessageClass": "IPM.Note",
+                            "ConversationID": "CID-BETA",
+                            "UnRead": True,
+                            PR_FLAG_STATUS_PROP: 0,
+                            "ReceivedTime": _Dt(2026, 11, 19, 12, 0, 0),
+                        },
+                        {
+                            "EntryID": "G-OLD",
+                            "Subject": "[SA2#178] S2-2612800 Cached",
+                            "MessageClass": "IPM.Note",
+                            "ConversationID": "CID-GOLD",
+                            "UnRead": False,
+                            PR_FLAG_STATUS_PROP: 2,
+                            "ReceivedTime": _Dt(2026, 11, 19, 11, 0, 0),
+                        },
+                        {
+                            "EntryID": "G-NEW",
+                            "Subject": "[SA2#178] S2-2612805 Fresh",
+                            "MessageClass": "IPM.Note",
+                            "ConversationID": "CID-GNEW",
+                            "UnRead": True,
+                            PR_FLAG_STATUS_PROP: 0,
+                            "ReceivedTime": _Dt(2026, 11, 19, 12, 0, 0),
+                        },
+                    ]
+                ),
+            },
+        )()
+
+    class FakeNS:
+        def GetDefaultFolder(self, idx):
+            return type("F", (), {"FolderPath": ""})()
+
+        def GetItemFromID(self, eid):
+            item_calls.append(eid)
+            return conv_items_map[eid]
+
+    with patch.object(OutlookClient, "get_namespace", return_value=FakeNS()), \
+         patch.object(OutlookClient, "get_folder_by_path", side_effect=fake_get_folder):
+        # 1. Batch single-pass refresh scans the shared SA2 folder ONCE for both t1 & t2
+        #    and skips EID-T1-OLD body re-parse while updating its read/flag state (with conv expansion 1x)
+        folder_open_count = 0
+        item_calls.clear()
+        upd = refresh_meeting_threads(tdb, "SA2#178")
+        assert folder_open_count == 1
+        assert upd.get(t2) == 1
+        assert upd.get(t1) == 1  # EID-T1-REPLY added via GetConversation once
+        t1_msgs = {m["id"]: m for m in tdb.get_thread_messages(t1)}
+        assert t1_msgs["EID-T1-OLD"]["is_read"] == 1
+        assert t1_msgs["EID-T1-OLD"]["flag_status"] == 2
+        assert "EID-T1-REPLY" in t1_msgs
+
+        # Second pass when conv_ids/messages already cached makes ZERO GetItemFromID calls on EID-T1-OLD or EID-T2-NEW
+        # once UnRead & FlagStatus come from GetTable() rows!
+        # (flip flag on EID-T2-NEW via table row only; no GetItemFromID call needed when table already has UnRead!)
+        # 2. GeneralEmailSyncThread uses GetTable() & skips GetItemFromID for already-cached G-OLD!
+        item_calls.clear()
+        syncer = GeneralEmailSyncThread(
+            [{"folder_path": "\\\\me@example.com\\Inbox\\SA2", "tag": "SA2"}],
+            gdb.db_path,
+            start_date="2026-11-18",
+            end_date="2026-11-19",
+        )
+        g_synced = syncer.sync_folders()
+        assert g_synced >= 2  # G-NEW + G-OLD flag/read update
+        assert "G-OLD" not in item_calls
+        assert "G-NEW" in item_calls
+        g_by_id = {e["id"]: e for e in gdb.get_all_emails_with_tdocs()}
+        assert g_by_id["G-OLD"]["is_read"] == 1
+        assert g_by_id["G-OLD"]["flag_status"] == 2
+        assert "G-NEW" in g_by_id
+
+    # 3. Scoped sync + adaptive Sync button in MeetingEmailInboxDialog (ZERO folder scans!)
+    dlg = MeetingEmailInboxDialog(
+        tdb,
+        gdb,
+        meeting_id="SA2#178",
+        settings=QSettings(str(tmp_path / "scoped.ini"), QSettings.IniFormat),
+    )
+    dlg.pill_all.click()
+    assert not dlg._default_sync_scoped
+    assert dlg.sync_outlook_btn.text() == "📡 Sync Outlook"
+
+    dlg.search_edit.setText("2612800")
+    dlg._apply_filters()
+    assert dlg._default_sync_scoped
+    assert dlg.sync_outlook_btn.text() == "⚡ Sync Filtered (1)"
+    sc_tids, sc_eids = dlg._collect_scoped_sync_targets()
+    assert sc_tids == [] and "G-OLD" in sc_eids
+
+    # Clear G-CONV-REPLY from DB to verify scoped sync pulls it via GetConversation WITHOUT folder scan
+    with gdb._get_connection() as conn:
+        conn.execute("DELETE FROM general_email_tdoc_matches WHERE email_id = 'G-CONV-REPLY'")
+        conn.execute("DELETE FROM general_emails WHERE id = 'G-CONV-REPLY'")
+        conn.commit()
+
+    folder_open_count = 0
+    with patch.object(OutlookClient, "get_namespace", return_value=FakeNS()), \
+         patch.object(OutlookClient, "get_folder_by_path", side_effect=fake_get_folder):
+        w = InboxOutlookSyncWorker(
+            tdb.db_path,
+            gdb.db_path,
+            meeting_id="SA2#178",
+            wg="SA2",
+            scoped_thread_ids=[],
+            scoped_email_ids=["G-OLD"],
+        )
+        done = []
+        w.finished_sync.connect(lambda ok, nt, ng, err: done.append((ok, nt, ng, err)))
+        w.run()
+        assert folder_open_count == 0
+        assert done and done[0][0] is True and done[0][2] >= 1
+        g_after = {e["id"]: e for e in gdb.get_all_emails_with_tdocs()}
+        assert "G-CONV-REPLY" in g_after
+        assert "S2-2612800" in g_after["G-CONV-REPLY"]["matched_tdocs"]
+
+    dlg.close()

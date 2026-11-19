@@ -19,7 +19,10 @@ from modules.emails.core.tracked_threads_service import (
     refresh_meeting_threads,
     refresh_thread,
     reload_all_thread_messages_from_outlook,
+    sync_scoped_inbox_items,
 )
+
+_ORIG_REFRESH_THREAD = refresh_thread
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +78,21 @@ class TrackedThreadsRefreshWorker(_BaseComWorker):
 
             if total == 0:
                 self.finished_sync.emit(True, {}, "")
+                return
+
+            if refresh_thread is _ORIG_REFRESH_THREAD:
+                updates = refresh_meeting_threads(
+                    db,
+                    self.meeting_id,
+                    progress_cb=lambda idx, tot, cur, rem: self.progress.emit(idx, tot, cur, rem),
+                    cancel_check=self.is_cancelled,
+                )
+                if self.is_cancelled():
+                    self.finished_sync.emit(False, updates, "Sync cancelled by user.")
+                    return
+                for tid, new_count in (updates or {}).items():
+                    self.thread_updated.emit(tid, new_count)
+                self.finished_sync.emit(True, updates, "")
                 return
 
             for idx, thread in enumerate(threads):
@@ -186,6 +204,9 @@ class InboxOutlookSyncWorker(_BaseComWorker):
         start_date: str = "",
         end_date: str = "",
         parent=None,
+        *,
+        scoped_thread_ids: Optional[List[str]] = None,
+        scoped_email_ids: Optional[List[str]] = None,
     ):
         super().__init__(parent)
         self.tracked_db_path = Path(tracked_db_path) if tracked_db_path else None
@@ -194,6 +215,8 @@ class InboxOutlookSyncWorker(_BaseComWorker):
         self.wg = str(wg or "SA2").strip().upper()
         self.start_date = str(start_date or "").strip()
         self.end_date = str(end_date or "").strip()
+        self.scoped_thread_ids = list(scoped_thread_ids) if scoped_thread_ids is not None else None
+        self.scoped_email_ids = list(scoped_email_ids) if scoped_email_ids is not None else None
 
     @staticmethod
     def _resolve_incremental_window(
@@ -222,36 +245,49 @@ class InboxOutlookSyncWorker(_BaseComWorker):
             new_thread_msgs = 0
             general_synced = 0
 
-            if self.tracked_db_path and self.meeting_id and not self.is_cancelled():
-                self.progress_text.emit("Syncing pinned tracked threads...")
-                tdb = TrackedThreadsDatabase(self.tracked_db_path)
-                updates = refresh_meeting_threads(
+            if self.scoped_thread_ids is not None or self.scoped_email_ids is not None:
+                tdb = TrackedThreadsDatabase(self.tracked_db_path) if self.tracked_db_path else None
+                gdb = GeneralEmailDatabase(self.general_db_path) if self.general_db_path else None
+                self.progress_text.emit("Syncing filtered conversations...")
+                new_thread_msgs, general_synced = sync_scoped_inbox_items(
                     tdb,
-                    self.meeting_id,
-                    progress_cb=lambda idx, tot, cur, _rem: self.progress_text.emit(
-                        f"Threads ({idx + 1}/{tot}): {cur[:28]}"
-                    ),
+                    gdb,
+                    tracked_thread_ids=self.scoped_thread_ids,
+                    unpinned_email_ids=self.scoped_email_ids,
+                    progress_cb=lambda msg: self.progress_text.emit(msg),
                     cancel_check=self.is_cancelled,
                 )
-                new_thread_msgs = sum((updates or {}).values())
+            else:
+                if self.tracked_db_path and self.meeting_id and not self.is_cancelled():
+                    self.progress_text.emit("Syncing pinned tracked threads...")
+                    tdb = TrackedThreadsDatabase(self.tracked_db_path)
+                    updates = refresh_meeting_threads(
+                        tdb,
+                        self.meeting_id,
+                        progress_cb=lambda idx, tot, cur, _rem: self.progress_text.emit(
+                            f"Folder ({idx + 1}/{tot}): {cur[:28]}"
+                        ),
+                        cancel_check=self.is_cancelled,
+                    )
+                    new_thread_msgs = sum((updates or {}).values())
 
-            if self.general_db_path and not self.is_cancelled():
-                folders = load_wg_email_config(self.wg) if self.wg else []
-                s_date, e_date = self._resolve_incremental_window(
-                    self.general_db_path, self.start_date, self.end_date
-                )
-                self.progress_text.emit("Scanning Outlook folders for TDoc emails...")
-                syncer = GeneralEmailSyncThread(
-                    folders,
-                    self.general_db_path,
-                    start_date=s_date,
-                    end_date=e_date,
-                    days_buffer=2,
-                )
-                general_synced = syncer.sync_folders(
-                    progress_cb=lambda m: self.progress_text.emit(m),
-                    cancel_check=self.is_cancelled,
-                )
+                if self.general_db_path and not self.is_cancelled():
+                    folders = load_wg_email_config(self.wg) if self.wg else []
+                    s_date, e_date = self._resolve_incremental_window(
+                        self.general_db_path, self.start_date, self.end_date
+                    )
+                    self.progress_text.emit("Scanning Outlook folders for TDoc emails...")
+                    syncer = GeneralEmailSyncThread(
+                        folders,
+                        self.general_db_path,
+                        start_date=s_date,
+                        end_date=e_date,
+                        days_buffer=2,
+                    )
+                    general_synced = syncer.sync_folders(
+                        progress_cb=lambda m: self.progress_text.emit(m),
+                        cancel_check=self.is_cancelled,
+                    )
 
             if self.is_cancelled():
                 self.finished_sync.emit(False, new_thread_msgs, general_synced, "Outlook sync cancelled.")

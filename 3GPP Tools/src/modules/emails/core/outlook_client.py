@@ -233,3 +233,65 @@ class OutlookClient:
         Returns the number of Outlook items whose FlagStatus was updated.
         """
         return OutlookClient._update_messages_property(entry_ids, "FlagStatus", 2 if is_flagged else 0, int)
+
+
+PR_FLAG_STATUS_PROP = "http://schemas.microsoft.com/mapi/proptag/0x10900003"
+
+
+def safe_mapi_row_val(row, *keys: str, default=None):
+    """Safely fetches the first available non-None column from an Outlook Table row."""
+    for key in keys:
+        try:
+            val = row(key)
+            if val is not None:
+                return val
+        except Exception:
+            continue
+    return default
+
+
+def add_mapi_table_columns(tbl, col_names: Sequence[str]) -> None:
+    """Safely adds requested MAPI properties/columns to an Outlook Table without aborting on unsupported keys."""
+    cols = getattr(tbl, "Columns", None)
+    if cols is None:
+        return
+    for col_name in col_names:
+        try:
+            cols.Add(col_name)
+        except Exception:
+            pass
+
+
+def extract_table_read_flag(row) -> Optional[Tuple[int, int]]:
+    """Extracts (is_read, flag_status) directly from an Outlook Table row when UnRead is exposed."""
+    unread_val = safe_mapi_row_val(row, "UnRead")
+    if unread_val is None:
+        return None
+    flag_val = safe_mapi_row_val(row, PR_FLAG_STATUS_PROP, "FlagStatus", default=0)
+    try:
+        flag_status = 2 if int(flag_val or 0) == 2 else 0
+    except Exception:
+        flag_status = 0
+    try:
+        is_read = 1 if (unread_val is False or int(unread_val or 0) == 0) else 0
+    except Exception:
+        is_read = 1 if not bool(unread_val) else 0
+    return is_read, flag_status
+
+
+def extract_item_read_flag(ns, entry_id: str) -> Optional[Tuple[int, int]]:
+    """Lightweight Outlook GetItemFromID state read (UnRead + FlagStatus only; never touches Body/HTMLBody)."""
+    if not ns or not entry_id:
+        return None
+    try:
+        item = ns.GetItemFromID(entry_id)
+        if item is None:
+            return None
+        is_read = 1 if getattr(item, "UnRead", False) is False else 0
+        try:
+            flag_status = 2 if int(getattr(item, "FlagStatus", 0) or 0) == 2 else 0
+        except Exception:
+            flag_status = 0
+        return is_read, flag_status
+    except Exception:
+        return None
