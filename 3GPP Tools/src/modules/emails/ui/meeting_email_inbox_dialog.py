@@ -112,6 +112,7 @@ class MeetingEmailInboxDialog(QDialog):
         self._active_mode = "UNREAD"
         self._settings = QSettings("3GPP_Tools", "MeetingEmailInboxDialog")
         self._view_mode = "THREADS" if self._settings.value("view_mode", "MESSAGES") == "THREADS" else "MESSAGES"
+        self._layout_orientation = "V" if self._settings.value("layout_orientation", "H") == "V" else "H"
         self._updating_assign_bar = False
 
         title_suffix = f" — {self.meeting_id}" if self.meeting_id else ""
@@ -248,6 +249,11 @@ class MeetingEmailInboxDialog(QDialog):
         self.refresh_btn.clicked.connect(self.reload_from_dbs)
         top_row.addWidget(self.refresh_btn)
 
+        self.btn_layout_toggle = QPushButton("⬒ List on Top")
+        self.btn_layout_toggle.setToolTip("Switch between Side-by-Side (desktop) and Top/Bottom (laptop) layout.")
+        self.btn_layout_toggle.clicked.connect(self._toggle_layout_orientation)
+        top_row.addWidget(self.btn_layout_toggle)
+
         layout.addWidget(top_widget)
 
         # Row 2: Master-Detail Splitter
@@ -255,6 +261,7 @@ class MeetingEmailInboxDialog(QDialog):
         self.splitter.setChildrenCollapsible(False)
 
         left_widget = QWidget()
+        self._left_widget = left_widget
         left_widget.setMinimumWidth(240)
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -291,6 +298,7 @@ class MeetingEmailInboxDialog(QDialog):
 
         # Right Detail Pane
         right_widget = QWidget()
+        self._right_widget = right_widget
         right_widget.setMinimumWidth(280)
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(4, 0, 0, 0)
@@ -450,20 +458,66 @@ class MeetingEmailInboxDialog(QDialog):
 
         self.splitter.addWidget(left_widget)
         self.splitter.addWidget(right_widget)
-        self.splitter.setSizes([580, 660])
-        saved_split = self._settings.value("splitter_state")
-        if saved_split:
+        self._apply_layout_orientation(save_current=False)
+        layout.addWidget(self.splitter, 1)
+
+    def _apply_layout_orientation(self, save_current: bool = True):
+        if not hasattr(self, "splitter"):
+            return
+        if save_current:
+            prev_key = "splitter_state_v" if self.splitter.orientation() == Qt.Vertical else "splitter_state_h"
             try:
-                self.splitter.restoreState(saved_split)
+                self._settings.setValue(prev_key, self.splitter.saveState())
             except Exception:
                 pass
-        layout.addWidget(self.splitter, 1)
+
+        is_vertical = self._layout_orientation == "V"
+        if is_vertical:
+            self.splitter.setOrientation(Qt.Vertical)
+            if hasattr(self, "_left_widget"):
+                self._left_widget.setMinimumWidth(0)
+                self._left_widget.setMinimumHeight(140)
+            if hasattr(self, "_right_widget"):
+                self._right_widget.setMinimumWidth(0)
+                self._right_widget.setMinimumHeight(200)
+            self.btn_layout_toggle.setText("◫ Side-by-Side")
+            self.btn_layout_toggle.setToolTip("Switch back to Side-by-Side layout (best for wide monitors).")
+            saved = self._settings.value("splitter_state_v")
+            default_sizes = [260, 440]
+        else:
+            self.splitter.setOrientation(Qt.Horizontal)
+            if hasattr(self, "_left_widget"):
+                self._left_widget.setMinimumHeight(0)
+                self._left_widget.setMinimumWidth(240)
+            if hasattr(self, "_right_widget"):
+                self._right_widget.setMinimumHeight(0)
+                self._right_widget.setMinimumWidth(280)
+            self.btn_layout_toggle.setText("⬒ List on Top")
+            self.btn_layout_toggle.setToolTip("Switch to Top/Bottom layout so email subjects span full window width.")
+            saved = self._settings.value("splitter_state_h")
+            default_sizes = [580, 660]
+
+        restored = False
+        if saved:
+            try:
+                restored = bool(self.splitter.restoreState(saved))
+            except Exception:
+                restored = False
+        if not restored:
+            self.splitter.setSizes(default_sizes)
+
+    def _toggle_layout_orientation(self):
+        self._layout_orientation = "H" if self._layout_orientation == "V" else "V"
+        self._settings.setValue("layout_orientation", self._layout_orientation)
+        self._apply_layout_orientation(save_current=True)
 
     def closeEvent(self, event):
         try:
             self._settings.setValue("geometry", self.saveGeometry())
+            self._settings.setValue("layout_orientation", self._layout_orientation)
             if hasattr(self, "splitter"):
-                self._settings.setValue("splitter_state", self.splitter.saveState())
+                key = "splitter_state_v" if self.splitter.orientation() == Qt.Vertical else "splitter_state_h"
+                self._settings.setValue(key, self.splitter.saveState())
             if hasattr(self, "preview_browser"):
                 self._settings.setValue("zoom_steps", int(self.preview_browser.property("_reader_zoom_steps") or 0))
         except Exception:
@@ -809,21 +863,30 @@ class MeetingEmailInboxDialog(QDialog):
             state_item.setTextAlignment(Qt.AlignCenter)
 
             if it["in_tracked_db"] and it.get("thread_title"):
+                ctx_full = f"🧵 {it['thread_title']}"
                 ctx = f"🧵 {it['thread_title'][:34]}"
                 if len(it["thread_title"]) > 34:
                     ctx += "…"
             elif it.get("linked_tdocs"):
+                ctx_full = "📄 " + ", ".join(it["linked_tdocs"])
                 ctx = "📄 " + ", ".join(it["linked_tdocs"][:2])
             else:
+                ctx_full = "📧 Email"
                 ctx = "📧 Email"
             ctx_item = QTableWidgetItem(ctx)
+            ctx_item.setToolTip(ctx_full)
 
             ais = it.get("linked_ais") or []
             ai_item = QTableWidgetItem(", ".join(ais) if ais else "❓ —")
             if not ais:
                 ai_item.setForeground(QColor("#B45309"))
+                ai_item.setToolTip("Unassigned (No AI)")
+            else:
+                ai_item.setToolTip("\n".join(self._ai_label_map.get(a, a) for a in ais))
 
-            subj_item = QTableWidgetItem(str(it.get("subject") or ""))
+            subj_full = str(it.get("subject") or "")
+            subj_item = QTableWidgetItem(subj_full)
+            subj_item.setToolTip(subj_full)
             if not it["is_read"]:
                 f = subj_item.font()
                 f.setBold(True)
@@ -833,7 +896,12 @@ class MeetingEmailInboxDialog(QDialog):
             if it.get("company"):
                 sender_disp = f"{sender_disp} ({it['company']})"
             sender_item = QTableWidgetItem(sender_disp)
-            date_item = QTableWidgetItem(str(it.get("date_str") or "")[:16])
+            sender_item.setToolTip(
+                f"{sender_disp} <{it['sender_email']}>" if it.get("sender_email") else sender_disp
+            )
+            date_full = str(it.get("date_str") or "")
+            date_item = QTableWidgetItem(date_full[:16])
+            date_item.setToolTip(date_full)
 
             for cell in (state_item, ctx_item, ai_item, subj_item, sender_item, date_item):
                 if not it["is_read"]:

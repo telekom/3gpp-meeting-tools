@@ -1802,6 +1802,25 @@ def test_inbox_unassigned_filters_grouping_and_inline_assignment(tmp_path):
         assert tdlg_opens == ["S2-2611691"]
         tdlg.close()
 
+        # Verify table cell hover tooltips and Side-by-Side <-> Top/Bottom layout toggle
+        from PyQt5.QtCore import Qt as _QtOrient
+        assert dlg.table.rowCount() >= 1
+        assert dlg.table.item(0, 3).toolTip() == dlg.table.item(0, 3).text()
+        assert dlg.table.item(0, 1).toolTip()
+        assert dlg.table.item(0, 2).toolTip()
+        assert dlg.table.item(0, 4).toolTip()
+
+        dlg._layout_orientation = "H"
+        dlg._apply_layout_orientation(save_current=False)
+        assert dlg.splitter.orientation() == _QtOrient.Horizontal
+        assert "List on Top" in dlg.btn_layout_toggle.text()
+        dlg._toggle_layout_orientation()
+        assert dlg.splitter.orientation() == _QtOrient.Vertical
+        assert "Side-by-Side" in dlg.btn_layout_toggle.text()
+        dlg._toggle_layout_orientation()
+        assert dlg.splitter.orientation() == _QtOrient.Horizontal
+
+        dlg._settings.setValue("layout_orientation", "H")
         dlg._settings.setValue("view_mode", "MESSAGES")
         dlg.close()
 
