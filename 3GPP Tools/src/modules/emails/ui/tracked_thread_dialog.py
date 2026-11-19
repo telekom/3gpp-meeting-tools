@@ -1,12 +1,15 @@
 # --- File: src/modules/emails/ui/tracked_thread_dialog.py ---
-import subprocess
+from datetime import datetime, timedelta
 from pathlib import Path
+import re
+import subprocess
 from typing import Callable, Dict, List, Optional
 import urllib.parse
 
-from PyQt5.QtCore import QSettings, Qt, QUrl, pyqtSignal
-from PyQt5.QtGui import QDesktopServices
+from PyQt5.QtCore import QSettings, Qt, QTimer, QUrl, pyqtSignal
+from PyQt5.QtGui import QColor, QDesktopServices
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
     QAction,
     QApplication,
     QCheckBox,
@@ -16,16 +19,18 @@ from PyQt5.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -48,6 +53,8 @@ from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.emails.core.tracked_threads_service import (
     cache_all_thread_documents_and_attachments,
     cache_and_open_thread_document_url,
+    classify_discovered_threads,
+    load_meeting_discovery_config,
     mark_thread_read_with_outlook,
     open_outlook_attachment,
     open_outlook_message,
@@ -55,6 +62,7 @@ from modules.emails.core.tracked_threads_service import (
     prepare_thread_llm_workspace,
     reload_outlook_message,
     reply_to_outlook_message,
+    save_meeting_discovery_config,
     set_thread_message_flag_with_outlook,
     set_thread_message_read_with_outlook,
 )
@@ -103,6 +111,9 @@ class TrackedThreadDialog(QDialog):
         self._tdoc_family_expander = tdoc_family_expander
         self._loading = False
         self._refresh_worker: Optional[SingleThreadRefreshWorker] = None
+        self._unread_anchors: List[str] = []
+        self._unread_cursor: int = -1
+        self._initial_scroll_done: bool = False
         self._settings = QSettings("3GPP_Tools", "TrackedThreadDialog")
         self.setWindowTitle("Tracked Email Thread")
         self.setMinimumSize(520, 420)
@@ -115,6 +126,7 @@ class TrackedThreadDialog(QDialog):
                 pass
         self._build_ui()
         self._load_data()
+        QTimer.singleShot(0, self._scroll_to_initial_unread)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -321,6 +333,17 @@ class TrackedThreadDialog(QDialog):
         self.order_combo.currentIndexChanged.connect(self._on_order_changed)
         filter_row.addWidget(self.order_combo)
 
+        self.next_unread_btn = QPushButton("🔵 Next Unread (0)")
+        self.next_unread_btn.setToolTip("Jump to the next unread email in the thread timeline.")
+        self.next_unread_btn.setStyleSheet(
+            "QPushButton { padding: 3px 9px; border-radius: 4px; border: 1px solid #93C5FD; "
+            "background-color: #EFF6FF; color: #1D4ED8; font-weight: bold; } "
+            "QPushButton:hover { background-color: #DBEAFE; } "
+            "QPushButton:disabled { background-color: #F8FAFC; color: #94A3B8; border-color: #E2E8F0; font-weight: normal; }"
+        )
+        self.next_unread_btn.clicked.connect(self._on_next_unread_clicked)
+        filter_row.addWidget(self.next_unread_btn)
+
         self.msg_count_lbl = QLabel("")
         self.msg_count_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
         filter_row.addWidget(self.msg_count_lbl)
@@ -520,7 +543,41 @@ class TrackedThreadDialog(QDialog):
             newest_first=newest_first,
             include_metadata=include_meta,
         )
+        self._unread_anchors = re.findall(r'<a name="(unread-\d+)"></a>', md)
+        self._unread_cursor = -1
+        self._update_next_unread_button()
         self.browser.setMarkdown(md)
+
+    def _update_next_unread_button(self):
+        if not hasattr(self, "next_unread_btn"):
+            return
+        cnt = len(self._unread_anchors)
+        self.next_unread_btn.setText(f"🔵 Next Unread ({cnt})")
+        self.next_unread_btn.setEnabled(cnt > 0)
+        if cnt <= 0:
+            self.next_unread_btn.setToolTip("No unread emails in the current view.")
+        elif self._unread_cursor >= 0:
+            self.next_unread_btn.setToolTip(
+                f"Jump to next unread email ({self._unread_cursor + 1}/{cnt})."
+            )
+        else:
+            self.next_unread_btn.setToolTip(f"Jump to the first of {cnt} unread email(s).")
+
+    def _scroll_to_initial_unread(self):
+        if self._initial_scroll_done:
+            return
+        self._initial_scroll_done = True
+        if self._unread_anchors:
+            self._unread_cursor = 0
+            self.browser.scrollToAnchor(self._unread_anchors[0])
+            self._update_next_unread_button()
+
+    def _on_next_unread_clicked(self):
+        if not self._unread_anchors:
+            return
+        self._unread_cursor = (self._unread_cursor + 1) % len(self._unread_anchors)
+        self.browser.scrollToAnchor(self._unread_anchors[self._unread_cursor])
+        self._update_next_unread_button()
 
     def _get_thread_cache_dir(self) -> Path:
         d = self.db.db_path.parent / "ThreadAttachments" / self.thread_id
@@ -890,8 +947,22 @@ class TrackedThreadDialog(QDialog):
         )
 
 
+def _infer_meeting_tag(meeting_id: str, wg: str) -> str:
+    raw = str(meeting_id or "").strip()
+    if not raw:
+        return str(wg or "").strip()
+    if "#" in raw:
+        return raw
+    m = re.match(r"^([A-Za-z0-9]+)\s+(\d+.*)$", raw)
+    if m:
+        return f"{m.group(1)}#{m.group(2)}"
+    if wg and raw.isdigit():
+        return f"{wg}#{raw}"
+    return raw
+
+
 class PinFromOutlookDialog(QDialog):
-    """Allows browsing and pinning email threads from configured WG Outlook folders."""
+    """Browse, classify, ignore, and pin untracked email threads from configured WG Outlook folders."""
 
     def __init__(
         self,
@@ -901,6 +972,12 @@ class PinFromOutlookDialog(QDialog):
         parent: Optional[QWidget] = None,
         agenda_map: Optional[Dict[str, object]] = None,
         valid_wis: Optional[List[str]] = None,
+        meeting_dir: Optional[Path] = None,
+        general_email_db=None,
+        valid_tdocs: Optional[set] = None,
+        mtg_start_date: str = "",
+        mtg_end_date: str = "",
+        auto_scan: bool = True,
     ):
         super().__init__(parent)
         self.db = db
@@ -908,46 +985,196 @@ class PinFromOutlookDialog(QDialog):
         self.wg = wg
         self._agenda_map = agenda_map
         self._valid_wis = valid_wis
-        self.pinned_thread_ids = []
-        self._threads = []
+        self._meeting_dir = Path(meeting_dir) if meeting_dir else None
+        self._general_email_db = general_email_db
+        self._valid_tdocs = set(valid_tdocs) if valid_tdocs else set()
+        self.pinned_thread_ids: List[str] = []
+        self._raw_threads: List[dict] = []
+        self._threads: List[dict] = []
         self._scan_worker: Optional[OutlookFolderScanWorker] = None
-        self.setWindowTitle(f"Pin Email Thread from Configured {wg} Outlook Folders")
-        self.resize(780, 520)
+        self._loading_config = False
+
+        default_tag = _infer_meeting_tag(meeting_id, wg)
+        self._config = load_meeting_discovery_config(
+            self._meeting_dir,
+            default_tag=default_tag,
+            default_start=str(mtg_start_date or "").strip()[:10],
+            default_end=str(mtg_end_date or "").strip()[:10],
+        )
+
+        self.setWindowTitle(f"Discover & Pin Email Threads — Configured {wg} Outlook Folders")
+        self.resize(1120, 680)
         self._build_ui()
-        self._load_threads()
+        if auto_scan:
+            self._load_threads()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
+        layout.setSpacing(8)
 
-        search_row = QHBoxLayout()
-        search_row.addWidget(QLabel("Filter threads:"))
+        # Row 1: Search & Coverage Filter & Rescan
+        top_row = QHBoxLayout()
+        top_row.setSpacing(8)
+        top_row.addWidget(QLabel("<b>Coverage:</b>"))
+        self.coverage_combo = QComboBox()
+        self.coverage_combo.addItem("🔍 Untracked & Body-Only (🔴 + 🟡)", "UNTRACKED_AND_BODY")
+        self.coverage_combo.addItem("🔴 Strictly Untracked Only (No TDoc)", "STRICT_UNTRACKED")
+        self.coverage_combo.addItem("🟡 All Unpinned (Includes Subject TDoc)", "ALL_UNPINNED")
+        self.coverage_combo.addItem("📋 All Discovered (Includes Pinned)", "ALL")
+        self.coverage_combo.addItem("🚫 Ignored Threads", "IGNORED")
+        cov_val = str(self._config.get("coverage_filter") or "UNTRACKED_AND_BODY").upper()
+        cov_idx = max(0, self.coverage_combo.findData(cov_val))
+        self.coverage_combo.setCurrentIndex(cov_idx)
+        self.coverage_combo.currentIndexChanged.connect(self._on_config_ui_changed)
+        top_row.addWidget(self.coverage_combo)
+
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Type KI, WI, TDoc, or subject keywords (e.g. KI#1_1, NAS Routing)...")
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.setPlaceholderText("🔍 Search subject, sender, TDoc, AI, or WI...")
         self.search_edit.textChanged.connect(self._apply_filter)
-        search_row.addWidget(self.search_edit, 1)
+        top_row.addWidget(self.search_edit, 1)
 
-        self.reload_btn = QPushButton("Rescan Folders")
+        self.reload_btn = QPushButton("🔄 Rescan Folders")
         self.reload_btn.clicked.connect(self._load_threads)
-        search_row.addWidget(self.reload_btn)
-        layout.addLayout(search_row)
+        top_row.addWidget(self.reload_btn)
+        layout.addLayout(top_row)
+
+        # Row 2: Configurable Subject Tag & Meeting Date Window (persisted per meeting)
+        cfg_frame = QFrame(self)
+        cfg_frame.setObjectName("DiscoveryCfgBar")
+        cfg_frame.setStyleSheet(
+            "#DiscoveryCfgBar { background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; }"
+        )
+        cfg_row = QHBoxLayout(cfg_frame)
+        cfg_row.setContentsMargins(8, 5, 8, 5)
+        cfg_row.setSpacing(8)
+
+        self.require_tag_check = QCheckBox("Require Subject Tag:")
+        self.require_tag_check.setChecked(bool(self._config.get("require_subject_tag", False)))
+        self.require_tag_check.setToolTip(
+            "Only show threads whose Outlook subject contains this substring (configurable & saved per meeting)."
+        )
+        self.require_tag_check.toggled.connect(self._on_config_ui_changed)
+        cfg_row.addWidget(self.require_tag_check)
+
+        self.tag_edit = QLineEdit(str(self._config.get("subject_tag") or ""))
+        self.tag_edit.setPlaceholderText("e.g. SA2#178")
+        self.tag_edit.setMaximumWidth(150)
+        self.tag_edit.setClearButtonEnabled(True)
+        self.tag_edit.textChanged.connect(self._on_config_ui_changed)
+        cfg_row.addWidget(self.tag_edit)
+
+        self.use_date_check = QCheckBox("Date Window:")
+        self.use_date_check.setChecked(bool(self._config.get("use_date_filter", False)))
+        self.use_date_check.setToolTip("Restrict results to the meeting date window ± buffer days.")
+        self.use_date_check.toggled.connect(self._on_config_ui_changed)
+        cfg_row.addWidget(self.use_date_check)
+
+        self.start_date_edit = QLineEdit(str(self._config.get("start_date") or ""))
+        self.start_date_edit.setPlaceholderText("YYYY-MM-DD")
+        self.start_date_edit.setMaximumWidth(95)
+        self.start_date_edit.textChanged.connect(self._on_config_ui_changed)
+        cfg_row.addWidget(self.start_date_edit)
+
+        cfg_row.addWidget(QLabel("to"))
+
+        self.end_date_edit = QLineEdit(str(self._config.get("end_date") or ""))
+        self.end_date_edit.setPlaceholderText("YYYY-MM-DD")
+        self.end_date_edit.setMaximumWidth(95)
+        self.end_date_edit.textChanged.connect(self._on_config_ui_changed)
+        cfg_row.addWidget(self.end_date_edit)
+
+        cfg_row.addWidget(QLabel("−"))
+        self.days_before_spin = QSpinBox()
+        self.days_before_spin.setRange(0, 90)
+        self.days_before_spin.setValue(int(self._config.get("days_before", 14) or 0))
+        self.days_before_spin.setSuffix("d")
+        self.days_before_spin.setToolTip("Days before start date to include.")
+        self.days_before_spin.valueChanged.connect(self._on_config_ui_changed)
+        cfg_row.addWidget(self.days_before_spin)
+
+        cfg_row.addWidget(QLabel("+"))
+        self.days_after_spin = QSpinBox()
+        self.days_after_spin.setRange(0, 90)
+        self.days_after_spin.setValue(int(self._config.get("days_after", 7) or 0))
+        self.days_after_spin.setSuffix("d")
+        self.days_after_spin.setToolTip("Days after end date to include.")
+        self.days_after_spin.valueChanged.connect(self._on_config_ui_changed)
+        cfg_row.addWidget(self.days_after_spin)
+
+        cfg_row.addStretch()
+        layout.addWidget(cfg_frame)
 
         self.scan_bar = AsyncSyncProgressBar(self)
         self.scan_bar.cancel_requested.connect(self._on_cancel_scan)
         layout.addWidget(self.scan_bar)
 
-        self.list_widget = QListWidget()
-        self.list_widget.setSelectionMode(QListWidget.ExtendedSelection)
-        layout.addWidget(self.list_widget, 1)
+        self.summary_label = QLabel("")
+        self.summary_label.setStyleSheet("color: #475569; font-size: 11px;")
+        layout.addWidget(self.summary_label)
+
+        # Multi-column discovery table
+        self.table = QTableWidget(0, 6, self)
+        self.table.setHorizontalHeaderLabels([
+            "Coverage",
+            "Msgs (Unread)",
+            "Subject / Thread Title",
+            "Suggested AI / WI / TDocs",
+            "Last Sender",
+            "Last Reply",
+        ])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setVisible(False)
+        hdr = self.table.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.Stretch)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.table.itemSelectionChanged.connect(self._update_action_buttons)
+        layout.addWidget(self.table, 1)
 
         btn_row = QHBoxLayout()
+        self.ignore_btn = QPushButton("🚫 Ignore Selected")
+        self.ignore_btn.setToolTip("Hide selected thread(s) from future untracked discovery for this meeting.")
+        self.ignore_btn.clicked.connect(self._on_toggle_ignore_selected)
+        btn_row.addWidget(self.ignore_btn)
+
         btn_row.addStretch()
-        pin_btn = QPushButton("📌 Pin Selected Thread(s)")
-        pin_btn.clicked.connect(self._on_pin_selected)
-        btn_row.addWidget(pin_btn)
+        self.pin_btn = QPushButton("📌 Pin Selected Thread(s)")
+        self.pin_btn.setStyleSheet(
+            "QPushButton { background-color: #2563EB; color: white; font-weight: bold; "
+            "padding: 6px 14px; border-radius: 5px; border: none; } "
+            "QPushButton:hover { background-color: #1D4ED8; } "
+            "QPushButton:disabled { background-color: #CBD5E1; color: #64748B; }"
+        )
+        self.pin_btn.clicked.connect(self._on_pin_selected)
+        btn_row.addWidget(self.pin_btn)
+
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(cancel_btn)
         layout.addLayout(btn_row)
+        self._update_action_buttons()
+
+    def _on_config_ui_changed(self, *_args):
+        if self._loading_config:
+            return
+        self._config["coverage_filter"] = self.coverage_combo.currentData() or "UNTRACKED_AND_BODY"
+        self._config["require_subject_tag"] = bool(self.require_tag_check.isChecked())
+        self._config["subject_tag"] = self.tag_edit.text().strip()
+        self._config["use_date_filter"] = bool(self.use_date_check.isChecked())
+        self._config["start_date"] = self.start_date_edit.text().strip()
+        self._config["end_date"] = self.end_date_edit.text().strip()
+        self._config["days_before"] = int(self.days_before_spin.value())
+        self._config["days_after"] = int(self.days_after_spin.value())
+        save_meeting_discovery_config(self._meeting_dir, self._config)
+        self._update_action_buttons()
+        self._apply_filter()
 
     def _on_cancel_scan(self):
         if self._scan_worker and self._scan_worker.isRunning():
@@ -971,7 +1198,7 @@ class PinFromOutlookDialog(QDialog):
             return
         self.reload_btn.setEnabled(False)
         self.reload_btn.setText("⏳ Scanning...")
-        self.scan_bar.start_busy(f"Scanning {self.wg} Outlook folders...")
+        self.scan_bar.start_busy(f"Scanning {self.wg} Outlook folders & Sent Items...")
 
         worker = OutlookFolderScanWorker(self.wg, parent=self)
         worker.progress.connect(self.scan_bar.update_progress)
@@ -979,36 +1206,217 @@ class PinFromOutlookDialog(QDialog):
         self._scan_worker = worker
         worker.start()
 
+    def _reclassify_threads(self):
+        ignored_set = set(self._config.get("ignored_thread_keys") or [])
+        self._threads = classify_discovered_threads(
+            self._raw_threads,
+            self.db,
+            self._general_email_db,
+            meeting_id=self.meeting_id,
+            valid_tdocs=self._valid_tdocs,
+            agenda_map=self._agenda_map,
+            valid_wis=self._valid_wis,
+            ignored_keys=ignored_set,
+        )
+
     def _on_scan_finished(self, ok: bool, threads: list, err: str):
         self.reload_btn.setEnabled(True)
-        self.reload_btn.setText("Rescan Folders")
-        self._threads = list(threads or [])
+        self.reload_btn.setText("🔄 Rescan Folders")
+        self._raw_threads = list(threads or [])
+        self._reclassify_threads()
         self._apply_filter()
         if ok:
             self.scan_bar.finish_ok()
         else:
             self.scan_bar.show_error(err or "Folder scan did not finish cleanly.")
 
+    @staticmethod
+    def _parse_iso_date(val: str) -> Optional[datetime]:
+        txt = str(val or "").strip()[:10]
+        if not txt:
+            return None
+        try:
+            return datetime.strptime(txt, "%Y-%m-%d")
+        except Exception:
+            return None
+
+    def _matches_tag_and_date(self, t: dict) -> bool:
+        if self.require_tag_check.isChecked():
+            tag = self.tag_edit.text().strip().lower()
+            if tag:
+                subj_blob = f"{t.get('raw_subject', '')} {t.get('title', '')}".lower()
+                if tag not in subj_blob:
+                    return False
+
+        if self.use_date_check.isChecked():
+            last_dt = self._parse_iso_date(t.get("last_date", ""))
+            start_dt = self._parse_iso_date(self.start_date_edit.text())
+            end_dt = self._parse_iso_date(self.end_date_edit.text())
+            if last_dt is not None:
+                if start_dt is not None:
+                    min_dt = start_dt - timedelta(days=int(self.days_before_spin.value()))
+                    if last_dt < min_dt:
+                        return False
+                if end_dt is not None:
+                    max_dt = end_dt + timedelta(days=int(self.days_after_spin.value()))
+                    if last_dt > max_dt:
+                        return False
+        return True
+
     def _apply_filter(self):
+        cov_mode = str(self.coverage_combo.currentData() or "UNTRACKED_AND_BODY").upper()
         q = self.search_edit.text().strip().lower()
-        self.list_widget.clear()
+
+        scoped: List[dict] = []
+        counts = {"STRICT_UNTRACKED": 0, "BODY_TDOC": 0, "SUBJECT_TDOC": 0, "PINNED": 0, "IGNORED": 0}
         for t in self._threads:
-            title = t.get("title", "")
-            sender = t.get("last_sender", "")
-            if q and q not in title.lower() and q not in sender.lower():
+            if not self._matches_tag_and_date(t):
                 continue
-            label = f"📧 {title}  ({t.get('count', 1)} msgs • Last: {t.get('last_date', '')} by {sender})"
-            item = QListWidgetItem(label)
-            item.setData(Qt.UserRole, t)
-            self.list_widget.addItem(item)
+            is_ignored = bool(t.get("is_ignored"))
+            cov = str(t.get("coverage") or "STRICT_UNTRACKED")
+            if is_ignored and cov != "PINNED":
+                counts["IGNORED"] += 1
+            elif cov in counts:
+                counts[cov] += 1
+
+            if cov_mode == "IGNORED":
+                if not is_ignored:
+                    continue
+            else:
+                if is_ignored and cov_mode != "ALL":
+                    continue
+                if cov_mode == "UNTRACKED_AND_BODY" and cov not in ("STRICT_UNTRACKED", "BODY_TDOC"):
+                    continue
+                if cov_mode == "STRICT_UNTRACKED" and cov != "STRICT_UNTRACKED":
+                    continue
+                if cov_mode == "ALL_UNPINNED" and cov == "PINNED":
+                    continue
+
+            if q:
+                hay = " ".join([
+                    str(t.get("title") or ""),
+                    str(t.get("last_sender") or ""),
+                    " ".join(t.get("suggested_tdocs") or []),
+                    " ".join(t.get("suggested_ais") or []),
+                    " ".join(t.get("suggested_wis") or []),
+                ]).lower()
+                if q not in hay:
+                    continue
+            scoped.append(t)
+
+        self.table.setRowCount(len(scoped))
+        for r, t in enumerate(scoped):
+            cov = str(t.get("coverage") or "")
+            cov_item = QTableWidgetItem(str(t.get("coverage_label") or cov))
+            cov_item.setData(Qt.UserRole, t)
+            if cov == "STRICT_UNTRACKED" and not t.get("is_ignored"):
+                cov_item.setForeground(QColor("#B91C1C"))
+            elif cov == "BODY_TDOC" and not t.get("is_ignored"):
+                cov_item.setForeground(QColor("#B45309"))
+            elif cov == "SUBJECT_TDOC":
+                cov_item.setForeground(QColor("#15803D"))
+            elif cov == "PINNED":
+                cov_item.setForeground(QColor("#1D4ED8"))
+            else:
+                cov_item.setForeground(QColor("#64748B"))
+
+            tot_cnt = int(t.get("count", 1) or 0)
+            unread_cnt = int(t.get("unread_count", 0) or 0)
+            msg_str = f"{tot_cnt} ({unread_cnt} new)" if unread_cnt > 0 else f"{tot_cnt}"
+            msg_item = QTableWidgetItem(msg_str)
+            msg_item.setTextAlignment(Qt.AlignCenter)
+            if unread_cnt > 0:
+                font = msg_item.font()
+                font.setBold(True)
+                msg_item.setFont(font)
+                msg_item.setForeground(QColor("#1D4ED8"))
+
+            title_item = QTableWidgetItem(str(t.get("title") or ""))
+            if t.get("raw_subject") and t.get("raw_subject") != t.get("title"):
+                title_item.setToolTip(str(t.get("raw_subject")))
+
+            sugg_parts = []
+            if t.get("suggested_ais"):
+                sugg_parts.append("AI: " + ", ".join(t["suggested_ais"][:3]))
+            if t.get("suggested_wis"):
+                sugg_parts.append("WI: " + ", ".join(t["suggested_wis"][:2]))
+            if t.get("suggested_tdocs"):
+                sugg_parts.append("TDoc: " + ", ".join(t["suggested_tdocs"][:3]))
+            sugg_item = QTableWidgetItem(" · ".join(sugg_parts) if sugg_parts else "—")
+
+            sender_item = QTableWidgetItem(str(t.get("last_sender") or ""))
+            date_item = QTableWidgetItem(str(t.get("last_date") or ""))
+
+            self.table.setItem(r, 0, cov_item)
+            self.table.setItem(r, 1, msg_item)
+            self.table.setItem(r, 2, title_item)
+            self.table.setItem(r, 3, sugg_item)
+            self.table.setItem(r, 4, sender_item)
+            self.table.setItem(r, 5, date_item)
+
+        self.summary_label.setText(
+            f"Showing {len(scoped)} thread(s)  •  "
+            f"🔴 {counts['STRICT_UNTRACKED']} no TDoc  |  "
+            f"🟡 {counts['BODY_TDOC']} body-only  |  "
+            f"🟢 {counts['SUBJECT_TDOC']} subject TDoc  |  "
+            f"📌 {counts['PINNED']} pinned  |  "
+            f"🚫 {counts['IGNORED']} ignored"
+        )
+        self._update_action_buttons()
+
+    def _selected_threads(self) -> List[dict]:
+        rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()}) if self.table.selectionModel() else []
+        out = []
+        for r in rows:
+            item = self.table.item(r, 0)
+            data = item.data(Qt.UserRole) if item else None
+            if isinstance(data, dict):
+                out.append(data)
+        return out
+
+    def _update_action_buttons(self):
+        cov_mode = str(self.coverage_combo.currentData() or "UNTRACKED_AND_BODY").upper()
+        selected = self._selected_threads()
+        if cov_mode == "IGNORED":
+            self.ignore_btn.setText("↩️ Un-ignore Selected")
+            self.ignore_btn.setToolTip("Restore selected thread(s) back into untracked discovery.")
+        else:
+            self.ignore_btn.setText("🚫 Ignore Selected")
+            self.ignore_btn.setToolTip("Hide selected thread(s) from future untracked discovery for this meeting.")
+        self.ignore_btn.setEnabled(bool(selected))
+        self.pin_btn.setEnabled(bool(selected))
+
+    def _on_toggle_ignore_selected(self):
+        selected = self._selected_threads()
+        if not selected:
+            return
+        cov_mode = str(self.coverage_combo.currentData() or "UNTRACKED_AND_BODY").upper()
+        ignored = set(self._config.get("ignored_thread_keys") or [])
+        for t in selected:
+            nkey = str(t.get("norm_key") or "").strip().lower()
+            if not nkey:
+                continue
+            if cov_mode == "IGNORED":
+                ignored.discard(nkey)
+            else:
+                ignored.add(nkey)
+        self._config["ignored_thread_keys"] = sorted(ignored)
+        save_meeting_discovery_config(self._meeting_dir, self._config)
+        self._reclassify_threads()
+        self._apply_filter()
 
     def _on_pin_selected(self):
-        selected = self.list_widget.selectedItems()
+        selected = self._selected_threads()
         if not selected:
             QMessageBox.information(self, "No Thread Selected", "Please select at least one email thread to pin.")
             return
-        for item in selected:
-            t = item.data(Qt.UserRole)
+        ignored = set(self._config.get("ignored_thread_keys") or [])
+        changed_ignored = False
+        for t in selected:
+            nkey = str(t.get("norm_key") or "").strip().lower()
+            if nkey and nkey in ignored:
+                ignored.discard(nkey)
+                changed_ignored = True
             tid = pin_thread_by_subject_or_cid(
                 self.db,
                 title=t["title"],
@@ -1020,5 +1428,8 @@ class PinFromOutlookDialog(QDialog):
                 valid_wis=self._valid_wis,
             )
             self.pinned_thread_ids.append(tid)
+        if changed_ignored:
+            self._config["ignored_thread_keys"] = sorted(ignored)
+            save_meeting_discovery_config(self._meeting_dir, self._config)
         self.accept()
 

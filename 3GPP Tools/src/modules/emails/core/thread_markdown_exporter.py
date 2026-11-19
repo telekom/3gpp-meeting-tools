@@ -386,6 +386,7 @@ def export_thread_to_markdown(
     if newest_first:
         indexed_msgs.reverse()
 
+    unread_seq = 0
     for idx, msg in indexed_msgs:
         sender = (msg.get("sender_name") or msg.get("sender_email") or "Unknown").strip()
         comp = (msg.get("company") or "").strip()
@@ -400,6 +401,10 @@ def export_thread_to_markdown(
         can_open_outlook = interactive_links and msg_id and not msg_id.startswith("MSG-")
 
         if interactive_links:
+            anchors = f'<a name="msg-{idx}"></a>'
+            if is_unread:
+                unread_seq += 1
+                anchors += f'<a name="unread-{unread_seq}"></a>'
             enc_id = urllib.parse.quote(msg_id, safe="")
             action_parts = []
             if can_open_outlook:
@@ -414,7 +419,7 @@ def export_thread_to_markdown(
                     f"[🏳️ Clear Flag](outlook://unflag/{enc_id})" if is_flagged else f"[🚩 Flag](outlook://flag/{enc_id})"
                 )
             action_parts.append(f"[📋 Copy](outlook://copy/{enc_id})")
-            lines.append(f"### {idx}. [{date_str}] {sender_disp}{new_badge}{flag_badge} · {' · '.join(action_parts)}")
+            lines.append(f"### {anchors}{idx}. [{date_str}] {sender_disp}{new_badge}{flag_badge} · {' · '.join(action_parts)}")
         else:
             lines.append(f"### {idx}. [{date_str}] {sender_disp}")
         if subj and subj.lower() != base_subject:

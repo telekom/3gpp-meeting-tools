@@ -141,7 +141,7 @@ class OutlookFolderScanWorker(_BaseComWorker):
     progress = pyqtSignal(int, int, str, list)  # done_folders, total_folders, current_folder, remaining_folders
     finished_scan = pyqtSignal(bool, list, str)  # ok, threads_list, error_message
 
-    def __init__(self, wg: str, max_items_per_folder: int = 300, parent=None):
+    def __init__(self, wg: str, max_items_per_folder: int = 1500, parent=None):
         super().__init__(parent)
         self.wg = wg
         self.max_items_per_folder = max_items_per_folder

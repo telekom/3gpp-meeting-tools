@@ -176,6 +176,43 @@ class GeneralEmailDatabase:
             """, [t.upper() for t in tdoc_ids])
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_all_emails_with_tdocs(self, show_ignored: bool = False) -> List[dict]:
+        """Retrieves all indexed meeting emails annotated with their matched TDoc(s) for the unified inbox."""
+        ignored_clause = "" if show_ignored else "WHERE e.is_ignored = 0"
+        with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            return [
+                dict(row)
+                for row in conn.execute(
+                    f"""
+                    SELECT
+                        e.*,
+                        COALESCE(GROUP_CONCAT(DISTINCT m.tdoc_id), '') AS matched_tdocs
+                    FROM general_emails e
+                    LEFT JOIN general_email_tdoc_matches m ON e.id = m.email_id
+                    {ignored_clause}
+                    GROUP BY e.id
+                    ORDER BY e.date_received DESC
+                    """
+                ).fetchall()
+            ]
+
+    def get_tdoc_match_locations_by_email_id(self) -> Dict[str, Set[str]]:
+        """Returns {email_id: {match_location, ...}} for non-ignored indexed emails."""
+        with self._get_connection() as conn:
+            out: Dict[str, Set[str]] = {}
+            for eid, loc in conn.execute(
+                """
+                SELECT m.email_id, m.match_location
+                FROM general_email_tdoc_matches m
+                JOIN general_emails e ON e.id = m.email_id
+                WHERE e.is_ignored = 0
+                """
+            ).fetchall():
+                if eid:
+                    out.setdefault(str(eid), set()).add(str(loc or "Body"))
+            return out
+
     @staticmethod
     def _sync_outlook_read_status(to_sync: List[str], is_read: bool) -> int:
         if not to_sync:

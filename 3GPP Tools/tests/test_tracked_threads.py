@@ -1179,3 +1179,269 @@ def test_thread_attachments_and_links_open_via_document_opener(tmp_path):
         )
         assert url_out == cached_doc
         assert opened_paths[-1].name == "S2-2612711_Conclusion.docx"
+
+
+def test_discovery_classification_config_and_ignore(tmp_path):
+    from PyQt5.QtWidgets import QApplication
+    from modules.emails.core.general_email_db import GeneralEmailDatabase
+    from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+    from modules.emails.core.tracked_threads_service import (
+        classify_discovered_threads,
+        load_meeting_discovery_config,
+        save_meeting_discovery_config,
+    )
+    from modules.emails.ui.tracked_thread_dialog import PinFromOutlookDialog
+
+    app = QApplication.instance() or QApplication([])
+    mtg_dir = tmp_path / "SA2_178"
+    (mtg_dir / "Agenda").mkdir(parents=True, exist_ok=True)
+
+    # 1. Per-meeting config persistence
+    cfg = load_meeting_discovery_config(
+        mtg_dir, default_tag="SA2#178", default_start="2026-11-16", default_end="2026-11-20"
+    )
+    assert cfg["subject_tag"] == "SA2#178"
+    assert cfg["coverage_filter"] == "UNTRACKED_AND_BODY"
+    cfg["ignored_thread_keys"] = ["noisy off-topic thread"]
+    save_meeting_discovery_config(mtg_dir, cfg)
+    reloaded = load_meeting_discovery_config(mtg_dir)
+    assert reloaded["ignored_thread_keys"] == ["noisy off-topic thread"]
+
+    # 2. Coverage classification (PINNED, SUBJECT_TDOC, BODY_TDOC, STRICT_UNTRACKED)
+    tdb = TrackedThreadsDatabase(tmp_path / "threads.db")
+    tdb.create_or_get_thread("Pinned Topic", "Pinned Topic", meeting_id="SA2#178")
+
+    gdb = GeneralEmailDatabase(tmp_path / "general.db")
+    gdb.save_emails_batch(
+        [
+            {"id": "E-BODY", "subject": "[SA2#178] Body Ref Only", "date_received": "2026-11-18 10:00", "is_read": 0},
+            {"id": "E-SUBJ", "subject": "[SA2#178] S2-2612000 Subject Ref", "date_received": "2026-11-18 11:00", "is_read": 0},
+        ],
+        [
+            {"email_id": "E-BODY", "tdoc_id": "S2-2611999", "match_location": "Body"},
+            {"email_id": "E-SUBJ", "tdoc_id": "S2-2612000", "match_location": "Subject"},
+        ],
+    )
+
+    raw_threads = [
+        {"title": "Pinned Topic", "normalized_subject": "Pinned Topic", "norm_key": "pinned topic", "entry_ids": ["E-PIN"], "last_date": "2026-11-18 12:00", "last_sender": "A", "count": 2, "unread_count": 1, "subject_tdocs": []},
+        {"title": "Subject TDoc Discussion", "normalized_subject": "Subject TDoc Discussion", "norm_key": "subject tdoc discussion", "raw_subject": "Re: [SA2#178] S2-2612000 Subject TDoc Discussion", "entry_ids": ["E-SUBJ"], "last_date": "2026-11-18 11:30", "last_sender": "B", "count": 3, "unread_count": 1, "subject_tdocs": ["S2-2612000"]},
+        {"title": "Body Ref Only", "normalized_subject": "Body Ref Only", "norm_key": "body ref only", "raw_subject": "Re: [SA2#178] Body Ref Only", "entry_ids": ["E-BODY"], "last_date": "2026-11-18 10:00", "last_sender": "C", "count": 4, "unread_count": 2, "subject_tdocs": []},
+        {"title": "Pure Offline Breakout", "normalized_subject": "Pure Offline Breakout", "norm_key": "pure offline breakout", "raw_subject": "Re: [SA2#178] Pure Offline Breakout", "entry_ids": ["E-PURE"], "last_date": "2026-11-18 09:00", "last_sender": "D", "count": 5, "unread_count": 2, "subject_tdocs": []},
+        {"title": "Wrong Tag Thread", "normalized_subject": "Wrong Tag Thread", "norm_key": "wrong tag thread", "raw_subject": "Re: [SA2#177] Wrong Tag Thread", "entry_ids": ["E-OLD"], "last_date": "2026-11-18 08:00", "last_sender": "E", "count": 1, "unread_count": 0, "subject_tdocs": []},
+        {"title": "Too Old Thread", "normalized_subject": "Too Old Thread", "norm_key": "too old thread", "raw_subject": "Re: [SA2#178] Too Old Thread", "entry_ids": ["E-AGO"], "last_date": "2026-09-01 08:00", "last_sender": "F", "count": 1, "unread_count": 0, "subject_tdocs": []},
+    ]
+
+    classified = classify_discovered_threads(
+        raw_threads,
+        tdb,
+        gdb,
+        meeting_id="SA2#178",
+        valid_tdocs={"S2-2611999", "S2-2612000"},
+    )
+    cov_by_title = {c["title"]: c["coverage"] for c in classified}
+    assert cov_by_title["Pinned Topic"] == "PINNED"
+    assert cov_by_title["Subject TDoc Discussion"] == "SUBJECT_TDOC"
+    assert cov_by_title["Body Ref Only"] == "BODY_TDOC"
+    assert cov_by_title["Pure Offline Breakout"] == "STRICT_UNTRACKED"
+
+    # 3. PinFromOutlookDialog UI filtering, Ignore toggle, and Pinning
+    dlg = PinFromOutlookDialog(
+        tdb,
+        "SA2#178",
+        "SA2",
+        meeting_dir=mtg_dir,
+        general_email_db=gdb,
+        valid_tdocs={"S2-2611999", "S2-2612000"},
+        mtg_start_date="2026-11-16",
+        mtg_end_date="2026-11-20",
+        auto_scan=False,
+    )
+    dlg._on_scan_finished(True, raw_threads, "")
+    # Option B default hides Pinned, Subject TDoc, wrong tag, and out-of-window date
+    visible_titles = [dlg.table.item(r, 2).text() for r in range(dlg.table.rowCount())]
+    assert visible_titles == ["Body Ref Only", "Pure Offline Breakout"]
+
+    # Ignore row 1 ("Pure Offline Breakout") and confirm persisted & hidden
+    dlg.table.selectRow(1)
+    dlg._on_toggle_ignore_selected()
+    visible_after_ignore = [dlg.table.item(r, 2).text() for r in range(dlg.table.rowCount())]
+    assert visible_after_ignore == ["Body Ref Only"]
+    assert "pure offline breakout" in load_meeting_discovery_config(mtg_dir)["ignored_thread_keys"]
+
+    # Switch coverage to IGNORED -> shows ignored thread
+    idx_ign = dlg.coverage_combo.findData("IGNORED")
+    dlg.coverage_combo.setCurrentIndex(idx_ign)
+    assert [dlg.table.item(r, 2).text() for r in range(dlg.table.rowCount())] == ["Pure Offline Breakout"]
+
+    # Un-ignore and restore UNTRACKED_AND_BODY, then Pin "Body Ref Only"
+    dlg.table.selectRow(0)
+    dlg._on_toggle_ignore_selected()
+    dlg.coverage_combo.setCurrentIndex(dlg.coverage_combo.findData("UNTRACKED_AND_BODY"))
+    assert dlg.table.rowCount() == 2
+    dlg.table.selectRow(0)
+    dlg._on_pin_selected()
+    assert len(dlg.pinned_thread_ids) == 1
+    assert any(t["title"] == "Body Ref Only" for t in tdb.get_threads_for_meeting("SA2#178"))
+    dlg.close()
+
+
+def test_tdocs_email_state_quick_filters():
+    from PyQt5.QtWidgets import QApplication
+    from modules.meetings.ui.tdocs_models import TDocsFilterProxyModel, TDocsTableModel
+
+    app = QApplication.instance() or QApplication([])
+    rows = [
+        {"TDoc": "S2-2610001", "Title": "Unread TDoc", "Source": "Nokia", "Type": "CR", "For": "Action", "Agenda Item": "20.1"},
+        {"TDoc": "S2-2610002", "Title": "Flagged TDoc", "Source": "Samsung", "Type": "pCR", "For": "Discussion", "Agenda Item": "20.1"},
+        {"TDoc": "S2-2610003", "Title": "Quiet TDoc", "Source": "Huawei", "Type": "pCR", "For": "Discussion", "Agenda Item": "20.1"},
+    ]
+    model = TDocsTableModel(data=rows)
+    model.set_email_counts({
+        "S2-2610001": {"total": 2, "unread": 1, "flagged": 0, "all_ids": {"E1", "E2"}, "unread_ids": {"E1"}, "flagged_ids": set()},
+        "S2-2610002": {"total": 1, "unread": 0, "flagged": 1, "all_ids": {"E3"}, "unread_ids": set(), "flagged_ids": {"E3"}},
+    })
+    model.sync_tracked_thread_rows([
+        {"thread_id": "THR-1", "title": "Active Thread", "unread_count": 2, "flagged_count": 1, "message_count": 5, "linked_ais": ["20.1"], "linked_wis": [], "linked_tdocs": [], "user_tags": [], "participants_companies": "Nokia"},
+    ])
+    proxy = TDocsFilterProxyModel()
+    proxy.setSourceModel(model)
+    proxy.setTypeFilters({str(r.get("Type", "")).strip() for r in model._data})
+    proxy.setAIFilters({str(r.get("Agenda Item", "")).strip() for r in model._data})
+    proxy.setWIFilters({w for r_idx in range(model.rowCount()) for w in model.get_related_wis(r_idx)})
+    proxy.setStatusFilters({str(r.get("TDoc Status", "")).strip() for r in model._data})
+    proxy.setMyStatusFilters({str(r.get("My Status", "")).strip() for r in model._data})
+    proxy.setCompanyFilters({c for r in model._data for c in (r.get("_Sanitized_Companies") or ["Other"])})
+
+    def _visible_tdocs():
+        return [proxy.sourceModel()._data[proxy.mapToSource(proxy.index(r, 0)).row()]["TDoc"] for r in range(proxy.rowCount())]
+
+    assert len(_visible_tdocs()) == 4
+
+    proxy.setEmailStateFilter("UNREAD")
+    assert set(_visible_tdocs()) == {"S2-2610001", "THR-1"}
+
+    proxy.setEmailStateFilter("FLAGGED")
+    assert set(_visible_tdocs()) == {"S2-2610002", "THR-1"}
+
+    proxy.setEmailStateFilter("ANY")
+    assert set(_visible_tdocs()) == {"S2-2610001", "S2-2610002", "THR-1"}
+
+    proxy.setEmailStateFilter("ALL")
+    assert len(_visible_tdocs()) == 4
+
+
+def test_tracked_thread_auto_scroll_and_next_unread(tmp_path):
+    from PyQt5.QtWidgets import QApplication
+    from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+    from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
+
+    app = QApplication.instance() or QApplication([])
+    db = TrackedThreadsDatabase(tmp_path / "threads.db")
+    tid = db.create_or_get_thread("Auto Scroll Thread", "Auto Scroll Thread", meeting_id="SA2#178")
+    db.upsert_messages(
+        tid,
+        [
+            {"id": "M1", "sender_name": "Alice", "date_sent": "2026-11-18 09:00:00", "body_text": "Old read msg", "is_read": 1},
+            {"id": "M2", "sender_name": "Bob", "date_sent": "2026-11-18 10:00:00", "body_text": "First unread msg", "is_read": 0},
+            {"id": "M3", "sender_name": "Carol", "date_sent": "2026-11-18 11:00:00", "body_text": "Second unread msg", "is_read": 0},
+        ],
+    )
+    dlg = TrackedThreadDialog(db, tid)
+    app.processEvents()
+
+    assert dlg._unread_anchors == ["unread-1", "unread-2"]
+    assert dlg.next_unread_btn.isEnabled()
+    assert dlg.next_unread_btn.text() == "🔵 Next Unread (2)"
+    assert dlg._initial_scroll_done is True
+    assert dlg._unread_cursor == 0
+
+    dlg._on_next_unread_clicked()
+    assert dlg._unread_cursor == 1
+    dlg._on_next_unread_clicked()
+    assert dlg._unread_cursor == 0
+    dlg.close()
+
+
+def test_meeting_email_inbox_dialog_triage(tmp_path):
+    from datetime import datetime
+    from unittest.mock import patch
+    from PyQt5.QtWidgets import QApplication
+    from modules.emails.core.general_email_db import GeneralEmailDatabase
+    from modules.emails.core.outlook_client import OutlookClient
+    from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+    from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
+
+    app = QApplication.instance() or QApplication([])
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    tdb = TrackedThreadsDatabase(tmp_path / "threads.db")
+    tid = tdb.create_or_get_thread("Thread A", "Thread A", meeting_id="SA2#178", linked_ais=["20.6.1"])
+    tdb.upsert_messages(
+        tid,
+        [
+            {"id": "E-BOTH", "sender_name": "Alice", "company": "Nokia", "date_sent": now_str, "subject": "Shared Msg", "body_text": "Shared body", "is_read": 0, "flag_status": 0},
+            {"id": "E-READ-FLAG", "sender_name": "Bob", "company": "Samsung", "date_sent": "2026-10-01 10:00:00", "subject": "Flagged Old", "body_text": "Flagged body", "is_read": 1, "flag_status": 2},
+        ],
+    )
+
+    gdb = GeneralEmailDatabase(tmp_path / "general.db")
+    gdb.save_emails_batch(
+        [
+            {"id": "E-BOTH", "subject": "Shared Msg", "sender_name": "Alice", "company": "Nokia", "date_received": now_str, "body_text": "Shared body", "is_read": 0, "flag_status": 0},
+            {"id": "E-TDOC-ONLY", "subject": "Only TDoc Unread", "sender_name": "Carol", "company": "Ericsson", "date_received": "2026-11-17 09:00:00", "body_text": "See S2-2612345", "is_read": 0, "flag_status": 0},
+        ],
+        [
+            {"email_id": "E-BOTH", "tdoc_id": "S2-2611111", "match_location": "Body"},
+            {"email_id": "E-TDOC-ONLY", "tdoc_id": "S2-2612345", "match_location": "Subject"},
+        ],
+    )
+
+    opened_threads = []
+    opened_tdocs = []
+    changes = []
+
+    with patch.object(OutlookClient, "set_messages_read_status", return_value=1) as mock_read, \
+         patch.object(OutlookClient, "set_messages_flag_status", return_value=1) as mock_flag:
+        dlg = MeetingEmailInboxDialog(
+            tdb,
+            gdb,
+            meeting_id="SA2#178",
+            tdoc_ai_lookup={"S2-2612345": "20.2"},
+            open_thread_callback=lambda t: opened_threads.append(t),
+            open_tdoc_callback=lambda td: opened_tdocs.append(td),
+        )
+        dlg.data_changed.connect(lambda: changes.append(True))
+
+        # Deduplicated counts: 2 unread (E-BOTH + E-TDOC-ONLY), 1 flagged, 1 recent (E-BOTH), 3 total
+        assert dlg.pill_unread.text() == "🔵 Unread Only (2)"
+        assert dlg.pill_flagged.text() == "🚩 Flagged (1)"
+        assert dlg.pill_recent.text() == "🕒 Last 24h (1)"
+        assert dlg.pill_all.text() == "📋 All (3)"
+        assert dlg.table.rowCount() == 2
+
+        # Merged context on E-BOTH has both thread title & matched TDoc
+        assert dlg._current_item["id"] == "E-BOTH"
+        assert "S2-2611111" in dlg._current_item["linked_tdocs"]
+
+        # Mark Read & Next Unread removes E-BOTH from Unread view, syncs BOTH DBs, selects E-TDOC-ONLY
+        dlg._on_mark_read_and_next()
+        mock_read.assert_called_with(["E-BOTH"], is_read=True)
+        assert dlg.pill_unread.text() == "🔵 Unread Only (1)"
+        assert dlg.table.rowCount() == 1
+        assert dlg._current_item["id"] == "E-TDOC-ONLY"
+        assert tdb.get_thread_messages(tid)[0]["is_read"] == 1
+        assert gdb.get_all_emails_with_tdocs()[0]["is_read"] == 1 or any(
+            e["id"] == "E-BOTH" and e["is_read"] == 1 for e in gdb.get_all_emails_with_tdocs()
+        )
+        assert len(changes) == 1
+
+        # Flag E-TDOC-ONLY
+        dlg._on_toggle_flag()
+        mock_flag.assert_called_with(["E-TDOC-ONLY"], is_flagged=True)
+        assert dlg.pill_flagged.text() == "🚩 Flagged (2)"
+
+        # Open TDoc callback from E-TDOC-ONLY
+        dlg._on_open_context()
+        assert opened_tdocs == ["S2-2612345"]
+        dlg.close()

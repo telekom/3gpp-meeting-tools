@@ -82,6 +82,7 @@ from modules.emails.core.tracked_threads_service import (
 )
 from modules.emails.core.tracked_threads_workers import TrackedThreadsRefreshWorker
 from modules.emails.ui.sync_progress_bar import AsyncSyncProgressBar
+from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
 from modules.emails.ui.tracked_thread_dialog import (
     PinFromOutlookDialog,
     TrackedThreadDialog,
@@ -460,6 +461,9 @@ class TDocsWindow(QWidget):
 
         email_menu = QMenu(self)
         email_menu.setToolTipsVisible(True)
+        act = email_menu.addAction("📬 Unread & Flagged Email Inbox...", self._open_meeting_email_inbox)
+        act.setToolTip("Open the unified Email Triage Cockpit combining all unread, flagged, and recent emails across Tracked Threads and TDoc Emails.")
+        email_menu.addSeparator()
         act = email_menu.addAction("📌 Pin Email Thread from Outlook Folder...", self._on_pin_thread_from_outlook)
         act.setToolTip("Browse and pin email discussion threads from your configured WG Outlook folders.")
         act = email_menu.addAction("📥 Pin Email Thread from .msg File...", self._on_pin_thread_from_msg_dialog)
@@ -804,6 +808,30 @@ class TDocsWindow(QWidget):
             search_layout.addWidget(self.btn_agreements_filter)
         else:
             self.btn_agreements_filter.setVisible(False)
+
+        self.btn_unread_emails = QPushButton("🔵")
+        self.btn_unread_emails.setCheckable(True)
+        self.btn_unread_emails.setCursor(Qt.PointingHandCursor)
+        self.btn_unread_emails.setFixedSize(scale_px(28), scale_px(28))
+        self.btn_unread_emails.setToolTip(make_rich_tooltip(
+            title="🔵 Unread Emails Filter",
+            description="Show only TDocs and Tracked Email Threads that have unread emails.",
+            tip="Click again to clear, or click 🚩 to switch to flagged emails."
+        ))
+        self.btn_unread_emails.clicked.connect(self._toggle_unread_emails_filter)
+        search_layout.addWidget(self.btn_unread_emails)
+
+        self.btn_flagged_emails = QPushButton("🚩")
+        self.btn_flagged_emails.setCheckable(True)
+        self.btn_flagged_emails.setCursor(Qt.PointingHandCursor)
+        self.btn_flagged_emails.setFixedSize(scale_px(28), scale_px(28))
+        self.btn_flagged_emails.setToolTip(make_rich_tooltip(
+            title="🚩 Flagged Emails Filter",
+            description="Show only TDocs and Tracked Email Threads that have Outlook-flagged emails.",
+            tip="Click again to clear, or click 🔵 to switch to unread emails."
+        ))
+        self.btn_flagged_emails.clicked.connect(self._toggle_flagged_emails_filter)
+        search_layout.addWidget(self.btn_flagged_emails)
 
         self._update_tracked_wi_button_styles()
         filter_layout.addWidget(search_group)
@@ -1258,7 +1286,13 @@ class TDocsWindow(QWidget):
         self.stats_cfg_btn.setMinimumWidth(scale_px(34))
         self.search_input.setMinimumWidth(scale_px(180))
         self.search_input.setMaximumWidth(scale_px(240))
-        for btn in (self.btn_followed_wis, self.btn_starred_wis, self.btn_agreements_filter):
+        for btn in (
+            self.btn_followed_wis,
+            self.btn_starred_wis,
+            self.btn_agreements_filter,
+            self.btn_unread_emails,
+            self.btn_flagged_emails,
+        ):
             btn.setFixedSize(scale_px(28), scale_px(28))
         caps = (
             (self.company_combo, 165),
@@ -1432,6 +1466,30 @@ class TDocsWindow(QWidget):
         checked = self.btn_agreements_filter.isChecked()
         self.proxy.setAgreementsFilter(checked)
         self._update_tracked_wi_button_styles()
+
+    def _toggle_unread_emails_filter(self):
+        """Toggles 1-click filtering to rows with unread emails."""
+        checked = self.btn_unread_emails.isChecked()
+        if checked and hasattr(self, "btn_flagged_emails"):
+            self.btn_flagged_emails.blockSignals(True)
+            self.btn_flagged_emails.setChecked(False)
+            self.btn_flagged_emails.blockSignals(False)
+        self.proxy.setEmailStateFilter("UNREAD" if checked else "ALL")
+        self._update_tracked_wi_button_styles()
+        self._update_filter_facets()
+        QTimer.singleShot(0, self._update_count_label)
+
+    def _toggle_flagged_emails_filter(self):
+        """Toggles 1-click filtering to rows with Outlook-flagged emails."""
+        checked = self.btn_flagged_emails.isChecked()
+        if checked and hasattr(self, "btn_unread_emails"):
+            self.btn_unread_emails.blockSignals(True)
+            self.btn_unread_emails.setChecked(False)
+            self.btn_unread_emails.blockSignals(False)
+        self.proxy.setEmailStateFilter("FLAGGED" if checked else "ALL")
+        self._update_tracked_wi_button_styles()
+        self._update_filter_facets()
+        QTimer.singleShot(0, self._update_count_label)
 
     def locate_tdoc(self, tdoc_id: str):
         """Public API to scroll to and highlight a specific TDoc in the table."""
@@ -1677,6 +1735,72 @@ class TDocsWindow(QWidget):
                 """)
             else:
                 self.btn_agreements_filter.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {C.BG_SURFACE};
+                        color: {C.TEXT_SECONDARY};
+                        border: 1px solid {C.BORDER_STRONG};
+                        border-radius: 4px;
+                        padding: 2px;
+                        font-size: 13px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {C.BG_CANVAS};
+                        border-color: {C.TEXT_FAINT};
+                    }}
+                """)
+
+        if hasattr(self, "btn_unread_emails"):
+            if self.btn_unread_emails.isChecked():
+                self.btn_unread_emails.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {C.INFO_SOFT_STRONG};
+                        color: {C.INFO_DARK};
+                        border: 1.5px solid {C.INFO_ACCENT};
+                        border-radius: 4px;
+                        padding: 2px;
+                        font-size: 13px;
+                        font-weight: bold;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {C.INFO_BORDER};
+                        border-color: {C.ACCENT_ALT};
+                    }}
+                """)
+            else:
+                self.btn_unread_emails.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {C.BG_SURFACE};
+                        color: {C.TEXT_SECONDARY};
+                        border: 1px solid {C.BORDER_STRONG};
+                        border-radius: 4px;
+                        padding: 2px;
+                        font-size: 13px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {C.BG_CANVAS};
+                        border-color: {C.TEXT_FAINT};
+                    }}
+                """)
+
+        if hasattr(self, "btn_flagged_emails"):
+            if self.btn_flagged_emails.isChecked():
+                self.btn_flagged_emails.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: #FEE2E2;
+                        color: #B91C1C;
+                        border: 1.5px solid #DC2626;
+                        border-radius: 4px;
+                        padding: 2px;
+                        font-size: 13px;
+                        font-weight: bold;
+                    }}
+                    QPushButton:hover {{
+                        background-color: #FECACA;
+                        border-color: #B91C1C;
+                    }}
+                """)
+            else:
+                self.btn_flagged_emails.setStyleSheet(f"""
                     QPushButton {{
                         background-color: {C.BG_SURFACE};
                         color: {C.TEXT_SECONDARY};
@@ -1970,8 +2094,16 @@ class TDocsWindow(QWidget):
             self.btn_agreements_filter.setChecked(False)
             self.btn_agreements_filter.blockSignals(False)
 
+        for btn_attr in ("btn_unread_emails", "btn_flagged_emails"):
+            if hasattr(self, btn_attr):
+                b = getattr(self, btn_attr)
+                b.blockSignals(True)
+                b.setChecked(False)
+                b.blockSignals(False)
+
         self.proxy.setTrackedWIFilters(False, False)
         self.proxy.setAgreementsFilter(False)
+        self.proxy.setEmailStateFilter("ALL")
         if hasattr(self, "row_mode_combo"):
             self.row_mode_combo.blockSignals(True)
             self.row_mode_combo.setCurrentIndex(0)
@@ -3249,6 +3381,7 @@ class TDocsWindow(QWidget):
             return
         try:
             threads = self.tracked_threads_db.get_threads_for_meeting(self._get_meeting_id_label())
+            tracked_unread_ids = set()
             for t in threads:
                 cur_tdocs = t.get("linked_tdocs") or []
                 if cur_tdocs:
@@ -3257,6 +3390,9 @@ class TDocsWindow(QWidget):
                         t["linked_tdocs"] = expanded
                         self.tracked_threads_db.update_thread_links(t["thread_id"], linked_tdocs=expanded)
                 msgs = self.tracked_threads_db.get_thread_messages(t["thread_id"])
+                for m in msgs:
+                    if int(m.get("is_read", 0) or 0) == 0 and m.get("id"):
+                        tracked_unread_ids.add(str(m["id"]))
                 comps = list(dict.fromkeys(
                     str(m.get("company") or "").strip()
                     for m in msgs
@@ -3265,12 +3401,22 @@ class TDocsWindow(QWidget):
                 if comps:
                     t["participants_companies"] = ", ".join(comps)
             self.model.sync_tracked_thread_rows(threads)
-            total_unread = sum(int(t.get("unread_count", 0)) for t in threads)
+            tdoc_unread_ids = set()
+            if hasattr(self, "general_email_db") and self.general_email_db is not None:
+                for stats in (self.general_email_db.get_email_counts_per_tdoc() or {}).values():
+                    tdoc_unread_ids.update(str(eid) for eid in (stats.get("unread_ids") or ()) if eid)
+            total_unread = len(tracked_unread_ids | tdoc_unread_ids)
             if hasattr(self, "email_btn"):
                 if total_unread > 0:
                     self.email_btn.setText(f"📧 Emails ({total_unread} new) ▾")
+                    self.email_btn.setToolTip(
+                        f"Email Discussions & Tracked Threads\n"
+                        f"{total_unread} unread email(s) total "
+                        f"({len(tracked_unread_ids)} in Tracked Threads, {len(tdoc_unread_ids)} in TDoc Emails)."
+                    )
                 else:
                     self.email_btn.setText("📧 Emails ▾")
+                    self.email_btn.setToolTip("Email Discussions & Tracked Threads (no unread emails).")
         except Exception as e:
             logging.error(f"Error syncing tracked email threads to table: {e}")
 
@@ -3428,10 +3574,57 @@ class TDocsWindow(QWidget):
             self,
             agenda_map=agenda_map,
             valid_wis=valid_wis,
+            meeting_dir=getattr(self, "meeting_dir", None),
+            general_email_db=getattr(self, "general_email_db", None),
+            valid_tdocs=getattr(self.model, "valid_tdocs", set()),
+            mtg_start_date=str(self.mtg_info.get("start_date") or ""),
+            mtg_end_date=str(self.mtg_info.get("end_date") or ""),
         )
         if dlg.exec_() == QDialog.Accepted and dlg.pinned_thread_ids:
             self._on_tracked_thread_changed()
             self._open_tracked_thread_dialog(dlg.pinned_thread_ids[-1])
+
+    def _open_meeting_email_inbox(self):
+        """Opens the unified Unread & Flagged Email Inbox cockpit across Tracked Threads and TDoc Emails."""
+        existing = getattr(self, "_inbox_dialog", None)
+        if existing is not None:
+            try:
+                existing.reload_from_dbs()
+                existing.setWindowState(existing.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+                existing.raise_()
+                existing.activateWindow()
+                return
+            except RuntimeError:
+                self._inbox_dialog = None
+
+        tdoc_ai_lookup = {}
+        if hasattr(self, "model") and hasattr(self.model, "_data"):
+            for r in self.model._data:
+                if r.get("_is_tracked_thread"):
+                    continue
+                td = str(r.get("TDoc") or "").strip().upper()
+                ai = str(r.get("Agenda Item") or "").strip()
+                if td and ai:
+                    tdoc_ai_lookup[td] = ai
+
+        def _focus_tdoc(tdoc_id: str):
+            self.locate_tdoc(tdoc_id)
+            self.raise_()
+            self.activateWindow()
+
+        dlg = MeetingEmailInboxDialog(
+            tracked_db=getattr(self, "tracked_threads_db", None),
+            general_email_db=getattr(self, "general_email_db", None),
+            meeting_id=self._get_meeting_id_label(),
+            tdoc_ai_lookup=tdoc_ai_lookup,
+            open_thread_callback=self._open_tracked_thread_dialog,
+            open_tdoc_callback=_focus_tdoc,
+            parent=None,
+        )
+        dlg.data_changed.connect(self._refresh_email_counts)
+        self._inbox_dialog = dlg
+        dlg.finished.connect(lambda _=None: setattr(self, "_inbox_dialog", None))
+        dlg.show()
 
     def _on_refresh_tracked_threads(self, silent: bool = False):
         if getattr(self, "_tracked_threads_sync_worker", None) and self._tracked_threads_sync_worker.isRunning():

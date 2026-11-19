@@ -1154,6 +1154,7 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         self.starred_wi_tokens = set()
         self.sort_mode = "AGENDA"
         self.row_mode_filter = "ALL"
+        self.email_state_filter = "ALL"
         self.tag_filters = set()
         self.tag_filters_active = False
 
@@ -1167,6 +1168,12 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
         norm = str(mode or "ALL").upper()
         if self.row_mode_filter != norm:
             self.row_mode_filter = norm
+            self.invalidateFilter()
+
+    def setEmailStateFilter(self, mode: str):
+        norm = str(mode or "ALL").upper()
+        if self.email_state_filter != norm:
+            self.email_state_filter = norm
             self.invalidateFilter()
 
     def setIncludeTentativeSources(self, include_tentative: bool):
@@ -1268,6 +1275,17 @@ class TDocsFilterProxyModel(QSortFilterProxyModel):
             if self.row_mode_filter == "TDOCS" and is_thread:
                 return False
             if self.row_mode_filter == "THREADS" and not is_thread:
+                return False
+
+        if exclude_filter != "email_state" and self.email_state_filter != "ALL":
+            unread_cnt = int(row.get("_email_unread", 0) or 0)
+            flagged_cnt = int(row.get("_email_flagged", 0) or 0)
+            tot_cnt = int(row.get("_email_tot", 0) or 0)
+            if self.email_state_filter == "UNREAD" and unread_cnt <= 0:
+                return False
+            if self.email_state_filter == "FLAGGED" and flagged_cnt <= 0:
+                return False
+            if self.email_state_filter == "ANY" and tot_cnt <= 0:
                 return False
 
         if exclude_filter != "agreements" and self.filter_agreements_only:
