@@ -1485,6 +1485,7 @@ def test_meeting_email_inbox_dialog_triage(tmp_path):
     opened_tdocs = []
     changes = []
 
+    from PyQt5.QtCore import QSettings as _QSettings
     with patch.object(OutlookClient, "set_messages_read_status", return_value=1) as mock_read, \
          patch.object(OutlookClient, "set_messages_flag_status", return_value=1) as mock_flag:
         dlg = MeetingEmailInboxDialog(
@@ -1494,6 +1495,7 @@ def test_meeting_email_inbox_dialog_triage(tmp_path):
             tdoc_ai_lookup={"S2-2612345": "20.2"},
             open_thread_callback=lambda t: opened_threads.append(t),
             open_tdoc_callback=lambda td: opened_tdocs.append(td),
+            settings=_QSettings(str(tmp_path / "inbox_triage.ini"), _QSettings.IniFormat),
         )
         dlg.data_changed.connect(lambda: changes.append(True))
 
@@ -1739,6 +1741,7 @@ def test_inbox_unassigned_filters_grouping_and_inline_assignment(tmp_path):
         [{"email_id": "E-UNPIN", "tdoc_id": "S2-2612999", "match_location": "Subject"}],
     )
 
+    from PyQt5.QtCore import QSettings as _QSettings
     with patch.object(OutlookClient, "set_messages_read_status", return_value=1), \
          patch.object(OutlookClient, "get_namespace", return_value=None):
         dlg = MeetingEmailInboxDialog(
@@ -1749,6 +1752,7 @@ def test_inbox_unassigned_filters_grouping_and_inline_assignment(tmp_path):
             wi_suggestions=["FS_6G_ARC"],
             ai_to_sub_items={"20.6.1": ["KI#4 Bullet 3"], "20.2": ["Mobility"]},
             tdoc_meta_map=tdoc_meta,
+            settings=_QSettings(str(tmp_path / "inbox_unassigned.ini"), _QSettings.IniFormat),
         )
         dlg._set_view_mode("MESSAGES")
         # Default By Message has 3 unread rows (M-U2, M-A1, E-UNPIN)
@@ -1858,6 +1862,103 @@ def test_inbox_unassigned_filters_grouping_and_inline_assignment(tmp_path):
         dlg._settings.setValue("layout_orientation", "H")
         dlg._settings.setValue("view_mode", "MESSAGES")
         dlg.close()
+
+
+def test_meeting_inbox_filter_persistence_per_meeting(tmp_path):
+    from unittest.mock import patch
+    from PyQt5.QtCore import QSettings
+    from PyQt5.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    from modules.emails.core.general_email_db import GeneralEmailDatabase
+    from modules.emails.core.outlook_client import OutlookClient
+    from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+    from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
+
+    tdb = TrackedThreadsDatabase(tmp_path / "threads.db")
+    tid1 = tdb.create_or_get_thread("Paging Discussion", "Paging Discussion", meeting_id="SA2#178", linked_ais=["20.6.1"])
+    tdb.upsert_messages(
+        tid1,
+        [{"id": "M-1", "sender_name": "Alice", "company": "Nokia", "date_sent": "2026-11-18 09:00:00", "body_text": "paging", "is_read": 1}],
+    )
+    tid2 = tdb.create_or_get_thread("Breakout Unassigned", "Breakout Unassigned", meeting_id="SA2#178")
+    tdb.upsert_messages(
+        tid2,
+        [{"id": "M-2", "sender_name": "Bob", "company": "Samsung", "date_sent": "2026-11-18 10:00:00", "body_text": "paging note", "is_read": 0}],
+    )
+    gdb = GeneralEmailDatabase(tmp_path / "general.db")
+    gdb.save_emails_batch(
+        [
+            {
+                "id": "E-1",
+                "subject": "[SA2#178] Paging baseline",
+                "sender_name": "Carol",
+                "company": "Huawei",
+                "date_received": "2026-11-18 11:00:00",
+                "body_text": "paging comment",
+                "is_read": 0,
+            }
+        ],
+        [{"email_id": "E-1", "tdoc_id": "S2-2612999", "match_location": "Subject"}],
+    )
+
+    ini_path = str(tmp_path / "inbox_persist.ini")
+    with patch.object(OutlookClient, "get_namespace", return_value=None):
+        dlg1 = MeetingEmailInboxDialog(
+            tdb,
+            gdb,
+            meeting_id="SA2#178",
+            ai_suggestions=["20.6.1 — FS_6G_ARC", "20.2 — Architecture"],
+            settings=QSettings(ini_path, QSettings.IniFormat),
+        )
+        dlg1.pill_all.click()
+        dlg1.btn_view_threads.click()
+        dlg1.source_combo.setCurrentIndex(dlg1.source_combo.findData("NEEDS_TRIAGE"))
+        dlg1.company_combo.setCheckedItems(["Samsung", "Huawei"])
+        dlg1.company_combo.selectionChanged.emit(dlg1.company_combo.getCheckedItems())
+        dlg1.ai_combo.setCheckedItems(["__UNASSIGNED__"])
+        dlg1.ai_combo.selectionChanged.emit(dlg1.ai_combo.getCheckedItems())
+        dlg1.search_edit.setText("paging")
+        assert dlg1.table.rowCount() == 2  # Breakout Unassigned + E-1
+
+        # Simulate app restart WITHOUT closing dlg1 explicitly first -> state must already be persisted per-meeting
+        dlg2 = MeetingEmailInboxDialog(
+            tdb,
+            gdb,
+            meeting_id="SA2#178",
+            ai_suggestions=["20.6.1 — FS_6G_ARC", "20.2 — Architecture"],
+            settings=QSettings(ini_path, QSettings.IniFormat),
+        )
+        assert dlg2._active_mode == "ALL"
+        assert dlg2.pill_all.isChecked()
+        assert dlg2._view_mode == "THREADS"
+        assert dlg2.btn_view_threads.isChecked()
+        assert dlg2.source_combo.currentData() == "NEEDS_TRIAGE"
+        assert dlg2.search_edit.text() == "paging"
+        assert set(dlg2.company_combo.getCheckedItems()) == {"Samsung", "Huawei"}
+        assert set(dlg2.ai_combo.getCheckedItems()) == {"__UNASSIGNED__"}
+        assert dlg2.table.rowCount() == 2
+
+        # Different meeting keeps clean independent defaults
+        dlg_other = MeetingEmailInboxDialog(
+            tdb,
+            gdb,
+            meeting_id="RAN2#132",
+            ai_suggestions=["7.1 — Study"],
+            settings=QSettings(ini_path, QSettings.IniFormat),
+        )
+        assert dlg_other._active_mode == "UNREAD"
+        assert dlg_other.pill_unread.isChecked()
+        assert dlg_other._view_mode == "MESSAGES"
+        assert dlg_other.btn_view_messages.isChecked()
+        assert dlg_other.source_combo.currentData() == ""
+        assert dlg_other.search_edit.text() == ""
+        assert not dlg_other.company_combo.isFiltered()
+        assert not dlg_other.ai_combo.isFiltered()
+
+        dlg1.close()
+        dlg2.close()
+        dlg_other.close()
 
 
 def test_cross_meeting_tdoc_direct_open(tmp_path):

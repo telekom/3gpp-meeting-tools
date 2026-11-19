@@ -1,6 +1,7 @@
 # --- File: src/modules/emails/ui/meeting_email_inbox_dialog.py ---
 from datetime import datetime, timedelta
 import html
+import json
 from pathlib import Path
 import re
 from typing import Any, Callable, Dict, List, Optional
@@ -79,6 +80,7 @@ class MeetingEmailInboxDialog(QDialog):
         ai_to_sub_items: Optional[Dict[str, List[str]]] = None,
         tdoc_meta_map: Optional[Dict[str, Dict[str, Any]]] = None,
         agenda_map: Optional[Dict[str, Any]] = None,
+        settings: Optional[QSettings] = None,
     ):
         super().__init__(parent)
         self.tracked_db = tracked_db
@@ -110,9 +112,15 @@ class MeetingEmailInboxDialog(QDialog):
         self._visible_items: List[dict] = []
         self._items_by_id: Dict[str, dict] = {}
         self._current_item: Optional[dict] = None
+        self._settings = settings if settings is not None else QSettings("3GPP_Tools", "MeetingEmailInboxDialog")
+        self._restoring_filters = True
         self._active_mode = "UNREAD"
-        self._settings = QSettings("3GPP_Tools", "MeetingEmailInboxDialog")
-        self._view_mode = "THREADS" if self._settings.value("view_mode", "MESSAGES") == "THREADS" else "MESSAGES"
+        self._view_mode = "MESSAGES"
+        self._saved_source_filter = ""
+        self._saved_search_text = ""
+        self._pending_company_filter: Optional[List[str]] = None
+        self._pending_ai_filter: Optional[List[str]] = None
+        self._load_filter_settings()
         self._layout_orientation = "V" if self._settings.value("layout_orientation", "H") == "V" else "H"
         self._updating_assign_bar = False
 
@@ -130,8 +138,86 @@ class MeetingEmailInboxDialog(QDialog):
             except Exception:
                 pass
 
-        self._build_ui()
-        self.reload_from_dbs()
+        try:
+            self._build_ui()
+            self.reload_from_dbs()
+        finally:
+            self._restoring_filters = False
+
+    def _meeting_settings_prefix(self) -> str:
+        raw = self.meeting_id or "_global"
+        safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw).strip("_") or "_global"
+        return f"meetings/{safe}"
+
+    @staticmethod
+    def _parse_json_str_list(raw_val: Any) -> List[str]:
+        if isinstance(raw_val, list):
+            return [str(x).strip() for x in raw_val if str(x).strip()]
+        text = str(raw_val or "").strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return [str(x).strip() for x in parsed if str(x).strip()]
+        except Exception:
+            pass
+        return []
+
+    def _load_filter_settings(self):
+        prefix = self._meeting_settings_prefix()
+        mode = str(self._settings.value(f"{prefix}/active_mode", "UNREAD") or "UNREAD").strip().upper()
+        self._active_mode = mode if mode in ("UNREAD", "FLAGGED", "RECENT", "ALL") else "UNREAD"
+
+        raw_vm = self._settings.value(f"{prefix}/view_mode", None)
+        if raw_vm is None:
+            raw_vm = self._settings.value("view_mode", "MESSAGES")
+        self._view_mode = "THREADS" if str(raw_vm or "").strip().upper() == "THREADS" else "MESSAGES"
+
+        src = str(self._settings.value(f"{prefix}/source_filter", "") or "").strip().upper()
+        self._saved_source_filter = src if src in ("", "NEEDS_TRIAGE", "THREAD", "UNPINNED") else ""
+        self._saved_search_text = str(self._settings.value(f"{prefix}/search_text", "") or "")
+
+        comp_filtered = self._settings.value(f"{prefix}/company_filtered", False, type=bool)
+        comp_list = self._parse_json_str_list(self._settings.value(f"{prefix}/company_checked", "[]"))
+        self._pending_company_filter = comp_list if (comp_filtered and comp_list) else None
+
+        ai_filtered = self._settings.value(f"{prefix}/ai_filtered", False, type=bool)
+        ai_list = self._parse_json_str_list(self._settings.value(f"{prefix}/ai_checked", "[]"))
+        self._pending_ai_filter = ai_list if (ai_filtered and ai_list) else None
+
+    def _save_filter_settings(self):
+        if getattr(self, "_restoring_filters", False):
+            return
+        try:
+            prefix = self._meeting_settings_prefix()
+            self._settings.setValue(f"{prefix}/active_mode", self._active_mode)
+            self._settings.setValue(f"{prefix}/view_mode", self._view_mode)
+            if hasattr(self, "source_combo"):
+                self._settings.setValue(f"{prefix}/source_filter", str(self.source_combo.currentData() or ""))
+            if hasattr(self, "search_edit"):
+                self._settings.setValue(f"{prefix}/search_text", self.search_edit.text())
+            if hasattr(self, "company_combo"):
+                comp_filtered = self.company_combo.isFiltered()
+                comp_checked = (
+                    [str(c) for c in self.company_combo.getCheckedItems() if str(c).strip()]
+                    if comp_filtered
+                    else []
+                )
+                self._settings.setValue(f"{prefix}/company_filtered", bool(comp_filtered and comp_checked))
+                self._settings.setValue(f"{prefix}/company_checked", json.dumps(comp_checked))
+            if hasattr(self, "ai_combo"):
+                ai_filtered = self.ai_combo.isFiltered()
+                ai_checked = (
+                    [str(a) for a in self.ai_combo.getCheckedItems() if str(a).strip()]
+                    if ai_filtered
+                    else []
+                )
+                self._settings.setValue(f"{prefix}/ai_filtered", bool(ai_filtered and ai_checked))
+                self._settings.setValue(f"{prefix}/ai_checked", json.dumps(ai_checked))
+            self._settings.sync()
+        except Exception:
+            pass
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -157,7 +243,7 @@ class MeetingEmailInboxDialog(QDialog):
 
         self.pill_unread = QPushButton("🔵 Unread Only (0)")
         self.pill_unread.setCheckable(True)
-        self.pill_unread.setChecked(True)
+        self.pill_unread.setChecked(self._active_mode == "UNREAD")
         self.pill_unread.setStyleSheet(pill_style)
         self.mode_group.addButton(self.pill_unread)
         self.pill_unread.clicked.connect(lambda: self._set_mode("UNREAD"))
@@ -165,6 +251,7 @@ class MeetingEmailInboxDialog(QDialog):
 
         self.pill_flagged = QPushButton("🚩 Flagged (0)")
         self.pill_flagged.setCheckable(True)
+        self.pill_flagged.setChecked(self._active_mode == "FLAGGED")
         self.pill_flagged.setStyleSheet(
             "QPushButton { padding: 4px 10px; border-radius: 13px; border: 1px solid #CBD5E1; "
             "background-color: #FFFFFF; color: #334155; font-size: 12px; } "
@@ -178,6 +265,7 @@ class MeetingEmailInboxDialog(QDialog):
 
         self.pill_recent = QPushButton("🕒 Last 24h (0)")
         self.pill_recent.setCheckable(True)
+        self.pill_recent.setChecked(self._active_mode == "RECENT")
         self.pill_recent.setStyleSheet(pill_style)
         self.mode_group.addButton(self.pill_recent)
         self.pill_recent.clicked.connect(lambda: self._set_mode("RECENT"))
@@ -185,6 +273,7 @@ class MeetingEmailInboxDialog(QDialog):
 
         self.pill_all = QPushButton("📋 All (0)")
         self.pill_all.setCheckable(True)
+        self.pill_all.setChecked(self._active_mode == "ALL")
         self.pill_all.setStyleSheet(pill_style)
         self.mode_group.addButton(self.pill_all)
         self.pill_all.clicked.connect(lambda: self._set_mode("ALL"))
@@ -222,6 +311,8 @@ class MeetingEmailInboxDialog(QDialog):
         self.search_edit.setMinimumWidth(190)
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setPlaceholderText("🔍 Search subject, sender, company, TDoc, or body...")
+        if self._saved_search_text:
+            self.search_edit.setText(self._saved_search_text)
         self.search_edit.textChanged.connect(self._apply_filters)
         top_row.addWidget(self.search_edit)
 
@@ -244,6 +335,10 @@ class MeetingEmailInboxDialog(QDialog):
         self.source_combo.addItem("⚠️ Needs Assignment (No AI / Unpinned)", "NEEDS_TRIAGE")
         self.source_combo.addItem("🧵 Tracked Threads Only", "THREAD")
         self.source_combo.addItem("📄 Unpinned Only", "UNPINNED")
+        if self._saved_source_filter:
+            src_idx = self.source_combo.findData(self._saved_source_filter)
+            if src_idx >= 0:
+                self.source_combo.setCurrentIndex(src_idx)
         self.source_combo.setToolTip("Filter by Tracked Thread vs. Unpinned TDoc Email, or isolate items needing assignment.")
         self.source_combo.currentIndexChanged.connect(self._apply_filters)
         top_row.addWidget(self.source_combo)
@@ -524,20 +619,40 @@ class MeetingEmailInboxDialog(QDialog):
                 self._settings.setValue(key, self.splitter.saveState())
             if hasattr(self, "preview_browser"):
                 self._settings.setValue("zoom_steps", int(self.preview_browser.property("_reader_zoom_steps") or 0))
+            self._save_filter_settings()
         except Exception:
             pass
         super().closeEvent(event)
 
     def _set_mode(self, mode: str):
-        self._active_mode = str(mode or "UNREAD").upper()
+        norm = str(mode or "UNREAD").strip().upper()
+        if norm not in ("UNREAD", "FLAGGED", "RECENT", "ALL"):
+            norm = "UNREAD"
+        self._active_mode = norm
+        for pill, key in (
+            (getattr(self, "pill_unread", None), "UNREAD"),
+            (getattr(self, "pill_flagged", None), "FLAGGED"),
+            (getattr(self, "pill_recent", None), "RECENT"),
+            (getattr(self, "pill_all", None), "ALL"),
+        ):
+            if pill is not None:
+                pill.blockSignals(True)
+                pill.setChecked(norm == key)
+                pill.blockSignals(False)
         self._populate_filter_combos()
         self._apply_filters()
 
     def _set_view_mode(self, view_mode: str):
         norm = "THREADS" if str(view_mode or "").upper() == "THREADS" else "MESSAGES"
-        if self._view_mode != norm:
-            self._view_mode = norm
-            self._settings.setValue("view_mode", norm)
+        self._view_mode = norm
+        if hasattr(self, "btn_view_messages"):
+            self.btn_view_messages.blockSignals(True)
+            self.btn_view_messages.setChecked(norm == "MESSAGES")
+            self.btn_view_messages.blockSignals(False)
+        if hasattr(self, "btn_view_threads"):
+            self.btn_view_threads.blockSignals(True)
+            self.btn_view_threads.setChecked(norm == "THREADS")
+            self.btn_view_threads.blockSignals(False)
         self._populate_filter_combos()
         self._update_pill_counts()
         self._apply_filters()
@@ -755,6 +870,12 @@ class MeetingEmailInboxDialog(QDialog):
 
         self.company_combo.blockSignals(True)
         self.company_combo.updateItems(companies)
+        if self._pending_company_filter is not None and companies:
+            wanted_lower = {c.lower() for c in self._pending_company_filter}
+            matched_comps = [c for c in companies if c.lower() in wanted_lower]
+            if matched_comps:
+                self.company_combo.setCheckedItems(matched_comps)
+            self._pending_company_filter = None
         self.company_combo.blockSignals(False)
 
         ai_items = ["__UNASSIGNED__"] + ais
@@ -771,6 +892,12 @@ class MeetingEmailInboxDialog(QDialog):
 
         self.ai_combo.blockSignals(True)
         self.ai_combo.updateItems(ai_items, display_labels=ai_labels, item_tooltips=ai_tooltips)
+        if self._pending_ai_filter is not None and dataset:
+            wanted_ais = set(self._pending_ai_filter)
+            matched_ais = [a for a in ai_items if a in wanted_ais]
+            if matched_ais:
+                self.ai_combo.setCheckedItems(matched_ais)
+            self._pending_ai_filter = None
         self.ai_combo.blockSignals(False)
 
     @staticmethod
@@ -791,6 +918,7 @@ class MeetingEmailInboxDialog(QDialog):
         self.pill_all.setText(f"📋 All ({total_cnt})")
 
     def _apply_filters(self, *_args, preserve_id: Optional[str] = None, select_row: Optional[int] = None):
+        self._save_filter_settings()
         target_id = preserve_id if preserve_id is not None else (self._current_item["id"] if self._current_item else None)
         mode = self._active_mode
         cutoff = self._recent_cutoff_str()
