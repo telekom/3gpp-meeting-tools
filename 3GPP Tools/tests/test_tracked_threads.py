@@ -312,9 +312,16 @@ def test_newest_first_ordering_filters_and_llm_workspace(tmp_path):
     assert "1 of 2" in dlg.msg_count_lbl.text()
     dlg.msg_search_edit.clear()
     idx_nokia = dlg.company_filter_combo.findData("Nokia")
-    assert idx_nokia >= 0
-    dlg.company_filter_combo.setCurrentIndex(idx_nokia)
+    assert idx_nokia >= 1
+    dlg.company_filter_combo.setCheckedItems(["Nokia"])
+    dlg.company_filter_combo.selectionChanged.emit(dlg.company_filter_combo.getCheckedItems())
     assert "1 of 2" in dlg.msg_count_lbl.text()
+    dlg.company_filter_combo.setCheckedItems(["Nokia", "Ericsson"])
+    dlg.company_filter_combo.selectionChanged.emit(dlg.company_filter_combo.getCheckedItems())
+    assert "2 message(s)" in dlg.msg_count_lbl.text()
+    dlg.company_filter_combo.setCheckedItems([])
+    dlg.company_filter_combo.selectionChanged.emit(dlg.company_filter_combo.getCheckedItems())
+    assert "2 message(s)" in dlg.msg_count_lbl.text()
     dlg.close()
 
     cache_dir = tmp_path / "cache"
@@ -1628,6 +1635,16 @@ def test_unified_tdoc_emails_dialog_timeline_and_actions(tmp_path):
         dlg._on_anchor_clicked(QUrl("tdoc:S2-2612674"))
         assert tdoc_jumps == ["S2-2612674"]
 
+        # Multi-select company filter on TDocEmailsDialog (CheckableComboBox)
+        dlg.company_filter_combo.setCheckedItems(["Nokia"])
+        dlg.company_filter_combo.selectionChanged.emit(dlg.company_filter_combo.getCheckedItems())
+        assert "1 of 2" in dlg.msg_count_lbl.text()
+        dlg.company_filter_combo.setCheckedItems(["Nokia", "Samsung"])
+        dlg.company_filter_combo.selectionChanged.emit(dlg.company_filter_combo.getCheckedItems())
+        assert "2 message(s)" in dlg.msg_count_lbl.text()
+        dlg.company_filter_combo.setCheckedItems([])
+        dlg.company_filter_combo.selectionChanged.emit(dlg.company_filter_combo.getCheckedItems())
+
         # Include Quoted toggle hides quoted match, restoring restores it
         dlg.chk_include_quoted.setChecked(False)
         assert len(dlg.emails) == 1
@@ -1737,14 +1754,31 @@ def test_inbox_unassigned_filters_grouping_and_inline_assignment(tmp_path):
         # Default By Message has 3 unread rows (M-U2, M-A1, E-UNPIN)
         assert dlg.table.rowCount() == 3
 
-        # Filter AI = __UNASSIGNED__ -> isolates M-U2 (no AI) and E-UNPIN (no AI)
+        # Multi-select AI filter: __UNASSIGNED__ -> isolates M-U2 (no AI) and E-UNPIN (no AI)
         idx_unassigned = dlg.ai_combo.findData("__UNASSIGNED__")
         assert idx_unassigned >= 1
         assert "(2)" in dlg.ai_combo.itemText(idx_unassigned)
-        dlg.ai_combo.setCurrentIndex(idx_unassigned)
+        dlg.ai_combo.setCheckedItems(["__UNASSIGNED__"])
+        dlg.ai_combo.selectionChanged.emit(dlg.ai_combo.getCheckedItems())
         assert dlg.table.rowCount() == 2
 
-        # Filter Source = UNPINNED -> isolates E-UNPIN only
+        # Multi-select AI: __UNASSIGNED__ + 20.6.1 -> shows all 3 unread rows
+        dlg.ai_combo.setCheckedItems(["__UNASSIGNED__", "20.6.1"])
+        dlg.ai_combo.selectionChanged.emit(dlg.ai_combo.getCheckedItems())
+        assert dlg.table.rowCount() == 3
+
+        # Multi-select Company: Samsung + Huawei -> isolates M-U2 & E-UNPIN (2 rows), excluding Ericsson
+        dlg.ai_combo.setCheckedItems([])
+        dlg.ai_combo.selectionChanged.emit(dlg.ai_combo.getCheckedItems())
+        dlg.company_combo.setCheckedItems(["Samsung", "Huawei"])
+        dlg.company_combo.selectionChanged.emit(dlg.company_combo.getCheckedItems())
+        assert dlg.table.rowCount() == 2
+        dlg.company_combo.setCheckedItems([])
+        dlg.company_combo.selectionChanged.emit(dlg.company_combo.getCheckedItems())
+
+        # Filter AI = __UNASSIGNED__ & Source = UNPINNED -> isolates E-UNPIN only
+        dlg.ai_combo.setCheckedItems(["__UNASSIGNED__"])
+        dlg.ai_combo.selectionChanged.emit(dlg.ai_combo.getCheckedItems())
         dlg.source_combo.setCurrentIndex(dlg.source_combo.findData("UNPINNED"))
         assert dlg.table.rowCount() == 1
         assert dlg._current_item["id"] == "E-UNPIN"
@@ -1752,7 +1786,8 @@ def test_inbox_unassigned_filters_grouping_and_inline_assignment(tmp_path):
 
         # Assign AI inline directly on the unpinned email -> auto-pins in-place & links AI 20.2
         dlg.source_combo.setCurrentIndex(0)
-        dlg.ai_combo.setCurrentIndex(0)
+        dlg.ai_combo.setCheckedItems([])
+        dlg.ai_combo.selectionChanged.emit(dlg.ai_combo.getCheckedItems())
         dlg.table.selectRow(0)  # E-UNPIN (newest: 12:00)
         dlg.assign_ais_pills.add_tag("20.2")
         pinned_list = [t for t in tdb.get_threads_for_meeting("SA2#178") if "S2-2612999" in (t.get("linked_tdocs") or [])]

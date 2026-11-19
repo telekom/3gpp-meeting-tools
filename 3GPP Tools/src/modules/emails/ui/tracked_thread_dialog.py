@@ -43,8 +43,9 @@ from core.ai.cli_launcher import (
     write_cli_context_file,
 )
 from core.ui.flow_layout import FlowLayout
-from core.ui.font_scale import install_reader_zoom, zoom_text_widget
+from core.ui.font_scale import install_reader_zoom, scale_px, zoom_text_widget
 from core.ui.toast import notify_info, notify_success, notify_toast
+from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.emails.core.thread_markdown_exporter import (
     export_thread_to_markdown,
     find_unread_heading_blocks,
@@ -321,9 +322,11 @@ class TrackedThreadDialog(QDialog):
         self.msg_search_edit.textChanged.connect(self._render_messages)
         filter_row.addWidget(self.msg_search_edit, 1)
 
-        self.company_filter_combo = QComboBox()
-        self.company_filter_combo.addItem("All Companies", "")
-        self.company_filter_combo.currentIndexChanged.connect(self._render_messages)
+        self.company_filter_combo = CheckableComboBox("Company")
+        self.company_filter_combo.setMinimumWidth(scale_px(130))
+        self.company_filter_combo.setMaximumWidth(scale_px(190))
+        self.company_filter_combo.setToolTip("Filter messages by one or more sender companies.")
+        self.company_filter_combo.selectionChanged.connect(self._render_messages)
         filter_row.addWidget(self.company_filter_combo)
 
         self.state_filter_combo = QComboBox()
@@ -457,19 +460,13 @@ class TrackedThreadDialog(QDialog):
         super().closeEvent(event)
 
     def _populate_company_filter(self, messages: list):
-        cur_val = self.company_filter_combo.currentData() or ""
         companies = sorted({
             str(m.get("company") or "").strip()
             for m in messages
             if str(m.get("company") or "").strip() and str(m.get("company") or "").strip().lower() not in ("unknown", "list")
         }, key=str.lower)
         self.company_filter_combo.blockSignals(True)
-        self.company_filter_combo.clear()
-        self.company_filter_combo.addItem("All Companies", "")
-        for c in companies:
-            self.company_filter_combo.addItem(c, c)
-        idx = self.company_filter_combo.findData(cur_val)
-        self.company_filter_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.company_filter_combo.updateItems(companies)
         self.company_filter_combo.blockSignals(False)
 
     def _load_data(self):
@@ -514,7 +511,12 @@ class TrackedThreadDialog(QDialog):
             return
 
         query = (self.msg_search_edit.text() if hasattr(self, "msg_search_edit") else "").strip().lower()
-        comp_filter = (self.company_filter_combo.currentData() if hasattr(self, "company_filter_combo") else "") or ""
+        filter_comp = hasattr(self, "company_filter_combo") and self.company_filter_combo.isFiltered()
+        selected_comps = (
+            {str(c).strip().lower() for c in self.company_filter_combo.getCheckedItems() if str(c).strip()}
+            if filter_comp
+            else set()
+        )
         state_filter = (self.state_filter_combo.currentData() if hasattr(self, "state_filter_combo") else "all") or "all"
 
         filtered = []
@@ -523,7 +525,7 @@ class TrackedThreadDialog(QDialog):
                 continue
             if state_filter == "flagged" and int(m.get("flag_status", 0) or 0) != 2:
                 continue
-            if comp_filter and (m.get("company") or "").strip().lower() != comp_filter.lower():
+            if filter_comp and (m.get("company") or "").strip().lower() not in selected_comps:
                 continue
             if query:
                 haystack = " ".join([

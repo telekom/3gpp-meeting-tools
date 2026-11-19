@@ -30,8 +30,9 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.flow_layout import FlowLayout
-from core.ui.font_scale import install_reader_zoom, zoom_text_widget
+from core.ui.font_scale import install_reader_zoom, scale_px, zoom_text_widget
 from core.ui.toast import notify_info, notify_success, notify_toast
+from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.emails.core.outlook_client import OutlookClient
 from modules.emails.core.thread_markdown_exporter import (
     escape_non_html_angles,
@@ -224,15 +225,18 @@ class MeetingEmailInboxDialog(QDialog):
         self.search_edit.textChanged.connect(self._apply_filters)
         top_row.addWidget(self.search_edit)
 
-        self.company_combo = QComboBox()
-        self.company_combo.addItem("All Companies", "")
-        self.company_combo.currentIndexChanged.connect(self._apply_filters)
+        self.company_combo = CheckableComboBox("Company")
+        self.company_combo.setMinimumWidth(scale_px(135))
+        self.company_combo.setMaximumWidth(scale_px(185))
+        self.company_combo.setToolTip("Filter by one or more participating/sender companies.")
+        self.company_combo.selectionChanged.connect(self._apply_filters)
         top_row.addWidget(self.company_combo)
 
-        self.ai_combo = QComboBox()
-        self.ai_combo.setMaximumWidth(230)
-        self.ai_combo.addItem("All AIs", "")
-        self.ai_combo.currentIndexChanged.connect(self._apply_filters)
+        self.ai_combo = CheckableComboBox("AI")
+        self.ai_combo.setMinimumWidth(scale_px(130))
+        self.ai_combo.setMaximumWidth(scale_px(210))
+        self.ai_combo.setToolTip("Filter by one or more Agenda Items (or Unassigned).")
+        self.ai_combo.selectionChanged.connect(self._apply_filters)
         top_row.addWidget(self.ai_combo)
 
         self.source_combo = QComboBox()
@@ -734,8 +738,6 @@ class MeetingEmailInboxDialog(QDialog):
         return True
 
     def _populate_filter_combos(self):
-        cur_comp = self.company_combo.currentData() or ""
-        cur_ai = self.ai_combo.currentData() or ""
         cutoff = self._recent_cutoff_str()
         dataset = [it for it in self._active_dataset() if self._item_matches_mode(it, self._active_mode, cutoff)]
 
@@ -752,25 +754,23 @@ class MeetingEmailInboxDialog(QDialog):
         unassigned_cnt = sum(1 for it in dataset if not (it.get("linked_ais") or []))
 
         self.company_combo.blockSignals(True)
-        self.company_combo.clear()
-        self.company_combo.addItem("All Companies", "")
-        for c in companies:
-            self.company_combo.addItem(c, c)
-        c_idx = self.company_combo.findData(cur_comp)
-        self.company_combo.setCurrentIndex(max(0, c_idx))
+        self.company_combo.updateItems(companies)
         self.company_combo.blockSignals(False)
 
-        self.ai_combo.blockSignals(True)
-        self.ai_combo.clear()
-        self.ai_combo.addItem("All AIs", "")
-        self.ai_combo.addItem(f"❓ Unassigned (No AI) ({unassigned_cnt})", "__UNASSIGNED__")
+        ai_items = ["__UNASSIGNED__"] + ais
+        ai_labels: Dict[str, str] = {
+            "__UNASSIGNED__": f"❓ Unassigned (No AI) ({unassigned_cnt})",
+        }
+        ai_tooltips: Dict[str, str] = {
+            "__UNASSIGNED__": f"Emails or threads without any linked AI ({unassigned_cnt})",
+        }
         for ai in ais:
-            label = self._ai_label_map.get(ai, ai)
-            if len(label) > 48:
-                label = label[:45] + "..."
-            self.ai_combo.addItem(label, ai)
-        a_idx = self.ai_combo.findData(cur_ai)
-        self.ai_combo.setCurrentIndex(max(0, a_idx))
+            full_label = self._ai_label_map.get(ai, ai)
+            ai_tooltips[ai] = full_label
+            ai_labels[ai] = (full_label[:45] + "...") if len(full_label) > 48 else full_label
+
+        self.ai_combo.blockSignals(True)
+        self.ai_combo.updateItems(ai_items, display_labels=ai_labels, item_tooltips=ai_tooltips)
         self.ai_combo.blockSignals(False)
 
     @staticmethod
@@ -795,8 +795,18 @@ class MeetingEmailInboxDialog(QDialog):
         mode = self._active_mode
         cutoff = self._recent_cutoff_str()
         q = self.search_edit.text().strip().lower()
-        comp_filter = (self.company_combo.currentData() or "").strip().lower()
-        ai_filter = (self.ai_combo.currentData() or "").strip()
+        filter_comp = self.company_combo.isFiltered()
+        selected_comps = (
+            {str(c).strip().lower() for c in self.company_combo.getCheckedItems() if str(c).strip()}
+            if filter_comp
+            else set()
+        )
+        filter_ai = self.ai_combo.isFiltered()
+        selected_ais = (
+            {str(a).strip() for a in self.ai_combo.getCheckedItems() if str(a).strip()}
+            if filter_ai
+            else set()
+        )
         source_filter = (self.source_combo.currentData() or "").strip()
 
         dataset = self._active_dataset()
@@ -814,19 +824,20 @@ class MeetingEmailInboxDialog(QDialog):
                 continue
             if source_filter == "NEEDS_TRIAGE" and it["in_tracked_db"] and bool(it.get("linked_ais")):
                 continue
-            if comp_filter:
+            if filter_comp:
                 item_comps = (
-                    [str(c).strip().lower() for c in (it.get("_companies") or [])]
+                    {str(c).strip().lower() for c in (it.get("_companies") or []) if str(c).strip()}
                     if it.get("_is_group")
-                    else [str(it.get("company") or "").strip().lower()]
+                    else {str(it.get("company") or "").strip().lower()}
                 )
-                if comp_filter not in item_comps:
+                if not (item_comps & selected_comps):
                     continue
-            if ai_filter == "__UNASSIGNED__":
-                if it.get("linked_ais"):
+            if filter_ai:
+                item_ais = {str(a).strip() for a in (it.get("linked_ais") or []) if str(a).strip()}
+                matches_unassigned = ("__UNASSIGNED__" in selected_ais) and (not item_ais)
+                matches_ai = bool(item_ais & (selected_ais - {"__UNASSIGNED__"}))
+                if not (matches_unassigned or matches_ai):
                     continue
-            elif ai_filter and ai_filter not in (it.get("linked_ais") or []):
-                continue
             if q:
                 hay = " ".join([
                     str(it.get("subject") or ""),

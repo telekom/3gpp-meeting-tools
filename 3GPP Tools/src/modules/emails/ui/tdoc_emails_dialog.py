@@ -36,8 +36,9 @@ from core.ai.cli_launcher import (
     write_cli_context_file,
 )
 from core.ui.flow_layout import FlowLayout
-from core.ui.font_scale import install_reader_zoom, zoom_text_widget
+from core.ui.font_scale import install_reader_zoom, scale_px, zoom_text_widget
 from core.ui.toast import notify_info, notify_success, notify_toast
+from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.emails.core.email_config import load_wg_email_config
 from modules.emails.core.general_email_db import (
     GeneralEmailDatabase,
@@ -298,9 +299,11 @@ class TDocEmailsDialog(QDialog):
         self.msg_search_edit.textChanged.connect(self._render_messages)
         filter_row.addWidget(self.msg_search_edit, 1)
 
-        self.company_filter_combo = QComboBox()
-        self.company_filter_combo.addItem("All Companies", "")
-        self.company_filter_combo.currentIndexChanged.connect(self._render_messages)
+        self.company_filter_combo = CheckableComboBox("Company")
+        self.company_filter_combo.setMinimumWidth(scale_px(130))
+        self.company_filter_combo.setMaximumWidth(scale_px(190))
+        self.company_filter_combo.setToolTip("Filter messages by one or more sender companies.")
+        self.company_filter_combo.selectionChanged.connect(self._render_messages)
         filter_row.addWidget(self.company_filter_combo)
 
         self.state_filter_combo = QComboBox()
@@ -384,7 +387,6 @@ class TDocEmailsDialog(QDialog):
         }
 
     def _populate_company_filter(self, messages: List[dict]):
-        current = self.company_filter_combo.currentData() or ""
         companies = sorted(
             {
                 str(m.get("company") or "").strip()
@@ -395,12 +397,7 @@ class TDocEmailsDialog(QDialog):
             key=str.lower,
         )
         self.company_filter_combo.blockSignals(True)
-        self.company_filter_combo.clear()
-        self.company_filter_combo.addItem("All Companies", "")
-        for c in companies:
-            self.company_filter_combo.addItem(c, c)
-        idx = self.company_filter_combo.findData(current)
-        self.company_filter_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.company_filter_combo.updateItems(companies)
         self.company_filter_combo.blockSignals(False)
 
     def _load_emails(self):
@@ -431,7 +428,12 @@ class TDocEmailsDialog(QDialog):
         if self._loading:
             return
         query = self.msg_search_edit.text().strip().lower()
-        comp_filter = (self.company_filter_combo.currentData() or "").strip().lower()
+        filter_comp = self.company_filter_combo.isFiltered()
+        selected_comps = (
+            {str(c).strip().lower() for c in self.company_filter_combo.getCheckedItems() if str(c).strip()}
+            if filter_comp
+            else set()
+        )
         state_filter = (self.state_filter_combo.currentData() or "all").strip().lower()
 
         filtered: List[dict] = []
@@ -440,7 +442,7 @@ class TDocEmailsDialog(QDialog):
                 continue
             if state_filter == "flagged" and int(m.get("flag_status", 0) or 0) != 2:
                 continue
-            if comp_filter and str(m.get("company") or "").strip().lower() != comp_filter:
+            if filter_comp and str(m.get("company") or "").strip().lower() not in selected_comps:
                 continue
             if query:
                 hay = " ".join([
