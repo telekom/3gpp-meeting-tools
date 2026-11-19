@@ -1443,7 +1443,8 @@ class MeetingEmailInboxDialog(QDialog):
             linked_tdocs=list(it.get("linked_tdocs") or []),
             linked_sub_items=linked_sub_items,
             seed_messages=self._seed_messages_for_item(it),
-            refresh_from_outlook=True,
+            # Already seeded from local DBs; never run synchronous Outlook COM scans on the UI thread
+            refresh_from_outlook=False,
         )
         new_preserve = f"THR::{tid}" if self._view_mode == "THREADS" else it["id"]
         if reload:

@@ -1810,12 +1810,14 @@ def test_inbox_unassigned_filters_grouping_and_inline_assignment(tmp_path):
         assert dlg._current_item["id"] == "E-UNPIN"
         assert not dlg.btn_pin_inline.isHidden()
 
-        # Assign AI inline directly on the unpinned email -> auto-pins in-place & links AI 20.2
+        # Assign AI inline directly on the unpinned email -> auto-pins in-place & links AI 20.2 WITHOUT blocking Outlook COM
         dlg.source_combo.setCurrentIndex(0)
         dlg.ai_combo.setCheckedItems([])
         dlg.ai_combo.selectionChanged.emit(dlg.ai_combo.getCheckedItems())
         assert dlg._current_item and dlg._current_item["id"] == "E-UNPIN"
-        dlg.assign_ais_pills.add_tag("20.2")
+        with patch("modules.emails.core.tracked_threads_service.refresh_thread") as mock_refresh_thread:
+            dlg.assign_ais_pills.add_tag("20.2")
+            mock_refresh_thread.assert_not_called()
         pinned_list = [t for t in tdb.get_threads_for_meeting("SA2#178") if "S2-2612999" in (t.get("linked_tdocs") or [])]
         assert len(pinned_list) == 1
         assert pinned_list[0]["linked_ais"] == ["20.2"]
