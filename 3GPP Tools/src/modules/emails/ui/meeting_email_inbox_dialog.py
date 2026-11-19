@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -26,6 +27,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.flow_layout import FlowLayout
 from core.ui.font_scale import install_reader_zoom, zoom_text_widget
 from core.ui.toast import notify_info, notify_toast
 from modules.emails.core.outlook_client import OutlookClient
@@ -75,8 +77,11 @@ class MeetingEmailInboxDialog(QDialog):
         self._settings = QSettings("3GPP_Tools", "MeetingEmailInboxDialog")
 
         title_suffix = f" — {self.meeting_id}" if self.meeting_id else ""
+        self.setWindowFlags(Qt.Window)
+        self.setWindowModality(Qt.NonModal)
+        self.setSizeGripEnabled(True)
         self.setWindowTitle(f"📬 Unread & Flagged Email Inbox{title_suffix}")
-        self.setMinimumSize(780, 520)
+        self.setMinimumSize(520, 420)
         self.resize(1220, 760)
         saved_geom = self._settings.value("geometry")
         if saved_geom:
@@ -93,9 +98,12 @@ class MeetingEmailInboxDialog(QDialog):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(6)
 
-        # Row 1: State Pills + Search + Company/AI dropdowns + Refresh
-        top_row = QHBoxLayout()
-        top_row.setSpacing(6)
+        # Row 1: Responsive FlowLayout for State Pills + Search + Company/AI dropdowns + Refresh
+        top_widget = QWidget(self)
+        top_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        top_sp.setHeightForWidth(True)
+        top_widget.setSizePolicy(top_sp)
+        top_row = FlowLayout(top_widget, margin=0, h_spacing=6, v_spacing=4)
 
         self.mode_group = QButtonGroup(self)
         self.mode_group.setExclusive(True)
@@ -143,10 +151,11 @@ class MeetingEmailInboxDialog(QDialog):
         top_row.addWidget(self.pill_all)
 
         self.search_edit = QLineEdit()
+        self.search_edit.setMinimumWidth(200)
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setPlaceholderText("🔍 Search subject, sender, company, TDoc, or body...")
         self.search_edit.textChanged.connect(self._apply_filters)
-        top_row.addWidget(self.search_edit, 1)
+        top_row.addWidget(self.search_edit)
 
         self.company_combo = QComboBox()
         self.company_combo.addItem("All Companies", "")
@@ -163,12 +172,14 @@ class MeetingEmailInboxDialog(QDialog):
         self.refresh_btn.clicked.connect(self.reload_from_dbs)
         top_row.addWidget(self.refresh_btn)
 
-        layout.addLayout(top_row)
+        layout.addWidget(top_widget)
 
         # Row 2: Master-Detail Splitter
-        splitter = QSplitter(Qt.Horizontal, self)
+        self.splitter = QSplitter(Qt.Horizontal, self)
+        self.splitter.setChildrenCollapsible(False)
 
         left_widget = QWidget()
+        left_widget.setMinimumWidth(240)
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(4)
@@ -188,12 +199,13 @@ class MeetingEmailInboxDialog(QDialog):
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         hdr = self.table.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        hdr.resizeSection(0, 52)
+        hdr.resizeSection(1, 165)
+        hdr.resizeSection(2, 68)
         hdr.setSectionResizeMode(3, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        hdr.resizeSection(4, 140)
+        hdr.resizeSection(5, 115)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
         left_layout.addWidget(self.table, 1)
 
@@ -203,6 +215,7 @@ class MeetingEmailInboxDialog(QDialog):
 
         # Right Detail Pane
         right_widget = QWidget()
+        right_widget.setMinimumWidth(260)
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(4, 0, 0, 0)
         right_layout.setSpacing(6)
@@ -233,9 +246,12 @@ class MeetingEmailInboxDialog(QDialog):
 
         right_layout.addWidget(meta_frame)
 
-        # Triage Action Bar
-        act_row = QHBoxLayout()
-        act_row.setSpacing(6)
+        # Triage Action Bar (FlowLayout wraps cleanly when pane narrows)
+        act_widget = QWidget(right_widget)
+        act_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        act_sp.setHeightForWidth(True)
+        act_widget.setSizePolicy(act_sp)
+        act_row = FlowLayout(act_widget, margin=0, h_spacing=6, v_spacing=4)
 
         self.btn_mark_next = QPushButton("✔️ Mark Read && Next Unread")
         self.btn_mark_next.setStyleSheet(
@@ -267,8 +283,7 @@ class MeetingEmailInboxDialog(QDialog):
         self.btn_open_context.clicked.connect(self._on_open_context)
         act_row.addWidget(self.btn_open_context)
 
-        act_row.addStretch()
-        right_layout.addLayout(act_row)
+        right_layout.addWidget(act_widget)
 
         self.preview_browser = QTextBrowser()
         self.preview_browser.setOpenLinks(False)
@@ -280,14 +295,24 @@ class MeetingEmailInboxDialog(QDialog):
             zoom_text_widget(self.preview_browser, int(saved_zoom))
         right_layout.addWidget(self.preview_browser, 1)
 
-        splitter.addWidget(left_widget)
-        splitter.addWidget(right_widget)
-        splitter.setSizes([580, 620])
-        layout.addWidget(splitter, 1)
+        self.splitter.addWidget(left_widget)
+        self.splitter.addWidget(right_widget)
+        self.splitter.setSizes([580, 620])
+        saved_split = self._settings.value("splitter_state")
+        if saved_split:
+            try:
+                self.splitter.restoreState(saved_split)
+            except Exception:
+                pass
+        layout.addWidget(self.splitter, 1)
 
     def closeEvent(self, event):
         try:
             self._settings.setValue("geometry", self.saveGeometry())
+            if hasattr(self, "splitter"):
+                self._settings.setValue("splitter_state", self.splitter.saveState())
+            if hasattr(self, "preview_browser"):
+                self._settings.setValue("zoom_steps", int(self.preview_browser.property("_reader_zoom_steps") or 0))
         except Exception:
             pass
         super().closeEvent(event)
