@@ -20,8 +20,8 @@ class GeneralEmailSyncThread(QThread):
     progress_val = pyqtSignal(int, int)  # current, total
     finished = pyqtSignal(bool, str, int)  # success, message, total_synced
 
-    TDOC_REGEX = re.compile(r'\b([A-Z0-9]{2,4}-\d{6,8})\b', re.IGNORECASE)
-    REV_REGEX = re.compile(r'\b([A-Z0-9]{2,4}-\d{6,8})(?:r|rev)\s*0?([1-9]\d*)\b', re.IGNORECASE)
+    TDOC_REGEX = re.compile(r'\b((?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,8})\b', re.IGNORECASE)
+    REV_REGEX = re.compile(r'\b((?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,8})(?:r|rev)\s*0?([1-9]\d*)\b', re.IGNORECASE)
 
     # Regex identifying the boundary where previous email quotations begin
     QUOTE_SPLIT_REGEX = re.compile(

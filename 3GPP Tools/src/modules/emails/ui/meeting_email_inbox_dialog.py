@@ -1,6 +1,8 @@
 # --- File: src/modules/emails/ui/meeting_email_inbox_dialog.py ---
 from datetime import datetime, timedelta
+import html
 from pathlib import Path
+import re
 from typing import Any, Callable, Dict, List, Optional
 import urllib.parse
 
@@ -38,6 +40,7 @@ from modules.emails.core.thread_markdown_exporter import (
     inject_html_tables_into_body,
     is_cacheable_document_url,
     linkify_markdown_urls,
+    linkify_tdoc_tokens,
     scroll_browser_to_block,
 )
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
@@ -314,6 +317,10 @@ class MeetingEmailInboxDialog(QDialog):
 
         self.detail_links_lbl = QLabel("")
         self.detail_links_lbl.setWordWrap(True)
+        self.detail_links_lbl.setTextFormat(Qt.RichText)
+        self.detail_links_lbl.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        self.detail_links_lbl.setOpenExternalLinks(False)
+        self.detail_links_lbl.linkActivated.connect(lambda href: self._on_anchor_clicked(QUrl(href)))
         self.detail_links_lbl.setStyleSheet("color: #1D4ED8; font-size: 11px;")
         meta_layout.addWidget(self.detail_links_lbl)
 
@@ -547,7 +554,9 @@ class MeetingEmailInboxDialog(QDialog):
                 th_ais = [str(a).strip() for a in (th.get("linked_ais") or []) if str(a).strip()]
                 th_subs = [str(s).strip() for s in (th.get("linked_sub_items") or []) if str(s).strip()]
                 th_wis = [str(w).strip() for w in (th.get("linked_wis") or []) if str(w).strip()]
-                th_tdocs = [str(t).strip().upper() for t in (th.get("linked_tdocs") or []) if str(t).strip()]
+                th_tdocs = list(dict.fromkeys(
+                    self._clean_tdoc_id(t) for t in (th.get("linked_tdocs") or []) if self._clean_tdoc_id(t)
+                ))
                 for m in self.tracked_db.get_thread_messages(tid):
                     eid = str(m.get("id") or "").strip()
                     if not eid:
@@ -583,7 +592,11 @@ class MeetingEmailInboxDialog(QDialog):
                 eid = str(row.get("id") or "").strip()
                 if not eid:
                     continue
-                matched_tdocs = [t.strip().upper() for t in str(row.get("matched_tdocs") or "").split(",") if t.strip()]
+                matched_tdocs = list(dict.fromkeys(
+                    self._clean_tdoc_id(t)
+                    for t in str(row.get("matched_tdocs") or "").split(",")
+                    if self._clean_tdoc_id(t)
+                ))
                 inferred_ais = []
                 inferred_subs = []
                 inferred_wis = []
@@ -649,6 +662,13 @@ class MeetingEmailInboxDialog(QDialog):
         self._populate_filter_combos()
         self._update_pill_counts()
         self._apply_filters(preserve_id=preserve_id)
+
+    @staticmethod
+    def _clean_tdoc_id(raw: Any) -> str:
+        td = str(raw or "").strip().upper()
+        if not td:
+            return ""
+        return re.sub(r"^2F(?=(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-)", "", td, flags=re.IGNORECASE)
 
     def _item_matches_mode(self, it: dict, mode: str, cutoff: str) -> bool:
         if mode == "UNREAD" and it["is_read"]:
@@ -910,15 +930,29 @@ class MeetingEmailInboxDialog(QDialog):
             badge_str = f"  ·  {' · '.join(badges)}" if badges else "  ·  ✓ Read"
             self.detail_meta_lbl.setText(f"From: {sender}{comp}  |  Date: {it.get('date_str') or 'Unknown'}{badge_str}")
 
-        links = []
+        links_html = []
         if it.get("in_tracked_db") and it.get("thread_title"):
-            links.append(f"🧵 Tracked: {it['thread_title']}")
+            links_html.append(f"🧵 Tracked: {html.escape(str(it['thread_title']))}")
         else:
-            links.append("📄 Unpinned (TDoc match only)")
-        if it.get("linked_tdocs"):
-            links.append("TDocs: " + ", ".join(it["linked_tdocs"][:6]))
-        self.detail_links_lbl.setText("  |  ".join(links))
-        self.detail_links_lbl.setVisible(bool(links))
+            links_html.append("📄 Unpinned (TDoc match only)")
+        cleaned_tdocs = list(dict.fromkeys(
+            self._clean_tdoc_id(td) for td in (it.get("linked_tdocs") or []) if self._clean_tdoc_id(td)
+        ))
+        if cleaned_tdocs:
+            if self._open_tdoc_callback:
+                td_anchors = ", ".join(
+                    f'<a href="tdoc:{html.escape(td)}" '
+                    f'style="color: #1D4ED8; font-weight: 600; text-decoration: underline;">'
+                    f'{html.escape(td)}</a>'
+                    for td in cleaned_tdocs[:8]
+                )
+            else:
+                td_anchors = ", ".join(html.escape(td) for td in cleaned_tdocs[:8])
+            if len(cleaned_tdocs) > 8:
+                td_anchors += f" (+{len(cleaned_tdocs) - 8} more)"
+            links_html.append(f"TDocs: {td_anchors}")
+        self.detail_links_lbl.setText(" &nbsp;|&nbsp; ".join(links_html))
+        self.detail_links_lbl.setVisible(bool(links_html))
 
         self._populate_assign_bar(it)
 
@@ -994,6 +1028,8 @@ class MeetingEmailInboxDialog(QDialog):
         if it.get("html_body"):
             body = inject_html_tables_into_body(body, str(it["html_body"]))
         body = linkify_markdown_urls(body.strip())
+        if self._open_tdoc_callback:
+            body = linkify_tdoc_tokens(body)
         body = escape_non_html_angles(body)
         lines.append(body if body else "*(Empty message body)*")
         self.preview_browser.setMarkdown("\n\n".join(lines))

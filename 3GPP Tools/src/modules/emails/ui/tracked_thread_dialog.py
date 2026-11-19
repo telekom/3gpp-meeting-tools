@@ -94,6 +94,7 @@ class TrackedThreadDialog(QDialog):
         all_existing_tags: Optional[List[str]] = None,
         annotations_save_callback: Optional[Callable[[str, str, str, str], None]] = None,
         ai_to_sub_items: Optional[Dict[str, List[str]]] = None,
+        open_tdoc_callback: Optional[Callable[[str], None]] = None,
     ):
         super().__init__(
             parent,
@@ -111,6 +112,7 @@ class TrackedThreadDialog(QDialog):
         self._all_existing_tags = all_existing_tags or []
         self._annotations_save_callback = annotations_save_callback
         self._tdoc_family_expander = tdoc_family_expander
+        self._open_tdoc_callback = open_tdoc_callback
         self._loading = False
         self._refresh_worker: Optional[SingleThreadRefreshWorker] = None
         self._unread_blocks: List[object] = []
@@ -550,6 +552,7 @@ class TrackedThreadDialog(QDialog):
             interactive_links=True,
             newest_first=newest_first,
             include_metadata=include_meta,
+            enable_tdoc_links=bool(self._open_tdoc_callback),
         )
         self.browser.setMarkdown(md)
         self._unread_blocks = find_unread_heading_blocks(self.browser)
@@ -613,6 +616,11 @@ class TrackedThreadDialog(QDialog):
 
     def _on_anchor_clicked(self, url: QUrl):
         scheme = url.scheme().lower()
+        if scheme == "tdoc" and self._open_tdoc_callback:
+            target_tdoc = url.path().strip() or url.toString().split(":", 1)[1].strip()
+            if target_tdoc:
+                self._open_tdoc_callback(target_tdoc.upper())
+            return
         if scheme == "outlook":
             host = url.host().lower()
             path_parts = [urllib.parse.unquote(p) for p in url.path().strip("/").split("/") if p]

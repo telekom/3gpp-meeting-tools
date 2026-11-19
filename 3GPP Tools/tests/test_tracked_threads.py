@@ -1779,5 +1779,28 @@ def test_inbox_unassigned_filters_grouping_and_inline_assignment(tmp_path):
         assert updated_th["linked_sub_items"] == ["KI#4 Bullet 3"]
         assert updated_th["linked_wis"] == ["FS_6G_ARC"]
 
+        # Clickable TDoc links in header & body + 2FS2-... cleanup
+        opened_tdocs_from_links = []
+        dlg._open_tdoc_callback = lambda td: opened_tdocs_from_links.append(td)
+        dlg.reload_from_dbs()
+        dlg.table.selectRow(0)
+        if dlg._current_item and dlg._current_item.get("linked_tdocs"):
+            dlg._render_detail(dlg._current_item)
+        # Verify TrackedThreadDialog & Inbox linkActivated / anchorClicked emit clean TDoc IDs
+        tdb.update_thread_links(tid_assigned, linked_tdocs=["2FS2-2612556", "S2-2612556", "S2-2611691"])
+        dlg.reload_from_dbs(preserve_id=f"THR::{tid_assigned}" if dlg._view_mode == "THREADS" else "M-A1")
+        assert "2FS2-" not in dlg.detail_links_lbl.text()
+        assert 'href="tdoc:S2-2612556"' in dlg.detail_links_lbl.text()
+        dlg.detail_links_lbl.linkActivated.emit("tdoc:S2-2612556")
+        assert opened_tdocs_from_links == ["S2-2612556"]
+
+        from PyQt5.QtCore import QUrl as _QUrl
+        from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
+        tdlg_opens = []
+        tdlg = TrackedThreadDialog(tdb, tid_assigned, open_tdoc_callback=lambda td: tdlg_opens.append(td))
+        tdlg._on_anchor_clicked(_QUrl("tdoc:S2-2611691"))
+        assert tdlg_opens == ["S2-2611691"]
+        tdlg.close()
+
         dlg._settings.setValue("view_mode", "MESSAGES")
         dlg.close()

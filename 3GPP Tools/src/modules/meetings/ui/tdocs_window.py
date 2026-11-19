@@ -3421,6 +3421,20 @@ class TDocsWindow(QWidget):
         except Exception as e:
             logging.error(f"Error syncing tracked email threads to table: {e}")
 
+    def _open_tdoc_document_directly(self, tdoc_id: str):
+        """Downloads/opens a TDoc contribution (or revision) directly without stealing focus from email dialogs."""
+        td = str(tdoc_id or "").strip().upper()
+        if not td:
+            return
+        is_rev = bool(re.search(r"(?:r|rev)\d{1,2}[a-zA-Z]?$", td, re.IGNORECASE))
+        target_url = getattr(self, "revisions_url", "") if is_rev and getattr(self, "revisions_url", "") else getattr(self, "docs_ftp_url", "")
+        if not target_url:
+            self._scroll_to_tdoc(td)
+            return
+        match = re.search(r"^(.*?)-?(?:r|rev)\d{1,2}[a-zA-Z]?$", td, re.IGNORECASE)
+        base_tdoc = match.group(1).upper() if match else td
+        self._trigger_download_thread(base_tdoc, td, target_url, is_silent_compare=False)
+
     def _open_tracked_thread_dialog(self, thread_id: str):
         tid = str(thread_id or "").strip()
         if not tid:
@@ -3445,6 +3459,7 @@ class TDocsWindow(QWidget):
             all_existing_tags=all_tags,
             annotations_save_callback=self._save_user_data,
             ai_to_sub_items=ai_to_sub_items,
+            open_tdoc_callback=self._open_tdoc_document_directly,
         )
         dlg.thread_changed.connect(self._on_tracked_thread_changed)
         self._tracked_thread_dialogs[tid] = dlg
@@ -3638,11 +3653,6 @@ class TDocsWindow(QWidget):
                 if td and ai:
                     tdoc_ai_lookup[td] = ai
 
-        def _focus_tdoc(tdoc_id: str):
-            self.locate_tdoc(tdoc_id)
-            self.raise_()
-            self.activateWindow()
-
         wg = str(self.mtg_info.get("wg_name", "SA2")).strip().upper()
         ai_sugg, wi_sugg, _tdoc_sugg, _sub_sugg, ai_to_sub_items = self._build_thread_autocomplete_suggestions()
         dlg = MeetingEmailInboxDialog(
@@ -3651,7 +3661,7 @@ class TDocsWindow(QWidget):
             meeting_id=self._get_meeting_id_label(),
             tdoc_ai_lookup=tdoc_ai_lookup,
             open_thread_callback=self._open_tracked_thread_dialog,
-            open_tdoc_callback=_focus_tdoc,
+            open_tdoc_callback=self._open_tdoc_document_directly,
             parent=None,
             wg=wg,
             ai_suggestions=ai_sugg,
