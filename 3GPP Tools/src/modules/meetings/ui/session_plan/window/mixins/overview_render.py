@@ -230,7 +230,7 @@ class OverviewRenderMixin:
             # Col 0: Star toggle button
             star_btn = QPushButton("⭐" if is_tracked else "☆")
             star_btn.setFixedWidth(28)
-            star_btn.setStyleSheet("border: none; font-size: 14px; background: transparent;")
+            star_btn.setStyleSheet("QPushButton { border: none; font-size: 14px; background: transparent; }")
             star_btn.setToolTip("Click to track/untrack this topic in 'My Topics'")
             star_btn.clicked.connect(lambda _, a=ai_num, l=desc: self._toggle_track_ai(a, l))
             self.agenda_table.setCellWidget(row, 0, star_btn)

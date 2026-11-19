@@ -214,6 +214,77 @@ class TestSessionPlanWindowLifecycle(unittest.TestCase):
         finally:
             win.close()
 
+    def test_slot_cell_tooltip_background_not_black(self):
+        """
+        Regression test: scoped stylesheets (.QWidget / QLabel) on Overview Grid slot
+        cells and labels must not cascade an unscoped `background: transparent` rule
+        into Qt's QTipLabel tooltip window (which otherwise renders solid black #000000).
+        """
+        from PyQt5.QtCore import QPoint
+        from PyQt5.QtWidgets import QLabel, QToolTip
+        from core.ui.theme import C
+        from core.ui.ui_components import GLOBAL_STYLE
+        from modules.meetings.core.session_plan.session_plan_models import (
+            SessionPlanSnapshot,
+            SessionSlot,
+        )
+        from modules.meetings.ui.session_plan.session_plan_window import SessionPlanWindow
+
+        qapp = QApplication.instance() or app
+        prev_qss = qapp.styleSheet()
+        qapp.setStyle("Fusion")
+        qapp.setStyleSheet(GLOBAL_STYLE)
+        tmp = tempfile.TemporaryDirectory()
+        win = SessionPlanWindow(
+            Path(tmp.name),
+            {"meeting_number": "178", "location": "Calgary", "start_date": "2026-11-16"},
+            agenda_map={},
+            tracked_tokens=set(),
+        )
+        try:
+            snap = SessionPlanSnapshot(
+                meeting_number="178",
+                tdoc_id="S2-2611637",
+                snapshot_label="r15",
+                slots=[
+                    SessionSlot(
+                        day_index=0,
+                        day_name="Monday",
+                        quarter="Q1",
+                        sub_slot=0,
+                        start_time_local="09:00",
+                        end_time_local="10:30",
+                        stream_number=1,
+                        raw_text="KI#1.1 (NAS) (20.6.1)",
+                    )
+                ],
+            )
+            win.db.save_snapshot(snap)
+            win._load_data()
+            win.show()
+            qapp.processEvents()
+
+            cw = next(
+                win.grid_table.cellWidget(r, c)
+                for r in range(win.grid_table.rowCount())
+                for c in range(win.grid_table.columnCount())
+                if win.grid_table.cellWidget(r, c) is not None
+            )
+            lbl = cw.findChildren(QLabel)[0]
+            QToolTip.showText(lbl.mapToGlobal(lbl.rect().center()), cw.toolTip(), lbl, lbl.rect())
+            qapp.processEvents()
+
+            tip_widgets = [tl for tl in qapp.topLevelWidgets() if "Tip" in tl.metaObject().className()]
+            self.assertTrue(tip_widgets, "Expected a QTipLabel window")
+            img = tip_widgets[-1].grab().toImage()
+            corner_col = img.pixelColor(2, 2).name().lower()
+            self.assertEqual(corner_col, C.BG_SURFACE.lower())
+        finally:
+            QToolTip.hideText()
+            win.close()
+            qapp.setStyleSheet(prev_qss)
+            tmp.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()

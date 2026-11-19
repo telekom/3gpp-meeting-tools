@@ -182,8 +182,8 @@ class SlotCellsMixin:
             bdr = f"1px {border_style} {member.border_tint}"
 
         lbl.setStyleSheet(
-            f"background: {member.bg_tint}; color: {member.color}; font-weight: 700; font-size: 9px; "
-            f"border: {bdr}; border-radius: 8px; padding: 1px 5px; min-width: 16px;"
+            f"QLabel {{ background: {member.bg_tint}; color: {member.color}; font-weight: 700; font-size: 9px; "
+            f"border: {bdr}; border-radius: 8px; padding: 1px 5px; min-width: 16px; }}"
         )
         return lbl
 
@@ -192,7 +192,7 @@ class SlotCellsMixin:
     ) -> QWidget:
         """Creates a compact unified card for a session slot with right-aligned pills and neutral unassigned styling."""
         w = QWidget()
-        w.setStyleSheet("background: transparent;")
+        w.setStyleSheet(".QWidget { background: transparent; }")
         outer_lay = QVBoxLayout(w)
         outer_lay.setContentsMargins(3, 3, 3, 3)
         outer_lay.setSpacing(0)
@@ -329,8 +329,8 @@ class SlotCellsMixin:
             else:
                 tc_bg, tc_fg, tc_bdr = C.INFO_SOFT, C.INFO_DARK, C.INFO_BORDER
             time_chip.setStyleSheet(
-                f"background: {tc_bg}; color: {tc_fg}; font-size: 9.5px; "
-                f"font-weight: 700; border: 1px solid {tc_bdr}; border-radius: 3px; padding: 0px 4px;"
+                f"QLabel {{ background: {tc_bg}; color: {tc_fg}; font-size: 9.5px; "
+                f"font-weight: 700; border: 1px solid {tc_bdr}; border-radius: 3px; padding: 0px 4px; }}"
             )
             time_chip.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
 
@@ -338,8 +338,8 @@ class SlotCellsMixin:
         if room_ov:
             room_chip = QLabel(f"📍 {room_ov}")
             room_chip.setStyleSheet(
-                f"background: {C.BG_SURFACE}; color: {C.TEXT_SECONDARY}; font-size: 9.5px; "
-                f"font-weight: 700; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 3px; padding: 0px 4px;"
+                f"QLabel {{ background: {C.BG_SURFACE}; color: {C.TEXT_SECONDARY}; font-size: 9.5px; "
+                f"font-weight: 700; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 3px; padding: 0px 4px; }}"
             )
             room_chip.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
 
@@ -362,7 +362,7 @@ class SlotCellsMixin:
             lbl.setWordWrap(True)
             lbl.setAlignment(Qt.AlignTop | Qt.AlignLeft)
             lbl.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
-            lbl.setStyleSheet(f"background: transparent; border: none; color: {text_color}; font-weight: {font_weight};")
+            lbl.setStyleSheet(f"QLabel {{ background: transparent; border: none; color: {text_color}; font-weight: {font_weight}; }}")
             body_lay.addWidget(lbl)
 
         body_lay.addStretch(1)
@@ -375,8 +375,8 @@ class SlotCellsMixin:
             all_pill.setToolTip("Whole delegation" + (" (ad-hoc coverage)" if is_cov else " (All Team topic)"))
             border_style = "dashed" if is_cov else "solid"
             all_pill.setStyleSheet(
-                f"background: {C.WG_SA_BG}; color: {C.INDIGO_DARK}; font-weight: 700; font-size: 8.5px; "
-                f"border: 1px {border_style} #6366F1; border-radius: 7px; padding: 1px 4px;"
+                f"QLabel {{ background: {C.WG_SA_BG}; color: {C.INDIGO_DARK}; font-weight: 700; font-size: 8.5px; "
+                f"border: 1px {border_style} #6366F1; border-radius: 7px; padding: 1px 4px; }}"
             )
             pill_widgets.append(all_pill)
         elif assigned_members:
@@ -398,16 +398,16 @@ class SlotCellsMixin:
                 more = QLabel(f"+{len(rest)}")
                 more.setToolTip(", ".join(m.name for m in rest))
                 more.setStyleSheet(
-                    f"background: {C.BG_CANVAS}; color: {C.TEXT_BODY}; font-weight: 700; font-size: 8.5px; "
-                    f"border: 1px solid {C.BORDER_STRONG}; border-radius: 7px; padding: 1px 4px;"
+                    f"QLabel {{ background: {C.BG_CANVAS}; color: {C.TEXT_BODY}; font-weight: 700; font-size: 8.5px; "
+                    f"border: 1px solid {C.BORDER_STRONG}; border-radius: 7px; padding: 1px 4px; }}"
                 )
                 pill_widgets.append(more)
         elif is_not_followed_slot:
             nf_pill = QLabel("⛔")
             nf_pill.setToolTip("Explicitly Not Followed (Out of scope)")
             nf_pill.setStyleSheet(
-                f"background: {C.BG_CANVAS}; color: {C.TEXT_MUTED}; font-size: 9px; "
-                f"border: 1px solid {C.BORDER_STRONG}; border-radius: 7px; padding: 0px 4px;"
+                f"QLabel {{ background: {C.BG_CANVAS}; color: {C.TEXT_MUTED}; font-size: 9px; "
+                f"border: 1px solid {C.BORDER_STRONG}; border-radius: 7px; padding: 0px 4px; }}"
             )
             pill_widgets.append(nf_pill)
         if has_unassigned_ai:
@@ -415,8 +415,8 @@ class SlotCellsMixin:
             un_lbl = ", ".join(unassigned_ais)
             un_pill.setToolTip(f"Unassigned Agenda Item(s): {un_lbl} — right-click to assign")
             un_pill.setStyleSheet(
-                "background: #FEF3C7; color: #B45309; font-weight: 700; font-size: 9px; "
-                "border: 1px dashed #F59E0B; border-radius: 7px; padding: 0px 4px;"
+                "QLabel { background: #FEF3C7; color: #B45309; font-weight: 700; font-size: 9px; "
+                "border: 1px dashed #F59E0B; border-radius: 7px; padding: 0px 4px; }"
             )
             pill_widgets.append(un_pill)
 
@@ -425,8 +425,8 @@ class SlotCellsMixin:
             who = ", ".join(colliding_members)
             warn_pill.setToolTip(f"Parallel-stream clash for: {who}")
             warn_pill.setStyleSheet(
-                f"background: {C.WARNING_SOFT_ALT}; color: {C.WARNING}; font-weight: bold; font-size: 9.5px; "
-                f"border: 1px solid {C.WARNING_ACCENT}; border-radius: 7px; padding: 0px 4px;"
+                f"QLabel {{ background: {C.WARNING_SOFT_ALT}; color: {C.WARNING}; font-weight: bold; font-size: 9.5px; "
+                f"border: 1px solid {C.WARNING_ACCENT}; border-radius: 7px; padding: 0px 4px; }}"
             )
             pill_widgets.append(warn_pill)
 
@@ -449,7 +449,7 @@ class SlotCellsMixin:
     def _create_break_cell_widget(self, slot: SessionSlot, day_idx: int, period: str) -> QWidget:
         """Creates cell widget for break drafting sessions or boundary schedules."""
         w = QWidget()
-        w.setStyleSheet("background: transparent;")
+        w.setStyleSheet(".QWidget { background: transparent; }")
         lay = QVBoxLayout(w)
         lay.setContentsMargins(4, 3, 4, 3)
 
@@ -458,11 +458,11 @@ class SlotCellsMixin:
         lbl.setAlignment(Qt.AlignTop | Qt.AlignLeft)
 
         if slot.is_drafting:
-            lbl.setStyleSheet(f"background: {C.DANGER_SOFT}; color: {C.DANGER_DARK}; border: 1px solid {C.DANGER_BORDER}; border-radius: 4px; padding: 4px; font-weight: 600;")
+            lbl.setStyleSheet(f"QLabel {{ background: {C.DANGER_SOFT}; color: {C.DANGER_DARK}; border: 1px solid {C.DANGER_BORDER}; border-radius: 4px; padding: 4px; font-weight: 600; }}")
         elif slot.is_plenary:
-            lbl.setStyleSheet(f"background: {C.INFO_SOFT}; color: {C.INFO_DARK}; border: 1px solid {C.INFO_BORDER}; border-radius: 4px; padding: 4px; font-weight: 600;")
+            lbl.setStyleSheet(f"QLabel {{ background: {C.INFO_SOFT}; color: {C.INFO_DARK}; border: 1px solid {C.INFO_BORDER}; border-radius: 4px; padding: 4px; font-weight: 600; }}")
         else:
-            lbl.setStyleSheet(f"background: {C.BG_SURFACE}; color: {C.TEXT_BODY}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px; padding: 4px;")
+            lbl.setStyleSheet(f"QLabel {{ background: {C.BG_SURFACE}; color: {C.TEXT_BODY}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px; padding: 4px; }}")
 
         lay.addWidget(lbl)
 
