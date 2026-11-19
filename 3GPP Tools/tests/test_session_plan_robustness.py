@@ -1115,6 +1115,93 @@ class TestSessionPlanRobustness(unittest.TestCase):
             finally:
                 win.close()
 
+    def test_manual_import_direct_url_docx_and_zip(self):
+        """
+        Verifies SessionPlanWindow._handle_manual_import('url', ...) downloads direct HTTP/HTTPS
+        URLs (including percent-encoded filenames like '%20' and internal 10.10.10.10 server links)
+        via NetworkSession without treating 'HTTP:' as a Windows directory name (WinError 123),
+        and unpacks direct .zip URLs into staged session plan snapshots.
+        """
+        import io
+        import zipfile
+        from unittest.mock import MagicMock, patch
+        import docx
+        from PyQt5.QtWidgets import QMessageBox
+        from modules.meetings.ui.session_plan.session_plan_window import SessionPlanWindow
+
+        def _make_sample_docx_bytes(tdoc_num: str = "S2-2611637", rev: str = "r14", slot_text: str = "KI#1 (NAS) (20.6.1)") -> bytes:
+            doc = docx.Document()
+            doc.add_paragraph(f"{tdoc_num} — SA2#178 Session Plan {rev}")
+            tbl = doc.add_table(rows=2, cols=13)
+            tbl.rows[0].cells[3].text = "Monday"
+            tbl.rows[0].cells[5].text = "Tuesday"
+            tbl.rows[1].cells[0].text = "Q1"
+            tbl.rows[1].cells[1].text = "09:00 - 10:30"
+            tbl.rows[1].cells[2].text = "Stream 1"
+            tbl.rows[1].cells[3].text = slot_text
+            tbl.rows[1].cells[5].text = "KI#21 (Data Framework) (20.6.21)"
+            buf = io.BytesIO()
+            doc.save(buf)
+            return buf.getvalue()
+
+        docx_bytes = _make_sample_docx_bytes()
+        docx_r15_bytes = _make_sample_docx_bytes("S2-2611699", "r15", "KI#2 (SBA) (20.6.2)")
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            zf.writestr("S2-2611699_SA2-178-Session Plan - r15.docx", docx_r15_bytes)
+        zip_bytes = zip_buf.getvalue()
+
+        payload_map = {
+            "http://10.10.10.10/ftp/SA/SA2/Inbox/Drafts/_Session_Plan_Updates/S2-2611637_SA2-178-Session%20Plan%20-%20r14.docx": docx_bytes,
+            "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178_Calgary_2026-11/Docs/S2-2611699.zip": zip_bytes,
+        }
+
+        def _fake_get(url, stream=True, timeout=15):
+            resp = MagicMock()
+            resp.headers = {}
+            resp.raise_for_status = MagicMock()
+            raw = payload_map[url]
+            resp.iter_content = lambda chunk_size=65536: [raw[i : i + chunk_size] for i in range(0, len(raw), chunk_size)]
+            return resp
+
+        fake_session = MagicMock()
+        fake_session.get.side_effect = _fake_get
+        fake_net = MagicMock()
+        fake_net.get_session.return_value = fake_session
+
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            win = SessionPlanWindow(
+                meeting_dir=td_path,
+                mtg_info={"meeting_number": "178", "location": "Calgary", "start_date": "2026-11-16"},
+                agenda_map={},
+                tracked_tokens=set(),
+            )
+            try:
+                with patch("core.network.session.NetworkSession.get_instance", return_value=fake_net), \
+                     patch("core.network.session.NetworkSession.apply_humanness"), \
+                     patch.object(QMessageBox, "information") as mock_info, \
+                     patch.object(QMessageBox, "critical") as mock_crit:
+                    url_docx = "http://10.10.10.10/ftp/SA/SA2/Inbox/Drafts/_Session_Plan_Updates/S2-2611637_SA2-178-Session%20Plan%20-%20r14.docx"
+                    win._handle_manual_import("url", url_docx)
+                    mock_crit.assert_not_called()
+                    mock_info.assert_called()
+
+                    downloaded_docx = td_path / "Agenda" / "SessionPlans" / "Downloaded" / "S2-2611637_SA2-178-Session Plan - r14.docx"
+                    self.assertTrue(downloaded_docx.is_file())
+                    snaps = win.db.list_snapshots("178")
+                    self.assertEqual(len(snaps), 1)
+                    self.assertIn("S2-2611637", win.active_snapshot.tdoc_id or "")
+
+                    # Also verify direct .zip URL extraction + staging
+                    url_zip = "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178_Calgary_2026-11/Docs/S2-2611699.zip"
+                    win._handle_manual_import("url", url_zip)
+                    mock_crit.assert_not_called()
+                    snaps_after = win.db.list_snapshots("178")
+                    self.assertEqual(len(snaps_after), 2)
+            finally:
+                win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

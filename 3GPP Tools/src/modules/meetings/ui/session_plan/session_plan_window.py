@@ -7,6 +7,7 @@ Includes direct drag & drop quick import on the GUI and rich tooltips.
 """
 import html
 import logging
+import os
 import re
 import webbrowser
 from datetime import datetime, timedelta, timezone
@@ -5013,69 +5014,56 @@ class SessionPlanWindow(QWidget):
                     QMessageBox.information(self, "Agenda Updated", f"Successfully loaded {len(self.agenda_map)} Agenda Items from agenda.csv!")
                     return
 
-                # If dropped or selected file is a zip archive, unpack it first
-                if ext == ".zip":
-                    import zipfile
-                    extract_dir = self.meeting_dir / "Agenda" / "SessionPlans" / "Extracted" / p.stem
-                    extract_dir.mkdir(parents=True, exist_ok=True)
-                    with zipfile.ZipFile(p, "r") as zf:
-                        zf.extractall(extract_dir)
-                    doc_candidates = list(extract_dir.glob("*.docx")) or list(extract_dir.glob("*.doc*")) or list(extract_dir.glob("*.htm*"))
-                    if doc_candidates:
-                        p = doc_candidates[0]
-                        ext = p.suffix.lower()
-
-                staged = SessionPlanParser.stage_session_plan_file(p, self.meeting_dir)
-                if ext in (".docx", ".docm"):
-                    snap = SessionPlanParser.parse_docx(staged, meeting_number=self.meeting_number)
-                else:
-                    snap = SessionPlanParser.parse_text_or_markdown(
-                        staged.read_text(encoding="utf-8", errors="replace"),
-                        meeting_number=self.meeting_number,
-                        cached_file_path=str(staged),
-                    )
+                snap = self._import_local_session_plan_path(p)
             elif mode == "paste":
                 snap = SessionPlanParser.parse_text_or_markdown(payload, meeting_number=self.meeting_number)
             else:
-                # URL or TDoc#
-                from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
-                from modules.meetings.core.url_router import URLRouter
-                from core.network.network_state import NetworkState
-
-                tdoc_candidate = payload.strip().upper()
-                wg_name = self.mtg_info.get("wg_name", "").upper()
-                candidate_urls = []
-                if NetworkState.get_instance().is_local_active():
-                    candidate_urls.append(URLRouter._get_local_server_base(wg_name) + "/Docs")
-                docs_url = self.mtg_info.get("docs_folder_url", "")
-                if docs_url:
-                    if not docs_url.startswith("http"):
-                        docs_url = "https://www.3gpp.org/ftp/" + docs_url.lstrip("/")
-                    candidate_urls.append(docs_url)
-
-                tdoc_dir = self.meeting_dir / tdoc_candidate
-                extracted = []
-                for u in candidate_urls:
-                    extracted = TDocFileHandler.download_and_extract_tdoc(tdoc_candidate, u, tdoc_dir, timeout=10)
-                    if extracted:
-                        break
-
-                if not extracted and tdoc_dir.exists():
-                    extracted = list(tdoc_dir.glob("*.docx")) + list(tdoc_dir.glob("*.doc"))
-
-                if not extracted:
-                    QMessageBox.warning(self, "Download Failed", f"Could not acquire document for {payload}.")
-                    return
-
-                staged = SessionPlanParser.stage_session_plan_file(extracted[0], self.meeting_dir, tdoc_candidate)
-                if staged.suffix.lower() == ".docx":
-                    snap = SessionPlanParser.parse_docx(staged, meeting_number=self.meeting_number)
+                raw_input = payload.strip()
+                if re.match(r"^https?://", raw_input, re.IGNORECASE):
+                    downloaded = self._download_session_plan_url(raw_input)
+                    m_tdoc = re.search(r"([A-Za-z]\d-\d{6,8})", downloaded.name)
+                    tdoc_hint = m_tdoc.group(1).upper() if m_tdoc else "SessionPlan"
+                    snap = self._import_local_session_plan_path(downloaded, tdoc_hint=tdoc_hint)
                 else:
-                    snap = SessionPlanParser.parse_text_or_markdown(
-                        staged.read_text(encoding="utf-8", errors="replace"),
-                        meeting_number=self.meeting_number,
-                        cached_file_path=str(staged),
-                    )
+                    # TDoc# lookup across local meeting server (if active) and 3GPP FTP
+                    from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
+                    from modules.meetings.core.url_router import URLRouter
+                    from core.network.network_state import NetworkState
+
+                    tdoc_candidate = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", raw_input.upper()).strip(" .")
+                    if not tdoc_candidate:
+                        QMessageBox.warning(self, "Invalid Input", "Please enter a valid 3GPP URL or TDoc number.")
+                        return
+
+                    wg_name = self.mtg_info.get("wg_name", "").upper()
+                    candidate_urls = []
+                    if NetworkState.get_instance().is_local_active():
+                        candidate_urls.append(URLRouter._get_local_server_base(wg_name) + "/Docs")
+                    docs_url = self.mtg_info.get("docs_folder_url", "")
+                    if docs_url:
+                        if not docs_url.startswith("http"):
+                            docs_url = "https://www.3gpp.org/ftp/" + docs_url.lstrip("/")
+                        candidate_urls.append(docs_url)
+
+                    tdoc_dir = self.meeting_dir / tdoc_candidate
+                    extracted = []
+                    for u in candidate_urls:
+                        try:
+                            extracted = TDocFileHandler.download_and_extract_tdoc(tdoc_candidate, u, tdoc_dir, timeout=10)
+                        except Exception as dl_err:
+                            logger.warning(f"[SessionPlanWindow] TDoc download attempt failed from {u}: {dl_err}")
+                            extracted = []
+                        if extracted:
+                            break
+
+                    if not extracted and tdoc_dir.exists():
+                        extracted = list(tdoc_dir.glob("*.docx")) + list(tdoc_dir.glob("*.docm")) + list(tdoc_dir.glob("*.doc"))
+
+                    if not extracted:
+                        QMessageBox.warning(self, "Download Failed", f"Could not acquire document for {payload}.")
+                        return
+
+                    snap = self._import_local_session_plan_path(extracted[0], tdoc_hint=tdoc_candidate)
 
             snap_id = self.db.save_snapshot(snap)
             self._load_data()
@@ -5084,6 +5072,90 @@ class SessionPlanWindow(QWidget):
         except Exception as e:
             logger.error(f"[SessionPlanWindow] Import failed: {e}", exc_info=True)
             QMessageBox.critical(self, "Import Error", f"Failed to parse session plan:\n{e}")
+
+    def _import_local_session_plan_path(self, source_path: Path, tdoc_hint: str = "SessionPlan") -> SessionPlanSnapshot:
+        """Stage and parse a local session plan document or zip archive into a snapshot."""
+        p = Path(source_path)
+        ext = p.suffix.lower()
+        if ext == ".zip":
+            import zipfile
+            from core.utils.paths import to_extended_path
+
+            extract_dir = self.meeting_dir / "Agenda" / "SessionPlans" / "Extracted" / p.stem
+            os.makedirs(to_extended_path(extract_dir), exist_ok=True)
+            with zipfile.ZipFile(to_extended_path(p), "r") as zf:
+                zf.extractall(to_extended_path(extract_dir))
+            doc_candidates = [
+                c
+                for pat in ("*.docx", "*.docm", "*.doc", "*.htm*", "*.txt", "*.csv")
+                for c in extract_dir.glob(pat)
+                if not c.name.startswith("~$")
+            ]
+            if not doc_candidates:
+                raise FileNotFoundError(f"No supported session plan file found inside archive {p.name}.")
+            p = doc_candidates[0]
+            ext = p.suffix.lower()
+
+        staged = SessionPlanParser.stage_session_plan_file(p, self.meeting_dir, tdoc_hint)
+        if ext in (".docx", ".docm"):
+            return SessionPlanParser.parse_docx(staged, meeting_number=self.meeting_number)
+        return SessionPlanParser.parse_text_or_markdown(
+            staged.read_text(encoding="utf-8", errors="replace"),
+            meeting_number=self.meeting_number,
+            cached_file_path=str(staged),
+        )
+
+    def _download_session_plan_url(self, raw_url: str, timeout: int = 15) -> Path:
+        """Download a direct HTTP/HTTPS session plan URL into the meeting cache via NetworkSession."""
+        from urllib.parse import unquote, urlsplit
+        from core.network.session import NetworkSession
+        from core.utils.paths import to_extended_path
+
+        parsed = urlsplit(raw_url)
+        raw_name = unquote(Path(parsed.path).name) if parsed.path else ""
+
+        session = NetworkSession.get_instance().get_session()
+        NetworkSession.apply_humanness(session, url=raw_url)
+        resp = session.get(raw_url, stream=True, timeout=timeout)
+        resp.raise_for_status()
+
+        cd = resp.headers.get("Content-Disposition", "")
+        if cd:
+            m_star = re.search(r"filename\*\s*=\s*(?:UTF-8''|[^']*')?([^;]+)", cd, re.IGNORECASE)
+            m_plain = re.search(r'filename\s*=\s*"([^"]+)"|filename\s*=\s*([^;\s]+)', cd, re.IGNORECASE)
+            cd_name = ""
+            if m_star:
+                cd_name = unquote(m_star.group(1).strip().strip('"'))
+            elif m_plain:
+                cd_name = (m_plain.group(1) or m_plain.group(2) or "").strip()
+            if cd_name and (not raw_name or "." not in raw_name):
+                raw_name = cd_name
+
+        safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", Path(raw_name).name if raw_name else "").strip(" .")
+        if not safe_name:
+            safe_name = "session_plan_download.docx"
+
+        dl_dir = self.meeting_dir / "Agenda" / "SessionPlans" / "Downloaded"
+        os.makedirs(to_extended_path(dl_dir), exist_ok=True)
+        dest_path = dl_dir / safe_name
+        tmp_path = dl_dir / f".{safe_name}.part"
+
+        try:
+            with open(to_extended_path(tmp_path), "wb") as fh:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    if chunk:
+                        fh.write(chunk)
+            os.replace(to_extended_path(tmp_path), to_extended_path(dest_path))
+        except Exception:
+            try:
+                ext_tmp = to_extended_path(tmp_path)
+                if os.path.exists(ext_tmp):
+                    os.remove(ext_tmp)
+            except OSError:
+                pass
+            raise
+
+        return dest_path
 
     # --- Diffing & Exporting ---
 
