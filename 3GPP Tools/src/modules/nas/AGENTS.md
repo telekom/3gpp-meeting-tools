@@ -4,7 +4,25 @@ Developer and AI agent guide for multi-protocol parsing, evolution matrix diffin
 
 ---
 
-## 1. Supported Protocols & Parsing Rules
+## 1. Directory Map
+
+```text
+src/modules/nas/
+├── AGENTS.md
+├── core/
+│   ├── nas_db.py / nas_exporter.py / nas_threads.py
+│   └── parsing/                       # ProtocolDocxDispatcher + specialized parsers (see parsing/AGENTS.md)
+│       ├── nas_parser.py / rrc_asn1_parser.py / ran3_asn1_parser.py / xnap_asn1_parser.py
+│       ├── asn1_base_parser.py / asn1_parser.py / gtpu_parser.py / pdu_session_up_parser.py / pfcp_parser.py
+│       └── protocol_parser_common.py / protocol_parser_constants.py / protocol_parser_utils.py
+└── ui/
+    ├── nas_tabs.py / nas_components.py / nas_models.py / nas_dialogs.py
+    └── nas_ingest_controller.py / nas_matrix_controller.py / nas_workers.py
+```
+
+---
+
+## 2. Supported Protocols & Parsing Rules
 
 - **Covered Specifications:** 5GS NAS (TS 24.501), 5GS UE Policies (TS 24.526 URSP & ANDSP, TS 24.588 V2XP, TS 24.555 ProSeP, TS 24.514 RSLPP, TS 24.578 A2XP), EPS NAS (TS 24.301), NR RRC (TS 38.331), LTE RRC (TS 36.331), NGAP (TS 38.413), XnAP (TS 38.423), F1AP (TS 38.473), S1AP (TS 36.413), GTPv1-U (TS 29.281), PDU Session UP (TS 38.415), and PFCP (TS 29.244). Unified under `ProtocolDocxDispatcher`.
 - **5GS NAS Annex D & UE Policies (`nas_parser.py`, `protocol_parser_utils.py`, `nas_matrix_controller.py`):**
@@ -20,7 +38,7 @@ Developer and AI agent guide for multi-protocol parsing, evolution matrix diffin
   - `BaseAsn1DocxParser` appends `<Name> field descriptions` after `-- ASN1STOP` to pre-`-- ASN1START` prose (stripping `<pre>` and `RE_ASN1_BOX_CAPTION`). `RRCAsn1Parser._is_rrc_message()` excludes `*-IEs-rXX`/`-vXX`, `SetupRelease`, helpers, and lowercase inline fields while resolving versioned SIB PDUs (e.g. `SIB10-r16`).
   - *Umbrella Clause Disambiguation:* `NASDatabase.get_ie_definitions_by_clause` and `get_message_context_info` prioritize exact `ie_name` matches and reject shared umbrella-clause buckets (e.g. TS 38.331 `6.3.2`) when absent; `get_message_context_info` falls back on the fly to `ie_definitions` without requiring reimport; `📖 Desc` indexes descriptions and directions.
 
-## 2. UI, Evolution Matrix, Document Opening & Reloading
+## 3. UI, Evolution Matrix, Document Opening & Reloading
 
 - **Left Pane & Protocol Library (`nas_components.py`, `nas_tabs.py`, `nas_dialogs.py`):**
   - Card Frame architecture with KPI stats ribbon (`📦 Specs`, `🏷️ Versions`, `📨 Messages · IEs`) and `⚙️ Manage ▾`.
