@@ -703,7 +703,7 @@ def test_lean_thread_dialog_and_idle_cli_launch(tmp_path):
     dlg.links_toggle_btn.setChecked(False)
     dlg.show_meta_action.setChecked(False)
     assert not dlg.links_panel.isVisible()
-    assert "Links & Tags (1)" in dlg.links_toggle_btn.text()
+    assert "Links && Tags (1)" in dlg.links_toggle_btn.text()
     assert "## Thread Metadata" not in dlg.browser.toPlainText()
 
     dlg.links_toggle_btn.setChecked(True)

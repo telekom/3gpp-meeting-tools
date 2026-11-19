@@ -133,7 +133,7 @@ class TrackedThreadDialog(QDialog):
         self.meta_label.setStyleSheet("color: #64748B; font-size: 11px;")
         header_row.addWidget(self.meta_label)
 
-        self.links_toggle_btn = QPushButton("🏷️ Links & Tags ▸")
+        self.links_toggle_btn = QPushButton("🏷️ Links && Tags ▸")
         self.links_toggle_btn.setCheckable(True)
         saved_links_open = self._settings.value("links_panel_expanded", False, type=bool)
         self.links_toggle_btn.setChecked(saved_links_open)
@@ -243,7 +243,7 @@ class TrackedThreadDialog(QDialog):
 
         docs_btn = QPushButton("📂 Docs")
         docs_menu = QMenu(self)
-        act_cache_docs = docs_menu.addAction("📥 Cache All Linked Docs & Attachments")
+        act_cache_docs = docs_menu.addAction("📥 Cache All Linked Docs && Attachments")
         act_cache_docs.triggered.connect(self._on_cache_all_docs)
         act_open_folder = docs_menu.addAction("📂 Open Thread Cache Folder")
         act_open_folder.triggered.connect(self._on_open_thread_folder)
@@ -258,7 +258,7 @@ class TrackedThreadDialog(QDialog):
         self.dedup_check.toggled.connect(self._render_messages)
         more_menu.addAction(self.dedup_check)
 
-        self.show_meta_action = QAction("Show Metadata & Linked Docs Header", self)
+        self.show_meta_action = QAction("Show Metadata && Linked Docs Header", self)
         self.show_meta_action.setCheckable(True)
         self.show_meta_action.setChecked(self._settings.value("show_metadata_header", False, type=bool))
         self.show_meta_action.toggled.connect(self._on_show_metadata_toggled)
@@ -270,7 +270,7 @@ class TrackedThreadDialog(QDialog):
         self.export_chrono_check.toggled.connect(lambda v: self._settings.setValue("export_oldest_first", bool(v)))
 
         more_menu.addSeparator()
-        act_reload_all = more_menu.addAction("🔄 Reload All Cached Emails (Tables & Links)")
+        act_reload_all = more_menu.addAction("🔄 Reload All Cached Emails (Tables && Links)")
         act_reload_all.setToolTip("Re-fetch cached Outlook messages by EntryID to update HTML tables, links, and read/flag states.")
         act_reload_all.triggered.connect(self._on_reload_all_cached)
         act_reload_msg = more_menu.addAction("📥 Reload / Merge .msg File(s)...")
@@ -360,7 +360,7 @@ class TrackedThreadDialog(QDialog):
         )
         arrow = "▾" if self.links_toggle_btn.isChecked() else "▸"
         suffix = f" ({total_items})" if total_items > 0 else ""
-        self.links_toggle_btn.setText(f"🏷️ Links & Tags{suffix} {arrow}")
+        self.links_toggle_btn.setText(f"🏷️ Links && Tags{suffix} {arrow}")
         parts = []
         for label, key in (
             ("AIs", "linked_ais"),
@@ -466,7 +466,7 @@ class TrackedThreadDialog(QDialog):
                 if status and status != "⚪ Neutral":
                     self.notes_btn.setText(f"{status} · 📝 Notes")
                 elif has_notes:
-                    self.notes_btn.setText("📓 Notes & Status...")
+                    self.notes_btn.setText("📓 Notes && Status...")
                 else:
                     self.notes_btn.setText("📝 Notes && Status...")
             self._populate_company_filter(self.db.get_thread_messages(self.thread_id))
