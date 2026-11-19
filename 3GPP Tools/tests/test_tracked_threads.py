@@ -2761,6 +2761,24 @@ def test_batch_folder_sync_fast_skip_and_filter_scoped_sync(tmp_path):
         assert "G-CONV-REPLY" in g_after
         assert "S2-2612800" in g_after["G-CONV-REPLY"]["matched_tdocs"]
 
+    # 4. Single-thread / selected-row sync via btn_sync_selected + dropdown action
+    dlg.pill_all.click()
+    dlg.search_edit.clear()
+    dlg._apply_filters()
+    assert dlg.table.rowCount() >= 2
+    dlg.table.selectRow(0)
+    assert dlg.btn_sync_selected.isEnabled()
+    assert dlg.btn_sync_selected.text() == "🔄 Sync Thread"
+    assert dlg._act_sync_selected.isEnabled()
+    sel_targets = dlg._selected_items
+    sel_tids, sel_eids = dlg._collect_scoped_sync_targets(sel_targets)
+    assert len(sel_tids) + len(sel_eids) >= 1
+    with patch.object(dlg, "_start_outlook_sync") as mock_start:
+        dlg.btn_sync_selected.click()
+        mock_start.assert_called_once()
+        assert mock_start.call_args.kwargs.get("scoped") is True
+        assert mock_start.call_args.kwargs.get("target_items") == sel_targets
+
     dlg.close()
 
 

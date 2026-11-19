@@ -384,6 +384,9 @@ class MeetingEmailInboxDialog(QDialog):
             "Pull new Tracked Thread replies, TDoc emails, and Outlook read/flag updates asynchronously."
         )
         self._sync_menu = QMenu(self.sync_outlook_btn)
+        self._act_sync_selected = self._sync_menu.addAction("🔄 Sync Selected Thread")
+        self._act_sync_selected.setEnabled(False)
+        self._act_sync_selected.triggered.connect(self._on_sync_selected_clicked)
         self._act_sync_filtered = self._sync_menu.addAction("⚡ Sync Filtered Only")
         self._act_sync_filtered.triggered.connect(lambda: self._start_outlook_sync(scoped=True))
         self._act_sync_full = self._sync_menu.addAction("📡 Full Sync (All Threads && Folders)")
@@ -445,6 +448,8 @@ class MeetingEmailInboxDialog(QDialog):
         hdr.setSectionResizeMode(3, QHeaderView.Stretch)
         hdr.resizeSection(4, 140)
         hdr.resizeSection(5, 115)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_table_context_menu)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
         left_layout.addWidget(self.table, 1)
 
@@ -599,6 +604,13 @@ class MeetingEmailInboxDialog(QDialog):
         self.btn_open_context = QPushButton("📂 Open Thread")
         self.btn_open_context.clicked.connect(self._on_open_context)
         act_row.addWidget(self.btn_open_context)
+
+        self.btn_sync_selected = QPushButton("🔄 Sync Thread")
+        self.btn_sync_selected.setToolTip(
+            "Sync only the currently selected email thread(s)/conversation(s) with Outlook asynchronously."
+        )
+        self.btn_sync_selected.clicked.connect(self._on_sync_selected_clicked)
+        act_row.addWidget(self.btn_sync_selected)
 
         self.btn_toggle_assign_bar = QPushButton("🏷️ AI / WI ▴" if self._show_assign_bar else "🏷️ AI / WI ▾")
         self.btn_toggle_assign_bar.setCheckable(True)
@@ -1188,8 +1200,9 @@ class MeetingEmailInboxDialog(QDialog):
         self.detail_links_lbl.setText("")
         self.assign_frame.setVisible(False)
         self.preview_browser.setMarkdown("*Select another filter tab or adjust search criteria.*")
-        for btn in (self.btn_mark_next, self.btn_toggle_read, self.btn_toggle_flag, self.btn_reply, self.btn_open_outlook, self.btn_open_context):
+        for btn in (self.btn_mark_next, self.btn_toggle_read, self.btn_toggle_flag, self.btn_reply, self.btn_open_outlook, self.btn_open_context, self.btn_sync_selected):
             btn.setEnabled(False)
+        self._update_selected_sync_controls(0)
 
     def _on_toggle_assign_bar(self, checked: bool):
         self._show_assign_bar = bool(checked)
@@ -1320,6 +1333,7 @@ class MeetingEmailInboxDialog(QDialog):
         self.btn_toggle_flag.setText(
             f"🚩 Flag ({unflagged_cnt})" if unflagged_cnt > 0 else f"🏳️ Unflag ({len(selected)})"
         )
+        self._update_selected_sync_controls(len(selected))
 
         md_lines = [f"### Batch Triage ({len(selected)} selected {noun.lower()})", ""]
         md_lines.append("Use the **AIs**, **Sub-Topics**, **WIs**, **Auto-Assign**, **Pin**, **Mark Read**, or **Flag** controls above to update all selected items together.\n")
@@ -1410,6 +1424,7 @@ class MeetingEmailInboxDialog(QDialog):
             self.btn_open_context.setText(f"📄 Open {it['linked_tdocs'][0]}")
         else:
             self.btn_open_context.setText("📂 Open Context")
+        self._update_selected_sync_controls(1)
 
         if it.get("_is_group"):
             synth = {
@@ -1966,12 +1981,57 @@ class MeetingEmailInboxDialog(QDialog):
                     "Use dropdown ▾ to sync only currently visible items."
                 )
 
-    def _collect_scoped_sync_targets(self) -> tuple:
+    def _update_selected_sync_controls(self, selected_count: int):
+        running = bool(getattr(self, "_sync_worker", None) and self._sync_worker.isRunning())
+        if hasattr(self, "btn_sync_selected"):
+            self.btn_sync_selected.setEnabled(selected_count > 0 and not running)
+            self.btn_sync_selected.setText(
+                f"🔄 Sync Selected ({selected_count})" if selected_count > 1 else "🔄 Sync Thread"
+            )
+        if hasattr(self, "_act_sync_selected"):
+            self._act_sync_selected.setEnabled(selected_count > 0 and not running)
+            self._act_sync_selected.setText(
+                f"🔄 Sync Selected Threads ({selected_count})" if selected_count > 1 else "🔄 Sync Selected Thread"
+            )
+
+    def _on_table_context_menu(self, pos):
+        item = self.table.itemAt(pos)
+        if item is None:
+            return
+        row = item.row()
+        sel_rows = {idx.row() for idx in self.table.selectionModel().selectedRows()} if self.table.selectionModel() else set()
+        if row not in sel_rows:
+            self.table.selectRow(row)
+        targets = self._selected_items or ([self._current_item] if self._current_item else [])
+        if not targets:
+            return
+        menu = QMenu(self.table)
+        sync_label = (
+            f"🔄 Sync Selected Threads ({len(targets)})"
+            if len(targets) > 1
+            else ("🔄 Sync This Thread" if targets[0].get("_is_group") or targets[0].get("in_tracked_db") else "🔄 Sync This Conversation")
+        )
+        act_sync = menu.addAction(sync_label)
+        act_sync.setEnabled(not bool(getattr(self, "_sync_worker", None) and self._sync_worker.isRunning()))
+        act_sync.triggered.connect(self._on_sync_selected_clicked)
+        menu.addSeparator()
+        act_read = menu.addAction(self.btn_toggle_read.text())
+        act_read.triggered.connect(self._on_toggle_read)
+        act_flag = menu.addAction(self.btn_toggle_flag.text())
+        act_flag.triggered.connect(self._on_toggle_flag)
+        if self.btn_open_context.isEnabled():
+            menu.addSeparator()
+            act_ctx = menu.addAction(self.btn_open_context.text())
+            act_ctx.triggered.connect(self._on_open_context)
+        menu.exec_(self.table.viewport().mapToGlobal(pos))
+
+    def _collect_scoped_sync_targets(self, items: Optional[List[dict]] = None) -> tuple:
         tracked_ids: List[str] = []
         seen_t = set()
         unpinned_ids: List[str] = []
         seen_u = set()
-        for it in (self._visible_items or []):
+        source = self._visible_items if items is None else items
+        for it in (source or []):
             tid = str(it.get("thread_id") or "").strip()
             if it.get("in_tracked_db") and tid:
                 if tid not in seen_t:
@@ -1990,10 +2050,17 @@ class MeetingEmailInboxDialog(QDialog):
                     unpinned_ids.append(eid)
         return tracked_ids, unpinned_ids
 
+    def _on_sync_selected_clicked(self):
+        targets = self._selected_items or ([self._current_item] if self._current_item else [])
+        if not targets:
+            notify_info(self, "No Thread Selected", "Select an email or thread first.")
+            return
+        self._start_outlook_sync(scoped=True, target_items=targets)
+
     def _on_sync_outlook_clicked(self):
         self._start_outlook_sync(scoped=bool(getattr(self, "_default_sync_scoped", False)))
 
-    def _start_outlook_sync(self, scoped: bool = False):
+    def _start_outlook_sync(self, scoped: bool = False, target_items: Optional[List[dict]] = None):
         if getattr(self, "_sync_worker", None) and self._sync_worker.isRunning():
             return
         tdb_path = getattr(self.tracked_db, "db_path", None) if self.tracked_db is not None else None
@@ -2007,13 +2074,17 @@ class MeetingEmailInboxDialog(QDialog):
         scoped_tids = None
         scoped_eids = None
         if scoped:
-            scoped_tids, scoped_eids = self._collect_scoped_sync_targets()
+            scoped_tids, scoped_eids = self._collect_scoped_sync_targets(target_items)
             if not scoped_tids and not scoped_eids:
                 notify_info(self, "Nothing in Filter", "No conversations in the current filter to sync.")
                 return
 
         self.sync_outlook_btn.setEnabled(False)
         self.sync_outlook_btn.setText("⏳ Syncing...")
+        if hasattr(self, "btn_sync_selected"):
+            self.btn_sync_selected.setEnabled(False)
+        if hasattr(self, "_act_sync_selected"):
+            self._act_sync_selected.setEnabled(False)
         worker = InboxOutlookSyncWorker(
             tdb_path,
             gdb_path,
