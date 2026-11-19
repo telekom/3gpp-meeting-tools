@@ -7,7 +7,7 @@ import re
 from typing import Any, Callable, Dict, List, Optional
 import urllib.parse
 
-from PyQt5.QtCore import QSettings, Qt, QTimer, QUrl, pyqtSignal
+from PyQt5.QtCore import QItemSelectionModel, QSettings, Qt, QTimer, QUrl, pyqtSignal
 from PyQt5.QtGui import QColor, QDesktopServices
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -57,6 +57,18 @@ from modules.emails.core.tracked_threads_service import (
     reply_to_outlook_message,
 )
 from modules.meetings.ui.topic_pills import TagCloudWidget
+
+
+class _InboxTableWidget(QTableWidget):
+    """QTableWidget with ExtendedSelection whose selectRow() deterministically selects one row."""
+
+    def selectRow(self, row: int):
+        sel_model = self.selectionModel()
+        model = self.model()
+        if sel_model is None or model is None or row < 0 or row >= self.rowCount():
+            return
+        idx = model.index(row, 0)
+        sel_model.setCurrentIndex(idx, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
 
 
 class MeetingEmailInboxDialog(QDialog):
@@ -111,7 +123,9 @@ class MeetingEmailInboxDialog(QDialog):
         self._grouped_items: List[dict] = []
         self._visible_items: List[dict] = []
         self._items_by_id: Dict[str, dict] = {}
+        self._selected_items: List[dict] = []
         self._current_item: Optional[dict] = None
+        self._multi_base_common: Dict[str, List[str]] = {"ais": [], "subs": [], "wis": []}
         self._settings = settings if settings is not None else QSettings("3GPP_Tools", "MeetingEmailInboxDialog")
         self._restoring_filters = True
         self._active_mode = "UNREAD"
@@ -366,7 +380,7 @@ class MeetingEmailInboxDialog(QDialog):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(4)
 
-        self.table = QTableWidget(0, 6, left_widget)
+        self.table = _InboxTableWidget(0, 6, left_widget)
         self.table.setHorizontalHeaderLabels([
             "State",
             "Source / Context",
@@ -376,7 +390,11 @@ class MeetingEmailInboxDialog(QDialog):
             "Date",
         ])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.table.setToolTip(
+            "Select one row to inspect, or hold Ctrl/Shift to select multiple emails/threads "
+            "and bulk-assign AIs, Sub-Topics, WIs, Pin, Read, or Flag."
+        )
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
@@ -715,7 +733,11 @@ class MeetingEmailInboxDialog(QDialog):
             })
         return sorted(grouped, key=lambda x: x.get("date_str", ""), reverse=True)
 
-    def reload_from_dbs(self, preserve_id: Optional[str] = None):
+    def reload_from_dbs(
+        self,
+        preserve_id: Optional[str] = None,
+        preserve_ids: Optional[List[str]] = None,
+    ):
         """Loads and deduplicates emails from TrackedThreadsDatabase and GeneralEmailDatabase."""
         by_id: Dict[str, dict] = {}
 
@@ -834,7 +856,7 @@ class MeetingEmailInboxDialog(QDialog):
 
         self._populate_filter_combos()
         self._update_pill_counts()
-        self._apply_filters(preserve_id=preserve_id)
+        self._apply_filters(preserve_id=preserve_id, preserve_ids=preserve_ids)
 
     @staticmethod
     def _clean_tdoc_id(raw: Any) -> str:
@@ -917,7 +939,13 @@ class MeetingEmailInboxDialog(QDialog):
         self.pill_recent.setText(f"🕒 Last 24h ({recent_cnt})")
         self.pill_all.setText(f"📋 All ({total_cnt})")
 
-    def _apply_filters(self, *_args, preserve_id: Optional[str] = None, select_row: Optional[int] = None):
+    def _apply_filters(
+        self,
+        *_args,
+        preserve_id: Optional[str] = None,
+        preserve_ids: Optional[List[str]] = None,
+        select_row: Optional[int] = None,
+    ):
         self._save_filter_settings()
         target_id = preserve_id if preserve_id is not None else (self._current_item["id"] if self._current_item else None)
         mode = self._active_mode
@@ -1057,13 +1085,34 @@ class MeetingEmailInboxDialog(QDialog):
                 row_to_select = r
 
         if visible:
-            if select_row is not None and 0 <= select_row < len(visible):
-                row_to_select = select_row
-            elif select_row is not None and select_row >= len(visible):
-                row_to_select = len(visible) - 1
-            elif row_to_select < 0:
-                row_to_select = 0
-            self.table.selectRow(row_to_select)
+            rows_to_select: List[int] = []
+            if preserve_ids:
+                pid_set = set(preserve_ids)
+                rows_to_select = [r for r, it in enumerate(visible) if it["id"] in pid_set]
+            if not rows_to_select:
+                if select_row is not None and 0 <= select_row < len(visible):
+                    rows_to_select = [select_row]
+                elif select_row is not None and select_row >= len(visible):
+                    rows_to_select = [len(visible) - 1]
+                elif row_to_select >= 0:
+                    rows_to_select = [row_to_select]
+                else:
+                    rows_to_select = [0]
+
+            sel_model = self.table.selectionModel()
+            if sel_model is None:
+                self.table.selectRow(rows_to_select[0])
+            else:
+                sel_model.clearSelection()
+                for r in rows_to_select:
+                    sel_model.select(
+                        self.table.model().index(r, 0),
+                        QItemSelectionModel.Select | QItemSelectionModel.Rows,
+                    )
+                sel_model.setCurrentIndex(
+                    self.table.model().index(rows_to_select[0], 0),
+                    QItemSelectionModel.NoUpdate,
+                )
         self.table.blockSignals(False)
 
         noun = "thread(s)" if self._view_mode == "THREADS" else "indexed email(s)"
@@ -1072,12 +1121,17 @@ class MeetingEmailInboxDialog(QDialog):
 
     def _on_selection_changed(self):
         rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()}) if self.table.selectionModel() else []
-        if not rows or rows[0] < 0 or rows[0] >= len(self._visible_items):
+        selected = [self._visible_items[r] for r in rows if 0 <= r < len(self._visible_items)]
+        self._selected_items = selected
+        if not selected:
             self._current_item = None
             self._render_empty_detail()
             return
-        self._current_item = self._visible_items[rows[0]]
-        self._render_detail(self._current_item)
+        self._current_item = selected[0]
+        if len(selected) == 1:
+            self._render_detail(selected[0])
+        else:
+            self._render_multi_detail(selected)
 
     def _render_empty_detail(self):
         self.detail_subject_lbl.setText("No matching emails in this filter")
@@ -1109,6 +1163,7 @@ class MeetingEmailInboxDialog(QDialog):
             ais = list(it.get("linked_ais") or [])
             subs = list(it.get("linked_sub_items") or [])
             wis = list(it.get("linked_wis") or [])
+            self._multi_base_common = {"ais": [], "subs": [], "wis": []}
             self._refresh_assign_sub_suggestions(ais)
             self.assign_ais_pills.setText(", ".join(ais))
             self.assign_subs_pills.setText(", ".join(subs))
@@ -1118,6 +1173,105 @@ class MeetingEmailInboxDialog(QDialog):
             self.btn_auto_assign.setEnabled(self.tracked_db is not None)
         finally:
             self._updating_assign_bar = False
+
+    def _populate_assign_bar_multi(self, selected: List[dict]):
+        self._updating_assign_bar = True
+        try:
+            self.assign_frame.setVisible(True)
+            common_ais = [
+                a for a in (selected[0].get("linked_ais") or [])
+                if all(a in (it.get("linked_ais") or []) for it in selected[1:])
+            ]
+            common_subs = [
+                s for s in (selected[0].get("linked_sub_items") or [])
+                if all(s in (it.get("linked_sub_items") or []) for it in selected[1:])
+            ]
+            common_wis = [
+                w for w in (selected[0].get("linked_wis") or [])
+                if all(w in (it.get("linked_wis") or []) for it in selected[1:])
+            ]
+            union_ais = list(dict.fromkeys(
+                a for it in selected for a in (it.get("linked_ais") or []) if a
+            ))
+            self._multi_base_common = {
+                "ais": list(common_ais),
+                "subs": list(common_subs),
+                "wis": list(common_wis),
+            }
+            self._refresh_assign_sub_suggestions(union_ais)
+            self.assign_ais_pills.setText(", ".join(common_ais))
+            self.assign_subs_pills.setText(", ".join(common_subs))
+            self.assign_wis_pills.setText(", ".join(common_wis))
+            has_unpinned = any(not it.get("in_tracked_db") for it in selected)
+            self.btn_pin_inline.setVisible(has_unpinned and self.tracked_db is not None)
+            self.btn_pin_inline.setEnabled(has_unpinned and self.tracked_db is not None)
+            self.btn_auto_assign.setEnabled(self.tracked_db is not None)
+        finally:
+            self._updating_assign_bar = False
+
+    def _render_multi_detail(self, selected: List[dict]):
+        noun = "Threads" if self._view_mode == "THREADS" else "Emails"
+        unread_cnt = sum(1 for it in selected if not it["is_read"])
+        flagged_cnt = sum(1 for it in selected if it["is_flagged"])
+        unpinned_cnt = sum(1 for it in selected if not it.get("in_tracked_db"))
+        pinned_cnt = len(selected) - unpinned_cnt
+
+        self.detail_subject_lbl.setText(f"📑 {len(selected)} Selected {noun}")
+        self.detail_meta_lbl.setText(
+            f"{unread_cnt} unread  |  {flagged_cnt} flagged  |  "
+            f"{pinned_cnt} tracked, {unpinned_cnt} unpinned"
+        )
+
+        cleaned_tdocs = list(dict.fromkeys(
+            self._clean_tdoc_id(td)
+            for it in selected
+            for td in (it.get("linked_tdocs") or [])
+            if self._clean_tdoc_id(td)
+        ))
+        links_html = [f"Batch selection ({len(selected)} items) — adding AIs/Sub-Topics/WIs applies to all selected items without removing each item's other existing tags"]
+        if cleaned_tdocs:
+            if self._open_tdoc_callback:
+                td_anchors = ", ".join(
+                    f'<a href="tdoc:{html.escape(td)}" '
+                    f'style="color: #1D4ED8; font-weight: 600; text-decoration: underline;">'
+                    f'{html.escape(td)}</a>'
+                    for td in cleaned_tdocs[:10]
+                )
+            else:
+                td_anchors = ", ".join(html.escape(td) for td in cleaned_tdocs[:10])
+            if len(cleaned_tdocs) > 10:
+                td_anchors += f" (+{len(cleaned_tdocs) - 10} more)"
+            links_html.append(f"TDocs: {td_anchors}")
+        self.detail_links_lbl.setText(" &nbsp;|&nbsp; ".join(links_html))
+        self.detail_links_lbl.setVisible(True)
+
+        self._populate_assign_bar_multi(selected)
+
+        self.btn_mark_next.setEnabled(False)
+        self.btn_reply.setEnabled(False)
+        self.btn_open_outlook.setEnabled(False)
+        self.btn_open_context.setEnabled(False)
+        self.btn_open_context.setText("📂 Open Context")
+        self.btn_toggle_read.setEnabled(True)
+        self.btn_toggle_read.setText(
+            f"✓ Mark Read ({unread_cnt})" if unread_cnt > 0 else f"🔵 Mark Unread ({len(selected)})"
+        )
+        self.btn_toggle_flag.setEnabled(True)
+        unflagged_cnt = len(selected) - flagged_cnt
+        self.btn_toggle_flag.setText(
+            f"🚩 Flag ({unflagged_cnt})" if unflagged_cnt > 0 else f"🏳️ Unflag ({len(selected)})"
+        )
+
+        md_lines = [f"### Batch Triage ({len(selected)} selected {noun.lower()})", ""]
+        md_lines.append("Use the **AIs**, **Sub-Topics**, **WIs**, **Auto-Assign**, **Pin**, **Mark Read**, or **Flag** controls above to update all selected items together.\n")
+        for idx, it in enumerate(selected, 1):
+            subj = str(it.get("subject") or "(No Subject)")
+            comp = str(it.get("company") or "Unknown")
+            ais = ", ".join(it.get("linked_ais") or []) or "Unassigned"
+            wis = ", ".join(it.get("linked_wis") or []) or "None"
+            status_tag = "🧵 Tracked" if it.get("in_tracked_db") else "📄 Unpinned"
+            md_lines.append(f"{idx}. **{subj}** — *{comp}* · {status_tag} · AI: `{ais}` · WI: `{wis}`")
+        self.preview_browser.setMarkdown("\n".join(md_lines))
 
     def _render_detail(self, it: dict):
         self.detail_subject_lbl.setText(it.get("subject") or "(No Subject)")
@@ -1268,6 +1422,7 @@ class MeetingEmailInboxDialog(QDialog):
         linked_ais: Optional[List[str]] = None,
         linked_wis: Optional[List[str]] = None,
         linked_sub_items: Optional[List[str]] = None,
+        reload: bool = True,
     ) -> Optional[str]:
         if self.tracked_db is None or not it:
             return None
@@ -1291,44 +1446,152 @@ class MeetingEmailInboxDialog(QDialog):
             refresh_from_outlook=True,
         )
         new_preserve = f"THR::{tid}" if self._view_mode == "THREADS" else it["id"]
-        self.reload_from_dbs(preserve_id=new_preserve)
-        self.data_changed.emit()
+        if reload:
+            self.reload_from_dbs(preserve_id=new_preserve)
+            self.data_changed.emit()
         return tid
 
     def _on_pin_inline_clicked(self):
-        if not self._current_item or self._current_item.get("in_tracked_db"):
+        targets = self._selected_items or ([self._current_item] if self._current_item else [])
+        unpinned = [it for it in targets if not it.get("in_tracked_db")]
+        if not unpinned or self.tracked_db is None:
             return
-        tid = self._pin_item_in_place(self._current_item)
-        if tid:
-            notify_success(self, "Thread Pinned", "Email conversation pinned as a Tracked Thread.")
+        if len(targets) == 1:
+            tid = self._pin_item_in_place(unpinned[0])
+            if tid:
+                notify_success(self, "Thread Pinned", "Email conversation pinned as a Tracked Thread.")
+            return
+
+        preserved_ids: List[str] = []
+        pinned_count = 0
+        for it in targets:
+            if it.get("in_tracked_db"):
+                preserved_ids.append(it["id"])
+                continue
+            tid = self._pin_item_in_place(it, reload=False)
+            if tid:
+                pinned_count += 1
+                preserved_ids.append(f"THR::{tid}" if self._view_mode == "THREADS" else it["id"])
+        self.reload_from_dbs(preserve_ids=list(dict.fromkeys(preserved_ids)))
+        self.data_changed.emit()
+        if pinned_count:
+            notify_success(self, "Threads Pinned", f"Pinned {pinned_count} conversation(s) as Tracked Threads.")
 
     def _on_auto_assign_clicked(self):
-        if not self._current_item or self.tracked_db is None:
+        targets = self._selected_items or ([self._current_item] if self._current_item else [])
+        if not targets or self.tracked_db is None:
             return
-        it = self._current_item
-        sugg = auto_suggest_links(
-            it.get("subject", ""),
-            it.get("body_text", ""),
-            agenda_map=self._agenda_map,
-            valid_wis=self._valid_wis if self._wi_suggestions else None,
-            tdoc_meta_map=self._tdoc_meta_map,
-            extra_tdocs=it.get("linked_tdocs") or [],
-        )
-        ais = list(dict.fromkeys((it.get("linked_ais") or []) + (sugg.get("ais") or [])))
-        subs = list(dict.fromkeys((it.get("linked_sub_items") or []) + (sugg.get("sub_items") or [])))
-        wis = list(dict.fromkeys((it.get("linked_wis") or []) + (sugg.get("wis") or [])))
-        if not it.get("in_tracked_db"):
-            self._pin_item_in_place(it, linked_ais=ais, linked_wis=wis, linked_sub_items=subs)
-            return
-        tid = it["thread_id"]
-        self.tracked_db.update_thread_links(tid, linked_ais=ais, linked_sub_items=subs, linked_wis=wis)
-        self.reload_from_dbs(preserve_id=it["id"])
+
+        preserved_ids: List[str] = []
+        seen_tids = set()
+        for it in targets:
+            sugg = auto_suggest_links(
+                it.get("subject", ""),
+                it.get("body_text", ""),
+                agenda_map=self._agenda_map,
+                valid_wis=self._valid_wis if self._wi_suggestions else None,
+                tdoc_meta_map=self._tdoc_meta_map,
+                extra_tdocs=it.get("linked_tdocs") or [],
+            )
+            ais = list(dict.fromkeys((it.get("linked_ais") or []) + (sugg.get("ais") or [])))
+            subs = list(dict.fromkeys((it.get("linked_sub_items") or []) + (sugg.get("sub_items") or [])))
+            wis = list(dict.fromkeys((it.get("linked_wis") or []) + (sugg.get("wis") or [])))
+            if not it.get("in_tracked_db"):
+                tid = self._pin_item_in_place(it, linked_ais=ais, linked_wis=wis, linked_sub_items=subs, reload=False)
+                if tid:
+                    preserved_ids.append(f"THR::{tid}" if self._view_mode == "THREADS" else it["id"])
+            else:
+                tid = it["thread_id"]
+                if tid not in seen_tids:
+                    seen_tids.add(tid)
+                    self.tracked_db.update_thread_links(tid, linked_ais=ais, linked_sub_items=subs, linked_wis=wis)
+                preserved_ids.append(it["id"])
+
+        dedup_ids = list(dict.fromkeys(preserved_ids))
+        if len(targets) == 1 and len(dedup_ids) == 1:
+            self.reload_from_dbs(preserve_id=dedup_ids[0])
+        else:
+            self.reload_from_dbs(preserve_ids=dedup_ids)
         self.data_changed.emit()
 
     def _on_inline_links_changed(self):
-        if self._updating_assign_bar or not self._current_item or self.tracked_db is None:
+        targets = self._selected_items or ([self._current_item] if self._current_item else [])
+        if self._updating_assign_bar or not targets or self.tracked_db is None:
             return
-        it = self._current_item
+
+        if len(targets) >= 2:
+            cur_ais = self.assign_ais_pills.tags()
+            cur_subs = self.assign_subs_pills.tags()
+            cur_wis = self.assign_wis_pills.tags()
+
+            base_ais = set(self._multi_base_common.get("ais", []))
+            base_subs = set(self._multi_base_common.get("subs", []))
+            base_wis = set(self._multi_base_common.get("wis", []))
+
+            added_ais = [a for a in cur_ais if a not in base_ais]
+            removed_ais = base_ais - set(cur_ais)
+            added_subs = [s for s in cur_subs if s not in base_subs]
+            removed_subs = base_subs - set(cur_subs)
+            added_wis = [w for w in cur_wis if w not in base_wis]
+            removed_wis = base_wis - set(cur_wis)
+
+            preserved_ids: List[str] = []
+            seen_tids = set()
+            all_resulting_ais = list(cur_ais)
+            for it in targets:
+                it_ais = [a for a in (it.get("linked_ais") or []) if a not in removed_ais]
+                for a in added_ais:
+                    if a not in it_ais:
+                        it_ais.append(a)
+                for a in it_ais:
+                    if a not in all_resulting_ais:
+                        all_resulting_ais.append(a)
+
+                it_wis = [w for w in (it.get("linked_wis") or []) if w not in removed_wis]
+                for w in added_wis:
+                    if w not in it_wis:
+                        it_wis.append(w)
+
+                it_subs = [s for s in (it.get("linked_sub_items") or []) if s not in removed_subs]
+                for s in added_subs:
+                    if s not in it_subs:
+                        it_subs.append(s)
+                if self._ai_to_sub_items:
+                    it_allowed = {sub for ai in it_ais for sub in self._ai_to_sub_items.get(ai, [])}
+                    it_subs = [s for s in it_subs if s in it_allowed]
+
+                if not it.get("in_tracked_db"):
+                    tid = self._pin_item_in_place(
+                        it,
+                        linked_ais=it_ais,
+                        linked_wis=it_wis,
+                        linked_sub_items=it_subs,
+                        reload=False,
+                    )
+                    if tid:
+                        preserved_ids.append(f"THR::{tid}" if self._view_mode == "THREADS" else it["id"])
+                else:
+                    tid = it["thread_id"]
+                    if tid not in seen_tids:
+                        seen_tids.add(tid)
+                        self.tracked_db.update_thread_links(
+                            tid,
+                            linked_ais=it_ais,
+                            linked_sub_items=it_subs,
+                            linked_wis=it_wis,
+                        )
+                    preserved_ids.append(it["id"])
+
+            self._multi_base_common = {
+                "ais": list(cur_ais),
+                "subs": list(cur_subs),
+                "wis": list(cur_wis),
+            }
+            self.reload_from_dbs(preserve_ids=list(dict.fromkeys(preserved_ids)))
+            self.data_changed.emit()
+            return
+
+        it = targets[0]
         selected_ais = self.assign_ais_pills.tags()
         self._refresh_assign_sub_suggestions(selected_ais)
         allowed_subs = {
@@ -1451,26 +1714,40 @@ class MeetingEmailInboxDialog(QDialog):
             self._apply_filters(preserve_id=self._visible_items[next_row]["id"])
 
     def _on_toggle_read(self):
-        if not self._current_item:
+        targets = self._selected_items or ([self._current_item] if self._current_item else [])
+        if not targets:
             return
-        it = self._current_item
-        cur_row = self.table.currentRow()
-        self._mutate_read(it, not it["is_read"])
-        self._apply_filters(
-            preserve_id=it["id"],
-            select_row=cur_row if self._active_mode == "UNREAD" else None,
-        )
+        if len(targets) == 1:
+            it = targets[0]
+            cur_row = self.table.currentRow()
+            self._mutate_read(it, not it["is_read"])
+            self._apply_filters(
+                preserve_id=it["id"],
+                select_row=cur_row if self._active_mode == "UNREAD" else None,
+            )
+            return
+        mark_read = any(not it["is_read"] for it in targets)
+        for it in targets:
+            self._mutate_read(it, mark_read)
+        self._apply_filters(preserve_ids=[it["id"] for it in targets])
 
     def _on_toggle_flag(self):
-        if not self._current_item:
+        targets = self._selected_items or ([self._current_item] if self._current_item else [])
+        if not targets:
             return
-        it = self._current_item
-        cur_row = self.table.currentRow()
-        self._mutate_flag(it, not it["is_flagged"])
-        self._apply_filters(
-            preserve_id=it["id"],
-            select_row=cur_row if self._active_mode == "FLAGGED" else None,
-        )
+        if len(targets) == 1:
+            it = targets[0]
+            cur_row = self.table.currentRow()
+            self._mutate_flag(it, not it["is_flagged"])
+            self._apply_filters(
+                preserve_id=it["id"],
+                select_row=cur_row if self._active_mode == "FLAGGED" else None,
+            )
+            return
+        flag_on = any(not it["is_flagged"] for it in targets)
+        for it in targets:
+            self._mutate_flag(it, flag_on)
+        self._apply_filters(preserve_ids=[it["id"] for it in targets])
 
     def _on_reply(self):
         if not self._current_item:

@@ -1792,7 +1792,7 @@ def test_inbox_unassigned_filters_grouping_and_inline_assignment(tmp_path):
         dlg.source_combo.setCurrentIndex(0)
         dlg.ai_combo.setCheckedItems([])
         dlg.ai_combo.selectionChanged.emit(dlg.ai_combo.getCheckedItems())
-        dlg.table.selectRow(0)  # E-UNPIN (newest: 12:00)
+        assert dlg._current_item and dlg._current_item["id"] == "E-UNPIN"
         dlg.assign_ais_pills.add_tag("20.2")
         pinned_list = [t for t in tdb.get_threads_for_meeting("SA2#178") if "S2-2612999" in (t.get("linked_tdocs") or [])]
         assert len(pinned_list) == 1
@@ -1959,6 +1959,97 @@ def test_meeting_inbox_filter_persistence_per_meeting(tmp_path):
         dlg1.close()
         dlg2.close()
         dlg_other.close()
+
+
+def test_inbox_multi_select_batch_ai_wi_assignment(tmp_path):
+    from unittest.mock import patch
+    from PyQt5.QtCore import QItemSelectionModel, QSettings
+    from PyQt5.QtWidgets import QAbstractItemView, QApplication
+
+    app = QApplication.instance() or QApplication([])
+    from modules.emails.core.general_email_db import GeneralEmailDatabase
+    from modules.emails.core.outlook_client import OutlookClient
+    from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+    from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
+
+    tdb = TrackedThreadsDatabase(tmp_path / "threads.db")
+    tid_pre = tdb.create_or_get_thread("Mobility Thread", "Mobility Thread", meeting_id="SA2#178", linked_ais=["20.2"])
+    tdb.upsert_messages(
+        tid_pre,
+        [{"id": "M-PRE", "sender_name": "Alice", "company": "Nokia", "date_sent": "2026-11-18 09:00:00", "body_text": "pre", "is_read": 0}],
+    )
+    tid_blank = tdb.create_or_get_thread("Blank Tracked Thread", "Blank Tracked Thread", meeting_id="SA2#178")
+    tdb.upsert_messages(
+        tid_blank,
+        [{"id": "M-BLK", "sender_name": "Bob", "company": "Samsung", "date_sent": "2026-11-18 10:00:00", "body_text": "blank", "is_read": 0}],
+    )
+    gdb = GeneralEmailDatabase(tmp_path / "general.db")
+    gdb.save_emails_batch(
+        [
+            {
+                "id": "E-UNPIN-B",
+                "subject": "[SA2#178] Baseline paper S2-2612027",
+                "sender_name": "Carol",
+                "company": "Huawei",
+                "date_received": "2026-11-18 11:00:00",
+                "body_text": "Discuss baseline",
+                "is_read": 0,
+            }
+        ],
+        [{"email_id": "E-UNPIN-B", "tdoc_id": "S2-2612027", "match_location": "Subject"}],
+    )
+
+    with patch.object(OutlookClient, "set_messages_read_status", return_value=1), \
+         patch.object(OutlookClient, "set_messages_flag_status", return_value=1), \
+         patch.object(OutlookClient, "get_namespace", return_value=None):
+        dlg = MeetingEmailInboxDialog(
+            tdb,
+            gdb,
+            meeting_id="SA2#178",
+            ai_suggestions=["20.6.1 — FS_6G_ARC", "20.2 — Architecture"],
+            wi_suggestions=["FS_6G_ARC — 6G Study"],
+            ai_to_sub_items={"20.6.1": ["KI#3 Bullet 2"], "20.2": ["Mobility"]},
+            settings=QSettings(str(tmp_path / "batch.ini"), QSettings.IniFormat),
+        )
+        assert dlg.table.selectionMode() == QAbstractItemView.ExtendedSelection
+        dlg._set_view_mode("THREADS")
+        assert dlg.table.rowCount() == 3
+
+        # Select all 3 threads at once
+        dlg.table.selectAll()
+        assert len(dlg._selected_items) == 3
+        assert "3 Selected Threads" in dlg.detail_subject_lbl.text()
+        assert "Batch Triage" in dlg.preview_browser.toPlainText()
+
+        # Assign AI 20.6.1 + WI FS_6G_ARC to all 3 at once
+        dlg.assign_ais_pills.add_tag("20.6.1")
+        assert len(dlg._selected_items) == 3  # selection preserved across batch reload
+        dlg.assign_wis_pills.add_tag("FS_6G_ARC")
+
+        threads_by_title = {t["title"]: t for t in tdb.get_threads_for_meeting("SA2#178")}
+        # Pre-existing 20.2 on Mobility Thread must be preserved alongside added 20.6.1
+        assert threads_by_title["Mobility Thread"]["linked_ais"] == ["20.2", "20.6.1"]
+        assert threads_by_title["Mobility Thread"]["linked_wis"] == ["FS_6G_ARC"]
+        assert threads_by_title["Blank Tracked Thread"]["linked_ais"] == ["20.6.1"]
+        assert threads_by_title["Blank Tracked Thread"]["linked_wis"] == ["FS_6G_ARC"]
+        # Unpinned email auto-pinned & assigned
+        unpin_thread = next(t for t in threads_by_title.values() if "S2-2612027" in (t.get("linked_tdocs") or []))
+        assert unpin_thread["linked_ais"] == ["20.6.1"]
+        assert unpin_thread["linked_wis"] == ["FS_6G_ARC"]
+
+        # Remove shared WI FS_6G_ARC from first two selected rows only
+        sel = dlg.table.selectionModel()
+        dlg.table.clearSelection()
+        sel.select(dlg.table.model().index(0, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+        sel.select(dlg.table.model().index(1, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+        assert len(dlg._selected_items) == 2
+
+        # Batch Flag & Mark Read across selected rows
+        dlg._on_toggle_flag()
+        assert sum(1 for it in dlg._selected_items if it["is_flagged"]) == 2
+        dlg._on_toggle_read()
+        assert dlg.table.rowCount() == 1  # remaining unread thread still visible in Unread Only mode
+        dlg.close()
 
 
 def test_cross_meeting_tdoc_direct_open(tmp_path):
