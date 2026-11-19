@@ -68,7 +68,7 @@ src/modules/meetings/
     │   └── topic_dossier_dialog.py        # Cross-WG Topic Dossier & Briefing Studio dialog
     ├── search_controller.py           # GlobalSearchController for inline Quick TDoc Jump & quick actions
     ├── session_plan_dialogs.py        # Timezone, Roster, Dispatch, Import & Diff dialogs for Session Plan
-    ├── session_plan_window.py         # Interactive SA2 Session Plan Studio window
+    ├── session_plan_window.py         # Re-export shim → session_plan/window/ package (mixins; see window/README.md "where to edit what")
     ├── tdocs_components.py            # CheckableComboBox and custom styled UI widgets
     ├── tdocs_dialogs.py               # Statistics parameters, export configuration dialogs
     ├── tdocs_menus.py                 # Right-click context menus & centralized Quick Copy menu (table & quick bar)
