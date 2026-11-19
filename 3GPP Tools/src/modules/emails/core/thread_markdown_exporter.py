@@ -54,6 +54,42 @@ def escape_non_html_angles(text: str) -> str:
     return re.sub(r"<([^<>\n]{1,120})>", _replace_tag, cleaned)
 
 
+_ANGLE_HTTP_RE = re.compile(r"\s*<https?://[^>]+>", re.IGNORECASE)
+
+
+def _table_cell_to_plain_and_md(cell: Any) -> tuple:
+    """Extracts (plain_text_for_matching, markdown_cell_text) preserving clickable hyperlinks inside HTML tables."""
+    plain_text = " ".join(cell.get_text(" ", strip=True).replace("\xa0", " ").split())
+
+    parts: List[str] = []
+    # Collect anchor replacements without mutating caller soup nodes
+    for node in cell.descendants:
+        pass
+    # Walk children preserving <a> hyperlinks while flattening nested formatting tags
+    def _walk(el: Any):
+        name = getattr(el, "name", None)
+        if name is None:
+            parts.append(str(el))
+            return
+        if name.lower() == "a" and el.get("href"):
+            href = unwrap_outlook_safelinks(str(el.get("href") or "").strip())
+            label = " ".join(el.get_text(" ", strip=True).replace("\xa0", " ").split()) or href
+            if href.lower().startswith(("http://", "https://")) and label:
+                parts.append(f"[{label.replace('|', '\\|')}]({href})")
+                return
+        if name.lower() == "br":
+            parts.append(" ")
+            return
+        for ch in getattr(el, "children", ()):
+            _walk(ch)
+
+    _walk(cell)
+    md_text = " ".join("".join(parts).replace("\xa0", " ").split()).replace("|", "\\|")
+    if not md_text:
+        md_text = plain_text.replace("|", "\\|")
+    return plain_text, md_text
+
+
 def inject_html_tables_into_body(body_text: str, html_body: str) -> str:
     """
     Replaces Outlook's flattened plain-text table cells in `body_text` with structured
@@ -74,23 +110,24 @@ def inject_html_tables_into_body(body_text: str, html_body: str) -> str:
     lines = body_text.splitlines()
     search_from = 0
     for tbl in tables:
-        grid: List[List[str]] = []
+        plain_grid: List[List[str]] = []
+        md_grid: List[List[str]] = []
         for tr in tbl.find_all("tr"):
-            cells = [
-                " ".join(c.get_text(" ", strip=True).replace("\xa0", " ").split())
-                for c in tr.find_all(["td", "th"])
-            ]
-            if any(cells):
-                grid.append(cells)
-        if not grid or max(len(r) for r in grid) < 2:
+            row_pairs = [_table_cell_to_plain_and_md(c) for c in tr.find_all(["td", "th"])]
+            plain_cells = [p for p, _m in row_pairs]
+            md_cells = [m for _p, m in row_pairs]
+            if any(plain_cells):
+                plain_grid.append(plain_cells)
+                md_grid.append(md_cells)
+        if not plain_grid or max(len(r) for r in plain_grid) < 2:
             continue
-        tbl_norm = " ".join(" ".join(cell for row in grid for cell in row if cell).split())
+        tbl_norm = " ".join(" ".join(cell for row in plain_grid for cell in row if cell).split())
         if len(tbl_norm) < 4:
             continue
 
         matched_span = None
         for i in range(search_from, len(lines)):
-            first = " ".join(lines[i].replace("\xa0", " ").split())
+            first = " ".join(_ANGLE_HTTP_RE.sub("", lines[i]).replace("\xa0", " ").split())
             if not first or not tbl_norm.startswith(first):
                 continue
             acc = first
@@ -98,7 +135,7 @@ def inject_html_tables_into_body(body_text: str, html_body: str) -> str:
                 matched_span = (i, i)
                 break
             for j in range(i + 1, len(lines)):
-                nxt = " ".join(lines[j].replace("\xa0", " ").split())
+                nxt = " ".join(_ANGLE_HTTP_RE.sub("", lines[j]).replace("\xa0", " ").split())
                 if not nxt:
                     continue
                 cand = acc + " " + nxt
@@ -112,11 +149,8 @@ def inject_html_tables_into_body(body_text: str, html_body: str) -> str:
                 break
 
         if matched_span:
-            col_count = max(len(r) for r in grid)
-            padded = [
-                [c.replace("|", "\\|") for c in r] + [""] * (col_count - len(r))
-                for r in grid
-            ]
+            col_count = max(len(r) for r in md_grid)
+            padded = [r + [""] * (col_count - len(r)) for r in md_grid]
             md_rows = [
                 "| " + " | ".join(padded[0]) + " |",
                 "| " + " | ".join(["---"] * col_count) + " |",
@@ -371,6 +405,7 @@ def export_thread_to_markdown(
             if can_open_outlook:
                 action_parts.append(f"[📧 Open in Outlook](outlook://msg/{enc_id})")
                 action_parts.append(f"[↩️ Reply](outlook://reply/{enc_id})")
+                action_parts.append(f"[🔄 Reload](outlook://reload/{enc_id})")
             if msg_id:
                 action_parts.append(
                     f"[✓ Mark Read](outlook://read/{enc_id})" if is_unread else f"[🔵 Mark Unread](outlook://unread/{enc_id})"

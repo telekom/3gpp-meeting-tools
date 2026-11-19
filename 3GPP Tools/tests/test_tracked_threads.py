@@ -913,3 +913,80 @@ def test_html_table_injection_and_list_normalization():
     rendered = browser.toHtml()
     assert rendered.count("<table") == 2
     assert "<pre" not in rendered
+
+    # Test table cells containing Safelinked <a href> hyperlinks (Outlook appends <https://safelink...> in Body)
+    plain_linked_tbl = (
+        "Inputs:\n\n"
+        "20.6.1\n\n"
+        "S2-2611551 <https://eur05.safelinks.protection.outlook.com/?url=https%3A%2F%2Fwww.3gpp.org%2FDocs%2FS2-2611551.zip&data=1>\n\n"
+        "P-CR\n"
+    )
+    html_linked_tbl = (
+        "<table><tr>"
+        "<td>20.6.1</td>"
+        "<td><a href='https://eur05.safelinks.protection.outlook.com/?url=https%3A%2F%2Fwww.3gpp.org%2FDocs%2FS2-2611551.zip&data=1'>S2-2611551</a></td>"
+        "<td>P-CR</td>"
+        "</tr></table>"
+    )
+    merged_links = inject_html_tables_into_body(plain_linked_tbl, html_linked_tbl)
+    assert "| 20.6.1 | [S2-2611551](https://www.3gpp.org/Docs/S2-2611551.zip) | P-CR |" in merged_links
+
+
+def test_reload_single_and_all_cached_emails_from_outlook(tmp_path):
+    from unittest.mock import patch
+    from PyQt5.QtCore import QUrl
+    from modules.emails.core.outlook_client import OutlookClient
+    from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+    from modules.emails.core.tracked_threads_service import (
+        reload_all_thread_messages_from_outlook,
+    )
+    from modules.emails.core.tracked_threads_workers import SingleThreadRefreshWorker
+    from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
+
+    class FakeItem:
+        def __init__(self, eid: str, body: str, html: str):
+            self.EntryID = eid
+            self.Subject = "RE: Table test"
+            self.SenderName = "Alice"
+            self.SenderEmailAddress = "alice@samsung.com"
+            self.Body = body
+            self.HTMLBody = html
+            self.ConversationID = "CID-TBL"
+            self.UnRead = False
+            self.FlagStatus = 0
+
+    fake_items = {
+        "EID-R1": FakeItem(
+            "EID-R1",
+            "Header\nA\nB\n1\n2",
+            "<table><tr><td>A</td><td>B</td></tr><tr><td>1</td><td>2</td></tr></table>",
+        )
+    }
+
+    class FakeNS:
+        def GetItemFromID(self, eid):
+            return fake_items[eid]
+
+    db_path = tmp_path / "threads.db"
+    db = TrackedThreadsDatabase(db_path)
+    tid = db.create_or_get_thread("Reload Table", "Reload Table", meeting_id="SA2#178")
+    db.upsert_messages(
+        tid,
+        [{"id": "EID-R1", "sender_name": "Alice", "date_sent": "2026-11-19 01:00:00", "body_text": "stale flattened"}],
+    )
+
+    with patch.object(OutlookClient, "get_namespace", return_value=FakeNS()):
+        dlg = TrackedThreadDialog(db, tid)
+        dlg._on_anchor_clicked(QUrl("outlook://reload/EID-R1"))
+        reloaded_msg = db.get_thread_messages(tid)[0]
+        assert "| A | B |" in reloaded_msg["body_text"]
+        assert "| 1 | 2 |" in reloaded_msg["body_text"]
+
+        # Worker mode reload_cached=True and batch reload service also update cached messages
+        assert reload_all_thread_messages_from_outlook(db, tid) == 1
+        events = []
+        sw = SingleThreadRefreshWorker(db_path, tid, reload_cached=True)
+        sw.finished_sync.connect(lambda ok, cnt, err: events.append((ok, cnt, err)))
+        sw.run()
+        assert events == [(True, 1, "")]
+        dlg.close()

@@ -13,6 +13,7 @@ from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.emails.core.tracked_threads_service import (
     list_recent_threads_in_folders,
     refresh_thread,
+    reload_all_thread_messages_from_outlook,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,29 +94,39 @@ class TrackedThreadsRefreshWorker(_BaseComWorker):
 
 
 class SingleThreadRefreshWorker(_BaseComWorker):
-    """Refreshes a single tracked email thread across configured Outlook folders asynchronously."""
+    """Refreshes a single tracked email thread (or reloads all cached EntryIDs) asynchronously."""
 
-    progress = pyqtSignal(int, int, str, list)  # done_folders, total_folders, current_folder, remaining_folders
-    finished_sync = pyqtSignal(bool, int, str)  # ok, new_count, error_message
+    progress = pyqtSignal(int, int, str, list)  # done, total, current_item, remaining_items
+    finished_sync = pyqtSignal(bool, int, str)  # ok, updated_or_new_count, error_message
 
-    def __init__(self, db_path: Path, thread_id: str, parent=None):
+    def __init__(self, db_path: Path, thread_id: str, reload_cached: bool = False, parent=None):
         super().__init__(parent)
         self.db_path = Path(db_path)
         self.thread_id = thread_id
+        self.reload_cached = bool(reload_cached)
 
     def run(self):
         def _work():
             db = TrackedThreadsDatabase(self.db_path)
-            new_count = refresh_thread(
-                db,
-                self.thread_id,
-                progress_cb=lambda done, tot, cur, rem: self.progress.emit(done, tot, cur, rem),
-                cancel_check=self.is_cancelled,
-            )
-            if self.is_cancelled():
-                self.finished_sync.emit(False, new_count, "Sync cancelled by user.")
+            cb = lambda done, tot, cur, rem: self.progress.emit(done, tot, cur, rem)
+            if self.reload_cached:
+                count = reload_all_thread_messages_from_outlook(
+                    db,
+                    self.thread_id,
+                    progress_cb=cb,
+                    cancel_check=self.is_cancelled,
+                )
             else:
-                self.finished_sync.emit(True, new_count, "")
+                count = refresh_thread(
+                    db,
+                    self.thread_id,
+                    progress_cb=cb,
+                    cancel_check=self.is_cancelled,
+                )
+            if self.is_cancelled():
+                self.finished_sync.emit(False, count, "Sync cancelled by user.")
+            else:
+                self.finished_sync.emit(True, count, "")
 
         try:
             self._run_with_com(_work)

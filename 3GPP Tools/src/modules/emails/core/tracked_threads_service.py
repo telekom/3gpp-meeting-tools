@@ -1,4 +1,5 @@
 # --- File: src/modules/emails/core/tracked_threads_service.py ---
+import hashlib
 import logging
 import re
 from pathlib import Path
@@ -187,16 +188,17 @@ def _mail_item_to_dict(item: Any) -> Dict[str, Any]:
         raw_body = inject_html_tables_into_body(raw_body, html_body)
     body_text = unwrap_outlook_safelinks(raw_body)
     conv_id = getattr(item, "ConversationID", "") or ""
-    entry_id = getattr(item, "EntryID", "") or f"MSG-{abs(hash((subject, sender_name, body_text[:100])))}"
-
     try:
         from modules.emails.core.general_email_sync import GeneralEmailSyncThread
         sender_name, sender_email = GeneralEmailSyncThread._resolve_sender(item, sender_name, sender_email, body_text)
     except Exception:
         pass
-
     dt = getattr(item, "ReceivedTime", None) or getattr(item, "SentOn", None)
     date_sent = dt.strftime("%Y-%m-%d %H:%M:%S") if hasattr(dt, "strftime") else str(dt or "")
+    entry_id = getattr(item, "EntryID", "")
+    if not entry_id:
+        digest = hashlib.sha1(f"{subject}|{sender_name}|{date_sent}".encode("utf-8", errors="ignore")).hexdigest()[:16]
+        entry_id = f"MSG-{digest}"
 
     attachments = []
     try:
@@ -640,6 +642,70 @@ def open_outlook_message(entry_id: str) -> bool:
     except Exception as e:
         logger.error(f"Failed to display Outlook message {entry_id}: {e}")
     return False
+
+
+def reload_outlook_message(
+    db: TrackedThreadsDatabase,
+    thread_id: str,
+    entry_id: str,
+) -> bool:
+    """Re-fetches a single cached Outlook message by EntryID and re-parses its body, tables, links, and flags."""
+    eid = str(entry_id or "").strip()
+    if not eid or eid.startswith("MSG-"):
+        return False
+    from modules.emails.core.outlook_client import OutlookClient
+
+    ns = OutlookClient.get_namespace()
+    if not ns:
+        return False
+    try:
+        item = ns.GetItemFromID(eid)
+        if not item:
+            return False
+        msg_dict = _mail_item_to_dict(item)
+        db.upsert_messages(thread_id, [msg_dict])
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to reload Outlook message {eid}: {e}")
+    return False
+
+
+def reload_all_thread_messages_from_outlook(
+    db: TrackedThreadsDatabase,
+    thread_id: str,
+    progress_cb: Optional[Callable[[int, int, str, List[str]], None]] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
+) -> int:
+    """Re-fetches every Outlook-backed message in a tracked thread via EntryID (re-parsing tables/links/state)."""
+    from modules.emails.core.outlook_client import OutlookClient
+
+    msgs = [
+        m for m in db.get_thread_messages(thread_id)
+        if str(m.get("id") or "").strip() and not str(m.get("id") or "").startswith("MSG-")
+    ]
+    if not msgs:
+        return 0
+    ns = OutlookClient.get_namespace()
+    if not ns:
+        return 0
+
+    reloaded: List[Dict[str, Any]] = []
+    total = len(msgs)
+    labels = [f"{m.get('sender_name') or 'Unknown'} ({m.get('date_sent', '')[:16]})" for m in msgs]
+    for idx, m in enumerate(msgs):
+        if cancel_check and cancel_check():
+            break
+        if progress_cb:
+            progress_cb(idx, total, labels[idx], labels[idx + 1 :])
+        try:
+            item = ns.GetItemFromID(str(m["id"]).strip())
+            if item:
+                reloaded.append(_mail_item_to_dict(item))
+        except Exception as e:
+            logger.debug(f"Could not reload message {m.get('id')}: {e}")
+    if reloaded:
+        db.upsert_messages(thread_id, reloaded)
+    return len(reloaded)
 
 
 def open_outlook_attachment(entry_id: str, filename: str, save_dir: Optional[Path] = None) -> Optional[Path]:

@@ -53,6 +53,7 @@ from modules.emails.core.tracked_threads_service import (
     open_outlook_message,
     pin_thread_by_subject_or_cid,
     prepare_thread_llm_workspace,
+    reload_outlook_message,
     reply_to_outlook_message,
     set_thread_message_flag_with_outlook,
     set_thread_message_read_with_outlook,
@@ -268,6 +269,13 @@ class TrackedThreadDialog(QDialog):
         self.export_chrono_check.setChecked(self._settings.value("export_oldest_first", True, type=bool))
         self.export_chrono_check.toggled.connect(lambda v: self._settings.setValue("export_oldest_first", bool(v)))
 
+        more_menu.addSeparator()
+        act_reload_all = more_menu.addAction("🔄 Reload All Cached Emails (Tables & Links)")
+        act_reload_all.setToolTip("Re-fetch cached Outlook messages by EntryID to update HTML tables, links, and read/flag states.")
+        act_reload_all.triggered.connect(self._on_reload_all_cached)
+        act_reload_msg = more_menu.addAction("📥 Reload / Merge .msg File(s)...")
+        act_reload_msg.setToolTip("Load a local Outlook .msg file into this thread (updates matching messages or adds replies).")
+        act_reload_msg.triggered.connect(self._on_reload_from_msg_file)
         more_menu.addSeparator()
         act_merge = more_menu.addAction("🔗 Merge Split Thread...")
         act_merge.triggered.connect(self._on_merge_thread)
@@ -544,6 +552,17 @@ class TrackedThreadDialog(QDialog):
             elif host == "reply" and path_parts:
                 if not reply_to_outlook_message(path_parts[0], reply_all=True):
                     QMessageBox.warning(self, "Outlook Reply", "Could not open a Reply window in Microsoft Outlook.")
+            elif host == "reload" and path_parts:
+                msg_id = path_parts[0]
+                sb = self.browser.verticalScrollBar()
+                prev_scroll = sb.value()
+                if reload_outlook_message(self.db, self.thread_id, msg_id):
+                    self._load_data()
+                    sb.setValue(min(prev_scroll, sb.maximum()))
+                    self.thread_changed.emit()
+                    notify_success(self, "Email Reloaded", "Message body, tables, and links re-loaded from Outlook.")
+                else:
+                    notify_toast(self, "Reload Failed", "Could not re-fetch this message from Outlook (it may have been moved or deleted).", variant="warning")
             elif host in ("read", "unread", "flag", "unflag") and path_parts:
                 msg_id = path_parts[0]
                 sb = self.browser.verticalScrollBar()
@@ -700,17 +719,46 @@ class TrackedThreadDialog(QDialog):
         InteractiveNotesDialog(self, self.thread_id, row_data, _save, all_existing_tags=all_tags).exec_()
 
     def _on_refresh(self):
+        self._start_thread_worker(reload_cached=False)
+
+    def _on_reload_all_cached(self):
+        self._start_thread_worker(reload_cached=True)
+
+    def _on_reload_from_msg_file(self):
+        from modules.emails.core.tracked_threads_service import parse_msg_file
+
+        paths, _ = QFileDialog.getOpenFileNames(self, "Select Outlook .msg File(s) to Reload/Merge", "", "Outlook Message (*.msg)")
+        if not paths:
+            return
+        loaded = []
+        for p in paths:
+            parsed = parse_msg_file(Path(p))
+            if parsed:
+                loaded.append(parsed)
+        if loaded:
+            self.db.upsert_messages(self.thread_id, loaded)
+            self._load_data()
+            self.thread_changed.emit()
+            notify_success(self, "Loaded .msg File(s)", f"Updated {len(loaded)} message(s) in this thread.")
+        else:
+            notify_toast(self, "Load Failed", "Could not parse selected .msg file(s).", variant="warning")
+
+    def _start_thread_worker(self, reload_cached: bool = False):
         if self._refresh_worker and self._refresh_worker.isRunning():
             return
         self.refresh_btn.setEnabled(False)
-        self.refresh_btn.setText("⏳ Syncing...")
-        thread = self.db.get_thread(self.thread_id) or {}
-        folders = thread.get("outlook_folders") or []
-        self.sync_bar.start_busy("Scanning Outlook folders...", total=len(folders), remaining=folders)
+        self.refresh_btn.setText("⏳ Reloading..." if reload_cached else "⏳ Syncing...")
+        if reload_cached:
+            msgs = [m for m in self.db.get_thread_messages(self.thread_id) if m.get("id") and not str(m.get("id")).startswith("MSG-")]
+            self.sync_bar.start_busy("Reloading cached Outlook emails...", total=len(msgs))
+        else:
+            thread = self.db.get_thread(self.thread_id) or {}
+            folders = thread.get("outlook_folders") or []
+            self.sync_bar.start_busy("Scanning Outlook folders...", total=len(folders), remaining=folders)
 
-        worker = SingleThreadRefreshWorker(self.db.db_path, self.thread_id, parent=self)
+        worker = SingleThreadRefreshWorker(self.db.db_path, self.thread_id, reload_cached=reload_cached, parent=self)
         worker.progress.connect(self.sync_bar.update_progress)
-        worker.finished_sync.connect(self._on_refresh_finished)
+        worker.finished_sync.connect(lambda ok, cnt, err: self._on_refresh_finished(ok, cnt, err, reload_cached=reload_cached))
         self._refresh_worker = worker
         worker.start()
 
@@ -718,15 +766,17 @@ class TrackedThreadDialog(QDialog):
         if self._refresh_worker and self._refresh_worker.isRunning():
             self._refresh_worker.request_cancel()
 
-    def _on_refresh_finished(self, ok: bool, new_count: int, err: str):
+    def _on_refresh_finished(self, ok: bool, count: int, err: str, reload_cached: bool = False):
         self.refresh_btn.setEnabled(True)
         self.refresh_btn.setText("🔄 Refresh")
         self._load_data()
         self.thread_changed.emit()
         if ok:
             self.sync_bar.finish_ok()
-            if new_count > 0:
-                notify_success(self, "Thread Refreshed", f"{new_count} new message(s) synced.")
+            if reload_cached:
+                notify_success(self, "Emails Reloaded", f"Re-parsed {count} cached Outlook message(s).")
+            elif count > 0:
+                notify_success(self, "Thread Refreshed", f"{count} new message(s) synced.")
             else:
                 notify_info(self, "Thread Up-to-Date", "No new replies found in Outlook.")
         else:
