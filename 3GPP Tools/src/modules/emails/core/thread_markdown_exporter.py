@@ -2,7 +2,7 @@
 import html
 import re
 import urllib.parse
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from core.ui.theme import C
 
@@ -18,8 +18,20 @@ _INLINE_SIG_ATT_RE = re.compile(
 )
 _SUBJ_PREFIX_RE = re.compile(r"^(?:(?:re|aw|fwd?|wg|回覆|回复|答复|转发)\s*:\s*)+", re.IGNORECASE)
 _SUBJ_TAG_RE = re.compile(r"^(?:\[[^\]]{1,80}\]\s*)+")
-_QUOTE_HEADER_LINE_RE = re.compile(
-    r"^(?:-----Original Message-----|_____+|From:\s+.+|Von:\s+.+|De:\s+.+|发件人:\s+.+)$",
+_QUOTE_SEP_LINE_RE = re.compile(
+    r"^(?:-{3,}\s*(?:Original Message|原始邮件|Ursprüngliche Nachricht|Message d'origine|Mensaje original)\s*-{3,}|_{5,})$",
+    re.IGNORECASE,
+)
+_QUOTE_FROM_HEADER_RE = re.compile(
+    r"^(?:From|Von|De|Van|Da|От|发件人|寄件者|差出人|보낸\s*사람)\s*[:：]\s*.+$",
+    re.IGNORECASE,
+)
+_QUOTE_COMPANION_HEADER_RE = re.compile(
+    r"(?:^|\s)(?:Sent|Date|Gesendet|Datum|Envoyé|To|An|À|Subject|Betreff|Objet|Cc|发送时间|收件人|主题|抄送|傳送時間|收件者|主旨|送信日時|宛先|件名|보낸\s*날짜|받는\s*사람|제목)\s*[:：]",
+    re.IGNORECASE,
+)
+_QUOTE_WROTE_LINE_RE = re.compile(
+    r"^(?:On\s+.+?\bwrote|Am\s+.+?\bschrieb\b.+|Le\s+.+?\ba écrit\b.+|在\s*.+?写道)\s*[:：]\s*$",
     re.IGNORECASE,
 )
 
@@ -96,27 +108,61 @@ def partition_email_attachments(attachments: List[str]) -> tuple:
     return real_atts, inline_imgs
 
 
+def find_trailing_quote_line_index(lines: List[str], *, require_preceding_text: bool = False) -> Optional[int]:
+    """Finds the starting line index of a trailing localized Outlook/mail reply header block."""
+    if not lines:
+        return None
+    for idx, line in enumerate(lines):
+        stripped = line.replace("\xa0", " ").strip()
+        if not stripped:
+            continue
+        is_quote_start = False
+        if _QUOTE_SEP_LINE_RE.match(stripped) or _QUOTE_WROTE_LINE_RE.match(stripped):
+            is_quote_start = True
+        elif _QUOTE_FROM_HEADER_RE.match(stripped):
+            window = "\n".join(l.replace("\xa0", " ") for l in lines[idx : min(len(lines), idx + 6)])
+            if _QUOTE_COMPANION_HEADER_RE.search(window):
+                is_quote_start = True
+        if is_quote_start:
+            if require_preceding_text and not any(l.strip() for l in lines[:idx]):
+                continue
+            return idx
+    return None
+
+
+def split_direct_and_quoted_body(body_text: str) -> tuple:
+    """Splits an email body into (direct_body, quoted_body) at the first localized trailing reply block."""
+    if not body_text:
+        return "", ""
+    lines = body_text.splitlines()
+    idx = find_trailing_quote_line_index(lines, require_preceding_text=False)
+    if idx is None:
+        return body_text, ""
+    return "\n".join(lines[:idx]).strip(), "\n".join(lines[idx:]).strip()
+
+
+def strip_trailing_quotes(body_text: str) -> str:
+    """Strips pure trailing quoted reply chains (including localized headers) while preserving non-empty top text."""
+    if not body_text:
+        return ""
+    lines = body_text.splitlines()
+    idx = find_trailing_quote_line_index(lines, require_preceding_text=True)
+    if idx is None:
+        return body_text.strip()
+    return "\n".join(lines[:idx]).strip()
+
+
 def _format_trailing_quoted_history(body: str) -> str:
     """Converts trailing inline reply headers ('From: ... Sent: ...' / '发件人:') into Markdown blockquotes."""
     if not body:
         return ""
     lines = body.splitlines()
-    for idx, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped or not _QUOTE_HEADER_LINE_RE.match(stripped):
-            continue
-        # Confirm it is an Outlook quote block (contains Sent:/发送时间: on same/next line or separator rule)
-        window = "\n".join(lines[idx : min(len(lines), idx + 4)])
-        is_quote_start = (
-            stripped.startswith(("-----Original Message-----", "____"))
-            or bool(re.search(r"\b(?:Sent|Gesendet|Envoyé|Date|To|Subject)\s*:|发送时间|主题\s*:", window, re.IGNORECASE))
-        )
-        if not is_quote_start:
-            continue
-        head = lines[:idx]
-        tail = ["> " + ql if ql.strip() and not ql.lstrip().startswith(">") else (">" if not ql.strip() else ql) for ql in lines[idx:]]
-        return "\n".join(head + ([""] if head and head[-1].strip() else []) + tail)
-    return body
+    idx = find_trailing_quote_line_index(lines, require_preceding_text=False)
+    if idx is None:
+        return body
+    head = lines[:idx]
+    tail = ["> " + ql if ql.strip() and not ql.lstrip().startswith(">") else (">" if not ql.strip() else ql) for ql in lines[idx:]]
+    return "\n".join(head + ([""] if head and head[-1].strip() else []) + tail)
 _SAFELINK_RE = re.compile(
     r"<?https?://[a-z0-9.-]*safelinks\.protection\.outlook\.com/\?[^\s<>\"\)\]]+>?",
     re.IGNORECASE,
@@ -752,8 +798,10 @@ def export_thread_to_markdown(
         lines.append("")
 
         body = (msg.get("clean_body") if deduplicate_quotes and msg.get("clean_body") else msg.get("body_text")) or ""
+        if deduplicate_quotes:
+            body = strip_trailing_quotes(body)
         body = _normalize_outlook_list_spacing(body.strip())
-        if interactive_links:
+        if interactive_links and not deduplicate_quotes:
             body = _format_trailing_quoted_history(body)
         body = linkify_markdown_urls(body, shorten_long_urls=interactive_links)
         if interactive_links and enable_tdoc_links:

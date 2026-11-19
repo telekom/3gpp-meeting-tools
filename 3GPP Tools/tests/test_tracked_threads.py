@@ -2365,8 +2365,50 @@ def test_reader_formatting_cleanup_and_compact_inbox_header(tmp_path):
     assert "image002.jpg" not in md
     assert "S2-2612805r01.docx" in md
     assert "(+1 inline)" in md
-    # Trailing quote formatted as blockquote
-    assert "\n> From: Miguel" in md
+    # Deduplicated view strips trailing quotes even if DB clean_body was empty/unstripped;
+    # non-deduplicated view formats trailing quotes as a blockquote.
+    assert "From: Miguel" not in md
+    md_with_quotes = export_thread_to_markdown(
+        thread,
+        msgs,
+        deduplicate_quotes=False,
+        interactive_links=True,
+        newest_first=True,
+        include_metadata=False,
+        include_discussion_heading=False,
+    )
+    assert "\n> From: Miguel" in md_with_quotes
+
+    # Localized Outlook quote headers (Chinese 发件人/发送时间, German Von/Gesendet, fullwidth colons)
+    from modules.emails.core.general_email_sync import GeneralEmailSyncThread
+    from modules.emails.core.thread_markdown_exporter import strip_trailing_quotes
+
+    cn_body = (
+        "Dear Xiaowan, Suman,\n"
+        "BR/Qianghua\n\n"
+        "发件人: 3GPP_TSG_SA_WG2_EMEET <3GPP_TSG_SA_WG2_EMEET@LIST.ETSI.ORG> 代表 Xiaowan Ke\n"
+        "发送时间: 2026年11月19日 21:21\n"
+        "收件人: 3GPP_TSG_SA_WG2_EMEET@LIST.ETSI.ORG\n"
+        "主题: 回复: [SA2#178, FS_6G_ARC,KI#17] BASELINE\n\n"
+        "HI Suman\nSee S2-2612999 in quoted chain.\n"
+    )
+    assert strip_trailing_quotes(cn_body) == "Dear Xiaowan, Suman,\nBR/Qianghua"
+    # Even if an old cached row had cn_body inside clean_body, deduplicate_quotes=True strips it at render time
+    md_cn = export_thread_to_markdown(
+        thread,
+        [{"id": "E-CN", "sender_name": "zhuqianghua", "company": "Huawei", "date_sent": "2026-11-19 14:35:00", "body_text": cn_body, "clean_body": cn_body, "is_read": 0}],
+        deduplicate_quotes=True,
+        interactive_links=True,
+        include_metadata=False,
+    )
+    assert "BR/Qianghua" in md_cn
+    assert "发件人:" not in md_cn
+    assert "HI Suman" not in md_cn
+    syncer_q = GeneralEmailSyncThread([], tmp_path / "q.db")
+    td_matches = {m["tdoc_id"]: m["location"] for m in syncer_q._extract_tdocs("Re: Test", cn_body)}
+    assert td_matches.get("S2-2612999") == "Quoted"
+    de_body = "Einverstanden.\n\nVon: Alice\nGesendet: Donnerstag, 19. November 2026 10:00\nBetreff: Re: Test\nOld text"
+    assert strip_trailing_quotes(de_body) == "Einverstanden."
 
     # Preserve heading-based unread scroll inside Option A banner + URL shortening & hover tooltip
     from unittest.mock import patch

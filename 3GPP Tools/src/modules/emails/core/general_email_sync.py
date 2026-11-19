@@ -17,6 +17,8 @@ from modules.emails.core.outlook_client import (
 from modules.emails.core.general_email_db import GeneralEmailDatabase
 from modules.emails.core.thread_markdown_exporter import (
     inject_html_tables_into_body,
+    split_direct_and_quoted_body,
+    strip_trailing_quotes,
     unwrap_outlook_safelinks,
 )
 from core.utils.company_sanitizer import CompanySanitizer
@@ -113,8 +115,7 @@ class GeneralEmailSyncThread(QThread):
         except Exception:
             pass
         rich_body = unwrap_outlook_safelinks(rich_body)
-        quote_split = self.QUOTE_SPLIT_REGEX.search(rich_body)
-        clean_body = (rich_body[: quote_split.start()].strip() if quote_split else rich_body.strip())
+        clean_body = strip_trailing_quotes(rich_body)
 
         attachments: List[str] = []
         try:
@@ -353,13 +354,7 @@ class GeneralEmailSyncThread(QThread):
             results[base_up] = {"tdoc_id": base_up, "rev_matched": rev_str, "location": "Subject"}
 
         # 2. Split Body into Direct Text vs Quoted History
-        split_match = self.QUOTE_SPLIT_REGEX.search(body)
-        if split_match:
-            direct_body = body[:split_match.start()]
-            quoted_body = body[split_match.start():]
-        else:
-            direct_body = body
-            quoted_body = ""
+        direct_body, quoted_body = split_direct_and_quoted_body(body)
 
         # Direct Body extraction
         for tdoc in self.TDOC_REGEX.findall(direct_body):

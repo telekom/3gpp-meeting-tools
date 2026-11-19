@@ -18,6 +18,7 @@ from modules.emails.core.outlook_client import (
 from modules.emails.core.thread_markdown_exporter import (
     extract_thread_document_urls,
     inject_html_tables_into_body,
+    strip_trailing_quotes,
     unwrap_outlook_safelinks,
 )
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
@@ -198,18 +199,9 @@ def _extract_company(sender_name: str, sender_email: str) -> str:
     return ""
 
 
-_QUOTE_SPLIT_RE = re.compile(
-    r"\r?\n(?:_{5,}|-{5,}|From:\s+.+?\r?\nSent:\s+|On\s+.+?wrote:\s*\r?\n)",
-    re.IGNORECASE,
-)
-
-
 def _strip_trailing_quotes(body_text: str) -> str:
     """Strips pure trailing quoted reply chains while preserving inline replies."""
-    if not body_text:
-        return ""
-    parts = _QUOTE_SPLIT_RE.split(body_text, maxsplit=1)
-    return parts[0].strip() if parts else body_text.strip()
+    return strip_trailing_quotes(body_text)
 
 
 def _mail_item_to_dict(item: Any) -> Dict[str, Any]:
