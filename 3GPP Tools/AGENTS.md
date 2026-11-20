@@ -53,7 +53,7 @@ python -m main_tools
 └── src/
     ├── Launch.cmd / Launch_MCP.cmd / Update.cmd
     ├── main_tools.py              # GUI entry point, logging, startup faulthandler
-    ├── main_window.py             # DragDropUI shell, NavRail, RightSidePanel
+    ├── main_window.py             # Re-export shim -> core/ui/main_window/ (DragDropUI shell mixins; see README.md)
     ├── mcp_server.py              # JSON-RPC 2.0 stdio MCP server (12 domain tools)
     ├── cli_tools.py               # Headless JSON CLI for external agents
     ├── assets/                    # PlantUML JAR, multi-res .ico, bundled assets
