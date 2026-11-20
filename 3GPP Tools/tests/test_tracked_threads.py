@@ -2788,6 +2788,16 @@ def test_batch_folder_sync_fast_skip_and_filter_scoped_sync(tmp_path):
     for col_i in range(6):
         assert hdr.sectionResizeMode(col_i) == QHeaderView.Interactive
     assert dlg.table.horizontalHeaderItem(4).text() == "Sender"
+    # Verify proportional viewport recalculation expands Subject/Sender/Source on wide viewports
+    # and fits cleanly on narrow splitters, while still preserving manual user column resizes
+    dlg._fit_columns_to_viewport(avail_width=1400)
+    wide_widths = [hdr.sectionSize(c) for c in range(6)]
+    assert sum(wide_widths) == 1400
+    assert wide_widths[3] > 500  # Subject occupies wide space
+    dlg._fit_columns_to_viewport(avail_width=680)
+    narrow_widths = [hdr.sectionSize(c) for c in range(6)]
+    assert sum(narrow_widths) == 680
+    assert narrow_widths[5] >= 100  # Date never crushes off-screen
     hdr.resizeSection(4, 195)
 
     # Switch to By Thread: Reply/Outlook buttons hide instead of sitting greyed out

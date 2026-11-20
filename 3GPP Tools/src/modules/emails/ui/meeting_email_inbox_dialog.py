@@ -124,7 +124,9 @@ class _NotePlainTextEdit(QPlainTextEdit):
 
 
 class _InboxTableWidget(QTableWidget):
-    """QTableWidget with ExtendedSelection whose selectRow() deterministically selects one row."""
+    """QTableWidget with ExtendedSelection, deterministic selectRow(), and viewport resize signal."""
+
+    viewportResized = pyqtSignal()
 
     def selectRow(self, row: int):
         sel_model = self.selectionModel()
@@ -133,6 +135,10 @@ class _InboxTableWidget(QTableWidget):
             return
         idx = model.index(row, 0)
         sel_model.setCurrentIndex(idx, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.viewportResized.emit()
 
 
 class MeetingEmailInboxDialog(QDialog):
@@ -529,28 +535,31 @@ class MeetingEmailInboxDialog(QDialog):
         hdr = self.table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.Interactive)
         hdr.setStretchLastSection(False)
-        default_widths = (
+        default_widths = [
             scale_px(76),
             scale_px(155),
             scale_px(80),
             scale_px(360),
             scale_px(150),
             scale_px(120),
-        )
+        ]
         for col_i, col_w in enumerate(default_widths):
             hdr.resizeSection(col_i, col_w)
+        self._col_base_widths = list(default_widths)
         prefix = self._meeting_settings_prefix()
         saved_hdr = self._settings.value(f"{prefix}/table_header_state")
         if saved_hdr:
             self._restoring_header = True
             try:
-                hdr.restoreState(saved_hdr)
+                if hdr.restoreState(saved_hdr):
+                    self._col_base_widths = [max(40, hdr.sectionSize(c)) for c in range(6)]
                 hdr.setSectionResizeMode(QHeaderView.Interactive)
             except Exception:
                 pass
             finally:
                 self._restoring_header = False
         hdr.sectionResized.connect(self._on_header_section_resized)
+        self.table.viewportResized.connect(lambda: QTimer.singleShot(0, self._fit_columns_to_viewport))
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
@@ -840,18 +849,87 @@ class MeetingEmailInboxDialog(QDialog):
                 restored = False
         if not restored:
             self.splitter.setSizes(default_sizes)
+        QTimer.singleShot(0, self._fit_columns_to_viewport)
 
     def _toggle_layout_orientation(self):
         self._layout_orientation = "H" if self._layout_orientation == "V" else "V"
         self._settings.setValue("layout_orientation", self._layout_orientation)
         self._apply_layout_orientation(save_current=True)
 
+    @staticmethod
+    def compute_fitted_column_widths(
+        avail_w: int,
+        base_widths: List[int],
+        mins: Optional[List[int]] = None,
+        flex_weights: tuple = (0.03, 0.20, 0.03, 0.48, 0.22, 0.04),
+    ) -> List[int]:
+        """Proportionally fits interactive column widths to fill `avail_w` without starving Subject or Sender."""
+        if avail_w <= 0 or len(base_widths) != 6:
+            return list(base_widths)
+        min_widths = mins or [
+            scale_px(64),
+            scale_px(110),
+            scale_px(68),
+            scale_px(180),
+            scale_px(110),
+            scale_px(108),
+        ]
+        clamped = [max(m, int(w)) for w, m in zip(base_widths, min_widths)]
+        total_base = sum(clamped)
+        if avail_w >= total_base:
+            extra = avail_w - total_base
+            out = [int(w + round(extra * wt)) for w, wt in zip(clamped, flex_weights)]
+        else:
+            min_sum = sum(min_widths)
+            if avail_w <= min_sum:
+                return list(min_widths)
+            shrinkable = [max(0, w - m) for w, m in zip(clamped, min_widths)]
+            total_shrink = sum(shrinkable)
+            if total_shrink <= 0:
+                return list(min_widths)
+            need = total_base - avail_w
+            out = [
+                max(m, int(round(w - (need * sk / total_shrink))))
+                for w, m, sk in zip(clamped, min_widths, shrinkable)
+            ]
+        diff = avail_w - sum(out)
+        if diff != 0:
+            out[3] = max(min_widths[3], out[3] + diff)
+        return out
+
+    def _fit_columns_to_viewport(self, avail_width: Optional[int] = None):
+        if not hasattr(self, "table"):
+            return
+        if avail_width is None:
+            if not self.isVisible():
+                return
+            avail_w = int(self.table.viewport().width())
+        else:
+            avail_w = int(avail_width)
+        if avail_w < 300:
+            return
+        hdr = self.table.horizontalHeader()
+        base = list(getattr(self, "_col_base_widths", []) or [hdr.sectionSize(c) for c in range(6)])
+        fitted = self.compute_fitted_column_widths(avail_w, base)
+        self._restoring_header = True
+        try:
+            for col_i, col_w in enumerate(fitted):
+                hdr.resizeSection(col_i, col_w)
+        finally:
+            self._restoring_header = False
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._fit_columns_to_viewport)
+
     def _on_header_section_resized(self, *_args):
         if getattr(self, "_restoring_header", False) or getattr(self, "_restoring_filters", False):
             return
         try:
+            hdr = self.table.horizontalHeader()
+            self._col_base_widths = [max(40, hdr.sectionSize(c)) for c in range(6)]
             prefix = self._meeting_settings_prefix()
-            self._settings.setValue(f"{prefix}/table_header_state", self.table.horizontalHeader().saveState())
+            self._settings.setValue(f"{prefix}/table_header_state", hdr.saveState())
         except Exception:
             pass
 
