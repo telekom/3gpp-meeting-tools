@@ -277,6 +277,11 @@ class TestSessionPlanUIAndHTMLConsistency(unittest.TestCase):
                 self.assertNotIn('id="floatingTooltip"', html_txt)
                 self.assertNotIn("addEventListener('mouseenter'", html_txt)
                 self.assertNotIn("addEventListener('mousemove'", html_txt)
+                # Mobile Overview Grid fixes: #overviewView always flex-column (so #liveVenueBanner stacks above grid),
+                # static compact header on <=768px, and non-letter-breaking cell text
+                self.assertIn("#overviewView {\n    display: flex; flex-direction: column; min-height: 0;", html_txt)
+                self.assertIn("overflow-wrap: break-word; word-break: normal;", html_txt)
+                self.assertIn("header { position: static; padding: 6px 8px; }", html_txt)
 
                 # Verify JS updates liveClockPill, handles day filter / banner dismiss, and toggles slotInspectorDrawer cleanly in Node.js
                 node_bin = shutil.which("node")
@@ -311,11 +316,14 @@ const mockEl = () => ({{
 const clockPill = mockEl();
 const drawerEl = mockEl();
 const drawerBodyEl = mockEl();
+const fakeTbl = mockEl();
+const ovEl = mockEl();
+ovEl.querySelector = () => fakeTbl;
 global.document = {{
   documentElement: {{ style: {{ setProperty: () => {{}} }} }},
-  getElementById: (id) => (id === 'liveClockPill' ? clockPill : (id === 'slotInspectorDrawer' ? drawerEl : (id === 'slotInspectorBody' ? drawerBodyEl : mockEl()))),
+  getElementById: (id) => (id === 'liveClockPill' ? clockPill : (id === 'overviewView' ? ovEl : (id === 'slotInspectorDrawer' ? drawerEl : (id === 'slotInspectorBody' ? drawerBodyEl : mockEl())))),
   querySelectorAll: () => [],
-  querySelector: () => mockEl(),
+  querySelector: () => fakeTbl,
   addEventListener: () => {{}},
   body: {{ appendChild: () => {{}}, removeChild: () => {{}} }}
 }};
@@ -326,9 +334,14 @@ global.setTimeout = () => {{}};
 {full_js}
 checkLiveVenueStatus();
 if (!clockPill.innerHTML.includes('Venue:')) throw new Error('liveClockPill not updated');
+window.innerWidth = 390;
+selectDayFilter(4);
+if (fakeTbl.style.minWidth !== '344px') throw new Error('unexpected mobile single-day minWidth: ' + fakeTbl.style.minWidth);
+window.innerWidth = 1280;
 selectDayFilter(2);
 selectDayFilter('TODAY_PLUS');
 selectDayFilter('ALL');
+if (fakeTbl.style.minWidth !== '') throw new Error('expected cleared minWidth on ALL days');
 dismissLiveBanner({{ stopPropagation: () => {{}} }});
 const fakeCell = mockEl();
 openSlotInspector(fakeCell, '<div class="tt-header">KI#1.1</div>');

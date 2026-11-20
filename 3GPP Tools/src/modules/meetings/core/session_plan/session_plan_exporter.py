@@ -922,6 +922,9 @@ class SessionPlanExporter:
     font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
     font-size: 12px; line-height: 1.35;
   }
+  #overviewView {
+    display: flex; flex-direction: column; min-height: 0; padding: 4px 6px 8px 6px;
+  }
   @media (min-width: 769px) {
     body {
       height: 100vh; display: flex; flex-direction: column; overflow: hidden;
@@ -972,8 +975,8 @@ class SessionPlanExporter:
   .badge-clash:hover { background: #FEF3C7; border-color: #D97706; }
   .live-banner {
     display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 600;
-    padding: 2px 10px; border-radius: 6px; background: #ECFDF5; color: #065F46;
-    border: 1px solid #A7F3D0; margin-top: 4px; cursor: pointer;
+    padding: 4px 10px; border-radius: 6px; background: #ECFDF5; color: #065F46;
+    border: 1px solid #A7F3D0; margin-top: 2px; cursor: pointer; flex-shrink: 0;
   }
   .live-banner:hover { background: #D1FAE5; }
   .live-banner-right { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
@@ -1352,7 +1355,7 @@ class SessionPlanExporter:
   .badge-drafting { background: #FEE2E2; color: var(--drafting); }
   .badge-tu { background: #E2E8F0; color: #334155; }
   .cell-room { font-size: 10px; color: #64748B; font-weight: 500; }
-  .cell-title { font-size: 10.5px; font-weight: 500; color: #0F172A; line-height: 1.3; word-break: break-word; }
+  .cell-title { font-size: 10.5px; font-weight: 500; color: #0F172A; line-height: 1.3; overflow-wrap: break-word; word-break: normal; }
   .cell-chips-row { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 2px; }
   .ai-chip {
     font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: #E0E7FF; color: #3730A3;
@@ -1587,6 +1590,14 @@ class SessionPlanExporter:
   .tt-note { background: #FEF3C7; color: #92400E; padding: 6px 8px; border-radius: 5px; }
 
   @media (max-width: 768px) {
+    header { position: static; padding: 6px 8px; }
+    .day-tabs { position: sticky; top: 0; z-index: 90; }
+    .overview-grid-container { margin: 2px 0 8px 0; max-height: 78vh; }
+    .corner-hdr, .row-hdr { width: 108px; min-width: 108px; }
+    .row-hdr { font-size: 9.5px; padding: 4px 5px !important; }
+    .hdr-time-primary { font-size: 10.5px; }
+    .overview-table { min-width: 1200px; }
+    .overview-table.filtered-days { min-width: 340px; }
     .slot-inspector-drawer {
       top: auto; left: 0; right: 0; bottom: 0;
       width: 100%; max-width: 100%; max-height: 62vh;
@@ -1708,7 +1719,17 @@ class SessionPlanExporter:
         el.classList.toggle('day-hidden', !visibleDays.has(d));
       });
       const tbl = ov.querySelector('.overview-table');
-      if (tbl) tbl.classList.toggle('filtered-days', visibleDays.size < 5);
+      if (tbl) {
+        tbl.classList.toggle('filtered-days', visibleDays.size < 5);
+        if (tbl.style) {
+          if (visibleDays.size < 5) {
+            const isMobile = Boolean(window.innerWidth && window.innerWidth <= 768);
+            tbl.style.minWidth = ((isMobile ? 108 : 152) + visibleDays.size * (isMobile ? 236 : 180)) + 'px';
+          } else {
+            tbl.style.minWidth = '';
+          }
+        }
+      }
     }
     updateStickyHeaderOffsets();
   }
