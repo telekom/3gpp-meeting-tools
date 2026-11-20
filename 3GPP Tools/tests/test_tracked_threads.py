@@ -2768,7 +2768,7 @@ def test_batch_folder_sync_fast_skip_and_filter_scoped_sync(tmp_path):
     assert dlg.table.rowCount() >= 2
     dlg.table.selectRow(0)
     assert dlg.btn_sync_selected.isEnabled()
-    assert dlg.btn_sync_selected.text() == "🔄 Sync Thread"
+    assert dlg.btn_sync_selected.text() == "🔄 Sync"
     assert dlg._act_sync_selected.isEnabled()
     sel_targets = dlg._selected_items
     sel_tids, sel_eids = dlg._collect_scoped_sync_targets(sel_targets)
@@ -2779,7 +2779,61 @@ def test_batch_folder_sync_fast_skip_and_filter_scoped_sync(tmp_path):
         assert mock_start.call_args.kwargs.get("scoped") is True
         assert mock_start.call_args.kwargs.get("target_items") == sel_targets
 
+    # 5. Resizable columns + header persistence, My Status color strip & filter,
+    #    always-editable comment bar, and compact action bar visibility in By Thread mode
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QHeaderView
+
+    hdr = dlg.table.horizontalHeader()
+    for col_i in range(6):
+        assert hdr.sectionResizeMode(col_i) == QHeaderView.Interactive
+    assert dlg.table.horizontalHeaderItem(4).text() == "Sender"
+    hdr.resizeSection(4, 195)
+
+    # Switch to By Thread: Reply/Outlook buttons hide instead of sitting greyed out
+    dlg.btn_view_threads.click()
+    assert dlg.btn_reply.isHidden()
+    assert dlg.btn_open_outlook.isHidden()
+
+    # Select pinned thread t1 and assign status + comment in reading panel
+    dlg.search_edit.setText("Topic Alpha")
+    dlg._apply_filters()
+    assert dlg.table.rowCount() == 1
+    dlg.table.selectRow(0)
+    assert dlg.note_frame.isHidden()  # hidden while comment empty
+    dlg.btn_toggle_note.click()
+    assert not dlg.note_frame.isHidden()
+
+    idx_support = dlg.detail_status_combo.findText("🟢 Support")
+    assert idx_support >= 0
+    dlg.detail_status_combo.setCurrentIndex(idx_support)
+    dlg.note_edit.setPlainText("Keep direct N26 option open")
+    dlg._flush_pending_note_save(reload_view=False)
+
+    t1_row = tdb.get_thread(t1)
+    assert t1_row["user_status"] == "🟢 Support"
+    assert t1_row["user_notes"] == "Keep direct N26 option open"
+    assert dlg.table.item(0, 0).data(Qt.UserRole + 1)  # status color stripe hex set
+    assert "📝" in dlg.table.item(0, 0).text()
+
+    # Status filter isolates Support threads & re-opening Inbox auto-shows comment bar + column width
+    dlg.search_edit.clear()
+    dlg.status_combo.setCheckedItems(["🟢 Support"])
+    dlg._apply_filters()
+    assert dlg.table.rowCount() == 1
     dlg.close()
+
+    dlg2 = MeetingEmailInboxDialog(
+        tdb,
+        gdb,
+        meeting_id="SA2#178",
+        settings=QSettings(str(tmp_path / "scoped.ini"), QSettings.IniFormat),
+    )
+    assert dlg2.table.horizontalHeader().sectionSize(4) == 195
+    assert dlg2.table.rowCount() == 1
+    assert not dlg2.note_frame.isHidden()  # always-editable comment bar shown automatically!
+    assert dlg2.note_edit.toPlainText() == "Keep direct N26 option open"
+    dlg2.close()
 
 
 def test_auto_cache_drafts_folder_documents_and_open_sensitivity(tmp_path):

@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
 import urllib.parse
 
 from PyQt5.QtCore import QItemSelectionModel, QSettings, Qt, QTimer, QUrl, pyqtSignal
-from PyQt5.QtGui import QColor, QDesktopServices
+from PyQt5.QtGui import QColor, QDesktopServices, QPainter
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -21,9 +21,11 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QMenu,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QSizePolicy,
     QSplitter,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
     QTextBrowser,
@@ -37,6 +39,7 @@ from core.ui.font_scale import bind_reader_zoom_settings, create_help_tips_pill,
 from core.ui.theme import C
 from core.ui.toast import notify_info, notify_success, notify_toast
 from modules.meetings.ui.tdocs_components import CheckableComboBox
+from modules.meetings.ui.tdocs_dialogs import MY_STATUS_OPTIONS
 from modules.emails.core.outlook_client import OutlookClient
 from modules.emails.core.thread_markdown_exporter import (
     _format_trailing_quoted_history,
@@ -66,6 +69,58 @@ from modules.emails.core.tracked_threads_service import (
     reply_to_outlook_message,
 )
 from modules.meetings.ui.topic_pills import TagCloudWidget
+
+
+_STATUS_COLOR_MAP = {
+    "🔵 My TDoc": C.ACCENT_ALT,
+    "🟢 Support": C.SUCCESS,
+    "🔴 Object": C.DANGER_ALT,
+    "🟡 Monitor": C.WARNING_ACCENT,
+}
+
+_STATUS_BADGE_BG_MAP = {
+    "🔵 My TDoc": C.INFO_SOFT,
+    "🟢 Support": C.SUCCESS_SOFT,
+    "🔴 Object": C.DANGER_SOFT,
+    "🟡 Monitor": C.WARNING_SOFT,
+}
+
+
+def _status_color_hex(status: str) -> str:
+    return _STATUS_COLOR_MAP.get(str(status or "⚪ Neutral").strip(), "")
+
+
+class _InboxStatusStripDelegate(QStyledItemDelegate):
+    """Paints a crisp left-edge status color stripe on the State column without widening the table."""
+
+    def paint(self, painter: QPainter, option, index):
+        super().paint(painter, option, index)
+        color_hex = str(index.data(Qt.UserRole + 1) or "").strip()
+        if not color_hex:
+            return
+        painter.save()
+        bar_w = scale_px(5, minimum=4)
+        rect = option.rect
+        painter.fillRect(rect.left() + 1, rect.top() + 2, bar_w, max(4, rect.height() - 4), QColor(color_hex))
+        painter.restore()
+
+
+class _NotePlainTextEdit(QPlainTextEdit):
+    """Compact inline note editor that emits save signals on blur or Ctrl+Enter."""
+
+    focusLost = pyqtSignal()
+    saveRequested = pyqtSignal()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.focusLost.emit()
+
+    def keyPressEvent(self, event):
+        if (event.modifiers() & Qt.ControlModifier) and event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.saveRequested.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 class _InboxTableWidget(QTableWidget):
@@ -148,9 +203,19 @@ class MeetingEmailInboxDialog(QDialog):
         self._saved_search_text = ""
         self._pending_company_filter: Optional[List[str]] = None
         self._pending_ai_filter: Optional[List[str]] = None
+        self._pending_status_filter: Optional[List[str]] = None
         self._load_filter_settings()
         self._layout_orientation = "V" if self._settings.value("layout_orientation", "H") == "V" else "H"
         self._updating_assign_bar = False
+        self._updating_status_bar = False
+        self._updating_note_bar = False
+        self._restoring_header = False
+        self._note_target_item: Optional[dict] = None
+        self._note_dirty = False
+        self._note_save_timer = QTimer(self)
+        self._note_save_timer.setSingleShot(True)
+        self._note_save_timer.setInterval(450)
+        self._note_save_timer.timeout.connect(self._flush_pending_note_save)
 
         title_suffix = f" — {self.meeting_id}" if self.meeting_id else ""
         self.setWindowFlags(Qt.Window)
@@ -214,6 +279,10 @@ class MeetingEmailInboxDialog(QDialog):
         ai_list = self._parse_json_str_list(self._settings.value(f"{prefix}/ai_checked", "[]"))
         self._pending_ai_filter = ai_list if (ai_filtered and ai_list) else None
 
+        status_filtered = self._settings.value(f"{prefix}/status_filtered", False, type=bool)
+        status_list = self._parse_json_str_list(self._settings.value(f"{prefix}/status_checked", "[]"))
+        self._pending_status_filter = status_list if (status_filtered and status_list) else None
+
     def _save_filter_settings(self):
         if getattr(self, "_restoring_filters", False):
             return
@@ -243,6 +312,15 @@ class MeetingEmailInboxDialog(QDialog):
                 )
                 self._settings.setValue(f"{prefix}/ai_filtered", bool(ai_filtered and ai_checked))
                 self._settings.setValue(f"{prefix}/ai_checked", json.dumps(ai_checked))
+            if hasattr(self, "status_combo"):
+                st_filtered = self.status_combo.isFiltered()
+                st_checked = (
+                    [str(s) for s in self.status_combo.getCheckedItems() if str(s).strip()]
+                    if st_filtered
+                    else []
+                )
+                self._settings.setValue(f"{prefix}/status_filtered", bool(st_filtered and st_checked))
+                self._settings.setValue(f"{prefix}/status_checked", json.dumps(st_checked))
             self._settings.sync()
         except Exception:
             pass
@@ -358,6 +436,13 @@ class MeetingEmailInboxDialog(QDialog):
         self.ai_combo.selectionChanged.connect(self._apply_filters)
         top_row.addWidget(self.ai_combo)
 
+        self.status_combo = CheckableComboBox("Status")
+        self.status_combo.setMinimumWidth(scale_px(120))
+        self.status_combo.setMaximumWidth(scale_px(175))
+        self.status_combo.setToolTip("Filter by thread/delegate status (My Status).")
+        self.status_combo.selectionChanged.connect(self._apply_filters)
+        top_row.addWidget(self.status_combo)
+
         self.source_combo = QComboBox()
         self.source_combo.addItem("All Sources", "")
         self.source_combo.addItem("⚠️ Needs Assignment (No AI / Unpinned)", "NEEDS_TRIAGE")
@@ -432,7 +517,7 @@ class MeetingEmailInboxDialog(QDialog):
             "Source / Context",
             "AI",
             "Subject",
-            "Sender / Company",
+            "Sender",
             "Date",
         ])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -440,14 +525,32 @@ class MeetingEmailInboxDialog(QDialog):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
+        self.table.setItemDelegateForColumn(0, _InboxStatusStripDelegate(self.table))
         hdr = self.table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.Interactive)
-        hdr.resizeSection(0, 64)
-        hdr.resizeSection(1, 165)
-        hdr.resizeSection(2, 72)
-        hdr.setSectionResizeMode(3, QHeaderView.Stretch)
-        hdr.resizeSection(4, 140)
-        hdr.resizeSection(5, 115)
+        hdr.setStretchLastSection(False)
+        default_widths = (
+            scale_px(76),
+            scale_px(155),
+            scale_px(80),
+            scale_px(360),
+            scale_px(150),
+            scale_px(120),
+        )
+        for col_i, col_w in enumerate(default_widths):
+            hdr.resizeSection(col_i, col_w)
+        prefix = self._meeting_settings_prefix()
+        saved_hdr = self._settings.value(f"{prefix}/table_header_state")
+        if saved_hdr:
+            self._restoring_header = True
+            try:
+                hdr.restoreState(saved_hdr)
+                hdr.setSectionResizeMode(QHeaderView.Interactive)
+            except Exception:
+                pass
+            finally:
+                self._restoring_header = False
+        hdr.sectionResized.connect(self._on_header_section_resized)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
@@ -566,51 +669,111 @@ class MeetingEmailInboxDialog(QDialog):
 
         self.assign_frame.setVisible(self._show_assign_bar)
         meta_layout.addWidget(self.assign_frame)
+
+        # Inline Always-Editable Comment Strip (auto-visible when a comment exists, toggled via 📝 Note)
+        self.note_frame = QFrame(meta_frame)
+        self.note_frame.setObjectName("InboxNoteBar")
+        self.note_frame.setStyleSheet(
+            f"#InboxNoteBar {{ background-color: {C.WARNING_SOFT}; border: 1px solid {C.WARNING_BORDER}; border-radius: 5px; }}"
+        )
+        note_row = QHBoxLayout(self.note_frame)
+        note_row.setContentsMargins(6, 3, 6, 3)
+        note_row.setSpacing(6)
+        note_lbl = QLabel("<b>📝 Note:</b>")
+        note_lbl.setStyleSheet(f"color: {C.WARNING};")
+        note_row.addWidget(note_lbl)
+
+        self.note_edit = _NotePlainTextEdit(self.note_frame)
+        self.note_edit.setPlaceholderText("Add thread comment / note (auto-saved on blur or Ctrl+Enter)...")
+        self.note_edit.setMaximumHeight(scale_px(46))
+        self.note_edit.setMinimumHeight(scale_px(28))
+        self.note_edit.setStyleSheet(
+            f"QPlainTextEdit {{ background-color: {C.BG_CARD}; color: {C.TEXT_PRIMARY}; "
+            f"border: 1px solid {C.WARNING_BORDER}; border-radius: 4px; padding: 2px 6px; }}"
+        )
+        self.note_edit.textChanged.connect(self._on_note_text_changed)
+        self.note_edit.focusLost.connect(self._flush_pending_note_save)
+        self.note_edit.saveRequested.connect(self._flush_pending_note_save)
+        note_row.addWidget(self.note_edit, 1)
+
+        self.note_saved_lbl = QLabel("")
+        self.note_saved_lbl.setStyleSheet(f"color: {C.WARNING}; font-size: 10px;")
+        note_row.addWidget(self.note_saved_lbl)
+
+        self.note_frame.setVisible(False)
+        meta_layout.addWidget(self.note_frame)
         right_layout.addWidget(meta_frame)
 
-        # Triage Action Bar (FlowLayout wraps cleanly when pane narrows)
+        # Compact Triage Action Bar (FlowLayout wraps cleanly when pane narrows)
         act_widget = QWidget(right_widget)
+        act_widget.setObjectName("InboxActionBar")
         act_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         act_sp.setHeightForWidth(True)
         act_widget.setSizePolicy(act_sp)
-        act_row = FlowLayout(act_widget, margin=0, h_spacing=6, v_spacing=4)
+        act_widget.setStyleSheet(
+            f"#InboxActionBar QPushButton {{ padding: 3px 8px; border-radius: 4px; "
+            f"border: 1px solid {C.BORDER_STRONG}; background-color: {C.BG_CARD}; color: {C.TEXT_BODY}; }} "
+            f"#InboxActionBar QPushButton:hover {{ background-color: {C.BG_HOVER}; }} "
+            f"#InboxActionBar QPushButton:checked {{ background-color: {C.INFO_SOFT}; border-color: {C.ACCENT_ALT}; color: {C.INFO}; font-weight: bold; }} "
+            f"#InboxActionBar QPushButton:disabled {{ background-color: {C.BG_SURFACE}; color: {C.TEXT_FAINT}; border-color: {C.BORDER_SUBTLE}; }}"
+        )
+        act_row = FlowLayout(act_widget, margin=0, h_spacing=4, v_spacing=3)
 
-        self.btn_mark_next = QPushButton("✔️ Mark Read && Next Unread")
+        self.btn_mark_next = QPushButton("✔️ Read && Next")
+        self.btn_mark_next.setToolTip("Mark the current message/thread Read and jump to the next unread item.")
         self.btn_mark_next.setStyleSheet(
-            "QPushButton { background-color: #2563EB; color: white; font-weight: bold; "
-            "padding: 4px 10px; border-radius: 5px; border: none; } "
-            "QPushButton:hover { background-color: #1D4ED8; } "
-            "QPushButton:disabled { background-color: #CBD5E1; color: #64748B; }"
+            f"QPushButton {{ background-color: {C.ACCENT_ALT}; color: {C.TEXT_ON_ACCENT}; font-weight: bold; "
+            f"padding: 3px 10px; border-radius: 4px; border: none; }} "
+            f"QPushButton:hover {{ background-color: {C.INFO}; }} "
+            f"QPushButton:disabled {{ background-color: {C.BORDER_STRONG}; color: {C.TEXT_MUTED}; }}"
         )
         self.btn_mark_next.clicked.connect(self._on_mark_read_and_next)
         act_row.addWidget(self.btn_mark_next)
 
-        self.btn_toggle_read = QPushButton("✓ Mark Read")
+        self.btn_toggle_read = QPushButton("✓ Read")
+        self.btn_toggle_read.setToolTip("Mark selected item(s) Read / Unread (syncs with Outlook).")
         self.btn_toggle_read.clicked.connect(self._on_toggle_read)
         act_row.addWidget(self.btn_toggle_read)
 
-        self.btn_toggle_flag = QPushButton("🚩 Flag")
+        self.btn_toggle_flag = QPushButton("🚩")
+        self.btn_toggle_flag.setToolTip("Flag / Clear Flag in Outlook.")
         self.btn_toggle_flag.clicked.connect(self._on_toggle_flag)
         act_row.addWidget(self.btn_toggle_flag)
 
         self.btn_reply = QPushButton("↩️ Reply")
+        self.btn_reply.setToolTip("Reply in Outlook.")
         self.btn_reply.clicked.connect(self._on_reply)
         act_row.addWidget(self.btn_reply)
 
         self.btn_open_outlook = QPushButton("📧 Outlook")
+        self.btn_open_outlook.setToolTip("Open email in Outlook.")
         self.btn_open_outlook.clicked.connect(self._on_open_outlook)
         act_row.addWidget(self.btn_open_outlook)
 
-        self.btn_open_context = QPushButton("📂 Open Thread")
+        self.btn_open_context = QPushButton("📂 Thread")
+        self.btn_open_context.setToolTip("Open full Tracked Thread or TDoc viewer.")
         self.btn_open_context.clicked.connect(self._on_open_context)
         act_row.addWidget(self.btn_open_context)
 
-        self.btn_sync_selected = QPushButton("🔄 Sync Thread")
+        self.btn_sync_selected = QPushButton("🔄 Sync")
         self.btn_sync_selected.setToolTip(
             "Sync only the currently selected email thread(s)/conversation(s) with Outlook asynchronously."
         )
         self.btn_sync_selected.clicked.connect(self._on_sync_selected_clicked)
         act_row.addWidget(self.btn_sync_selected)
+
+        self.detail_status_combo = QComboBox()
+        self.detail_status_combo.addItems(MY_STATUS_OPTIONS)
+        self.detail_status_combo.setMinimumWidth(scale_px(108))
+        self.detail_status_combo.setToolTip("Set thread My Status (color bar shown in thread listing & TDocs table).")
+        self.detail_status_combo.currentIndexChanged.connect(self._on_detail_status_changed)
+        act_row.addWidget(self.detail_status_combo)
+
+        self.btn_toggle_note = QPushButton("📝 Note")
+        self.btn_toggle_note.setCheckable(True)
+        self.btn_toggle_note.setToolTip("Show / edit thread comment (auto-shown whenever a comment is present).")
+        self.btn_toggle_note.clicked.connect(self._on_toggle_note_clicked)
+        act_row.addWidget(self.btn_toggle_note)
 
         self.btn_toggle_assign_bar = QPushButton("🏷️ AI / WI ▴" if self._show_assign_bar else "🏷️ AI / WI ▾")
         self.btn_toggle_assign_bar.setCheckable(True)
@@ -683,8 +846,18 @@ class MeetingEmailInboxDialog(QDialog):
         self._settings.setValue("layout_orientation", self._layout_orientation)
         self._apply_layout_orientation(save_current=True)
 
+    def _on_header_section_resized(self, *_args):
+        if getattr(self, "_restoring_header", False) or getattr(self, "_restoring_filters", False):
+            return
+        try:
+            prefix = self._meeting_settings_prefix()
+            self._settings.setValue(f"{prefix}/table_header_state", self.table.horizontalHeader().saveState())
+        except Exception:
+            pass
+
     def closeEvent(self, event):
         try:
+            self._flush_pending_note_save(reload_view=False)
             if getattr(self, "_sync_worker", None) and self._sync_worker.isRunning():
                 self._sync_worker.request_cancel()
                 self._sync_worker.wait(1500)
@@ -693,6 +866,9 @@ class MeetingEmailInboxDialog(QDialog):
             if hasattr(self, "splitter"):
                 key = "splitter_state_v" if self.splitter.orientation() == Qt.Vertical else "splitter_state_h"
                 self._settings.setValue(key, self.splitter.saveState())
+            if hasattr(self, "table"):
+                prefix = self._meeting_settings_prefix()
+                self._settings.setValue(f"{prefix}/table_header_state", self.table.horizontalHeader().saveState())
             if hasattr(self, "preview_browser"):
                 self._settings.setValue("zoom_steps", int(self.preview_browser.property("_reader_zoom_steps") or 0))
             self._save_filter_settings()
@@ -760,6 +936,11 @@ class MeetingEmailInboxDialog(QDialog):
             companies = list(dict.fromkeys(m.get("company") for m in msgs_asc if m.get("company")))
             unread_cnt = sum(1 for m in msgs_asc if not m["is_read"])
             flagged_cnt = sum(1 for m in msgs_asc if m["is_flagged"])
+            user_status = next(
+                (str(m.get("user_status") or "").strip() for m in msgs_asc if str(m.get("user_status") or "").strip() and m.get("user_status") != "⚪ Neutral"),
+                str(msgs_asc[0].get("user_status") or "⚪ Neutral").strip() if msgs_asc else "⚪ Neutral",
+            )
+            user_notes = next((str(m.get("user_notes") or "").strip() for m in msgs_asc if str(m.get("user_notes") or "").strip()), "")
 
             grouped.append({
                 "id": gkey,
@@ -788,6 +969,8 @@ class MeetingEmailInboxDialog(QDialog):
                 "in_tracked_db": in_tracked,
                 "in_general_db": any(m.get("in_general_db") for m in msgs_asc),
                 "conversation_id": next((m.get("conversation_id") for m in msgs_asc if m.get("conversation_id")), ""),
+                "user_status": user_status or "⚪ Neutral",
+                "user_notes": user_notes,
             })
         return sorted(grouped, key=lambda x: x.get("date_str", ""), reverse=True)
 
@@ -797,6 +980,8 @@ class MeetingEmailInboxDialog(QDialog):
         preserve_ids: Optional[List[str]] = None,
     ):
         """Loads and deduplicates emails from TrackedThreadsDatabase and GeneralEmailDatabase."""
+        if not getattr(self, "_restoring_filters", False) and hasattr(self, "note_edit"):
+            self._flush_pending_note_save(reload_view=False)
         by_id: Dict[str, dict] = {}
 
         if self.tracked_db is not None:
@@ -810,6 +995,8 @@ class MeetingEmailInboxDialog(QDialog):
                 th_tdocs = list(dict.fromkeys(
                     self._clean_tdoc_id(t) for t in (th.get("linked_tdocs") or []) if self._clean_tdoc_id(t)
                 ))
+                th_status = str(th.get("user_status") or "⚪ Neutral").strip() or "⚪ Neutral"
+                th_notes = str(th.get("user_notes") or "").strip()
                 for m in self.tracked_db.get_thread_messages(tid):
                     eid = str(m.get("id") or "").strip()
                     if not eid:
@@ -838,6 +1025,8 @@ class MeetingEmailInboxDialog(QDialog):
                         "conversation_id": str(m.get("conversation_id") or ""),
                         "in_tracked_db": True,
                         "in_general_db": False,
+                        "user_status": th_status,
+                        "user_notes": th_notes,
                     }
 
         if self.general_email_db is not None and hasattr(self.general_email_db, "get_all_emails_with_tdocs"):
@@ -906,6 +1095,8 @@ class MeetingEmailInboxDialog(QDialog):
                         "conversation_id": "",
                         "in_tracked_db": False,
                         "in_general_db": True,
+                        "user_status": "⚪ Neutral",
+                        "user_notes": "",
                     }
 
         self._all_items = sorted(by_id.values(), key=lambda x: x.get("date_str", ""), reverse=True)
@@ -977,6 +1168,23 @@ class MeetingEmailInboxDialog(QDialog):
             self._pending_ai_filter = None
         self.ai_combo.blockSignals(False)
 
+        if hasattr(self, "status_combo"):
+            status_counts: Dict[str, int] = {s: 0 for s in MY_STATUS_OPTIONS}
+            for it in dataset:
+                st = str(it.get("user_status") or "⚪ Neutral").strip() or "⚪ Neutral"
+                status_counts[st] = status_counts.get(st, 0) + 1
+            st_items = list(MY_STATUS_OPTIONS)
+            st_labels = {s: f"{s} ({status_counts.get(s, 0)})" for s in st_items}
+            self.status_combo.blockSignals(True)
+            self.status_combo.updateItems(st_items, display_labels=st_labels)
+            if self._pending_status_filter is not None and dataset:
+                wanted_st = set(self._pending_status_filter)
+                matched_st = [s for s in st_items if s in wanted_st]
+                if matched_st:
+                    self.status_combo.setCheckedItems(matched_st)
+                self._pending_status_filter = None
+            self.status_combo.blockSignals(False)
+
     @staticmethod
     def _recent_cutoff_str() -> str:
         return (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M")
@@ -1018,6 +1226,12 @@ class MeetingEmailInboxDialog(QDialog):
             if filter_ai
             else set()
         )
+        filter_status = hasattr(self, "status_combo") and self.status_combo.isFiltered()
+        selected_statuses = (
+            {str(s).strip() for s in self.status_combo.getCheckedItems() if str(s).strip()}
+            if filter_status
+            else set()
+        )
         source_filter = (self.source_combo.currentData() or "").strip()
 
         dataset = self._active_dataset()
@@ -1049,6 +1263,10 @@ class MeetingEmailInboxDialog(QDialog):
                 matches_ai = bool(item_ais & (selected_ais - {"__UNASSIGNED__"}))
                 if not (matches_unassigned or matches_ai):
                     continue
+            if filter_status:
+                item_status = str(it.get("user_status") or "⚪ Neutral").strip() or "⚪ Neutral"
+                if item_status not in selected_statuses:
+                    continue
             if q:
                 hay = " ".join([
                     str(it.get("subject") or ""),
@@ -1068,21 +1286,36 @@ class MeetingEmailInboxDialog(QDialog):
         self.table.setRowCount(len(visible))
         row_to_select = -1
         for r, it in enumerate(visible):
+            u_status = str(it.get("user_status") or "⚪ Neutral").strip() or "⚪ Neutral"
+            u_notes = str(it.get("user_notes") or "").strip()
+            note_badge = "📝" if u_notes else ""
             if it.get("_is_group"):
                 u_cnt = int(it.get("_unread_count", 0))
                 t_cnt = int(it.get("_total_count", 1))
                 f_part = "🚩" if it["is_flagged"] else ""
-                state_txt = f"🔵 {u_cnt}/{t_cnt} {f_part}".strip() if u_cnt > 0 else f"✓ {t_cnt} {f_part}".strip()
+                core_s = f"🔵 {u_cnt}/{t_cnt} {f_part}".strip() if u_cnt > 0 else f"✓ {t_cnt} {f_part}".strip()
+                state_txt = f"{core_s} {note_badge}".strip()
             else:
                 state_parts = []
                 if not it["is_read"]:
                     state_parts.append("🔵")
                 if it["is_flagged"]:
                     state_parts.append("🚩")
-                state_txt = " ".join(state_parts) if state_parts else "✓"
+                if not state_parts:
+                    state_parts.append("✓")
+                if note_badge:
+                    state_parts.append(note_badge)
+                state_txt = " ".join(state_parts)
             state_item = QTableWidgetItem(state_txt)
             state_item.setData(Qt.UserRole, it["id"])
+            state_item.setData(Qt.UserRole + 1, _status_color_hex(u_status))
             state_item.setTextAlignment(Qt.AlignCenter)
+            st_tip = [f"Status: {u_status}"] if u_status != "⚪ Neutral" else []
+            if u_notes:
+                preview_n = (u_notes[:180] + "…") if len(u_notes) > 180 else u_notes
+                st_tip.append(f"Comment: {preview_n}")
+            if st_tip:
+                state_item.setToolTip("\n".join(st_tip))
 
             if it["in_tracked_db"] and it.get("thread_title"):
                 ctx_full = f"🧵 {it['thread_title']}"
@@ -1176,11 +1409,12 @@ class MeetingEmailInboxDialog(QDialog):
         self._update_sync_button_state(
             total_count=len(dataset),
             visible_count=len(visible),
-            has_narrow_filter=bool(filter_comp or filter_ai or q or source_filter or mode == "FLAGGED"),
+            has_narrow_filter=bool(filter_comp or filter_ai or filter_status or q or source_filter or mode == "FLAGGED"),
         )
         self._on_selection_changed()
 
     def _on_selection_changed(self):
+        self._flush_pending_note_save(reload_view=False)
         rows = sorted({idx.row() for idx in self.table.selectionModel().selectedRows()}) if self.table.selectionModel() else []
         selected = [self._visible_items[r] for r in rows if 0 <= r < len(self._visible_items)]
         self._selected_items = selected
@@ -1199,9 +1433,12 @@ class MeetingEmailInboxDialog(QDialog):
         self.detail_meta_lbl.setText("")
         self.detail_links_lbl.setText("")
         self.assign_frame.setVisible(False)
+        self.note_frame.setVisible(False)
         self.preview_browser.setMarkdown("*Select another filter tab or adjust search criteria.*")
-        for btn in (self.btn_mark_next, self.btn_toggle_read, self.btn_toggle_flag, self.btn_reply, self.btn_open_outlook, self.btn_open_context, self.btn_sync_selected):
+        for btn in (self.btn_mark_next, self.btn_toggle_read, self.btn_toggle_flag, self.btn_reply, self.btn_open_outlook, self.btn_open_context, self.btn_sync_selected, self.btn_toggle_note):
             btn.setEnabled(False)
+        if hasattr(self, "detail_status_combo"):
+            self.detail_status_combo.setEnabled(False)
         self._update_selected_sync_controls(0)
 
     def _on_toggle_assign_bar(self, checked: bool):
@@ -1318,20 +1555,23 @@ class MeetingEmailInboxDialog(QDialog):
         self.detail_links_lbl.setVisible(True)
 
         self._populate_assign_bar_multi(selected)
+        self._populate_status_and_note_bars(selected)
 
         self.btn_mark_next.setEnabled(False)
         self.btn_reply.setEnabled(False)
+        self.btn_reply.setVisible(False)
         self.btn_open_outlook.setEnabled(False)
+        self.btn_open_outlook.setVisible(False)
         self.btn_open_context.setEnabled(False)
-        self.btn_open_context.setText("📂 Open Context")
+        self.btn_open_context.setVisible(False)
         self.btn_toggle_read.setEnabled(True)
         self.btn_toggle_read.setText(
-            f"✓ Mark Read ({unread_cnt})" if unread_cnt > 0 else f"🔵 Mark Unread ({len(selected)})"
+            f"✓ Read ({unread_cnt})" if unread_cnt > 0 else f"🔵 Unread ({len(selected)})"
         )
         self.btn_toggle_flag.setEnabled(True)
         unflagged_cnt = len(selected) - flagged_cnt
         self.btn_toggle_flag.setText(
-            f"🚩 Flag ({unflagged_cnt})" if unflagged_cnt > 0 else f"🏳️ Unflag ({len(selected)})"
+            f"🚩 ({unflagged_cnt})" if unflagged_cnt > 0 else f"🏳️ ({len(selected)})"
         )
         self._update_selected_sync_controls(len(selected))
 
@@ -1404,6 +1644,7 @@ class MeetingEmailInboxDialog(QDialog):
         self.detail_links_lbl.setVisible(bool(links_html))
 
         self._populate_assign_bar(it)
+        self._populate_status_and_note_bars([it])
 
         can_outlook = not str(it.get("id") or "").startswith("MSG-") and not it.get("_is_group")
         has_context = bool(
@@ -1412,18 +1653,21 @@ class MeetingEmailInboxDialog(QDialog):
         )
         self.btn_mark_next.setEnabled(True)
         self.btn_toggle_read.setEnabled(True)
-        self.btn_toggle_read.setText("✓ Mark Read" if not it["is_read"] else "🔵 Mark Unread")
+        self.btn_toggle_read.setText("✓ Read" if not it["is_read"] else "🔵 Unread")
         self.btn_toggle_flag.setEnabled(True)
-        self.btn_toggle_flag.setText("🏳️ Unflag" if it["is_flagged"] else "🚩 Flag")
+        self.btn_toggle_flag.setText("🏳️" if it["is_flagged"] else "🚩")
         self.btn_reply.setEnabled(can_outlook)
+        self.btn_reply.setVisible(can_outlook)
         self.btn_open_outlook.setEnabled(can_outlook)
+        self.btn_open_outlook.setVisible(can_outlook)
         self.btn_open_context.setEnabled(has_context)
+        self.btn_open_context.setVisible(has_context)
         if it.get("thread_id") and self._open_thread_callback:
-            self.btn_open_context.setText("📂 Open Full Thread")
+            self.btn_open_context.setText("📂 Thread")
         elif it.get("linked_tdocs") and self._open_tdoc_callback:
-            self.btn_open_context.setText(f"📄 Open {it['linked_tdocs'][0]}")
+            self.btn_open_context.setText(f"📄 {it['linked_tdocs'][0]}")
         else:
-            self.btn_open_context.setText("📂 Open Context")
+            self.btn_open_context.setText("📂 Context")
         self._update_selected_sync_controls(1)
 
         if it.get("_is_group"):
@@ -1766,6 +2010,201 @@ class MeetingEmailInboxDialog(QDialog):
         self._update_pill_counts()
         self.data_changed.emit()
 
+    def _style_detail_status_combo(self, status_val: str):
+        if not hasattr(self, "detail_status_combo"):
+            return
+        st = str(status_val or "⚪ Neutral").strip() or "⚪ Neutral"
+        accent = _STATUS_COLOR_MAP.get(st, C.BORDER_STRONG)
+        bg = _STATUS_BADGE_BG_MAP.get(st, C.BG_CARD)
+        self.detail_status_combo.setStyleSheet(
+            f"QComboBox {{ background-color: {bg}; color: {C.TEXT_PRIMARY}; "
+            f"border: 1px solid {accent}; border-radius: 4px; padding: 2px 6px; "
+            f"font-weight: {'bold' if st != '⚪ Neutral' else 'normal'}; }}"
+        )
+
+    def _populate_status_and_note_bars(self, targets: List[dict]):
+        if not hasattr(self, "detail_status_combo"):
+            return
+        self._updating_status_bar = True
+        self._updating_note_bar = True
+        try:
+            self.detail_status_combo.setEnabled(bool(targets) and self.tracked_db is not None)
+            self.btn_toggle_note.setEnabled(bool(targets) and self.tracked_db is not None)
+            statuses = [str(it.get("user_status") or "⚪ Neutral").strip() or "⚪ Neutral" for it in targets]
+            common_status = statuses[0] if (statuses and len(set(statuses)) == 1) else "⚪ Neutral"
+            idx = self.detail_status_combo.findText(common_status)
+            self.detail_status_combo.setCurrentIndex(idx if idx >= 0 else 0)
+            self._style_detail_status_combo(common_status)
+
+            if len(targets) == 1:
+                it = targets[0]
+                note_txt = str(it.get("user_notes") or "").strip()
+                self._note_target_item = it
+                self._note_dirty = False
+                self.note_edit.setPlainText(note_txt)
+                self.note_saved_lbl.setText("")
+                has_note = bool(note_txt)
+                self.note_frame.setVisible(has_note)
+                self.btn_toggle_note.setChecked(has_note)
+                self.btn_toggle_note.setText("📝 Note ✓" if has_note else "📝 Note")
+                self.note_edit.setEnabled(True)
+            else:
+                self._note_target_item = None
+                self._note_dirty = False
+                self.note_frame.setVisible(False)
+                self.btn_toggle_note.setChecked(False)
+                self.btn_toggle_note.setText("📝 Note")
+        finally:
+            self._updating_status_bar = False
+            self._updating_note_bar = False
+
+    def _refresh_table_state_cells_for_thread(self, tid: str):
+        for r, vis_it in enumerate(self._visible_items):
+            if str(vis_it.get("thread_id") or "") != tid:
+                continue
+            item_cell = self.table.item(r, 0)
+            if not item_cell:
+                continue
+            u_status = str(vis_it.get("user_status") or "⚪ Neutral").strip() or "⚪ Neutral"
+            u_notes = str(vis_it.get("user_notes") or "").strip()
+            note_badge = "📝" if u_notes else ""
+            if vis_it.get("_is_group"):
+                u_cnt = int(vis_it.get("_unread_count", 0))
+                t_cnt = int(vis_it.get("_total_count", 1))
+                f_part = "🚩" if vis_it["is_flagged"] else ""
+                core_s = f"🔵 {u_cnt}/{t_cnt} {f_part}".strip() if u_cnt > 0 else f"✓ {t_cnt} {f_part}".strip()
+                state_txt = f"{core_s} {note_badge}".strip()
+            else:
+                parts = []
+                if not vis_it["is_read"]:
+                    parts.append("🔵")
+                if vis_it["is_flagged"]:
+                    parts.append("🚩")
+                if not parts:
+                    parts.append("✓")
+                if note_badge:
+                    parts.append(note_badge)
+                state_txt = " ".join(parts)
+            item_cell.setText(state_txt)
+            item_cell.setData(Qt.UserRole + 1, _status_color_hex(u_status))
+            st_tip = [f"Status: {u_status}"] if u_status != "⚪ Neutral" else []
+            if u_notes:
+                st_tip.append(f"Comment: {(u_notes[:180] + '…') if len(u_notes) > 180 else u_notes}")
+            item_cell.setToolTip("\n".join(st_tip))
+
+    def _on_detail_status_changed(self):
+        if getattr(self, "_updating_status_bar", False) or self.tracked_db is None:
+            return
+        targets = self._selected_items or ([self._current_item] if self._current_item else [])
+        if not targets:
+            return
+        new_status = str(self.detail_status_combo.currentText() or "⚪ Neutral").strip() or "⚪ Neutral"
+        self._style_detail_status_combo(new_status)
+
+        preserved_ids: List[str] = []
+        seen_tids = set()
+        needs_full_reload = False
+        for it in targets:
+            if not it.get("in_tracked_db"):
+                tid = self._pin_item_in_place(it, reload=False)
+                needs_full_reload = True
+            else:
+                tid = str(it.get("thread_id") or "")
+            if tid and tid not in seen_tids:
+                seen_tids.add(tid)
+                self.tracked_db.update_thread_annotations(tid, user_status=new_status)
+                for m in self._all_items:
+                    if m.get("thread_id") == tid:
+                        m["user_status"] = new_status
+                for vis in self._visible_items:
+                    if vis.get("thread_id") == tid:
+                        vis["user_status"] = new_status
+            preserved_ids.append(f"THR::{tid}" if (self._view_mode == "THREADS" and tid) else it["id"])
+
+        self._grouped_items = self._build_grouped_thread_items()
+        self._populate_filter_combos()
+        status_filter_active = hasattr(self, "status_combo") and self.status_combo.isFiltered()
+        if needs_full_reload or status_filter_active:
+            self.reload_from_dbs(preserve_ids=list(dict.fromkeys(preserved_ids)))
+        else:
+            for tid in seen_tids:
+                self._refresh_table_state_cells_for_thread(tid)
+            self._update_sync_button_state(
+                total_count=len(self._active_dataset()),
+                visible_count=len(self._visible_items),
+                has_narrow_filter=bool(
+                    self.company_combo.isFiltered()
+                    or self.ai_combo.isFiltered()
+                    or (hasattr(self, "status_combo") and self.status_combo.isFiltered())
+                    or self.search_edit.text().strip()
+                    or (self.source_combo.currentData() or "").strip()
+                    or self._active_mode == "FLAGGED"
+                ),
+            )
+        self.data_changed.emit()
+
+    def _on_toggle_note_clicked(self, checked: bool):
+        targets = self._selected_items or ([self._current_item] if self._current_item else [])
+        if len(targets) != 1:
+            if len(targets) > 1:
+                notify_info(self, "Select Single Thread", "Select a single thread or email to add/edit its comment.")
+            self.btn_toggle_note.setChecked(False)
+            return
+        if checked or str(self.note_edit.toPlainText() or "").strip():
+            self.note_frame.setVisible(True)
+            self.note_edit.setFocus()
+        else:
+            self.note_frame.setVisible(False)
+
+    def _on_note_text_changed(self):
+        if getattr(self, "_updating_note_bar", False):
+            return
+        self._note_dirty = True
+        if hasattr(self, "note_saved_lbl"):
+            self.note_saved_lbl.setText("Saving...")
+        self._note_save_timer.start()
+
+    def _flush_pending_note_save(self, reload_view: bool = True):
+        if self._note_save_timer.isActive():
+            self._note_save_timer.stop()
+        if not getattr(self, "_note_dirty", False) or self.tracked_db is None:
+            return
+        it = self._note_target_item
+        if not it:
+            self._note_dirty = False
+            return
+        new_note = self.note_edit.toPlainText().strip()
+        self._note_dirty = False
+        if not it.get("in_tracked_db"):
+            if not new_note:
+                if hasattr(self, "note_saved_lbl"):
+                    self.note_saved_lbl.setText("")
+                return
+            tid = self._pin_item_in_place(it, reload=False)
+            if tid:
+                self.tracked_db.update_thread_annotations(tid, user_notes=new_note)
+                if reload_view:
+                    pres = f"THR::{tid}" if self._view_mode == "THREADS" else it["id"]
+                    self.reload_from_dbs(preserve_id=pres)
+        else:
+            tid = str(it.get("thread_id") or "")
+            if tid:
+                self.tracked_db.update_thread_annotations(tid, user_notes=new_note)
+                for m in self._all_items:
+                    if m.get("thread_id") == tid:
+                        m["user_notes"] = new_note
+                for vis in self._visible_items:
+                    if vis.get("thread_id") == tid:
+                        vis["user_notes"] = new_note
+                self._grouped_items = self._build_grouped_thread_items()
+                self._refresh_table_state_cells_for_thread(tid)
+        if hasattr(self, "note_saved_lbl"):
+            self.note_saved_lbl.setText("✓ Saved" if new_note else "")
+        if hasattr(self, "btn_toggle_note"):
+            has_note = bool(new_note)
+            self.btn_toggle_note.setText("📝 Note ✓" if has_note else "📝 Note")
+        self.data_changed.emit()
+
     def _mutate_flag(self, it: dict, is_flagged: bool):
         targets = (
             [it["_group_messages"][-1]["id"]]
@@ -1986,7 +2425,7 @@ class MeetingEmailInboxDialog(QDialog):
         if hasattr(self, "btn_sync_selected"):
             self.btn_sync_selected.setEnabled(selected_count > 0 and not running)
             self.btn_sync_selected.setText(
-                f"🔄 Sync Selected ({selected_count})" if selected_count > 1 else "🔄 Sync Thread"
+                f"🔄 Sync ({selected_count})" if selected_count > 1 else "🔄 Sync"
             )
         if hasattr(self, "_act_sync_selected"):
             self._act_sync_selected.setEnabled(selected_count > 0 and not running)
