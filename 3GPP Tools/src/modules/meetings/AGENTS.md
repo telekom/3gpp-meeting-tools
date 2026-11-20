@@ -28,7 +28,7 @@ src/modules/meetings/
 │   ├── session_plan/                  # SA2 Session Plan parsing, diffing, DB & HTML export
 │   │   ├── session_plan_db.py         # SQLite persistence & cross-meeting defaults
 │   │   ├── session_plan_diff.py       # Slot-by-slot snapshot diff engine
-│   │   ├── session_plan_exporter.py   # Interactive 5-view offline HTML, .ics & email exporter
+│   │   ├── session_plan_exporter.py   # Re-export shim -> session_plan/exporter/ package (see exporter/README.md)
 │   │   ├── session_plan_models.py     # Domain models & boundary-aware delegate resolvers
 │   │   ├── session_plan_parser.py     # Fault-tolerant Word (.docx) & Markdown parser
 │   │   └── session_plan_timezone.py   # Venue vs Vienna UTC timezone resolution

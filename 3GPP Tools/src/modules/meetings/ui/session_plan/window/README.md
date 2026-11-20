@@ -30,7 +30,7 @@ former 5,300-line `session_plan_window.py`; they share state via `self` (attribu
 
 ## Rules
 - **GUI/HTML parity:** UI changes in `slot_cells.py`, `grid_headers.py`, `now_cards.py` must be mirrored in
-  `core/session_plan/session_plan_exporter.py → export_mobile_html`.
+  `core/session_plan/exporter/` (see `exporter/README.md`).
 - New methods go into the mixin that owns the concern; keep each file below ~600 lines
   (split into a new mixin and add it to `SessionPlanWindow`'s bases otherwise).
 - Method names must stay unique across mixins (no MRO overriding between mixins).
