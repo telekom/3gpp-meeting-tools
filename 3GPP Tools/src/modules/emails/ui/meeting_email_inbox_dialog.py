@@ -90,6 +90,29 @@ def _status_color_hex(status: str) -> str:
     return _STATUS_COLOR_MAP.get(str(status or "⚪ Neutral").strip(), "")
 
 
+def get_compact_action_bar_qss(container_name: str = "InboxActionBar") -> str:
+    """Shared compact button styling for email thread/TDoc reading panels."""
+    return (
+        f"#{container_name} QPushButton {{ padding: 3px 8px; border-radius: 4px; "
+        f"border: 1px solid {C.BORDER_STRONG}; background-color: {C.BG_CARD}; color: {C.TEXT_BODY}; }} "
+        f"#{container_name} QPushButton:hover {{ background-color: {C.BG_HOVER}; }} "
+        f"#{container_name} QPushButton:checked {{ background-color: {C.INFO_SOFT}; border-color: {C.ACCENT_ALT}; color: {C.INFO}; font-weight: bold; }} "
+        f"#{container_name} QPushButton:disabled {{ background-color: {C.BG_SURFACE}; color: {C.TEXT_FAINT}; border-color: {C.BORDER_SUBTLE}; }}"
+    )
+
+
+def get_status_combo_qss(status_val: str) -> str:
+    """Shared compact tint QSS for My Status selector combos."""
+    st = str(status_val or "⚪ Neutral").strip() or "⚪ Neutral"
+    accent = _STATUS_COLOR_MAP.get(st, C.BORDER_STRONG)
+    bg = _STATUS_BADGE_BG_MAP.get(st, C.BG_CARD)
+    return (
+        f"QComboBox {{ background-color: {bg}; color: {C.TEXT_PRIMARY}; "
+        f"border: 1px solid {accent}; border-radius: 4px; padding: 2px 6px; "
+        f"font-weight: {'bold' if st != '⚪ Neutral' else 'normal'}; }}"
+    )
+
+
 class _InboxStatusStripDelegate(QStyledItemDelegate):
     """Paints a crisp left-edge status color stripe on the State column without widening the table."""
 
@@ -719,13 +742,7 @@ class MeetingEmailInboxDialog(QDialog):
         act_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         act_sp.setHeightForWidth(True)
         act_widget.setSizePolicy(act_sp)
-        act_widget.setStyleSheet(
-            f"#InboxActionBar QPushButton {{ padding: 3px 8px; border-radius: 4px; "
-            f"border: 1px solid {C.BORDER_STRONG}; background-color: {C.BG_CARD}; color: {C.TEXT_BODY}; }} "
-            f"#InboxActionBar QPushButton:hover {{ background-color: {C.BG_HOVER}; }} "
-            f"#InboxActionBar QPushButton:checked {{ background-color: {C.INFO_SOFT}; border-color: {C.ACCENT_ALT}; color: {C.INFO}; font-weight: bold; }} "
-            f"#InboxActionBar QPushButton:disabled {{ background-color: {C.BG_SURFACE}; color: {C.TEXT_FAINT}; border-color: {C.BORDER_SUBTLE}; }}"
-        )
+        act_widget.setStyleSheet(get_compact_action_bar_qss("InboxActionBar"))
         act_row = FlowLayout(act_widget, margin=0, h_spacing=4, v_spacing=3)
 
         self.btn_mark_next = QPushButton("✔️ Read && Next")
@@ -2091,14 +2108,7 @@ class MeetingEmailInboxDialog(QDialog):
     def _style_detail_status_combo(self, status_val: str):
         if not hasattr(self, "detail_status_combo"):
             return
-        st = str(status_val or "⚪ Neutral").strip() or "⚪ Neutral"
-        accent = _STATUS_COLOR_MAP.get(st, C.BORDER_STRONG)
-        bg = _STATUS_BADGE_BG_MAP.get(st, C.BG_CARD)
-        self.detail_status_combo.setStyleSheet(
-            f"QComboBox {{ background-color: {bg}; color: {C.TEXT_PRIMARY}; "
-            f"border: 1px solid {accent}; border-radius: 4px; padding: 2px 6px; "
-            f"font-weight: {'bold' if st != '⚪ Neutral' else 'normal'}; }}"
-        )
+        self.detail_status_combo.setStyleSheet(get_status_combo_qss(status_val))
 
     def _populate_status_and_note_bars(self, targets: List[dict]):
         if not hasattr(self, "detail_status_combo"):

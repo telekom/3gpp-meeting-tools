@@ -1679,6 +1679,9 @@ def test_unified_tdoc_emails_dialog_timeline_and_actions(tmp_path):
     tdoc_jumps = []
     changes = []
 
+    opened_tdocs = []
+    saved_user_data = []
+
     with patch.object(OutlookClient, "set_messages_read_status", return_value=1), \
          patch.object(OutlookClient, "set_messages_flag_status", return_value=1), \
          patch.object(OutlookClient, "get_namespace", return_value=FakeNS()):
@@ -1688,9 +1691,34 @@ def test_unified_tdoc_emails_dialog_timeline_and_actions(tmp_path):
             db_path,
             wg="SA2",
             pin_thread_callback=lambda info: pinned_calls.append(info),
+            tdoc_info={
+                "Title": "6G NAS Routing Baseline",
+                "Source": "Nokia, Ericsson",
+                "Agenda Item": "20.6.1",
+                "Sub-Item": "KI#1.1",
+                "Related WIs": "FS_6G_ARC",
+                "TDoc Status": "Not Handled",
+                "My Status": "🔵 My TDoc",
+                "My Notes": "Initial delegate note",
+            },
+            open_tdoc_callback=lambda td: opened_tdocs.append(td),
+            user_data_callback=lambda td, st, nt: saved_user_data.append((td, st, nt)),
         )
-        # Auto-read timer is removed
+        # Auto-read timer is removed; TDoc context card + always-editable note + Open button populated
         assert not hasattr(dlg, "auto_read_timer")
+        assert "6G NAS Routing Baseline" in dlg.lbl_tdoc_heading.text()
+        assert "Nokia, Ericsson" in dlg.lbl_tdoc_meta.text()
+        assert "20.6.1 (KI#1.1)" in dlg.lbl_tdoc_meta.text()
+        assert not dlg.note_frame.isHidden()
+        assert dlg.note_edit.toPlainText() == "Initial delegate note"
+        assert not dlg.btn_open_tdoc.isHidden()
+        dlg.btn_open_tdoc.click()
+        assert opened_tdocs == ["S2-2612673"]
+        idx_sup = dlg.detail_status_combo.findText("🟢 Support")
+        dlg.detail_status_combo.setCurrentIndex(idx_sup)
+        dlg.note_edit.setPlainText("Updated TDoc comment")
+        dlg._flush_pending_note_save()
+        assert ("S2-2612673", "🟢 Support", "Updated TDoc comment") in saved_user_data
 
         dlg.resize(760, 440)
         dlg.order_combo.setCurrentIndex(1)  # Oldest First -> E-OLD-READ at top, E-UNREAD-QUOTED below fold

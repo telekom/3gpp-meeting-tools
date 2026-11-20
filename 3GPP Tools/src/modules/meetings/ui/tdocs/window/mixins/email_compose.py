@@ -208,6 +208,21 @@ class EmailMixin:
             self._on_tracked_thread_changed()
             self._open_tracked_thread_dialog(tid)
 
+        base_row = next(
+            (r for r in self.model._data if str(r.get("TDoc", "")).strip().upper() == base_tdoc),
+            {},
+        )
+        tdoc_info = {
+            "Title": base_row.get("Title", ""),
+            "Source": base_row.get("Source", ""),
+            "Agenda Item": base_row.get("Agenda Item", ""),
+            "Sub-Item": base_row.get("Sub-Item", ""),
+            "Related WIs": base_row.get("Related WIs", ""),
+            "TDoc Status": base_row.get("TDoc Status", ""),
+            "My Status": base_row.get("My Status", "⚪ Neutral"),
+            "My Notes": base_row.get("My Notes", ""),
+        }
+
         dialog = TDocEmailsDialog(
             base_tdoc,
             family,
@@ -216,6 +231,9 @@ class EmailMixin:
             save_callback=_save_notes_proxy,
             parent=None,
             pin_thread_callback=_pin_discussion_as_thread,
+            tdoc_info=tdoc_info,
+            open_tdoc_callback=getattr(self, "_open_tdoc_document_directly", None),
+            user_data_callback=lambda tid, st, notes: self._save_user_data(tid, st, notes),
         )
         dialog.data_changed.connect(self._refresh_email_counts)
         dialog.tdoc_selected.connect(self._open_tdoc_emails)
