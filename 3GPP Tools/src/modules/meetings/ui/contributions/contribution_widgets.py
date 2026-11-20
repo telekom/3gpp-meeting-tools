@@ -200,6 +200,19 @@ class WITokenInputWidget(QWidget):
     def get_tokens(self) -> list:
         return list(self.selected_tokens)
 
+    def set_tokens(self, tokens: list) -> None:
+        """Replace active WI tokens programmatically without clearing unrelated state."""
+        for tok in list(self.selected_tokens):
+            self._remove_token(tok)
+        for tok in tokens or []:
+            text = str(tok or "").strip()
+            if text and text not in self.selected_tokens:
+                self.selected_tokens.add(text)
+                chip = FilterTokenChip(text, self)
+                chip.removed.connect(self._remove_token)
+                self.chips_layout.addWidget(chip)
+        self.tokens_changed.emit()
+
 
 class AITokenInputWidget(QWidget):
     """Token input for exact Agenda Item filtering across meetings."""
@@ -266,6 +279,19 @@ class AITokenInputWidget(QWidget):
 
     def get_tokens(self) -> list:
         return sorted(self.selected_tokens)
+
+    def set_tokens(self, tokens: list) -> None:
+        """Replace active Agenda Item tokens programmatically."""
+        for tok in list(self.selected_tokens):
+            self._remove_token(tok)
+        for tok in tokens or []:
+            text = self._normalize_ai(str(tok or ""))
+            if text and text not in self.selected_tokens:
+                self.selected_tokens.add(text)
+                chip = FilterTokenChip(text, self)
+                chip.removed.connect(self._remove_token)
+                self.chips_layout.addWidget(chip)
+        self.tokens_changed.emit()
 
 
 class CompanySelectorWidget(QWidget):
@@ -359,3 +385,20 @@ class CompanySelectorWidget(QWidget):
 
     def is_include_tentative(self) -> bool:
         return self.chk_include_tentative.isChecked()
+
+    def set_selection(
+        self,
+        companies: list,
+        primary_only: bool = False,
+        include_tentative: bool = False,
+    ) -> None:
+        """Restore checked companies and author-matching flags."""
+        wanted = {str(c) for c in (companies or [])}
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            item.setCheckState(Qt.Checked if item.text() in wanted else Qt.Unchecked)
+        if primary_only:
+            self.rb_primary.setChecked(True)
+        else:
+            self.rb_any.setChecked(True)
+        self.chk_include_tentative.setChecked(bool(include_tentative))

@@ -1183,3 +1183,41 @@ class SpecVersionHistoryDialog(QDialog):
 
         self._active_report_thread = thread
         thread.start()
+
+    def get_session_state(self) -> dict:
+        """Return serializable SpecVersionHistoryDialog context and filters."""
+        ver = ""
+        if hasattr(self, "version_combo"):
+            ver = str(self.version_combo.currentData() or "")
+        return {
+            "spec_number": str(self.spec_number or ""),
+            "version": ver,
+            "search_text": self.search_input.text() if hasattr(self, "search_input") else "",
+            "clause_filter_enabled": bool(self.chk_clause_filter.isChecked()) if hasattr(self, "chk_clause_filter") else False,
+            "clause_text": self.clause_input.text() if hasattr(self, "clause_input") else "",
+            "clause_mode_idx": self.clause_mode_combo.currentIndex() if hasattr(self, "clause_mode_combo") else 0,
+            "origin_ranking": bool(self.chk_origin_ranking.isChecked()) if hasattr(self, "chk_origin_ranking") else False,
+        }
+
+    def restore_session_state(self, state: dict) -> None:
+        """Restore selected version, search query, clause mode, and origin ranking."""
+        if not isinstance(state, dict):
+            return
+        ver = str(state.get("version") or "").strip()
+        if hasattr(self, "version_combo"):
+            idx = self.version_combo.findData(ver)
+            if idx >= 0:
+                self.version_combo.setCurrentIndex(idx)
+        if isinstance(state.get("search_text"), str) and hasattr(self, "search_input"):
+            self.search_input.setText(state["search_text"])
+        if isinstance(state.get("clause_text"), str) and hasattr(self, "clause_input"):
+            self.clause_input.setText(state["clause_text"])
+        if "clause_filter_enabled" in state and hasattr(self, "chk_clause_filter"):
+            self.chk_clause_filter.setChecked(bool(state["clause_filter_enabled"]))
+        mode_idx = state.get("clause_mode_idx")
+        if isinstance(mode_idx, int) and hasattr(self, "clause_mode_combo"):
+            if 0 <= mode_idx < self.clause_mode_combo.count():
+                self.clause_mode_combo.setCurrentIndex(mode_idx)
+        if "origin_ranking" in state and hasattr(self, "chk_origin_ranking"):
+            self.chk_origin_ranking.setChecked(bool(state["origin_ranking"]))
+        self._apply_filters()

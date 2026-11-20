@@ -702,6 +702,12 @@ class AppUpdateDialog(QDialog):
         self.cancel_dl_btn.setVisible(False)
         self.progress_label.setText("Launching updater and restarting...")
         try:
+            from core.ui.window_session import mark_pending_restart_restore
+
+            mark_pending_restart_restore()
+        except Exception:
+            pass
+        try:
             launch_staged_update_and_relaunch(staged, parent_pid=os.getpid(), relaunch=True)
         except Exception as exc:
             self._reset_download_ui()
@@ -722,6 +728,12 @@ class AppUpdateDialog(QDialog):
 
     def _relaunch_and_close_main_window(self, app_root: Path) -> None:
         """Spawn a detached delayed relauncher for Git pull restarts, then close main UI."""
+        try:
+            from core.ui.window_session import mark_pending_restart_restore
+
+            mark_pending_restart_restore()
+        except Exception:
+            pass
         work_root = get_temp_root() / "app_update"
         work_root.mkdir(parents=True, exist_ok=True)
         helper_code = (

@@ -655,5 +655,25 @@ class SpecClauseExcerptDialog(QDialog):
                 ext.wait(500)
         super().closeEvent(event)
 
+    def get_session_state(self) -> dict:
+        """Return serializable SpecClauseExcerptDialog context."""
+        return {
+            "spec_num": str(self.spec_num or ""),
+            "spec_type": str(self.spec_type or "TS"),
+            "version": str(self.version or ""),
+            "fname": str(self.fname or ""),
+            "url": str(self.url or ""),
+            "spec_dl_dir": str(self.spec_dl_dir),
+            "filter_text": self.filter_input.text() if hasattr(self, "filter_input") else "",
+        }
+
+    def restore_session_state(self, state: dict) -> None:
+        """Restore clause tree search filter."""
+        if not isinstance(state, dict):
+            return
+        ft = state.get("filter_text")
+        if isinstance(ft, str) and ft and hasattr(self, "filter_input"):
+            self.filter_input.setText(ft)
+
 
 SpecClauseDialog = SpecClauseExcerptDialog

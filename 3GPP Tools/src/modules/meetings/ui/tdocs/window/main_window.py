@@ -14,8 +14,9 @@ from PyQt5.QtCore import (
     pyqtSignal,
     QPoint,
     QSettings,
+    Qt,
 )
-from PyQt5.QtWidgets import QWidget, QVBoxLayout
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QTableView
 from modules.meetings.core.agenda_manager import AgendaManager
 from modules.meetings.core.tdocs.tdocs_db import TDocsDatabase
 from modules.meetings.core.tdocs.tdocs_parser import TDocsParser
@@ -252,6 +253,44 @@ class TDocsWindow(
         dlg = TDocsHelpDialog(self, is_ran=getattr(self, "is_ran", False))
         dlg.exec_()
 
+    def get_session_state(self) -> dict:
+        """Persist filter state and return serializable TDocsWindow context."""
+        if hasattr(self, "_save_filter_settings"):
+            try:
+                self._save_filter_settings()
+            except Exception:
+                pass
+
+        selected_tdoc = ""
+        try:
+            if hasattr(self, "table") and hasattr(self, "proxy"):
+                idx = self.table.currentIndex()
+                if idx.isValid():
+                    selected_tdoc = str(self.proxy.data(self.proxy.index(idx.row(), 1), Qt.UserRole) or "")
+        except Exception:
+            pass
+
+        return {
+            "filepath": str(self.filepath or ""),
+            "mtg_info": dict(self.mtg_info) if isinstance(self.mtg_info, dict) else {},
+            "selected_tdoc": selected_tdoc,
+        }
+
+    def restore_session_state(self, state: dict) -> None:
+        """Restore selected TDoc row if present in the filtered view."""
+        if not isinstance(state, dict):
+            return
+        target = str(state.get("selected_tdoc") or "").strip()
+        if not target or not hasattr(self, "_find_proxy_row"):
+            return
+        row = self._find_proxy_row(target)
+        if row is not None and hasattr(self, "table") and hasattr(self, "proxy"):
+            idx = self.proxy.index(row, 1)
+            if idx.isValid():
+                self.table.selectRow(row)
+                self.table.setCurrentIndex(idx)
+                self.table.scrollTo(idx, QTableView.PositionAtCenter)
+
     def closeEvent(self, event):
         if hasattr(self, 'search_timer'):
             if self.search_timer.isActive() and hasattr(self, 'proxy') and hasattr(self, 'search_input'):
@@ -286,6 +325,20 @@ class TDocsWindow(
             except Exception:
                 pass
             self._session_plan_window = None
+
+        if getattr(self, '_inbox_dialog', None):
+            try:
+                self._inbox_dialog.close()
+            except Exception:
+                pass
+            self._inbox_dialog = None
+
+        if getattr(self, '_agreement_tracker_dlg', None):
+            try:
+                self._agreement_tracker_dlg.close()
+            except Exception:
+                pass
+            self._agreement_tracker_dlg = None
 
         for dlg in list(getattr(self, '_email_dialogs', {}).values()):
             if dlg:

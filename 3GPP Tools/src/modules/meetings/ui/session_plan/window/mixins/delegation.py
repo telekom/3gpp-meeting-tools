@@ -234,7 +234,8 @@ class DelegationMixin:
             chk.blockSignals(False)
         self._sync_focus_mirror()
         self._style_focus_buttons()
-        self._render_overview_grid()
+        if getattr(self, "active_snapshot", None) is not None:
+            self._render_overview_grid()
 
     def _on_focus_delegate_toggled(self, name: str, checked: bool):
         names = set(self.grid_focus_delegates)

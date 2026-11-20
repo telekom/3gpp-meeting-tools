@@ -775,3 +775,24 @@ class EmailManagerWindow(QWidget):
                 th.quit()
                 th.wait(150)
         super().closeEvent(event)
+
+    def get_session_state(self) -> dict:
+        """Return serializable EmailManagerWindow state."""
+        return {
+            "meeting_dir": str(self.meeting_dir),
+            "tdoc_search": self.tdoc_search_input.text() if hasattr(self, "tdoc_search_input") else "",
+            "email_search": self.search_input.text() if hasattr(self, "search_input") else "",
+        }
+
+    def restore_session_state(self, state: dict) -> None:
+        """Restore search filter text and apply filters."""
+        if not isinstance(state, dict):
+            return
+        if hasattr(self, "tdoc_search_input") and isinstance(state.get("tdoc_search"), str):
+            self.tdoc_search_input.setText(state["tdoc_search"])
+        if hasattr(self, "search_input") and isinstance(state.get("email_search"), str):
+            self.search_input.setText(state["email_search"])
+        if hasattr(self, "search_timer"):
+            self.search_timer.stop()
+        if hasattr(self, "_apply_filters"):
+            self._apply_filters()

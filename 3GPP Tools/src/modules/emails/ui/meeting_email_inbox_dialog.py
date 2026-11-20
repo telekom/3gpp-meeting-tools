@@ -2797,3 +2797,18 @@ class MeetingEmailInboxDialog(QDialog):
             )
         else:
             notify_info(self, "Inbox Up to Date", "No new matching messages found in Outlook.")
+
+    def get_session_state(self) -> dict:
+        """Return serializable MeetingEmailInboxDialog context."""
+        meeting_dir = ""
+        try:
+            gdb = getattr(self, "general_email_db", None)
+            db_path = getattr(gdb, "db_path", None)
+            if db_path:
+                meeting_dir = str(Path(db_path).parent.parent)
+        except Exception:
+            pass
+        return {
+            "meeting_id": str(getattr(self, "meeting_id", "") or ""),
+            "meeting_dir": meeting_dir,
+        }

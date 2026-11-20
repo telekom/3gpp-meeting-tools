@@ -661,3 +661,50 @@ class ContributionReportDialog(QDialog):
 
     def _on_stats_finished(self, success: bool, msg: str):
         on_stats_finished(self, success, msg)
+
+    def get_session_state(self) -> dict:
+        """Return serializable ContributionReportDialog filter state."""
+        return {
+            "wgs": self.wg_filter.getCheckedItems() if hasattr(self, "wg_filter") else [],
+            "date_from": self.date_from.date().toString("yyyy-MM-dd") if hasattr(self, "date_from") else "",
+            "date_to": self.date_to.date().toString("yyyy-MM-dd") if hasattr(self, "date_to") else "",
+            "wi_tokens": self.wi_token_widget.get_tokens() if hasattr(self, "wi_token_widget") else [],
+            "ai_tokens": self.ai_token_widget.get_tokens() if hasattr(self, "ai_token_widget") else [],
+            "wi_ai_or": bool(self.chk_wi_ai_or.isChecked()) if hasattr(self, "chk_wi_ai_or") else False,
+            "companies": sorted(self.company_widget.get_selected_companies()) if hasattr(self, "company_widget") else [],
+            "primary_only": bool(self.company_widget.is_primary_only()) if hasattr(self, "company_widget") else False,
+            "include_tentative": bool(self.company_widget.is_include_tentative()) if hasattr(self, "company_widget") else False,
+            "bypass_cache": bool(self.chk_bypass_cache.isChecked()) if hasattr(self, "chk_bypass_cache") else False,
+        }
+
+    def restore_session_state(self, state: dict) -> None:
+        """Restore WG, date, WI/AI tokens, company filters, and flags."""
+        if not isinstance(state, dict):
+            return
+        wgs = state.get("wgs")
+        if isinstance(wgs, list) and hasattr(self, "set_active_wgs"):
+            self.set_active_wgs([str(w) for w in wgs])
+
+        d_from = QDate.fromString(str(state.get("date_from") or ""), "yyyy-MM-dd")
+        if d_from.isValid() and hasattr(self, "date_from"):
+            self.date_from.setDate(d_from)
+        d_to = QDate.fromString(str(state.get("date_to") or ""), "yyyy-MM-dd")
+        if d_to.isValid() and hasattr(self, "date_to"):
+            self.date_to.setDate(d_to)
+
+        if isinstance(state.get("wi_tokens"), list) and hasattr(self.wi_token_widget, "set_tokens"):
+            self.wi_token_widget.set_tokens(state["wi_tokens"])
+        if isinstance(state.get("ai_tokens"), list) and hasattr(self.ai_token_widget, "set_tokens"):
+            self.ai_token_widget.set_tokens(state["ai_tokens"])
+        if "wi_ai_or" in state and hasattr(self, "chk_wi_ai_or"):
+            self.chk_wi_ai_or.setChecked(bool(state["wi_ai_or"]))
+
+        if isinstance(state.get("companies"), list) and hasattr(self.company_widget, "set_selection"):
+            self.company_widget.set_selection(
+                companies=state["companies"],
+                primary_only=bool(state.get("primary_only", False)),
+                include_tentative=bool(state.get("include_tentative", False)),
+            )
+
+        if "bypass_cache" in state and hasattr(self, "chk_bypass_cache"):
+            self.chk_bypass_cache.setChecked(bool(state["bypass_cache"]))

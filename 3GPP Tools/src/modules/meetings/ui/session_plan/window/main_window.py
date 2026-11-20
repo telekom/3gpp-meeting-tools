@@ -446,3 +446,43 @@ class SessionPlanWindow(
             self.db.set_active_snapshot(snap_id)
             self.active_snapshot = self.db.get_snapshot_by_id(snap_id)
             self._render_current_views()
+
+    def get_session_state(self) -> dict:
+        """Return serializable SessionPlanWindow state for restart restoration."""
+        view_index = self.view_stack.currentIndex() if hasattr(self, "view_stack") else 0
+        snapshot_id = self.snap_combo.currentData() if hasattr(self, "snap_combo") else None
+        search_text = self.search_input.text() if hasattr(self, "search_input") else ""
+        return {
+            "meeting_dir": str(self.meeting_dir),
+            "mtg_info": dict(self.mtg_info) if isinstance(self.mtg_info, dict) else {},
+            "view_index": int(view_index),
+            "snapshot_id": snapshot_id,
+            "search_text": str(search_text),
+            "focus_delegates": sorted(self.grid_focus_delegates),
+        }
+
+    def restore_session_state(self, state: dict) -> None:
+        """Restore active snapshot, view mode, search text, and delegate focus."""
+        if not isinstance(state, dict):
+            return
+        snap_id = state.get("snapshot_id")
+        if snap_id is not None and hasattr(self, "snap_combo"):
+            idx = self.snap_combo.findData(snap_id)
+            if idx >= 0 and idx != self.snap_combo.currentIndex():
+                self.snap_combo.setCurrentIndex(idx)
+
+        focus_delegates = state.get("focus_delegates")
+        if isinstance(focus_delegates, list) and hasattr(self, "_set_focus_delegates"):
+            self._set_focus_delegates(set(str(n) for n in focus_delegates))
+
+        view_index = state.get("view_index")
+        if isinstance(view_index, int) and hasattr(self, "view_stack") and 0 <= view_index < self.view_stack.count():
+            if hasattr(self, "mode_group"):
+                btn = self.mode_group.button(view_index)
+                if btn is not None:
+                    btn.setChecked(True)
+            self._on_view_mode_changed(view_index)
+
+        search_text = state.get("search_text")
+        if isinstance(search_text, str) and search_text and hasattr(self, "search_input"):
+            self.search_input.setText(search_text)

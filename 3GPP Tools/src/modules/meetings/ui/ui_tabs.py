@@ -1133,7 +1133,7 @@ class MeetingsTab(QWidget):
 
         return agenda_dir / f"TDoc_List_Meeting_{mtg_id}.xlsx"
 
-    def _open_tdocs_window(self, mtg_info: dict, filepath: str):
+    def _open_tdocs_window(self, mtg_info: dict, filepath: str, quiet: bool = False):
         self.settings.save_last_meeting(mtg_info)
         self._update_last_meeting_btn()
         mtg_id = mtg_info.get("mtg_id")
@@ -1158,12 +1158,15 @@ class MeetingsTab(QWidget):
 
         if not filepath or not Path(filepath).exists():
             logging.error(f"[Meetings] TDoc list for {mtg_id} not found at '{filepath}'.")
-            QMessageBox.warning(self, "TDoc List Missing", f"The TDoc list file was not found:\n{filepath}")
+            if not quiet:
+                QMessageBox.warning(self, "TDoc List Missing", f"The TDoc list file was not found:\n{filepath}")
             return
 
         tdocs_data = TDocsParser.parse_tdocs_excel(filepath)
         if not tdocs_data:
             logging.warning(f"[Meetings] No TDocs could be read from '{filepath}' (meeting {mtg_id}).")
+            if quiet:
+                return
             reply = QMessageBox.question(
                 self, "No TDocs Available",
                 "The cached TDoc list for this meeting contains no TDocs.\n\n"

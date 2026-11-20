@@ -11,7 +11,8 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QKeySequence, QTextCursor
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QStatusBar, QApplication,
-    QDialog, QTabWidget, QPushButton, QShortcut, QLabel, QMessageBox, QMenu, QSizePolicy
+    QDialog, QTabWidget, QPushButton, QShortcut, QLabel, QMessageBox, QMenu, QSizePolicy,
+    QActionGroup,
 )
 
 from core.config.config import HELP_URL
@@ -34,6 +35,16 @@ from core.ui.font_scale import (
 from core.ui.nav_rail import NavRail
 from core.ui.right_side_panel import MODE_ASSISTANT, MODE_SPEC_SEARCH, RightSidePanel
 from core.ui.shell_state import restore_shell_state, save_shell_state
+from core.ui.window_session import (
+    RESTORE_MODE_ALWAYS,
+    RESTORE_MODE_OFF,
+    RESTORE_MODE_RESTART_ONLY,
+    collect_open_windows_state,
+    get_window_restore_mode,
+    mark_pending_restart_restore,
+    save_open_windows_state,
+    set_window_restore_mode,
+)
 from core.ui.theme import C
 from core.ui.toast import ToastAction, ToastManager, notify_info
 from core.ui.ui_components import (
@@ -940,6 +951,37 @@ class DragDropUI(QMainWindow):
         self.settings_menu.addAction("🔄 Check for Updates...", self.open_app_updater)
         self.settings_menu.addAction("📝 Edit Useful Links Config...", self.edit_useful_links_config)
         self.settings_menu.addSeparator()
+
+        restore_menu = self.settings_menu.addMenu("🪟 Restore Open Windows")
+        restore_menu.setToolTipsVisible(True)
+        restore_group = QActionGroup(restore_menu)
+        restore_group.setExclusive(True)
+        active_mode = get_window_restore_mode()
+        for mode_val, label, tip in (
+            (
+                RESTORE_MODE_ALWAYS,
+                "Always on Startup",
+                "Reopen workspace windows automatically every time the application starts.",
+            ),
+            (
+                RESTORE_MODE_RESTART_ONLY,
+                "Only on App Restart / Update",
+                "Reopen workspace windows only after Restart Application or an in-app update.",
+            ),
+            (
+                RESTORE_MODE_OFF,
+                "Off",
+                "Do not reopen secondary workspace windows automatically on startup.",
+            ),
+        ):
+            act = restore_menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(active_mode == mode_val)
+            act.setToolTip(tip)
+            act.triggered.connect(lambda _=False, m=mode_val: self._set_window_restore_mode(m))
+            restore_group.addAction(act)
+
+        self.settings_menu.addSeparator()
         restart_action = self.settings_menu.addAction("🔁 Restart Application", self.restart_application)
         restart_action.setShortcut(QKeySequence("Ctrl+Shift+R"))
         restart_action.setToolTip("Save current workspace state and restart the application (Ctrl+Shift+R)")
@@ -1488,6 +1530,11 @@ class DragDropUI(QMainWindow):
             self.status_bar.showMessage("🔁 Restarting application...")
 
         try:
+            mark_pending_restart_restore()
+        except Exception:
+            pass
+
+        try:
             from core.updater.app_updater import spawn_detached_relaunch
 
             spawn_detached_relaunch(app_root=get_project_root().parent, parent_pid=os.getpid())
@@ -1519,6 +1566,18 @@ class DragDropUI(QMainWindow):
 
     def open_ollama_settings(self):
         self.status_bar.open_ollama_settings()
+
+    def _set_window_restore_mode(self, mode: str) -> None:
+        normalized = set_window_restore_mode(mode)
+        labels = {
+            RESTORE_MODE_ALWAYS: "Always on Startup",
+            RESTORE_MODE_RESTART_ONLY: "Only on App Restart / Update",
+            RESTORE_MODE_OFF: "Off",
+        }
+        label = labels.get(normalized, normalized)
+        if hasattr(self, "status_bar") and hasattr(self.status_bar, "showMessage"):
+            self.status_bar.showMessage(f"🪟 Window restoration: {label}", 3000)
+        notify_info(self, "Window Restoration", f"Open window restoration set to: {label}.", duration_ms=2600)
 
     def open_display_settings(self):
         """Open the Display & Text Size dialog for global font scaling."""
@@ -1561,6 +1620,11 @@ class DragDropUI(QMainWindow):
             self.save_cache()
         except Exception as e:
             logging.warning(f"⚠️ [SHUTDOWN] Could not save cache: {e}")
+
+        try:
+            save_open_windows_state(collect_open_windows_state(self))
+        except Exception as e:
+            logging.warning(f"⚠️ [SHUTDOWN] Could not save open workspace windows: {e}")
 
         try:
             save_shell_state(self)

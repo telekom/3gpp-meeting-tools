@@ -1057,3 +1057,45 @@ class CrPcrDialog(QDialog):
                 gen.terminate()
                 gen.wait(500)
         super().closeEvent(event)
+
+    def get_session_state(self) -> dict:
+        """Return serializable CrPcrDialog specification, meeting, and draft metadata."""
+        return {
+            "spec_num": str(self.spec_num or ""),
+            "spec_type": str(self.spec_type or "TS"),
+            "version": str(self.version or ""),
+            "release": str(self.release or ""),
+            "fname": str(self.fname or ""),
+            "url": str(self.url or ""),
+            "spec_dl_dir": str(self.spec_dl_dir) if self.spec_dl_dir else "",
+            "mode": str(self.current_mode or "pcr"),
+            "meeting_info": {
+                "wg_name": self.input_wg.text() if hasattr(self, "input_wg") else "",
+                "meeting_number": self.input_mtg_num.text() if hasattr(self, "input_mtg_num") else "",
+                "location": self.input_location.text() if hasattr(self, "input_location") else "",
+                "dates": self.input_dates.text() if hasattr(self, "input_dates") else "",
+            },
+            "tdoc_info": {
+                "TDoc": self.input_tdoc_id.text() if hasattr(self, "input_tdoc_id") else "",
+                "Source": self.input_source.text() if hasattr(self, "input_source") else "",
+                "Title": self.input_title.text() if hasattr(self, "input_title") else "",
+                "Work Item": self.input_work_item.text() if hasattr(self, "input_work_item") else "",
+                "Agenda Item": self.input_ai.text() if hasattr(self, "input_ai") else "",
+                "For": self.combo_doc_for.currentText() if hasattr(self, "combo_doc_for") else "",
+                "Abstract": self.text_abstract.toPlainText() if hasattr(self, "text_abstract") else "",
+            },
+            "discussion": self.text_discussion.toPlainText() if hasattr(self, "text_discussion") else "",
+        }
+
+    def restore_session_state(self, state: dict) -> None:
+        """Restore mode, discussion text, and editable metadata fields."""
+        if not isinstance(state, dict):
+            return
+        mode = str(state.get("mode") or "pcr").lower()
+        if mode == "cr" and hasattr(self, "radio_cr"):
+            self.radio_cr.setChecked(True)
+        elif hasattr(self, "radio_pcr"):
+            self.radio_pcr.setChecked(True)
+        discussion = state.get("discussion")
+        if isinstance(discussion, str) and discussion and hasattr(self, "text_discussion"):
+            self.text_discussion.setPlainText(discussion)

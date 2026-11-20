@@ -1326,3 +1326,56 @@ class AgreementTrackerDialog(QDialog):
             open_local_file(str(out_path))
         except Exception as e:
             QMessageBox.critical(self, "Excel Export Error", f"Failed to export Excel workbook:\n{e}")
+
+    def get_session_state(self) -> dict:
+        """Return serializable AgreementTrackerDialog filter state."""
+        return {
+            "wgs": self.wg_filter.getCheckedItems() if hasattr(self, "wg_filter") else [],
+            "date_from": self.date_from.date().toString("yyyy-MM-dd") if hasattr(self, "date_from") else "",
+            "date_to": self.date_to.date().toString("yyyy-MM-dd") if hasattr(self, "date_to") else "",
+            "wi_tokens": self.wi_token_widget.get_tokens() if hasattr(self, "wi_token_widget") else [],
+            "ai_tokens": self.ai_token_widget.get_tokens() if hasattr(self, "ai_token_widget") else [],
+            "wi_ai_or": bool(self.chk_wi_ai_or.isChecked()) if hasattr(self, "chk_wi_ai_or") else False,
+            "keyword": self.keyword_edit.text() if hasattr(self, "keyword_edit") else "",
+            "agreements": bool(self.chk_agreements.isChecked()) if hasattr(self, "chk_agreements") else True,
+            "ffs": bool(self.chk_ffs.isChecked()) if hasattr(self, "chk_ffs") else True,
+            "agreed_tdocs": bool(self.chk_agreed_tdocs.isChecked()) if hasattr(self, "chk_agreed_tdocs") else True,
+            "prev_recaps": bool(self.chk_prev_recaps.isChecked()) if hasattr(self, "chk_prev_recaps") else False,
+            "auto_download": bool(self.chk_auto_download.isChecked()) if hasattr(self, "chk_auto_download") else True,
+            "bypass_cache": bool(self.chk_bypass_cache.isChecked()) if hasattr(self, "chk_bypass_cache") else False,
+        }
+
+    def restore_session_state(self, state: dict) -> None:
+        """Restore WG, date, token, keyword, and checkbox filters."""
+        if not isinstance(state, dict):
+            return
+        wgs = state.get("wgs")
+        if isinstance(wgs, list) and hasattr(self, "set_active_wgs"):
+            self.set_active_wgs([str(w) for w in wgs])
+
+        d_from = QDate.fromString(str(state.get("date_from") or ""), "yyyy-MM-dd")
+        if d_from.isValid() and hasattr(self, "date_from"):
+            self.date_from.setDate(d_from)
+        d_to = QDate.fromString(str(state.get("date_to") or ""), "yyyy-MM-dd")
+        if d_to.isValid() and hasattr(self, "date_to"):
+            self.date_to.setDate(d_to)
+
+        if isinstance(state.get("wi_tokens"), list) and hasattr(self.wi_token_widget, "set_tokens"):
+            self.wi_token_widget.set_tokens(state["wi_tokens"])
+        if isinstance(state.get("ai_tokens"), list) and hasattr(self.ai_token_widget, "set_tokens"):
+            self.ai_token_widget.set_tokens(state["ai_tokens"])
+        if "wi_ai_or" in state and hasattr(self, "chk_wi_ai_or"):
+            self.chk_wi_ai_or.setChecked(bool(state["wi_ai_or"]))
+        if isinstance(state.get("keyword"), str) and hasattr(self, "keyword_edit"):
+            self.keyword_edit.setText(state["keyword"])
+
+        for key, attr in (
+            ("agreements", "chk_agreements"),
+            ("ffs", "chk_ffs"),
+            ("agreed_tdocs", "chk_agreed_tdocs"),
+            ("prev_recaps", "chk_prev_recaps"),
+            ("auto_download", "chk_auto_download"),
+            ("bypass_cache", "chk_bypass_cache"),
+        ):
+            if key in state and hasattr(self, attr):
+                getattr(self, attr).setChecked(bool(state[key]))

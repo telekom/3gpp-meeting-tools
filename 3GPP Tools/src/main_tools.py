@@ -17,6 +17,7 @@ for _p in (str(_ROOT_DIR), str(_SRC_DIR)):
 from core.utils.dependency_checker import check_dependencies_or_exit
 check_dependencies_or_exit()
 
+from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QApplication, QDialog
 
 from core.network.session import NetworkSession
@@ -193,6 +194,9 @@ if __name__ == '__main__':
             faulthandler.disable()
         except Exception:
             pass
+
+    from core.ui.window_session import restore_open_windows
+    QTimer.singleShot(0, lambda: restore_open_windows(window))
 
     logging.info(
         "🏁 [STARTUP] Entering Qt event loop (app.exec_)..."

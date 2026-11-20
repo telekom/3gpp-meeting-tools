@@ -1126,3 +1126,34 @@ class SpecClauseDiffDialog(QDialog):
             parent=self,
         )
 
+    def get_session_state(self) -> dict:
+        """Return serializable SpecClauseDiffDialog context and tab selection."""
+        return {
+            "spec_number": str(self.spec_number or ""),
+            "version_a": str(self.version_a or ""),
+            "version_b": str(self.version_b or ""),
+            "clause_number": str(self.clause_number or ""),
+            "clause_title": str(self.clause_title or ""),
+            "active_tab_idx": self.tab_widget.currentIndex() if hasattr(self, "tab_widget") else 0,
+            "focus_idx": self.focus_combo.currentIndex() if hasattr(self, "focus_combo") else 0,
+            "tier_id": self.tier_group.checkedId() if hasattr(self, "tier_group") else 2,
+        }
+
+    def restore_session_state(self, state: dict) -> None:
+        """Restore active tab, analysis focus, and prompt context tier."""
+        if not isinstance(state, dict):
+            return
+        focus_idx = state.get("focus_idx")
+        if isinstance(focus_idx, int) and hasattr(self, "focus_combo"):
+            if 0 <= focus_idx < self.focus_combo.count():
+                self.focus_combo.setCurrentIndex(focus_idx)
+        tier_id = state.get("tier_id")
+        if isinstance(tier_id, int) and hasattr(self, "tier_group"):
+            btn = self.tier_group.button(tier_id)
+            if btn is not None:
+                btn.setChecked(True)
+        tab_idx = state.get("active_tab_idx")
+        if isinstance(tab_idx, int) and hasattr(self, "tab_widget"):
+            if 0 <= tab_idx < self.tab_widget.count():
+                self.tab_widget.setCurrentIndex(tab_idx)
+
