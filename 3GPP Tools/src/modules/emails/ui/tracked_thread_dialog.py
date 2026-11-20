@@ -301,7 +301,8 @@ class TrackedThreadDialog(QDialog):
         act_reload_msg.setToolTip("Load a local Outlook .msg file into this thread (updates matching messages or adds replies).")
         act_reload_msg.triggered.connect(self._on_reload_from_msg_file)
         more_menu.addSeparator()
-        act_merge = more_menu.addAction("🔗 Merge Split Thread...")
+        act_merge = more_menu.addAction("🔗 Merge Split Threads...")
+        act_merge.setToolTip("Search and merge one or more split threads from this meeting into this thread.")
         act_merge.triggered.connect(self._on_merge_thread)
         act_unpin = more_menu.addAction("📌 Unpin Email Thread")
         act_unpin.triggered.connect(self._on_delete_thread)
@@ -886,22 +887,22 @@ class TrackedThreadDialog(QDialog):
             if t["thread_id"] != self.thread_id
         ]
         if not candidates:
-            QMessageBox.information(self, "No Other Threads", "No other tracked threads in this meeting to merge.")
+            notify_info(self, "No Other Threads", "No other tracked threads in this meeting to merge.")
             return
-        items = [f"{t['thread_id']} — {t['title']} ({t.get('message_count', 0)} msgs)" for t in candidates]
-        choice, ok = QInputDialog.getItem(
-            self,
-            "Merge Split Thread",
-            "Select another tracked thread to merge into this thread:",
-            items,
-            0,
-            False,
-        )
-        if ok and choice:
-            src_id = choice.split(" — ", 1)[0].strip()
-            self.db.merge_threads(self.thread_id, [src_id])
-            self._load_data()
-            self.thread_changed.emit()
+        from modules.emails.ui.merge_threads_dialog import MergeThreadsDialog
+
+        dlg = MergeThreadsDialog(target_thread=current, candidates=candidates, parent=self)
+        if dlg.exec_() == QDialog.Accepted:
+            src_ids = dlg.selected_source_ids()
+            if src_ids:
+                self.db.merge_threads(self.thread_id, src_ids)
+                self._load_data()
+                self.thread_changed.emit()
+                notify_success(
+                    self,
+                    "Threads Merged",
+                    f"Merged {len(src_ids)} split thread(s) into {self.thread_id}.",
+                )
 
     def _on_delete_thread(self):
         if QMessageBox.question(

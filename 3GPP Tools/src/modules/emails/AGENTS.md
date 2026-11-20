@@ -19,6 +19,7 @@ src/modules/emails/
 └── ui/
     ├── email_window.py / general_email_dialog.py / email_dialogs.py / email_summary_dialog.py
     ├── meeting_email_inbox_dialog.py  # Unified Unread & Flagged Email Triage Cockpit
+    ├── merge_threads_dialog.py        # Searchable, similarity-ranked split-thread merge dialog
     ├── tracked_thread_dialog.py       # Tracked thread viewer & AI/WI/Sub-Topic editor
     ├── tdoc_emails_dialog.py          # Unified per-TDoc email viewer
     └── email_models.py / email_toolbar.py / config_dialog.py / sync_progress_bar.py
@@ -35,6 +36,7 @@ src/modules/emails/
 - **Cascading Selectors & Inheritance (`TrackedThreadDialog`, `topic_pills.py`):**
   - `TagCloudWidget` with `strict_dropdown=True` (scrollable searchable multi-token checklist popups) scopes `Sub-Topics` strictly to assigned `AIs` (`ai_to_sub_items`, pruning orphans when an AI is removed while preserving legacy links until `✕` removal).
   - `_expand_tdoc_family_with_merges()` tracks revisions/merges; `auto_suggest_links()` resolves `KI#...` / `AI ...` / `WI` tokens and inherits `Agenda Item`, `Sub-Item`, and `Related WIs` from `TDocsWindow._build_tdoc_meta_map()`.
+  - **Split-Thread Search & Select-to-Merge (`MergeThreadsDialog`, `TrackedThreadsDatabase.merge_threads`):** Searchable, multi-select merge workflow ranked by `score_thread_similarity()` (subject tokens, shared TDocs/Sub-Topics/AIs/WIs) and smart primary target selection (`choose_default_primary_thread()`), launched from `TrackedThreadDialog` (`More ▾ → 🔗 Merge Split Threads...`), multi-row right-click in `TDocsWindow` (`tdocs_menu.py` → `🔗 Merge Selected Threads (N)...`), and `MeetingEmailInboxDialog` (`btn_merge_selected` / row context menu, auto-pinning unpinned items with `refresh_from_outlook=False`). `merge_threads()` preserves & combines `outlook_folders`, `user_tags`, `user_notes`, and non-Neutral `user_status`.
 - **Meeting Table Integration:** Tracked threads appear inline in `TDocsTableModel` (`sync_tracked_thread_rows`, `📧 Email Thread`), share deduplicated unread counters (`📧 Emails (N new) ▾`, `🚩 N`), `🔵`/`🚩` quick filters, and run Outlook syncs asynchronously via `TrackedThreadsRefreshWorker`, `SingleThreadRefreshWorker`, and `OutlookFolderScanWorker` with `AsyncSyncProgressBar`.
 
 ## 3. Unified Email Triage Cockpit (`MeetingEmailInboxDialog`)

@@ -788,6 +788,13 @@ class MeetingEmailInboxDialog(QDialog):
         self.btn_sync_selected.clicked.connect(self._on_sync_selected_clicked)
         act_row.addWidget(self.btn_sync_selected)
 
+        self.btn_merge_selected = QPushButton("🔗 Merge")
+        self.btn_merge_selected.setToolTip("Merge selected split threads/conversations into a single tracked thread.")
+        self.btn_merge_selected.clicked.connect(self._on_merge_selected_clicked)
+        self.btn_merge_selected.setVisible(False)
+        self.btn_merge_selected.setEnabled(False)
+        act_row.addWidget(self.btn_merge_selected)
+
         self.detail_status_combo = QComboBox()
         self.detail_status_combo.addItems(MY_STATUS_OPTIONS)
         self.detail_status_combo.setMinimumWidth(scale_px(108))
@@ -1530,8 +1537,9 @@ class MeetingEmailInboxDialog(QDialog):
         self.assign_frame.setVisible(False)
         self.note_frame.setVisible(False)
         self.preview_browser.setMarkdown("*Select another filter tab or adjust search criteria.*")
-        for btn in (self.btn_mark_next, self.btn_toggle_read, self.btn_toggle_flag, self.btn_reply, self.btn_open_outlook, self.btn_open_context, self.btn_sync_selected, self.btn_toggle_note):
+        for btn in (self.btn_mark_next, self.btn_toggle_read, self.btn_toggle_flag, self.btn_reply, self.btn_open_outlook, self.btn_open_context, self.btn_sync_selected, self.btn_toggle_note, self.btn_merge_selected):
             btn.setEnabled(False)
+        self.btn_merge_selected.setVisible(False)
         if hasattr(self, "detail_status_combo"):
             self.detail_status_combo.setEnabled(False)
         self._update_selected_sync_controls(0)
@@ -1669,9 +1677,15 @@ class MeetingEmailInboxDialog(QDialog):
             f"🚩 ({unflagged_cnt})" if unflagged_cnt > 0 else f"🏳️ ({len(selected)})"
         )
         self._update_selected_sync_controls(len(selected))
+        merge_targets = self._distinct_mergeable_targets(selected)
+        can_merge = bool(self.tracked_db is not None and len(merge_targets) >= 2)
+        self.btn_merge_selected.setVisible(can_merge)
+        self.btn_merge_selected.setEnabled(can_merge)
+        if can_merge:
+            self.btn_merge_selected.setText(f"🔗 Merge ({len(merge_targets)})")
 
         md_lines = [f"### Batch Triage ({len(selected)} selected {noun.lower()})", ""]
-        md_lines.append("Use the **AIs**, **Sub-Topics**, **WIs**, **Auto-Assign**, **Pin**, **Mark Read**, or **Flag** controls above to update all selected items together.\n")
+        md_lines.append("Use the **AIs**, **Sub-Topics**, **WIs**, **Auto-Assign**, **Pin**, **Merge**, **Mark Read**, or **Flag** controls above to update all selected items together.\n")
         for idx, it in enumerate(selected, 1):
             subj = str(it.get("subject") or "(No Subject)")
             comp = str(it.get("company") or "Unknown")
@@ -1763,6 +1777,8 @@ class MeetingEmailInboxDialog(QDialog):
             self.btn_open_context.setText(f"📄 {it['linked_tdocs'][0]}")
         else:
             self.btn_open_context.setText("📂 Context")
+        self.btn_merge_selected.setVisible(False)
+        self.btn_merge_selected.setEnabled(False)
         self._update_selected_sync_controls(1)
 
         if it.get("_is_group"):
@@ -2550,7 +2566,139 @@ class MeetingEmailInboxDialog(QDialog):
             menu.addSeparator()
             act_ctx = menu.addAction(self.btn_open_context.text())
             act_ctx.triggered.connect(self._on_open_context)
+        if self.tracked_db is not None:
+            merge_targets = self._distinct_mergeable_targets(targets)
+            if len(merge_targets) >= 2:
+                menu.addSeparator()
+                act_merge = menu.addAction(f"🔗 Merge Selected Threads ({len(merge_targets)})...")
+                act_merge.triggered.connect(lambda _chk=False, mt=merge_targets: self._on_merge_selected_clicked(mt))
+            elif len(merge_targets) == 1:
+                menu.addSeparator()
+                act_merge = menu.addAction("🔗 Merge With Another Thread...")
+                act_merge.triggered.connect(lambda _chk=False, mt=merge_targets: self._on_merge_selected_clicked(mt))
         menu.exec_(self.table.viewport().mapToGlobal(pos))
+
+    def _enrich_merge_item(self, it: dict) -> dict:
+        enriched = dict(it)
+        tid = str(enriched.get("thread_id") or "").strip()
+        if tid and self.tracked_db is not None:
+            rec = self.tracked_db.get_thread(tid)
+            if rec:
+                merged = dict(rec)
+                merged.update({
+                    k: enriched[k]
+                    for k in ("_total_count", "_unread_count", "_companies", "_group_messages", "in_tracked_db", "date_str", "company")
+                    if k in enriched and enriched[k] is not None
+                })
+                if not merged.get("in_tracked_db"):
+                    merged["in_tracked_db"] = True
+                return merged
+        return enriched
+
+    def _distinct_mergeable_targets(self, items: List[dict]) -> List[dict]:
+        seen = set()
+        out: List[dict] = []
+        for it in (items or []):
+            tid = str(it.get("thread_id") or "").strip()
+            key = f"THR::{tid}" if tid else f"ITEM::{it.get('id') or id(it)}"
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(self._enrich_merge_item(it))
+        return out
+
+    def _collect_all_merge_candidates(self) -> List[dict]:
+        seen = set()
+        out: List[dict] = []
+        if self.tracked_db is not None and self.meeting_id:
+            for t in self.tracked_db.get_threads_for_meeting(self.meeting_id):
+                tid = str(t.get("thread_id") or "").strip()
+                if not tid:
+                    continue
+                k = f"THR::{tid}"
+                if k not in seen:
+                    seen.add(k)
+                    rec = dict(t)
+                    rec["in_tracked_db"] = True
+                    out.append(rec)
+        for g in (getattr(self, "_grouped_items", None) or []):
+            tid = str(g.get("thread_id") or "").strip()
+            k = f"THR::{tid}" if tid else f"ITEM::{g.get('id') or ''}"
+            if k and k not in seen:
+                seen.add(k)
+                out.append(self._enrich_merge_item(g))
+        return out
+
+    def _on_merge_selected_clicked(self, explicit_targets: Optional[List[dict]] = None):
+        if self.tracked_db is None:
+            return
+        raw_targets = explicit_targets if explicit_targets is not None else (
+            self._selected_items or ([self._current_item] if self._current_item else [])
+        )
+        merge_targets = self._distinct_mergeable_targets(raw_targets)
+        if not merge_targets:
+            return
+
+        from modules.emails.ui.merge_threads_dialog import MergeThreadsDialog
+
+        all_candidates = self._collect_all_merge_candidates()
+        if len(merge_targets) >= 2:
+            dlg = MergeThreadsDialog(
+                selected_items=merge_targets,
+                candidates=all_candidates,
+                parent=self,
+            )
+        else:
+            single = merge_targets[0]
+            single_tid = str(single.get("thread_id") or "").strip()
+            single_id = str(single.get("id") or "").strip()
+            others = [
+                c for c in all_candidates
+                if (not single_tid or str(c.get("thread_id") or "").strip() != single_tid)
+                and (not single_id or str(c.get("id") or "").strip() != single_id)
+            ]
+            if not others:
+                notify_info(self, "No Other Threads", "No other tracked or grouped threads available to merge.")
+                return
+            dlg = MergeThreadsDialog(
+                target_thread=single,
+                candidates=others,
+                parent=self,
+            )
+
+        if dlg.exec_() != QDialog.Accepted:
+            return
+
+        target_item = dlg.target_item()
+        source_items = dlg.selected_source_items()
+        if not source_items:
+            return
+
+        target_tid = str(target_item.get("thread_id") or "").strip()
+        if not target_tid:
+            target_tid = self._pin_item_in_place(target_item, reload=False) or ""
+        if not target_tid:
+            return
+
+        source_tids: List[str] = []
+        for src in source_items:
+            stid = str(src.get("thread_id") or "").strip()
+            if not stid:
+                stid = self._pin_item_in_place(src, reload=False) or ""
+            if stid and stid != target_tid and stid not in source_tids:
+                source_tids.append(stid)
+
+        if source_tids:
+            self.tracked_db.merge_threads(target_tid, source_tids)
+
+        preserve_id = f"THR::{target_tid}" if self._view_mode == "THREADS" else None
+        self.reload_from_dbs(preserve_id=preserve_id)
+        self.data_changed.emit()
+        notify_success(
+            self,
+            "Threads Merged",
+            f"Merged {len(source_items)} thread(s) into {target_tid}.",
+        )
 
     def _collect_scoped_sync_targets(self, items: Optional[List[dict]] = None) -> tuple:
         tracked_ids: List[str] = []

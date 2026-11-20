@@ -448,10 +448,19 @@ class TrackedThreadsDatabase:
                 return
             cids = set(target["conversation_ids"])
             patterns = set(target["subject_patterns"])
+            folders = set(target.get("outlook_folders") or [])
             ais = set(target["linked_ais"])
             wis = set(target["linked_wis"])
             tdocs = set(target["linked_tdocs"])
             sub_items = set(target.get("linked_sub_items") or [])
+            tags = list(dict.fromkeys(target.get("user_tags") or []))
+            seen_tags = set(tags)
+            status = str(target.get("user_status") or "").strip()
+            note_parts = [str(target.get("user_notes") or "").strip()] if str(target.get("user_notes") or "").strip() else []
+
+            def _is_neutral_status(val: str) -> bool:
+                v = str(val or "").strip().lower()
+                return not v or v in ("neutral", "⚪ neutral")
 
             for src_id in source_thread_ids:
                 if src_id == target_thread_id:
@@ -461,29 +470,47 @@ class TrackedThreadsDatabase:
                     continue
                 cids.update(src["conversation_ids"])
                 patterns.update(src["subject_patterns"])
+                folders.update(src.get("outlook_folders") or [])
                 ais.update(src["linked_ais"])
                 wis.update(src["linked_wis"])
                 tdocs.update(src["linked_tdocs"])
                 sub_items.update(src.get("linked_sub_items") or [])
+                for tg in (src.get("user_tags") or []):
+                    if tg and tg not in seen_tags:
+                        seen_tags.add(tg)
+                        tags.append(tg)
+                src_status = str(src.get("user_status") or "").strip()
+                if _is_neutral_status(status) and not _is_neutral_status(src_status):
+                    status = src_status
+                src_note = str(src.get("user_notes") or "").strip()
+                if src_note and src_note not in note_parts:
+                    note_parts.append(src_note)
                 cursor.execute(
                     "UPDATE tracked_thread_messages SET thread_id = ? WHERE thread_id = ?",
                     (target_thread_id, src_id),
                 )
                 cursor.execute("DELETE FROM tracked_threads WHERE thread_id = ?", (src_id,))
 
+            merged_notes = "\n\n".join(note_parts)
             cursor.execute(
                 """
                 UPDATE tracked_threads
-                SET conversation_ids = ?, subject_patterns = ?, linked_ais = ?, linked_wis = ?, linked_tdocs = ?, linked_sub_items = ?
+                SET conversation_ids = ?, subject_patterns = ?, outlook_folders = ?,
+                    linked_ais = ?, linked_wis = ?, linked_tdocs = ?, linked_sub_items = ?,
+                    user_status = ?, user_notes = ?, user_tags = ?
                 WHERE thread_id = ?
                 """,
                 (
                     json.dumps(sorted(cids)),
                     json.dumps(sorted(patterns)),
+                    json.dumps(sorted(folders)),
                     json.dumps(sorted(ais)),
                     json.dumps(sorted(wis)),
                     json.dumps(sorted(tdocs)),
                     json.dumps(sorted(sub_items)),
+                    status or "⚪ Neutral",
+                    merged_notes,
+                    json.dumps(tags),
                     target_thread_id,
                 ),
             )

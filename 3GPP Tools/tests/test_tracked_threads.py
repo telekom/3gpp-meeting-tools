@@ -2999,3 +2999,219 @@ def test_auto_cache_drafts_folder_documents_and_open_sensitivity(tmp_path):
             assert len(get_calls) == prev_calls
             assert out == expected_pinned_path
             assert opened == [expected_pinned_path.resolve()]
+
+
+def test_merge_threads_preserves_annotations_and_dialog_search(tmp_path):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QApplication
+    from modules.emails.ui.merge_threads_dialog import (
+        MergeThreadsDialog,
+        choose_default_primary_thread,
+        score_thread_similarity,
+    )
+
+    app = QApplication.instance() or QApplication([])
+    db = TrackedThreadsDatabase(tmp_path / "merge_test.db")
+    t1 = db.create_or_get_thread(
+        title="Interim conclusion for KI#4 bullet 1",
+        normalized_subject="Interim conclusion for KI#4 bullet 1",
+        meeting_id="SA2#178",
+        linked_ais=["20.6.4"],
+        linked_sub_items=["Bullet#1"],
+        linked_tdocs=["S2-2612711"],
+    )
+    t2 = db.create_or_get_thread(
+        title="Interim conclusion for KI#4 bullet 1 (split)",
+        normalized_subject="Interim conclusion for KI#4 bullet 1 (split)",
+        meeting_id="SA2#178",
+        linked_ais=["20.6.4"],
+        linked_sub_items=["Bullet#1"],
+        linked_tdocs=["S2-2612711"],
+    )
+    assert t2 != t1
+    t3 = db.create_or_get_thread(
+        title="Unrelated Architecture Paper",
+        normalized_subject="Unrelated Architecture Paper",
+        meeting_id="SA2#178",
+        linked_ais=["20.6.1"],
+    )
+
+    db.update_thread_annotations(t1, user_status="⚪ Neutral", user_notes="First note", user_tags=["urgent"])
+    db.update_thread_annotations(t2, user_status="🟢 Support", user_notes="Second split note", user_tags=["ki4"])
+
+    target = db.get_thread(t1)
+    cands = [db.get_thread(t2), db.get_thread(t3)]
+    s_close, reasons = score_thread_similarity(target, cands[0])
+    s_far, _ = score_thread_similarity(target, cands[1])
+    assert s_close > s_far
+    assert reasons
+
+    dlg = MergeThreadsDialog(target_thread=target, candidates=cands)
+    assert dlg.candidates_list.count() == 2
+    # Highest similarity match is sorted first
+    first_item = dlg.candidates_list.item(0)
+    assert first_item.data(Qt.UserRole) == f"THR::{t2}"
+
+    # Search filters out unrelated thread while preserving checked state across filter changes
+    first_item.setCheckState(Qt.Checked)
+    assert dlg.selected_source_ids() == [t2]
+
+    dlg.search_edit.setText("Unrelated")
+    assert dlg.candidates_list.count() == 1
+    assert dlg.candidates_list.item(0).data(Qt.UserRole) == f"THR::{t3}"
+    dlg.candidates_list.item(0).setCheckState(Qt.Checked)
+    assert set(dlg.selected_source_ids()) == {t2, t3}
+
+    # Execute DB merge and verify notes, non-neutral status & tags are preserved
+    db.merge_threads(t1, [t2])
+    merged = db.get_thread(t1)
+    assert merged["user_status"] == "🟢 Support"
+    assert "First note" in merged["user_notes"]
+    assert "Second split note" in merged["user_notes"]
+    assert merged["user_tags"] == ["urgent", "ki4"]
+
+    # Default primary thread prefers tracked + higher msg count
+    picked = choose_default_primary_thread([
+        {"id": "G1", "subject": "Draft A", "in_tracked_db": False, "_total_count": 2},
+        {"thread_id": "THR-BIG", "title": "Draft B", "in_tracked_db": True, "message_count": 9},
+    ])
+    assert picked["thread_id"] == "THR-BIG"
+    dlg.close()
+
+
+def test_tdocs_menu_and_inbox_multi_select_merge(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from PyQt5.QtCore import QModelIndex, QPoint, Qt
+    from PyQt5.QtWidgets import QApplication, QDialog, QTableView
+    from modules.emails.core.general_email_db import GeneralEmailDatabase
+    from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
+    from modules.emails.ui.merge_threads_dialog import MergeThreadsDialog
+    from modules.meetings.ui.tdocs_menu import handle_table_context_menu
+
+    app = QApplication.instance() or QApplication([])
+    tdb = TrackedThreadsDatabase(tmp_path / "menu_merge.db")
+    t1 = tdb.create_or_get_thread(
+        title="KI#4 bullet 1 part A",
+        normalized_subject="ki#4 bullet 1 part a",
+        conversation_id="C-A",
+        meeting_id="SA2#178",
+        linked_ais=["20.6.4"],
+    )
+    t2 = tdb.create_or_get_thread(
+        title="KI#4 bullet 1 part B",
+        normalized_subject="ki#4 bullet 1 part b",
+        conversation_id="C-B",
+        meeting_id="SA2#178",
+        linked_ais=["20.6.4"],
+    )
+    tdb.upsert_messages(t1, [{"id": "MA1", "subject": "KI#4 bullet 1 part A", "date_sent": "2026-11-18 10:00:00", "is_read": 0}])
+    tdb.upsert_messages(t2, [{"id": "MB1", "subject": "KI#4 bullet 1 part B", "date_sent": "2026-11-18 11:00:00", "is_read": 0}])
+
+    # 1. Verify TDocsWindow right-click context menu offers Merge Selected Threads (2)...
+    class _FakeIndex:
+        def __init__(self, row, col=0):
+            self._r = row
+            self._c = col
+        def isValid(self):
+            return True
+        def row(self):
+            return self._r
+
+    rows_data = [
+        {"TDoc": t1, "_thread_id": t1, "_is_tracked_thread": True, "Title": "KI#4 bullet 1 part A"},
+        {"TDoc": t2, "_thread_id": t2, "_is_tracked_thread": True, "Title": "KI#4 bullet 1 part B"},
+    ]
+    changed_calls = []
+
+    class _FakeProxy:
+        def mapToSource(self, idx):
+            return idx
+        def index(self, row, col):
+            return _FakeIndex(row, col)
+        def rowCount(self):
+            return len(rows_data)
+
+    class _FakeSelModel:
+        def selectedIndexes(self):
+            return [_FakeIndex(0), _FakeIndex(1)]
+
+    class _FakeTable(QTableView):
+        def indexAt(self, _pos):
+            return _FakeIndex(0)
+        def selectionModel(self):
+            return _FakeSelModel()
+
+    fake_table = _FakeTable()
+    fake_win = SimpleNamespace(
+        table=fake_table,
+        proxy=_FakeProxy(),
+        model=SimpleNamespace(_data=rows_data, revisions={}, get_family_tdocs=lambda _t: []),
+        tracked_threads_db=tdb,
+        _on_tracked_thread_changed=lambda: changed_calls.append(True),
+        _open_tracked_thread_dialog=lambda _tid: None,
+        _open_interactive_notes_for_row=lambda _r: None,
+    )
+
+    seen_actions = []
+    with patch("PyQt5.QtWidgets.QMenu.exec_", side_effect=lambda *a, **kw: None) as _exec_mock:
+        orig_add = __import__("PyQt5.QtWidgets").QtWidgets.QMenu.addAction
+        def _capture_add(self_menu, *args, **kwargs):
+            act = orig_add(self_menu, *args, **kwargs)
+            seen_actions.append(act.text())
+            return act
+        with patch("PyQt5.QtWidgets.QMenu.addAction", new=_capture_add):
+            handle_table_context_menu(fake_win, QPoint(5, 5))
+    assert any("Merge Selected Threads (2)" in txt for txt in seen_actions), seen_actions
+
+    # 2. Verify MeetingEmailInboxDialog multi-selection merges tracked + unpinned thread seamlessly
+    gdb = GeneralEmailDatabase(tmp_path / "gen_merge.db")
+    gdb.save_emails_batch(
+        [
+            {
+                "id": "GU-1",
+                "folder_tag": "SA2",
+                "subject": "[SA2#178] KI#4 bullet 1 extra reply",
+                "sender_name": "Carol (Orange)",
+                "company": "Orange",
+                "date_received": "2026-11-18 12:00:00",
+                "body_text": "Additional reply on KI#4.",
+                "clean_body": "Additional reply on KI#4.",
+                "conversation_id": "C-UNPIN",
+                "is_read": 0,
+            }
+        ],
+        [],
+    )
+    inbox = MeetingEmailInboxDialog(
+        tracked_db=tdb,
+        general_email_db=gdb,
+        meeting_id="SA2#178",
+        wg="SA2",
+    )
+    inbox._view_mode = "THREADS"
+    inbox._filter_mode = "ALL"
+    inbox.reload_from_dbs()
+
+    row_indices = []
+    for idx, it in enumerate(inbox._visible_items):
+        if it.get("thread_id") == t1 or not it.get("in_tracked_db"):
+            row_indices.append(idx)
+    assert len(row_indices) == 2
+
+    from PyQt5.QtCore import QItemSelectionModel
+    sm = inbox.table.selectionModel()
+    sm.clearSelection()
+    for r in row_indices:
+        sm.select(inbox.table.model().index(r, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    inbox._on_selection_changed()
+
+    assert inbox.btn_merge_selected.isVisibleTo(inbox) or inbox.btn_merge_selected.isEnabled()
+    with patch.object(MergeThreadsDialog, "exec_", return_value=QDialog.Accepted):
+        inbox._on_merge_selected_clicked()
+
+    # After merge, the unpinned message GU-1 is now merged into tracked thread t1!
+    merged_msgs = tdb.get_thread_messages(t1)
+    assert {m["id"] for m in merged_msgs} == {"MA1", "GU-1"}
+    inbox.close()
+
