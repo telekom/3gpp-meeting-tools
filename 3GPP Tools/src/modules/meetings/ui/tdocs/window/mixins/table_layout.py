@@ -110,12 +110,30 @@ class TableLayoutMixin:
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
 
-        if self.is_sa2:
+        saved_order = (getattr(self, "_saved_filters", {}) or {}).get("order_mode")
+        if saved_order:
+            self._on_order_changed(self.order_combo.currentIndex())
+        elif self.is_sa2:
             self.order_combo.blockSignals(True)
             self.order_combo.setCurrentIndex(0)  # 📋 Agenda Order
             self.order_combo.blockSignals(False)
             self.proxy.setSortMode("AGENDA")
             self.table.sortByColumn(10, Qt.AscendingOrder)
+
+        if hasattr(self, "search_input") and self.search_input.text():
+            self.proxy.setGlobalFilter(self.search_input.text())
+        if self.is_sa2 and hasattr(self, "chk_no_comments"):
+            self.proxy.setNoCommentsFilter(self.chk_no_comments.isChecked())
+        if hasattr(self, "btn_agreements_filter"):
+            self.proxy.setAgreementsFilter(self.btn_agreements_filter.isChecked())
+        email_state = "ALL"
+        if hasattr(self, "btn_unread_emails") and self.btn_unread_emails.isChecked():
+            email_state = "UNREAD"
+        elif hasattr(self, "btn_flagged_emails") and self.btn_flagged_emails.isChecked():
+            email_state = "FLAGGED"
+        self.proxy.setEmailStateFilter(email_state)
+        if hasattr(self, "row_mode_combo"):
+            self.proxy.setRowModeFilter(self.row_mode_combo.currentData() or "ALL")
 
         layout.addWidget(self.table)
 
@@ -145,6 +163,12 @@ class TableLayoutMixin:
         layout.addLayout(bottom_bar)
 
         self._load_tracked_wi_tokens()
+        if hasattr(self, "btn_followed_wis") and hasattr(self, "btn_starred_wis"):
+            self.proxy.setTrackedWIFilters(
+                self.btn_followed_wis.isChecked(),
+                self.btn_starred_wis.isChecked(),
+            )
+            self._update_tracked_wi_button_styles()
         self._sync_tracked_threads_to_table()
         self._refresh_comboboxes()
         self._refresh_email_counts()

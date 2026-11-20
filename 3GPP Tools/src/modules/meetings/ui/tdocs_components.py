@@ -466,9 +466,10 @@ class CheckableComboBox(QComboBox):
             return False
         return len(self.getCheckedItems()) < total
 
-    def setCheckedItems(self, items: list):
+    def setCheckedItems(self, items: list, allow_empty: bool = False):
         """Set the check state of items matching the given list of raw values/strings."""
-        items_set = {str(x).strip() for x in (items or []) if str(x).strip()}
+        raw_list = list(items or [])
+        items_set = {str(x).strip() for x in raw_list}
         model = self.model()
         row_count = model.rowCount()
         if row_count <= 1:
@@ -477,7 +478,7 @@ class CheckableComboBox(QComboBox):
         self._updating = True
         model.blockSignals(True)
         try:
-            if not items_set:
+            if not raw_list and not allow_empty:
                 for row in range(row_count):
                     item = model.item(row)
                     if item:
@@ -487,7 +488,8 @@ class CheckableComboBox(QComboBox):
                 for row in range(1, row_count):
                     item = model.item(row)
                     if item:
-                        val = str(item.data(Qt.UserRole) or item.text()).strip()
+                        raw_val = item.data(Qt.UserRole)
+                        val = str(item.text() if raw_val is None else raw_val).strip()
                         is_checked = val in items_set
                         item.setCheckState(Qt.Checked if is_checked else Qt.Unchecked)
                         if not is_checked:

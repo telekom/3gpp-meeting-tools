@@ -8,10 +8,12 @@ import json
 import os
 import re
 from pathlib import Path
+from typing import Optional
 from PyQt5.QtCore import (
     QTimer,
     pyqtSignal,
     QPoint,
+    QSettings,
 )
 from PyQt5.QtWidgets import QWidget, QVBoxLayout
 from modules.meetings.core.agenda_manager import AgendaManager
@@ -52,11 +54,15 @@ class TDocsWindow(
 ):
     global_action_requested = pyqtSignal(str, str)
 
-    def __init__(self, mtg_info: dict, tdocs_data: list, filepath: str):
+    def __init__(self, mtg_info: dict, tdocs_data: list, filepath: str, filter_settings: Optional[QSettings] = None):
         super().__init__()
         self.mtg_info = mtg_info
         self.filepath = filepath
         self.meeting_dir = Path(filepath).parent.parent
+        self._filter_settings = filter_settings if filter_settings is not None else QSettings("3GPP_Tools", "TDocsWindow")
+        self._restoring_filters = True
+        self._saved_filters = {}
+        self._pending_combo_filters = {}
         self.active_threads = {}
         self.chair_agreements = []
         self._email_dialogs = {}
@@ -126,10 +132,14 @@ class TDocsWindow(
         main_layout.setContentsMargins(12, 12, 12, 12)
         main_layout.setSpacing(8)
 
-        self._setup_header(main_layout, title, is_electronic, len(tdocs_data))
-        self._setup_filters(main_layout)
-        self._setup_table(main_layout, tdocs_data, user_data)
-        self._setup_cache()
+        try:
+            self._load_filter_settings()
+            self._setup_header(main_layout, title, is_electronic, len(tdocs_data))
+            self._setup_filters(main_layout)
+            self._setup_table(main_layout, tdocs_data, user_data)
+            self._setup_cache()
+        finally:
+            self._restoring_filters = False
 
         self.drop_overlay = DropOverlayWidget(self)
         self._start_background_wi_enrichment()
@@ -243,6 +253,14 @@ class TDocsWindow(
         dlg.exec_()
 
     def closeEvent(self, event):
+        if hasattr(self, 'search_timer'):
+            if self.search_timer.isActive() and hasattr(self, 'proxy') and hasattr(self, 'search_input'):
+                self.search_timer.stop()
+                self.proxy.setGlobalFilter(self.search_input.text())
+            else:
+                self.search_timer.stop()
+        if hasattr(self, '_save_filter_settings'):
+            self._save_filter_settings()
         if hasattr(self, 'routing_timer'):
             self.routing_timer.stop()
         if hasattr(self, 'tracked_threads_timer'):

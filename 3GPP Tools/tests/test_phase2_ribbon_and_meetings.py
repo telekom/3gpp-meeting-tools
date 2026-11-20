@@ -128,6 +128,7 @@ class TestMeetingsPhase2Revamp(unittest.TestCase):
             for i in range(6)
         ]
         tab.global_tdoc_input.setText("S5-265276")
+        tab.search_controller.current_incomplete_meetings = incomplete
         tab._set_tdoc_metadata_warning(incomplete)
 
         for width, height in ((1280, 720), (920, 650)):

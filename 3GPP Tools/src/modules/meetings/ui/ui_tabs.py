@@ -1182,6 +1182,9 @@ class MeetingsTab(QWidget):
 
     def shutdown(self):
         """Cleanly shuts down all child windows, dialogs, and background threads."""
+        if hasattr(self, 'save_filters_timer') and self.save_filters_timer.isActive():
+            self.save_filters_timer.stop()
+            self._save_filters()
         if hasattr(self, 'contribution_dialog') and self.contribution_dialog:
             try:
                 self.contribution_dialog.close()

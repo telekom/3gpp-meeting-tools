@@ -115,6 +115,32 @@ class FilterFacetsMixin:
                 "Right-click to toggle including unassigned Incoming LS."
             )
 
+    def _apply_pending_combo_filter(self, key: str, combo):
+        """Re-apply a restored per-meeting CheckableComboBox selection after items populate."""
+        pending = getattr(self, "_pending_combo_filters", None)
+        if not pending or key not in pending or combo is None:
+            return
+        model = combo.model()
+        if not model or model.rowCount() <= 1:
+            return
+
+        wanted_set = {str(x).strip() for x in pending[key]}
+        if not wanted_set:
+            combo.setCheckedItems([], allow_empty=True)
+            return
+
+        available = []
+        for i in range(1, model.rowCount()):
+            item = model.item(i)
+            if item is None:
+                continue
+            raw_val = item.data(Qt.UserRole)
+            available.append(str(item.text() if raw_val is None else raw_val).strip())
+
+        matched = [val for val in available if val in wanted_set]
+        if matched:
+            combo.setCheckedItems(matched, allow_empty=True)
+
     def _refresh_comboboxes(self):
         def sanitize(val): return str(val).strip() if val is not None else ""
 
@@ -157,12 +183,18 @@ class FilterFacetsMixin:
                     ai_display_labels[ai_num] = ai_num
 
         self.type_combo.updateItems(unique_types)
+        self._apply_pending_combo_filter("type", self.type_combo)
         self.ai_combo.updateItems(unique_ais, display_labels=ai_display_labels)
+        self._apply_pending_combo_filter("ai", self.ai_combo)
         self._update_ai_tooltips()
         self.wi_combo.updateItems(unique_wis)
+        self._apply_pending_combo_filter("wi", self.wi_combo)
         self.status_combo.updateItems(unique_statuses)
+        self._apply_pending_combo_filter("status", self.status_combo)
         self.company_combo.updateItems(sorted_companies)
+        self._apply_pending_combo_filter("company", self.company_combo)
         self.my_status_combo.updateItems(unique_my_statuses)
+        self._apply_pending_combo_filter("my_status", self.my_status_combo)
         self._load_tracked_wi_tokens()
         self._update_tracked_wi_button_styles()
 
@@ -179,6 +211,7 @@ class FilterFacetsMixin:
             if unique_sub_items:
                 self.sub_item_combo.setVisible(True)
                 self.sub_item_combo.updateItems(unique_sub_items)
+                self._apply_pending_combo_filter("sub_item", self.sub_item_combo)
                 self.proxy.setSubItemFilters(self.sub_item_combo.getCheckedItems())
             else:
                 self.sub_item_combo.setVisible(False)
@@ -190,6 +223,7 @@ class FilterFacetsMixin:
                 tag_items = list(unique_tags) + ["(No Tags)"]
                 self.tags_combo.setVisible(True)
                 self.tags_combo.updateItems(tag_items)
+                self._apply_pending_combo_filter("tags", self.tags_combo)
                 all_checked = (
                     self.tags_combo.model().rowCount() > 0
                     and self.tags_combo.model().item(0).checkState() == Qt.Checked
@@ -205,7 +239,11 @@ class FilterFacetsMixin:
         self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
         self.proxy.setCompanyFilters(self.company_combo.getCheckedItems())
         self.proxy.setMyStatusFilters(self.my_status_combo.getCheckedItems())
+        if hasattr(self, "_pending_combo_filters"):
+            self._pending_combo_filters.clear()
         self._update_filter_facets()
+        if hasattr(self, "_save_filter_settings"):
+            self._save_filter_settings()
 
         QTimer.singleShot(0, self._update_count_label)
 
@@ -313,6 +351,10 @@ class FilterFacetsMixin:
         self.proxy.setStatusFilters(self.status_combo.getCheckedItems())
         self.proxy.setCompanyFilters(self.company_combo.getCheckedItems())
         self.proxy.setMyStatusFilters(self.my_status_combo.getCheckedItems())
+        if hasattr(self, "_pending_combo_filters"):
+            self._pending_combo_filters.clear()
         self._update_filter_facets()
+        if hasattr(self, "_save_filter_settings"):
+            self._save_filter_settings()
 
         QTimer.singleShot(0, self._update_count_label)

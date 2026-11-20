@@ -26,6 +26,8 @@ class TrackedWIFilterMixin:
         )
         self._update_tracked_wi_button_styles()
         self._update_filter_facets()
+        if hasattr(self, "_save_filter_settings"):
+            self._save_filter_settings()
         QTimer.singleShot(0, self._update_count_label)
 
     def _show_tracked_wi_context_menu(self, pos):
