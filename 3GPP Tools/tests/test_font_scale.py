@@ -238,6 +238,7 @@ class TestFontScale(unittest.TestCase):
             SRC_DIR / "modules" / "nas" / "ui" / "nas_components.py",
             SRC_DIR / "modules" / "nas" / "ui" / "components" / "delegates.py",
             SRC_DIR / "modules" / "spec_search" / "ui" / "spec_search_components.py",
+            SRC_DIR / "modules" / "spec_search" / "ui" / "components" / "delegates.py",
         )
         for src_path in checked_paths:
             src_text = src_path.read_text(encoding="utf-8")

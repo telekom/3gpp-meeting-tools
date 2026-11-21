@@ -18,8 +18,10 @@ src/modules/spec_search/
 └── ui/
     ├── spec_search_tab/               # Modular SpecSearchTab package (see spec_search_tab/README.md)
     ├── spec_search_tabs.py            # Re-export shim -> spec_search_tab/ package
+    ├── components/                    # Modular Version Cards, Delegate & Clause Inspector (see components/README.md)
+    ├── spec_search_components.py      # Re-export shim -> components/ package
     ├── quick_search_panel.py          # Docked QuickSpecSearchPanel (Ctrl+Shift+F)
-    ├── spec_search_components.py / spec_search_models.py / spec_search_dialogs.py / spec_clause_diff_dialog.py
+    ├── spec_search_models.py / spec_search_dialogs.py / spec_clause_diff_dialog.py
 ```
 
 ---
