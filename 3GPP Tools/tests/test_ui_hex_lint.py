@@ -27,7 +27,6 @@ LEGACY_UI_HEX_ALLOWLIST: Dict[str, int] = {
     "src/core/ai/ollama_dialog.py": 32,
     "src/core/ui/database_inspector.py": 6,
     "src/core/ui/database_maintenance_dialog.py": 66,
-    "src/core/ui/drop_zone.py": 92,
     "src/core/ui/process_manager_dialog.py": 8,
     "src/modules/emails/ui/config_dialog.py": 5,
     "src/modules/emails/ui/email_dialogs.py": 3,

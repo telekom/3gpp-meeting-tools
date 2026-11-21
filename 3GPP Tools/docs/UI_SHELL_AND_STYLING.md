@@ -40,7 +40,7 @@ Per-machine typography scaling (`0.85`–`1.60`) is persisted in `QSettings` and
 ## 3. Design Tokens, Raw-Hex Governance & Component Reuse
 
 - **Tokens (`src/core/ui/theme.py`):** All new UI code and migrated modules must reference tokens from `core.ui.theme` (`C`, `T`, `R`, `S`, `B`) rather than hardcoded `#RRGGBB` literals. Enforced by `tests/test_ui_hex_lint.py` (zero tolerance in new/migrated files; no-growth ratchet on legacy allowlisted files). Preview automated substitutions with `py -3.14 -m core.ui.hex_migrator <path> --dry-run --diff`.
-- **Shared styles (`src/core/ui/ui_components.py` shim $\to$ `src/core/ui/components/`):** Prefer `BUTTON_STYLE_TOOLBAR_SECONDARY`, `CARD_FRAME_STYLE`, `BADGE_STYLE_*`, and `TABLE_STYLE_CLEAN` over ad-hoc inline stylesheets (see [`src/core/ui/components/README.md`](../src/core/ui/components/README.md)).
+- **Shared styles (`src/core/ui/ui_components.py` shim $\to$ `src/core/ui/components/`, `src/core/ui/drop_zone.py` shim $\to$ `src/core/ui/components/drop_zone/`):** Prefer `BUTTON_STYLE_TOOLBAR_SECONDARY`, `CARD_FRAME_STYLE`, `BADGE_STYLE_*`, `TABLE_STYLE_CLEAN`, and `ModernDropZone` over ad-hoc inline stylesheets (see [`src/core/ui/components/README.md`](../src/core/ui/components/README.md) and [`src/core/ui/components/drop_zone/README.md`](../src/core/ui/components/drop_zone/README.md)).
 - **Interactive states:** Checkable buttons / toggleable controls must define `QPushButton:checked` and `QPushButton:checked:hover` using `C.ACCENT_SOFT` / `C.ACCENT_PRIMARY`.
 - **Windows Taskbar Icon & Native Shell Identity (`core.ui.ui_components`):**
   - `src/assets/3gpp_tools.ico` must remain a multi-resolution `.ico` container (`16`, `24`, `32`, `48`, `64`, `128`, `256` px).

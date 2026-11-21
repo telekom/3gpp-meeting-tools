@@ -1,6 +1,6 @@
 """Modular core UI stylesheets, WG palettes, Win32 taskbar icon manager, and ProxyDialog."""
 
-from core.ui.drop_zone import (
+from .drop_zone import (
     ClickableDropLabel,
     InteractiveDropLabel,
     ModernDropZone,

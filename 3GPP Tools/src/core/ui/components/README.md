@@ -14,6 +14,7 @@ previously housed in the 1,434-line `ui_components.py`. `ui_components.py` remai
 | [`wg_and_text.py`](wg_and_text.py) | Working Group palette/descriptions & Qt mnemonic ampersand helper | `WG_DESCRIPTIONS`, `get_wg_colors`, `get_wg_badge_style_and_desc`, `escape_qt_mnemonic` |
 | [`window_icon.py`](window_icon.py) | Multi-DPI `QIcon`, OneDrive hydration, Win32 `WM_SETICON`/`IPropertyStore` stamping & global filter | `APP_USER_MODEL_ID`, `APP_DISPLAY_NAME`, `create_app_icon`, `get_app_icon_path`, `apply_native_window_icon`, `apply_console_window_icon`, `install_window_icon_manager` |
 | [`proxy_dialog.py`](proxy_dialog.py) | Network proxy connection worker & Windows DPAPI profile dialog | `ProxyTestWorker`, `ProxyDialog` |
+| [`drop_zone/`](drop_zone/README.md) | Modular `ModernDropZone` & legacy drop label package (shimmed by `core/ui/drop_zone.py`) | `ModernDropZone`, `InteractiveDropLabel`, `ClickableDropLabel`, `format_file_size` |
 | [`__init__.py`](__init__.py) | Package exports (re-exports all 45 symbols incl. `drop_zone`) | All symbols in `__all__` |
 
 ## Invariants
