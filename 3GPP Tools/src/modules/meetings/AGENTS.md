@@ -73,7 +73,8 @@ src/modules/meetings/
     │   ├── pre_meeting_export/        # Modular PreMeetingExportDialog package (see pre_meeting_export/README.md)
     │   ├── pre_meeting_export_dialog.py # Re-export shim -> dialogs/pre_meeting_export/ package
     │   ├── tdocs_export_controller.py
-    │   ├── topic_dossier_dialog.py
+    │   ├── topic_dossier/             # Modular TopicDossierDialog & TopicEditorDialog package (see topic_dossier/README.md)
+    │   ├── topic_dossier_dialog.py    # Re-export shim -> dialogs/topic_dossier/ package
     │   ├── topic_inputs/              # Modular TopicInputsViewerDialog package (see topic_inputs/README.md)
     │   └── topic_inputs_dialog.py     # Re-export shim -> dialogs/topic_inputs/ package
     ├── search_controller.py           # GlobalSearchController (Quick TDoc Jump)
