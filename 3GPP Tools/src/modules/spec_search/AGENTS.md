@@ -16,7 +16,8 @@ src/modules/spec_search/
 │   ├── spec_clause_diff.py / spec_clause_word_comparator.py / spec_clause_exporter.py
 │   └── spec_search_threads.py
 └── ui/
-    ├── spec_search_tabs.py            # SpecSearchTab (left pill cards, evolution matrix, 2-tier inspector)
+    ├── spec_search_tab/               # Modular SpecSearchTab package (see spec_search_tab/README.md)
+    ├── spec_search_tabs.py            # Re-export shim -> spec_search_tab/ package
     ├── quick_search_panel.py          # Docked QuickSpecSearchPanel (Ctrl+Shift+F)
     ├── spec_search_components.py / spec_search_models.py / spec_search_dialogs.py / spec_clause_diff_dialog.py
 ```
