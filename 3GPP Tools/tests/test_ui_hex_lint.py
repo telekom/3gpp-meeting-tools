@@ -71,7 +71,6 @@ LEGACY_UI_HEX_ALLOWLIST: Dict[str, int] = {
     "src/modules/word_tools/ui/cards/excerpt_card.py": 6,
     "src/modules/word_tools/ui/cards/markdown_card.py": 14,
     "src/modules/word_tools/ui/cards/sanitizer_card.py": 13,
-    "src/modules/word_tools/ui/cr_pcr_dialog.py": 31,
     "src/modules/word_tools/ui/document_selector_pane.py": 2,
     "src/modules/word_tools/ui/word_settings_dialog.py": 4,
     "src/modules/word_tools/ui/word_tabs.py": 29,
