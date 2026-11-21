@@ -34,7 +34,8 @@ src/modules/meetings/
 │   │   ├── session_plan_parser.py     # Fault-tolerant Word (.docx) & Markdown parser
 │   │   └── session_plan_timezone.py   # Venue vs Vienna UTC timezone resolution
 │   ├── tdocs/                         # TDoc & Chairman's Notes parsing and importer threads
-│   │   ├── chair_notes_agreements_parser.py # RAN1/2/3 & SA2 agreements/WA parser
+│   │   ├── chair_notes/               # Modular RAN1/2/3 & SA2 agreements/WA parser (see chair_notes/README.md)
+│   │   ├── chair_notes_agreements_parser.py # Re-export shim -> tdocs/chair_notes/ package
 │   │   ├── tdocs_parser.py            # Excel/HTML/Word TDoc list & agenda parser
 │   │   └── tdocs_threads.py           # Background threads for TDoc & Word agenda loading
 │   ├── agreement_tracker_worker.py    # Cross-WG Study Item & Topic agreement tracker
