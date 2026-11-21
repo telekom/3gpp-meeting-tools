@@ -18,7 +18,8 @@ src/modules/emails/
 │   └── stats/                         # Email analytics (plot_agenda, plot_companies, plot_delegates, plot_timeline)
 └── ui/
     ├── email_window.py / general_email_dialog.py / email_dialogs.py / email_summary_dialog.py
-    ├── meeting_email_inbox_dialog.py  # Unified Unread & Flagged Email Triage Cockpit
+    ├── meeting_inbox/                 # Modular MeetingEmailInboxDialog package (see meeting_inbox/README.md)
+    ├── meeting_email_inbox_dialog.py  # Re-export shim for MeetingEmailInboxDialog & shared QSS/widgets
     ├── merge_threads_dialog.py        # Searchable, similarity-ranked split-thread merge dialog
     ├── tracked_thread_dialog.py       # Tracked thread viewer & AI/WI/Sub-Topic editor
     ├── tdoc_emails_dialog.py          # Unified per-TDoc email viewer

@@ -1,0 +1,22 @@
+# Meeting Email Inbox Package (`meeting_inbox/`)
+
+Modular decomposition of `MeetingEmailInboxDialog` (Unified Unread & Flagged Email Triage Cockpit) previously housed in `meeting_email_inbox_dialog.py`.
+
+## Submodule Navigation Map
+
+| Module | Class / Responsibility | Key Methods / Symbols |
+|---|---|---|
+| [`dialog.py`](dialog.py) | Main `QDialog` composition and state initialization | `MeetingEmailInboxDialog`, `data_changed`, `__init__` |
+| [`widgets.py`](widgets.py) | Shared custom Qt delegates/widgets and badge/bar QSS builders (0 raw hexes) | `_STATUS_COLOR_MAP`, `_STATUS_BADGE_BG_MAP`, `_status_color_hex`, `get_compact_action_bar_qss`, `get_status_combo_qss`, `_InboxStatusStripDelegate`, `_NotePlainTextEdit`, `_InboxTableWidget` |
+| [`mixins/ui_setup.py`](mixins/ui_setup.py) | Toolbar pills, view toggles, filter combos, splitter panes, detail header, inline bars | `InboxUiSetupMixin._build_ui` |
+| [`mixins/layout_and_settings.py`](mixins/layout_and_settings.py) | Per-meeting `QSettings` filter persistence, splitter orientation, responsive column fitting, session state | `InboxLayoutAndSettingsMixin` (`_load_filter_settings`, `_save_filter_settings`, `compute_fitted_column_widths`, `_fit_columns_to_viewport`, `closeEvent`, `get_session_state`) |
+| [`mixins/data_and_filtering.py`](mixins/data_and_filtering.py) | DB loading (`TrackedThreadsDatabase` + `GeneralEmailDatabase`), thread grouping, pill counts, table population | `InboxDataAndFilteringMixin` (`reload_from_dbs`, `_build_grouped_thread_items`, `_populate_filter_combos`, `_apply_filters`) |
+| [`mixins/detail_rendering.py`](mixins/detail_rendering.py) | Single/multi selection state, assignment pill population, Markdown preview rendering | `InboxDetailRenderingMixin` (`_on_selection_changed`, `_render_multi_detail`, `_render_detail`) |
+| [`mixins/inline_assignment.py`](mixins/inline_assignment.py) | In-place unpinned thread pinning, auto-suggestion, batch inline AI/Sub-Topic/WI linking | `InboxInlineAssignmentMixin` (`_pin_item_in_place`, `_on_pin_inline_clicked`, `_on_auto_assign_clicked`, `_on_inline_links_changed`) |
+| [`mixins/triage_actions.py`](mixins/triage_actions.py) | Bidirectional read/flag/status/note mutations and interactive reader link dispatch | `InboxTriageActionsMixin` (`_mutate_read`, `_mutate_flag`, `_on_detail_status_changed`, `_flush_pending_note_save`, `_on_anchor_clicked`) |
+| [`mixins/sync_and_merge.py`](mixins/sync_and_merge.py) | Context menu, split-thread merge workflow, and scoped/full async Outlook sync | `InboxSyncAndMergeMixin` (`_on_table_context_menu`, `_on_merge_selected_clicked`, `_start_outlook_sync`, `_on_inbox_sync_finished`) |
+| [`__init__.py`](__init__.py) | Package exports | `MeetingEmailInboxDialog` + shared widget/QSS exports |
+
+## Backward Compatibility
+
+- [`../meeting_email_inbox_dialog.py`](../meeting_email_inbox_dialog.py) remains as a thin re-export shim exposing `MeetingEmailInboxDialog`, custom widgets, and shared QSS helpers used by [`../tdoc_emails_dialog.py`](../tdoc_emails_dialog.py), [`window_session.py`](../../../../core/ui/window_session.py), and the test suite.
