@@ -52,7 +52,6 @@ LEGACY_UI_HEX_ALLOWLIST: Dict[str, int] = {
     "src/modules/meetings/ui/tdoc_triage_dialog.py": 2,
     "src/modules/meetings/ui/tdocs_dialogs.py": 3,
     "src/modules/meetings/ui/tdocs_help_dialog.py": 1,
-    "src/modules/meetings/ui/tdocs_models.py": 4,
     "src/modules/meetings/ui/tdocs/window/mixins/filter_tracked_wis.py": 6,
     "src/modules/meetings/ui/tdocs/window/mixins/tdoc_actions.py": 1,
     "src/modules/meetings/ui/tdocs/window/mixins/ui_header.py": 1,
