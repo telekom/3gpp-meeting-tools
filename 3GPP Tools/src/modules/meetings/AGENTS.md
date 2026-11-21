@@ -24,7 +24,8 @@ src/modules/meetings/
 │   │   ├── pre_meeting_exporter.py    # Pre-meeting briefing generator
 │   │   ├── tdoc2md.py                 # [PROTECTED] Standalone 3GPP TDoc -> Markdown core
 │   │   ├── tdocs_package_exporter.py  # Packaged TDoc archive exporter
-│   │   └── topic_dossier_exporter.py  # Cross-WG topic dossier & LLM delta exporter
+│   │   ├── topic_dossier/             # Modular Cross-WG Topic Dossier package (see topic_dossier/README.md)
+│   │   └── topic_dossier_exporter.py  # Re-export shim -> exporters/topic_dossier/ package
 │   ├── session_plan/                  # SA2 Session Plan parsing, diffing, DB & HTML export
 │   │   ├── session_plan_db.py         # SQLite persistence & cross-meeting defaults
 │   │   ├── session_plan_diff.py       # Slot-by-slot snapshot diff engine
