@@ -943,7 +943,7 @@ class PostMeetingExportDialog(QDialog):
                 continue
 
             is_not_agreed = any(neg in status for neg in ["not agreed", "not approved", "rejected", "postponed", "withdrawn"])
-            is_agreed = (not is_not_agreed) and any(s in status for s in ["agreed", "approved"])
+            is_agreed = (not is_not_agreed) and any(s in status for s in ["agreed", "approved", "block approve"])
 
             category = None
             if "ls in" in doc_type or doc_type == "ls":
@@ -959,7 +959,7 @@ class PostMeetingExportDialog(QDialog):
                     category = "CR"
             elif any(d in doc_type for d in ["disc", "discussion", "report", "wid", "sid"]):
                 is_not_final = any(neg in status for neg in ["not agreed", "not approved", "rejected", "postponed", "withdrawn", "revised", "not discussed"])
-                if (not is_not_final) and (status == "" or any(s in status for s in ["noted", "agreed", "approved"])):
+                if (not is_not_final) and (status == "" or any(s in status for s in ["noted", "agreed", "approved", "block approve"])):
                     category = "DISC"
 
             if not category:

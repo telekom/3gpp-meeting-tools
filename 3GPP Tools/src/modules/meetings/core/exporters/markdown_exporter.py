@@ -137,7 +137,7 @@ class MarkdownExporterThread(QThread):
                 source = str(row.get('Source', ''))
 
                 is_withdrawn = 'withdrawn' in status
-                is_agreed = any(x in status for x in ['agreed', 'approved'])
+                is_agreed = any(x in status for x in ['agreed', 'approved', 'block approve'])
 
                 is_ls_in = 'ls in' in doc_type or doc_type == 'ls'
                 is_ls_out = 'ls out' in doc_type or 'ls_out' in doc_type

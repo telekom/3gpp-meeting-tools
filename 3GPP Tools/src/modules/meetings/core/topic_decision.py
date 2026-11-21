@@ -82,7 +82,7 @@ def classify_tdoc_decision_type(tdoc_type: str, title: str, status: str) -> Opti
     t_stat = (status or "").lower()
 
     # Is it approved / agreed?
-    is_approved = any(w in t_stat for w in ("approved", "agreed", "endorsed"))
+    is_approved = any(w in t_stat for w in ("approved", "agreed", "endorsed", "block approve"))
     if not is_approved:
         # Check for Way Forward titles that might be noted with agreement
         if "way forward" in t_title or re.search(r'\bwf\b', t_title):

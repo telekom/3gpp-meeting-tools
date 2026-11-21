@@ -163,8 +163,9 @@ class TestTDocsModelsMergeAgenda(unittest.TestCase):
                 "Revision assigned after offline discussion, not opened yet.",
                 ("Not Handled", "Revision assigned after offline discussion, not opened yet.", []),
             ),
-            ("Block Approve?", ("", "Block Approve?", [])),
+            ("Block Approve?", ("Approved", "Block Approve?", [])),
             ("Block Approved", ("Approved", "", [])),
+            ("Agreed?", ("", "Agreed?", [])),
             ("not noted", ("Not Noted", "", [])),
             ("🟢 Agreement", ("🟢 Agreement", "", [])),
         ]
@@ -269,8 +270,8 @@ class TestTDocsModelsMergeAgenda(unittest.TestCase):
         self.assertEqual(tdoc_map['S2-2612591']['Revised to'], 'S2-2612689')
         self.assertEqual(tdoc_map['S2-2612689']['Is revision of'], 'S2-2612591')
 
-        # Tentative question does NOT overwrite Available, preserved in Secretary Remarks
-        self.assertEqual(tdoc_map['S2-2611681']['TDoc Status'], 'Available')
+        # Block Approve? promotes stale Available -> Approved while keeping original note in Secretary Remarks
+        self.assertEqual(tdoc_map['S2-2611681']['TDoc Status'], 'Approved')
         self.assertIn('Block Approve?', tdoc_map['S2-2611681']['Secretary Remarks'])
 
         # Multi-line OPEN status split cleanly
@@ -287,6 +288,7 @@ class TestTDocsModelsMergeAgenda(unittest.TestCase):
 
     def test_sub_item_combo_includes_no_sub_item_for_mixed_rows(self):
         """Verifies rows without Sub-Item remain visible and statuses are not greyed out."""
+        from PyQt5.QtCore import QSettings
         import tempfile as tf
         from modules.meetings.ui.tdocs_window import TDocsWindow
 
@@ -317,7 +319,8 @@ class TestTDocsModelsMergeAgenda(unittest.TestCase):
         with tf.TemporaryDirectory() as tmp_dir:
             agenda_path = Path(tmp_dir) / 'Agenda' / 'test.xlsx'
             agenda_path.parent.mkdir(parents=True, exist_ok=True)
-            win = TDocsWindow({'wg_name': 'SA2', 'meeting_number': '178'}, rows, str(agenda_path))
+            qsettings = QSettings(str(Path(tmp_dir) / 'filters.ini'), QSettings.IniFormat)
+            win = TDocsWindow({'wg_name': 'SA2', 'meeting_number': '178'}, rows, str(agenda_path), filter_settings=qsettings)
             self.assertEqual(win.proxy.rowCount(), 2)
             # Both 'Agreed' and 'Merged' should be available (UserRole+1 == True)
             status_model = win.status_combo.model()

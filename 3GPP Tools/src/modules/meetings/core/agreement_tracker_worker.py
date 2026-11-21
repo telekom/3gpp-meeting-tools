@@ -334,7 +334,7 @@ class AgreementTrackerWorker(QThread):
                 low_for = for_raw.lower()
 
                 is_agreed_status = any(
-                    s in low_status for s in ("agreed", "approved", "endorsed")
+                    s in low_status for s in ("agreed", "approved", "endorsed", "block approve")
                 ) and not any(
                     neg in low_status for neg in ("not agreed", "not approved", "not endorsed")
                 )

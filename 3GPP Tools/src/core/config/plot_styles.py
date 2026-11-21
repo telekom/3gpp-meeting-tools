@@ -69,6 +69,8 @@ def normalize_status(val: str) -> str:
     if not s or s in ['nan', 'none', '-', '']:
         return 'Unknown'
     first_line = s.splitlines()[0].strip()
+    if 'block approv' in s:
+        return 'Approved'
     if first_line.endswith('?'):
         return 'Unknown'
     if 'not treated' in s or 'not handled' in s or 'not opened' in s or 'unhandled' in s or 'left over' in s:

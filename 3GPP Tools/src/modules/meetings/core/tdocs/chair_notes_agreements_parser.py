@@ -273,7 +273,12 @@ def parse_chair_result(raw_result: str) -> Tuple[str, str, List[str]]:
     rest_lines = "\n".join(lines[1:]).strip()
     normalized_full = "\n".join(lines)
 
-    # Tentative question/reminder in Result (e.g. "Block Approve?", "Agreed?")
+    # "Block Approve?" / "Block Approve" / "Block Approved" denotes bulk plenary approval
+    if re.match(r'^block\s+approv(?:e|ed)\b', first_line, re.IGNORECASE):
+        extra = normalized_full if "?" in first_line or rest_lines else ""
+        return "Approved", extra, []
+
+    # Tentative question/reminder in Result (e.g. "Agreed?")
     if first_line.endswith("?"):
         return "", normalized_full, []
 

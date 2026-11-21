@@ -279,6 +279,44 @@ class TestPostMeetingCustomExport(unittest.TestCase):
         self.assertNotIn("S2-2601004", exported_ids)
         self.assertNotIn("S2-2601005", exported_ids)
 
+    def test_exporter_includes_block_approve_tdocs(self):
+        """Verify that TDocs marked 'Block Approve?' are treated as approved in post-meeting export."""
+        rows_with_block = list(self.rows) + [
+            {
+                "TDoc": "S2-2601099",
+                "Type": "pCR",
+                "TDoc Status": "Block Approve?",
+                "Related WIs": "TEI18",
+                "Agenda Item": "5.1",
+                "Agenda item description": "High-Level Architecture (TEI18)",
+                "Release": "Rel-18",
+                "Title": "Block Approved pCR from parallel session",
+            }
+        ]
+        thread = PostMeetingExporterThread(
+            meeting_dir=Path("."),
+            all_rows=rows_with_block,
+            visible_rows=rows_with_block,
+            agenda_map={},
+            mtg_info={"wg_name": "SA2", "meeting_number": "178"},
+            docs_ftp_url="",
+            revisions_url="",
+            scope_mode="whole",
+            include_cr=True,
+            include_pcr=True,
+            include_ls_in=True,
+            include_disc=False,
+        )
+        tree = thread._filter_and_group_tdocs(self.wi_db_info)
+        exported_cats = {}
+        for rel_data in tree.values():
+            for wi_data in rel_data.values():
+                for cat, doc_list in wi_data["categories"].items():
+                    for d in doc_list:
+                        exported_cats[d["tdoc_id"]] = cat
+
+        self.assertEqual(exported_cats.get("S2-2601099"), "pCR")
+
 
 if __name__ == "__main__":
     unittest.main()
