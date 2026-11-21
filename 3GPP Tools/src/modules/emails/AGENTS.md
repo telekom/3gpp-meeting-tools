@@ -13,7 +13,8 @@ src/modules/emails/
 │   ├── outlook_client.py              # Win32 Outlook COM + MAPI GetTable/GetConversation wrappers
 │   ├── email_db.py / email_parser.py / email_threads.py / email_config.py / email_summary_worker.py
 │   ├── general_email_db.py / general_email_sync.py    # Unpinned WG folder + Sent Items sync
-│   ├── tracked_threads_db.py / tracked_threads_service.py / tracked_threads_workers.py
+│   ├── tracked_threads/               # Modular MAPI sync, discovery & Drafts package (see tracked_threads/README.md)
+│   ├── tracked_threads_db.py / tracked_threads_service.py (shim) / tracked_threads_workers.py
 │   ├── thread_markdown_exporter.py    # Option A cards, Safelinks, quote stripping, Drafts caching
 │   └── stats/                         # Email analytics (plot_agenda, plot_companies, plot_delegates, plot_timeline)
 └── ui/
