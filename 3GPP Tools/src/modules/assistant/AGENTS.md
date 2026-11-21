@@ -34,7 +34,8 @@ src/modules/assistant/
 │   │   ├── spec_search.py             # SpecSearchKnowledgeService (ranked text search, clauses)
 │   │   └── specifications.py          # SpecificationKnowledgeService (catalogue & versions)
 │   └── tools/                         # Semantic tool handlers registered with ToolRegistry
-│       ├── external_agent_tools.py    # 12 multi-action domain tools for Claude CLI / Codex CLI (MCP & CLI)
+│       ├── external_agent/            # Modular 12-tool domain handler package (see external_agent/README.md)
+│       ├── external_agent_tools.py    # Backward-compatible re-export shim for external_agent package
 │       ├── factory.py                 # Tool registration factory (in-app & external agent profiles)
 │       ├── protocol_tools.py          # Protocol inspection tools
 │       ├── spec_search_tools.py       # FTS5 search & clause retrieval tools
@@ -106,7 +107,7 @@ The Assistant presentation layer (`src/modules/assistant/ui`) is built on a resp
 In addition to the in-app Ollama Research Assistant, the tool registry powers a zero-dependency **Model Context Protocol (MCP) `stdio` server** (`src/mcp_server.py`, `src/Launch_MCP.cmd`) and a **Headless CLI** (`src/cli_tools.py`) exposing 39+ application capabilities to external coding and standards agents such as **Claude CLI (`claude`)** and **Codex CLI (`codex`)**.
 
 ### 6.1. Token-Budget Discipline (12 Multi-Action Domain Tools)
-To prevent system prompt bloat on every turn in Claude/Codex, all 39+ capabilities are consolidated into **12 compact multi-action domain tools** (`src/modules/assistant/core/tools/external_agent_tools.py`) with `ToolDefinition.mcp_schema()` omitting empty descriptions (<2,000 tokens total for `all`, and 500–850 tokens when scoped via `--profile`):
+To prevent system prompt bloat on every turn in Claude/Codex, all 39+ capabilities are consolidated into **12 compact multi-action domain tools** (`src/modules/assistant/core/tools/external_agent/`, re-exported via `external_agent_tools.py`) with `ToolDefinition.mcp_schema()` omitting empty descriptions (<2,000 tokens total for `all`, and 500–850 tokens when scoped via `--profile`):
 
 | Domain Tool | Actions | Permissions |
 | :--- | :--- | :--- |
