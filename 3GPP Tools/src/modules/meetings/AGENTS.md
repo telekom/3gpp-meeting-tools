@@ -81,7 +81,8 @@ src/modules/meetings/
     ├── tdocs_menus.py                 # Right-click context menus & centralized Quick Copy
     ├── tdocs_models.py                # TDocsTableModel & TDocsFilterProxyModel
     ├── tdocs_window.py                # Re-export shim -> tdocs/window/ mixins
-    └── ui_tabs.py                     # MeetingsTab (full-width browser, 2-row ribbon, cart)
+    ├── meetings_tab/                  # Modular MeetingsTab package (see meetings_tab/README.md)
+    └── ui_tabs.py                     # Re-export shim -> meetings_tab/ package
 ```
 
 ---
