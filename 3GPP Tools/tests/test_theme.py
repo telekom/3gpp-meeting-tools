@@ -79,18 +79,20 @@ class TestThemeDesignTokens(unittest.TestCase):
         self.assertIn("Cascadia Mono", T.FONT_FAMILY_MONO)
 
     def test_ui_components_uses_zero_raw_hex_literals(self):
-        ui_comp_path = Path(__file__).resolve().parents[1] / "src" / "core" / "ui" / "ui_components.py"
-        source = ui_comp_path.read_text(encoding="utf-8")
-        # Strip comment-only lines just in case; ensure no raw #RRGGBB in code/QSS
-        code_lines = [
-            line for line in source.splitlines() if not line.lstrip().startswith("#")
-        ]
-        matches = HEX_PATTERN.findall("\n".join(code_lines))
-        self.assertEqual(
-            matches,
-            [],
-            msg=f"Found unexpected raw hex literals in ui_components.py: {matches}",
-        )
+        core_ui_dir = Path(__file__).resolve().parents[1] / "src" / "core" / "ui"
+        targets = [core_ui_dir / "ui_components.py"] + sorted((core_ui_dir / "components").rglob("*.py"))
+        for ui_comp_path in targets:
+            source = ui_comp_path.read_text(encoding="utf-8")
+            # Strip comment-only lines just in case; ensure no raw #RRGGBB in code/QSS
+            code_lines = [
+                line for line in source.splitlines() if not line.lstrip().startswith("#")
+            ]
+            matches = HEX_PATTERN.findall("\n".join(code_lines))
+            self.assertEqual(
+                matches,
+                [],
+                msg=f"Found unexpected raw hex literals in {ui_comp_path.name}: {matches}",
+            )
 
     def test_load_app_fonts_safe_without_assets(self):
         fonts_dir = get_bundled_fonts_dir()
