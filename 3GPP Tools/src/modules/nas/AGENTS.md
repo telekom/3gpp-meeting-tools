@@ -16,6 +16,7 @@ src/modules/nas/
 │       ├── asn1_base_parser.py / asn1_parser.py / gtpu_parser.py / pdu_session_up_parser.py / pfcp_parser.py
 │       └── protocol_parser_common.py / protocol_parser_constants.py / protocol_parser_utils.py
 └── ui/
+    ├── nas_tab/                       # Modular NASTab package (see nas_tab/README.md)
     ├── nas_tabs.py / nas_components.py / nas_models.py / nas_dialogs.py
     └── nas_ingest_controller.py / nas_matrix_controller.py / nas_workers.py
 ```
