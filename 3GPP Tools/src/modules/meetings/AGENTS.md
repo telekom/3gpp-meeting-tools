@@ -68,7 +68,8 @@ src/modules/meetings/
     ├── meetings_menu.py               # Context menu & shared add_meeting_portal_actions()
     ├── models.py                      # MeetingsTableModel (7 consolidated columns)
     ├── dialogs/                       # Export & Topic Dossier dialogs
-    │   ├── post_meeting_export_dialog.py
+    │   ├── post_meeting_export/       # Modular PostMeetingExportDialog package (see post_meeting_export/README.md)
+    │   ├── post_meeting_export_dialog.py # Re-export shim -> dialogs/post_meeting_export/ package
     │   ├── pre_meeting_export_dialog.py
     │   ├── tdocs_export_controller.py
     │   └── topic_dossier_dialog.py
