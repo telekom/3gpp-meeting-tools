@@ -73,7 +73,9 @@ src/modules/meetings/
     │   ├── pre_meeting_export/        # Modular PreMeetingExportDialog package (see pre_meeting_export/README.md)
     │   ├── pre_meeting_export_dialog.py # Re-export shim -> dialogs/pre_meeting_export/ package
     │   ├── tdocs_export_controller.py
-    │   └── topic_dossier_dialog.py
+    │   ├── topic_dossier_dialog.py
+    │   ├── topic_inputs/              # Modular TopicInputsViewerDialog package (see topic_inputs/README.md)
+    │   └── topic_inputs_dialog.py     # Re-export shim -> dialogs/topic_inputs/ package
     ├── search_controller.py           # GlobalSearchController (Quick TDoc Jump)
     ├── session_plan/dialogs/          # Modular Timezone, Roster, Dispatch, Import & Diff dialogs (see dialogs/README.md)
     ├── session_plan_dialogs.py        # Re-export shim (ui/session_plan/session_plan_dialogs.py -> dialogs/)
