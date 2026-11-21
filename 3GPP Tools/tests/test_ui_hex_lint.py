@@ -37,7 +37,6 @@ LEGACY_UI_HEX_ALLOWLIST: Dict[str, int] = {
     "src/modules/emails/ui/email_toolbar.py": 17,
     "src/modules/emails/ui/email_window.py": 16,
     "src/modules/emails/ui/general_email_dialog.py": 10,
-    "src/modules/emails/ui/tdoc_emails_dialog.py": 30,
     "src/modules/meetings/ui/agreement_tracker_dialog.py": 3,
     "src/modules/meetings/ui/chair_notes_picker_dialog.py": 1,
     "src/modules/meetings/ui/contributions/contribution_dialog.py": 1,
