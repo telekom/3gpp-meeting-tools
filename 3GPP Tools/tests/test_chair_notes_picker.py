@@ -217,6 +217,114 @@ class TestChairNotesPicker(unittest.TestCase):
 
             self.assertEqual(thread.selected_files, selected)
             self.assertTrue(thread.overwrite)
+            self.assertIsNot(ChairNotesDownloaderThread.download_finished, ChairNotesDownloaderThread.finished)
+            self.assertIsNot(ChairNotesListingThread.listing_finished, ChairNotesListingThread.finished)
+
+    def test_download_files_sync_uses_part_file_and_streaming_progress(self):
+        """Verifies atomic .part staging, streaming progress updates, and .part cleanup on error."""
+        from unittest.mock import MagicMock, patch
+        import time as _time
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target_dir = Path(tmp_dir)
+            payload_chunks = [b"A" * 65536, b"B" * 65536]
+            total_len = sum(len(c) for c in payload_chunks)
+
+            mock_resp = MagicMock()
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            mock_resp.headers = {"Content-Length": str(total_len)}
+            mock_resp.iter_content.return_value = payload_chunks
+
+            mock_session = MagicMock()
+            mock_session.get.return_value = mock_resp
+
+            progress_msgs = []
+            ticks = iter([10.0, 10.3, 10.6])
+            with patch("modules.meetings.core.chair_notes_downloader.time.monotonic", side_effect=lambda: next(ticks, 11.0)):
+                downloaded = ChairNotesDownloaderThread.download_files_sync(
+                    mock_session,
+                    [("Combined_ChairNotes.doc", "https://example.org/Combined_ChairNotes.doc")],
+                    target_dir,
+                    progress_callback=progress_msgs.append,
+                    overwrite=True,
+                )
+
+            self.assertEqual(downloaded, ["Combined_ChairNotes.doc"])
+            self.assertTrue((target_dir / "Combined_ChairNotes.doc").exists())
+            self.assertFalse((target_dir / "Combined_ChairNotes.doc.part").exists())
+            self.assertTrue(any("%" in m and "KB" in m for m in progress_msgs), f"Expected byte progress in {progress_msgs}")
+
+            # Verify .part is cleaned up if stream fails mid-download
+            failing_resp = MagicMock()
+            failing_resp.__enter__ = MagicMock(return_value=failing_resp)
+            failing_resp.__exit__ = MagicMock(return_value=False)
+            failing_resp.headers = {"Content-Length": "2048"}
+
+            def _boom(chunk_size=65536):
+                yield b"partial"
+                raise RuntimeError("connection reset")
+
+            failing_resp.iter_content.side_effect = _boom
+            mock_session.get.return_value = failing_resp
+
+            failed_dl = ChairNotesDownloaderThread.download_files_sync(
+                mock_session,
+                [("Broken_Notes.doc", "https://example.org/Broken_Notes.doc")],
+                target_dir,
+                overwrite=True,
+            )
+            self.assertEqual(failed_dl, [])
+            self.assertFalse((target_dir / "Broken_Notes.doc").exists())
+            self.assertFalse((target_dir / "Broken_Notes.doc.part").exists())
+
+    def test_controller_refresh_btn_unlock_and_seq_guard(self):
+        """Verifies on_chair_notes_finished & safety fallback re-enable refresh_btn and guard stale timers."""
+        from unittest.mock import patch
+        from PyQt5.QtWidgets import QMainWindow, QPushButton
+        from modules.meetings.ui.tdocs_agenda_controller import (
+            _ensure_refresh_btn_unlocked,
+            _restore_refresh_btn,
+            _set_refresh_btn_busy,
+            on_chair_notes_finished,
+        )
+
+        win = QMainWindow()
+        win.meeting_dir = Path(".")
+        win.refresh_btn = QPushButton("🔄 Refresh", win)
+        win.refresh_btn.setToolTip("Default Tooltip")
+
+        try:
+            seq1 = _set_refresh_btn_busy(win, "Downloading Notes...")
+            self.assertFalse(win.refresh_btn.isEnabled())
+
+            # Simulate abnormal thread exit without on_chair_notes_finished: safety fallback unlocks
+            _ensure_refresh_btn_unlocked(win, seq1)
+            self.assertTrue(win.refresh_btn.isEnabled())
+            self.assertEqual(win.refresh_btn.text(), "🔄 Refresh")
+            self.assertEqual(win.refresh_btn.toolTip(), "Default Tooltip")
+
+            # Simulate normal finish followed immediately by a new busy operation before 4s timer fires
+            scheduled_callbacks = []
+            with patch("modules.meetings.ui.tdocs_agenda_controller.QMessageBox") as mock_mb, \
+                 patch("modules.meetings.ui.tdocs_agenda_controller.QTimer.singleShot", side_effect=lambda ms, fn: scheduled_callbacks.append(fn)):
+                mock_mb.return_value.clickedButton.return_value = None
+                _set_refresh_btn_busy(win, "Downloading Notes...")
+                on_chair_notes_finished(win, True, 1, ["Combined.doc"], "ok")
+
+            self.assertTrue(win.refresh_btn.isEnabled())
+            self.assertEqual(win.refresh_btn.text(), "✅ 1 Notes")
+            self.assertEqual(len(scheduled_callbacks), 1)
+
+            # Start another operation before the 4s timer fires
+            _set_refresh_btn_busy(win, "Getting Agenda...")
+            scheduled_callbacks[0]()  # Stale 4s callback must NOT clobber the new busy label!
+            self.assertFalse(win.refresh_btn.isEnabled())
+            self.assertEqual(win.refresh_btn.text(), "⏳ Getting Agenda...")
+
+            _restore_refresh_btn(win)
+        finally:
+            win.close()
 
     def test_sa2_window_chairnotes_resources_menu(self):
         """Verifies SA2 TDocsWindow populates Local ChairNotes folder and Open Notes action when notes exist."""

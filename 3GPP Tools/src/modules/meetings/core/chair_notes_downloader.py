@@ -1,6 +1,7 @@
 # --- File: src/modules/meetings/core/chair_notes_downloader.py ---
 import os
 import re
+import time
 import logging
 import zipfile
 import urllib.parse
@@ -31,7 +32,8 @@ class ChairNotesListingThread(QThread):
     """
     progress = pyqtSignal(str)
     # Emits: (success: bool, files: list of (fname, url), target_dir_url: str, message: str)
-    finished = pyqtSignal(bool, list, str, str)
+    # Use a distinct signal name so we never shadow QThread.finished().
+    listing_finished = pyqtSignal(bool, list, str, str)
 
     def __init__(self, candidate_base_urls: list, parent=None):
         super().__init__(parent)
@@ -50,10 +52,11 @@ class ChairNotesListingThread(QThread):
             )
 
             if self.isInterruptionRequested():
+                self.listing_finished.emit(False, [], "", "Chairman's Notes check cancelled.")
                 return
 
             if not target_dir_url or not html_content:
-                self.finished.emit(
+                self.listing_finished.emit(
                     False,
                     [],
                     "",
@@ -63,7 +66,7 @@ class ChairNotesListingThread(QThread):
 
             files = ChairNotesDownloaderThread.parse_file_list_static(html_content, target_dir_url)
             if not files:
-                self.finished.emit(
+                self.listing_finished.emit(
                     True,
                     [],
                     target_dir_url,
@@ -71,10 +74,10 @@ class ChairNotesListingThread(QThread):
                 )
                 return
 
-            self.finished.emit(True, files, target_dir_url, "")
+            self.listing_finished.emit(True, files, target_dir_url, "")
         except Exception as ex:
             logging.error(f"[ChairNotesListing] Unexpected failure: {ex}", exc_info=True)
-            self.finished.emit(False, [], "", f"Error scanning Chairman's Notes: {ex}")
+            self.listing_finished.emit(False, [], "", f"Error scanning Chairman's Notes: {ex}")
 
 
 class ChairNotesDownloaderThread(QThread):
@@ -86,7 +89,8 @@ class ChairNotesDownloaderThread(QThread):
     """
     progress = pyqtSignal(str)
     # Emits: (success: bool, downloaded_count: int, downloaded_files: list, message: str)
-    finished = pyqtSignal(bool, int, list, str)
+    # Use a distinct signal name so we never shadow QThread.finished().
+    download_finished = pyqtSignal(bool, int, list, str)
 
     SUBPATHS = [
         "Inbox/Chairs_Notes",
@@ -134,10 +138,11 @@ class ChairNotesDownloaderThread(QThread):
                 )
 
                 if self.isInterruptionRequested():
+                    self.download_finished.emit(False, 0, [], "Chairman's Notes download cancelled.")
                     return
 
                 if not target_dir_url or not html_content:
-                    self.finished.emit(
+                    self.download_finished.emit(
                         False,
                         0,
                         [],
@@ -151,7 +156,7 @@ class ChairNotesDownloaderThread(QThread):
                     files_to_download = self.select_best_chair_notes_files(files_to_download)
 
             if not files_to_download:
-                self.finished.emit(
+                self.download_finished.emit(
                     True,
                     0,
                     [],
@@ -170,15 +175,16 @@ class ChairNotesDownloaderThread(QThread):
             )
 
             if self.isInterruptionRequested():
+                self.download_finished.emit(False, len(downloaded), downloaded, "Chairman's Notes download cancelled.")
                 return
 
             success = len(downloaded) > 0
             msg = f"Downloaded {len(downloaded)} Chairman's Notes file(s) to:\n{self.target_dir}"
-            self.finished.emit(success, len(downloaded), downloaded, msg)
+            self.download_finished.emit(success, len(downloaded), downloaded, msg)
 
         except Exception as ex:
             logging.error(f"[ChairNotes] Unexpected failure: {ex}", exc_info=True)
-            self.finished.emit(False, 0, [], f"Error downloading Chairman's Notes: {ex}")
+            self.download_finished.emit(False, 0, [], f"Error downloading Chairman's Notes: {ex}")
 
     @classmethod
     def locate_chair_notes_dir(
@@ -467,6 +473,13 @@ class ChairNotesDownloaderThread(QThread):
             selected.append(cls._pick_latest_file(group))
         return selected
 
+    @staticmethod
+    def _format_byte_size(num_bytes: int) -> str:
+        """Formats byte counts compactly for toolbar progress labels."""
+        if num_bytes < 1024 * 1024:
+            return f"{max(1, num_bytes // 1024)} KB"
+        return f"{num_bytes / (1024 * 1024):.1f} MB"
+
     @classmethod
     def download_files_sync(
         cls,
@@ -478,7 +491,8 @@ class ChairNotesDownloaderThread(QThread):
         overwrite: bool = True,
     ) -> List[str]:
         """
-        Downloads the specified `(filename, url)` tuples into `target_dir`.
+        Downloads the specified `(filename, url)` tuples into `target_dir` atomically
+        via `.part` staging files with throttled byte/percentage progress updates.
         If a downloaded file is a `.zip` archive, extracts valid Word/HTML documents
         into `target_dir` and returns the clean extracted document filenames.
         """
@@ -491,8 +505,9 @@ class ChairNotesDownloaderThread(QThread):
                 break
 
             if progress_callback:
-                progress_callback(f"({idx}/{total_files}) Downloading {filename[:25]}...")
+                progress_callback(f"({idx}/{total_files}) {filename}")
             dest_path = target_dir / filename
+            part_path = target_dir / f"{filename}.part"
 
             # Skip download if file exists and overwrite is disabled
             if not overwrite and dest_path.exists() and dest_path.stat().st_size > 0:
@@ -507,20 +522,46 @@ class ChairNotesDownloaderThread(QThread):
                     downloaded.append(filename)
                 continue
 
+            completed_file = False
             try:
-                dl_resp = session.get(file_url, stream=True, timeout=60)
-                dl_resp.raise_for_status()
+                with session.get(file_url, stream=True, timeout=60) as dl_resp:
+                    dl_resp.raise_for_status()
+                    try:
+                        total_bytes = int(dl_resp.headers.get("Content-Length") or 0)
+                    except (TypeError, ValueError):
+                        total_bytes = 0
 
-                with open(to_extended_path(dest_path), "wb") as f:
-                    for chunk in dl_resp.iter_content(chunk_size=65536):
-                        if cancel_check and cancel_check():
-                            return downloaded
-                        if chunk:
-                            f.write(chunk)
+                    bytes_read = 0
+                    last_emit = time.monotonic()
 
+                    with open(to_extended_path(part_path), "wb") as f:
+                        for chunk in dl_resp.iter_content(chunk_size=65536):
+                            if cancel_check and cancel_check():
+                                return downloaded
+                            if chunk:
+                                f.write(chunk)
+                                bytes_read += len(chunk)
+                                if progress_callback:
+                                    now = time.monotonic()
+                                    if now - last_emit >= 0.25:
+                                        last_emit = now
+                                        if total_bytes > 0:
+                                            pct = min(100, int(bytes_read * 100 / total_bytes))
+                                            progress_callback(
+                                                f"({idx}/{total_files}) {pct}% ({cls._format_byte_size(bytes_read)}/{cls._format_byte_size(total_bytes)})"
+                                            )
+                                        else:
+                                            progress_callback(
+                                                f"({idx}/{total_files}) {cls._format_byte_size(bytes_read)}"
+                                            )
+
+                os.replace(to_extended_path(part_path), to_extended_path(dest_path))
+                completed_file = True
                 logging.info(f"[ChairNotes] Saved: {dest_path}")
 
                 if dest_path.suffix.lower() == ".zip":
+                    if progress_callback:
+                        progress_callback(f"({idx}/{total_files}) Extracting...")
                     extracted_names = cls.extract_chair_notes_zip(dest_path, target_dir)
                     if extracted_names:
                         downloaded.extend(extracted_names)
@@ -531,6 +572,14 @@ class ChairNotesDownloaderThread(QThread):
 
             except Exception as dl_err:
                 logging.error(f"[ChairNotes] Error downloading {filename}: {dl_err}")
+            finally:
+                if not completed_file:
+                    try:
+                        ext_part = to_extended_path(part_path)
+                        if os.path.exists(ext_part):
+                            os.remove(ext_part)
+                    except OSError:
+                        pass
 
         return downloaded
 

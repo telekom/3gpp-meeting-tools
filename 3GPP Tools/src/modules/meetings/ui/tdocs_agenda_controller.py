@@ -66,8 +66,10 @@ def process_next_in_import_queue(window):
     current_file = window._import_queue.pop(0)
     current_idx = window._total_import_batch_count - len(window._import_queue)
 
-    window.refresh_btn.setEnabled(False)
-    window.refresh_btn.setText(f"⏳ ({current_idx}/{window._total_import_batch_count}) Importing...")
+    _set_refresh_btn_busy(
+        window,
+        f"({current_idx}/{window._total_import_batch_count}) Importing...",
+    )
 
     window.word_import_thread = WordAgendaImporterThread(
         current_file,
@@ -88,7 +90,7 @@ def process_next_in_import_queue(window):
 
 def on_word_import_progress(window, msg: str):
     """Updates button text with import progress status."""
-    window.refresh_btn.setText(f"⏳ {msg}"[:32])
+    _update_refresh_btn_progress(window, msg, max_len=34)
 
 
 def on_word_import_finished(window, success: bool, agenda_data: dict, filename: str, error_msg: str):
@@ -117,16 +119,19 @@ def on_word_import_finished(window, success: bool, agenda_data: dict, filename: 
 def finalize_import_batch(window):
     """Resets UI state and shows completion summary for agenda batch ingestion."""
     window._is_importing_agenda = False
-    window.refresh_btn.setEnabled(True)
-    window.refresh_btn.setText("🔄 Refresh")
 
     ag_total = getattr(window, "_import_accumulated_agreements", 0)
     if hasattr(window, "_update_agreements_counter"):
         window._update_agreements_counter()
     if window._import_accumulated_merged > 0 or ag_total > 0:
         window._refresh_comboboxes()
-        window.refresh_btn.setText(f"✅ {window._import_accumulated_merged} Merged")
-        QTimer.singleShot(4000, lambda: window.refresh_btn.setText("🔄 Refresh"))
+        _restore_refresh_btn(
+            window,
+            f"✅ {window._import_accumulated_merged} Merged",
+            reset_after_ms=4000,
+        )
+    else:
+        _restore_refresh_btn(window)
 
     if window._total_import_batch_count == 1:
         if window._import_success_files:
@@ -196,11 +201,10 @@ def download_agenda_csv(window):
             window, "No URL Available", "Cannot download Agenda CSV: No valid meeting URL found."
         )
 
-    window.refresh_btn.setEnabled(False)
-    window.refresh_btn.setText("⏳ Getting Agenda...")
+    _set_refresh_btn_busy(window, "Getting Agenda...")
 
     window.agenda_dl_thread = AgendaDownloaderThread(candidate_urls, window.agenda_dir, window)
-    window.agenda_dl_thread.progress.connect(lambda msg: window.refresh_btn.setText(f"⏳ {msg}"[:30]))
+    window.agenda_dl_thread.progress.connect(lambda msg: _update_refresh_btn_progress(window, msg))
     window.agenda_dl_thread.finished.connect(
         lambda success, msg: on_agenda_download_finished(window, success, msg)
     )
@@ -209,19 +213,88 @@ def download_agenda_csv(window):
 
 def on_agenda_download_finished(window, success: bool, msg: str):
     """Handles completion of the agenda CSV download."""
-    window.refresh_btn.setEnabled(True)
-    window.refresh_btn.setText("🔄 Refresh")
-
     if success:
-        window.refresh_btn.setText("✅ Agenda Cached")
-        QTimer.singleShot(4000, lambda: window.refresh_btn.setText("🔄 Refresh"))
+        _restore_refresh_btn(window, "✅ Agenda Cached", reset_after_ms=4000)
         window.agenda_map = AgendaManager.load_local_agenda(window.agenda_dir)
         if hasattr(window, "model") and window.model:
             window.model.set_agenda_map(window.agenda_map)
         window._refresh_comboboxes()
         QMessageBox.information(window, "Agenda CSV Cached", msg)
     else:
+        _restore_refresh_btn(window)
         QMessageBox.warning(window, "Download Failed", msg)
+
+
+def _next_refresh_seq(window) -> int:
+    """Increments and returns a monotonic sequence token on `window` for refresh_btn state."""
+    cur = getattr(window, "_refresh_btn_seq", 0)
+    seq = (cur if isinstance(cur, int) else 0) + 1
+    window._refresh_btn_seq = seq
+    return seq
+
+
+def _set_refresh_btn_busy(window, label: str, max_len: int = 36) -> int:
+    """Marks `window.refresh_btn` busy with `label`, preserving its default tooltip."""
+    seq = _next_refresh_seq(window)
+    btn = getattr(window, "refresh_btn", None)
+    if btn is None:
+        return seq
+    if not hasattr(window, "_default_refresh_tooltip"):
+        try:
+            window._default_refresh_tooltip = btn.toolTip()
+        except Exception:
+            window._default_refresh_tooltip = ""
+    btn.setEnabled(False)
+    text = f"⏳ {label}" if not str(label).startswith("⏳") else str(label)
+    btn.setText(text[:max_len])
+    return seq
+
+
+def _update_refresh_btn_progress(window, msg: str, max_len: int = 36):
+    """Updates `window.refresh_btn` text and tooltip during a background download/probe."""
+    btn = getattr(window, "refresh_btn", None)
+    if btn is None:
+        return
+    clean = str(msg or "").strip()
+    display = f"⏳ {clean}"
+    if len(display) > max_len:
+        display = display[: max_len - 1].rstrip() + "…"
+    btn.setText(display)
+    if clean:
+        btn.setToolTip(clean)
+
+
+def _restore_refresh_btn(window, label: str = "🔄 Refresh", reset_after_ms: int = 0) -> int:
+    """Re-enables `window.refresh_btn`, restores its tooltip, and optionally resets after delay."""
+    seq = _next_refresh_seq(window)
+    btn = getattr(window, "refresh_btn", None)
+    if btn is None:
+        return seq
+    btn.setEnabled(True)
+    btn.setText(label)
+    default_tip = getattr(window, "_default_refresh_tooltip", None)
+    if isinstance(default_tip, str) and default_tip:
+        btn.setToolTip(default_tip)
+
+    if reset_after_ms > 0:
+        def _reset_if_current():
+            try:
+                if getattr(window, "_refresh_btn_seq", None) == seq and btn.isEnabled():
+                    btn.setText("🔄 Refresh")
+            except RuntimeError:
+                pass
+
+        QTimer.singleShot(reset_after_ms, _reset_if_current)
+    return seq
+
+
+def _ensure_refresh_btn_unlocked(window, expected_seq: int):
+    """Safety net on QThread.finished so refresh_btn never remains stuck disabled."""
+    try:
+        if getattr(window, "_refresh_btn_seq", None) == expected_seq:
+            _restore_refresh_btn(window)
+    except RuntimeError:
+        pass
 
 
 def download_chair_notes(window):
@@ -252,17 +325,19 @@ def download_chair_notes(window):
             window, "No URL Available", "Cannot download Chairman's Notes: No valid meeting URL found."
         )
 
-    window.refresh_btn.setEnabled(False)
-    window.refresh_btn.setText("⏳ Checking Notes...")
+    seq = _set_refresh_btn_busy(window, "⏳ Checking Notes...")
 
     window.chair_notes_listing_thread = ChairNotesListingThread(candidate_urls, window)
     window.chair_notes_listing_thread.progress.connect(
-        lambda msg: window.refresh_btn.setText(f"⏳ {msg}"[:30])
+        lambda msg: _update_refresh_btn_progress(window, msg)
     )
-    window.chair_notes_listing_thread.finished.connect(
+    window.chair_notes_listing_thread.listing_finished.connect(
         lambda success, files, dir_url, msg: on_chair_notes_listing_finished(
             window, success, files, dir_url, msg, candidate_urls
         )
+    )
+    window.chair_notes_listing_thread.finished.connect(
+        lambda: _ensure_refresh_btn_unlocked(window, seq)
     )
     window.chair_notes_listing_thread.start()
 
@@ -271,8 +346,7 @@ def on_chair_notes_listing_finished(
     window, success: bool, files: list, dir_url: str, msg: str, candidate_urls: list
 ):
     """Handles completion of server directory scanning and presents the picker dialog."""
-    window.refresh_btn.setEnabled(True)
-    window.refresh_btn.setText("🔄 Refresh")
+    _restore_refresh_btn(window)
 
     if not success:
         QMessageBox.warning(window, "Notes Not Found", msg)
@@ -310,8 +384,7 @@ def start_chair_notes_download(
     window, candidate_urls: list, chair_notes_dir: Path, selected_files: list, overwrite: bool
 ):
     """Launches the download thread for the user-selected Chairman's Notes files."""
-    window.refresh_btn.setEnabled(False)
-    window.refresh_btn.setText("⏳ Downloading Notes...")
+    seq = _set_refresh_btn_busy(window, "⏳ Downloading Notes...")
 
     window.chair_notes_thread = ChairNotesDownloaderThread(
         candidate_base_urls=candidate_urls,
@@ -321,24 +394,23 @@ def start_chair_notes_download(
         overwrite=overwrite,
     )
     window.chair_notes_thread.progress.connect(
-        lambda msg: window.refresh_btn.setText(f"⏳ {msg}"[:30])
+        lambda msg: _update_refresh_btn_progress(window, msg)
     )
-    window.chair_notes_thread.finished.connect(
+    window.chair_notes_thread.download_finished.connect(
         lambda success, count, files, msg: on_chair_notes_finished(
             window, success, count, files, msg
         )
+    )
+    window.chair_notes_thread.finished.connect(
+        lambda: _ensure_refresh_btn_unlocked(window, seq)
     )
     window.chair_notes_thread.start()
 
 
 def on_chair_notes_finished(window, success: bool, count: int, files: list, msg: str):
     """Handles completion of Chairman's Notes download and provides direct open actions."""
-    window.refresh_btn.setEnabled(True)
-    window.refresh_btn.setText("🔄 Refresh")
-
     if success and count > 0:
-        window.refresh_btn.setText(f"✅ {count} Notes")
-        QTimer.singleShot(4000, lambda: window.refresh_btn.setText("🔄 Refresh"))
+        _restore_refresh_btn(window, f"✅ {count} Notes", reset_after_ms=4000)
         chair_notes_dir = window.meeting_dir / "Agenda" / "ChairNotes"
 
         box = QMessageBox(window)
@@ -367,8 +439,10 @@ def on_chair_notes_finished(window, success: bool, count: int, files: list, msg:
             _open_folder(chair_notes_dir)
 
     elif success and count == 0:
+        _restore_refresh_btn(window)
         QMessageBox.information(window, "Chairman's Notes", msg)
     else:
+        _restore_refresh_btn(window)
         QMessageBox.warning(window, "Download Failed", msg)
 
 
@@ -409,8 +483,7 @@ def scan_existing_chair_notes(window):
 
     from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
 
-    window.refresh_btn.setEnabled(False)
-    window.refresh_btn.setText("⏳ Scanning Notes...")
+    _set_refresh_btn_busy(window, "Scanning Notes...")
 
     try:
         agenda_data, agreements, files_scanned = ChairNotesAgreementsParser.scan_and_cache_chair_notes(
@@ -435,12 +508,8 @@ def scan_existing_chair_notes(window):
         if hasattr(window, "_update_agreements_counter"):
             window._update_agreements_counter()
 
-        window.refresh_btn.setEnabled(True)
-        window.refresh_btn.setText("🔄 Refresh")
-
         if files_scanned > 0:
-            window.refresh_btn.setText(f"✅ {ag_count} Agreements")
-            QTimer.singleShot(4000, lambda: window.refresh_btn.setText("🔄 Refresh"))
+            _restore_refresh_btn(window, f"✅ {ag_count} Agreements", reset_after_ms=4000)
 
             wa_cnt = sum(1 for a in non_recap_agreements if "working assumption" in str(a.get("kind", "")).lower())
             ffs_cnt = sum(1 for a in non_recap_agreements if "ffs" in str(a.get("kind", "")).lower() or "open issue" in str(a.get("kind", "")).lower())
@@ -463,6 +532,7 @@ def scan_existing_chair_notes(window):
             )
             QMessageBox.information(window, "Chairman's Notes Scanned", msg)
         else:
+            _restore_refresh_btn(window)
             chair_notes_dir = window.meeting_dir / "Agenda" / "ChairNotes"
             msg = (
                 f"No Chairman's Notes files (.docx, .doc, .zip) were found in:\n{chair_notes_dir}\n\n"
@@ -479,8 +549,7 @@ def scan_existing_chair_notes(window):
             if reply == QMessageBox.Yes:
                 download_chair_notes(window)
     except Exception as e:
-        window.refresh_btn.setEnabled(True)
-        window.refresh_btn.setText("🔄 Refresh")
+        _restore_refresh_btn(window)
         logger.error(f"[scan_existing_chair_notes] Error: {e}", exc_info=True)
         QMessageBox.warning(window, "Scan Failed", f"Failed to scan Chairman's Notes:\n{e}")
 
@@ -509,13 +578,12 @@ def start_window_tdocs_caching(window):
         )
         return
 
-    window.refresh_btn.setEnabled(False)
-    window.refresh_btn.setText("⏳ Caching TDocs...")
+    _set_refresh_btn_busy(window, "Caching TDocs...")
 
     parent_obj = window if hasattr(window, "metaObject") else None
     window.cacher_thread = TDocsCacherThread(docs_url, window.meeting_dir, parent=parent_obj)
     window.cacher_thread.progress.connect(
-        lambda msg: window.refresh_btn.setText(f"⏳ {msg}"[:30])
+        lambda msg: _update_refresh_btn_progress(window, msg)
     )
     window.cacher_thread.finished.connect(
         lambda success, msg: on_window_tdocs_caching_finished(window, success, msg)
@@ -525,8 +593,7 @@ def start_window_tdocs_caching(window):
 
 def on_window_tdocs_caching_finished(window, success: bool, msg: str):
     """Resets UI and displays the result of the meeting TDocs caching process."""
-    window.refresh_btn.setEnabled(True)
-    window.refresh_btn.setText("🔄 Refresh")
+    _restore_refresh_btn(window)
 
     if success:
         QMessageBox.information(window, "Caching Complete", msg)
