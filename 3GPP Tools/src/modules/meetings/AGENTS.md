@@ -26,6 +26,8 @@ src/modules/meetings/
 │   │   ├── pre_meeting_exporter.py    # Re-export shim -> exporters/pre_meeting/ package
 │   │   ├── tdoc2md.py                 # [PROTECTED] Standalone 3GPP TDoc -> Markdown core
 │   │   ├── tdocs_package_exporter.py  # Packaged TDoc archive exporter
+│   │   ├── topic_digest/              # Modular Topic Digest & Brief builder (see topic_digest/README.md)
+│   │   ├── topic_digest_builder.py    # Re-export shim -> exporters/topic_digest/ package
 │   │   ├── topic_dossier/             # Modular Cross-WG Topic Dossier package (see topic_dossier/README.md)
 │   │   └── topic_dossier_exporter.py  # Re-export shim -> exporters/topic_dossier/ package
 │   ├── session_plan/                  # SA2 Session Plan parsing, diffing, DB & HTML export
