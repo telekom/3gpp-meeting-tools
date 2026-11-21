@@ -236,6 +236,7 @@ class TestFontScale(unittest.TestCase):
             SRC_DIR / "modules" / "work_items" / "ui" / "work_items_delegates.py",
             SRC_DIR / "modules" / "work_items" / "ui" / "work_items_model.py",
             SRC_DIR / "modules" / "nas" / "ui" / "nas_components.py",
+            SRC_DIR / "modules" / "nas" / "ui" / "components" / "delegates.py",
             SRC_DIR / "modules" / "spec_search" / "ui" / "spec_search_components.py",
         )
         for src_path in checked_paths:
