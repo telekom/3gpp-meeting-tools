@@ -14,7 +14,12 @@ src/modules/work_items/
 │   ├── wi_scraper.py                  # Full parallel scraper, ManualWIFetcherThread, TargetedWIScraperThread
 │   └── wi_settings.py                 # WorkItemsSettings (src/config/work_items_config.json)
 └── ui/
-    ├── ui_tabs.py                     # WorkItemsTab + focus_work_item deep-link handler
+    ├── ui_tabs.py                     # Backward-compatible re-export shim -> work_items_tab/
+    ├── work_items_tab/                # Modular WorkItemsTab package (shell + 4 mixins)
+    │   ├── __init__.py                # Public WorkItemsTab export
+    │   ├── README.md                  # Package architecture & MRO overview
+    │   ├── tab.py                     # WorkItemsTab shell (__init__, shutdown, closeEvent)
+    │   └── mixins/                    # ui_setup, filters_and_tracking, data_and_sync, dialogs_and_menus
     ├── work_items_model.py            # Tabular data model
     ├── work_items_delegates.py        # 1-click TrackingDelegate
     └── work_items_dialogs.py          # AddWorkItemDialog, WorkItemInfoDialog, Quick Copy
