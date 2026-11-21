@@ -22,7 +22,8 @@ src/modules/emails/
     ├── meeting_inbox/                 # Modular MeetingEmailInboxDialog package (see meeting_inbox/README.md)
     ├── meeting_email_inbox_dialog.py  # Re-export shim for MeetingEmailInboxDialog & shared QSS/widgets
     ├── merge_threads_dialog.py        # Searchable, similarity-ranked split-thread merge dialog
-    ├── tracked_thread_dialog.py       # Tracked thread viewer & AI/WI/Sub-Topic editor
+    ├── tracked_thread/                # Modular TrackedThreadDialog & PinFromOutlookDialog package (see tracked_thread/README.md)
+    ├── tracked_thread_dialog.py       # Re-export shim -> tracked_thread/
     ├── tdoc_emails_dialog.py          # Unified per-TDoc email viewer
     └── email_models.py / email_toolbar.py / config_dialog.py / sync_progress_bar.py
 ```
