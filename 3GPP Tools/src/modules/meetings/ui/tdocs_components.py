@@ -1,5 +1,6 @@
 # --- File: src/modules/meetings/ui/tdocs_components.py ---
 import logging
+import re
 from pathlib import Path
 from PyQt5.QtCore import pyqtSignal, QEvent, Qt, QPoint, QRectF, QSize
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QPalette, QColor, QBrush, QCursor, QPainter, QPen
@@ -332,6 +333,7 @@ class CheckableComboBox(QComboBox):
         for text in items:
             raw_value = str(text)
             display_text = display_labels.get(raw_value, raw_value if raw_value else "(Empty)")
+            display_text = re.sub(r'[\r\n]+', ' ', str(display_text)).strip() or "(Empty)"
             item = QStandardItem(display_text)
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Checked)
@@ -374,6 +376,7 @@ class CheckableComboBox(QComboBox):
             for text in items:
                 raw_value = str(text)
                 display_text = display_labels.get(raw_value, raw_value if raw_value else "(Empty)")
+                display_text = re.sub(r'[\r\n]+', ' ', str(display_text)).strip() or "(Empty)"
                 item = QStandardItem(display_text)
                 item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
 

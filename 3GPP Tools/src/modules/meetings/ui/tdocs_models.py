@@ -9,6 +9,7 @@ from PyQt5.QtCore import QAbstractTableModel, Qt, QModelIndex, QSortFilterProxyM
 
 from core.utils.company_sanitizer import CompanySanitizer
 from modules.meetings.core.agenda_manager import AgendaItem
+from modules.meetings.core.tdocs.chair_notes_agreements_parser import parse_chair_result
 from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
@@ -963,23 +964,58 @@ class TDocsTableModel(QAbstractTableModel):
         existing_tdocs = {row.get('TDoc', ''): idx for idx, row in enumerate(self._data)}
         tdoc_dict = {row.get('TDoc', ''): row for row in self._data}
         new_rows = []
+        rev_links_to_apply = []  # list of (source_tdoc_id, [target_tdoc_ids])
+
+        unsettled_statuses = {'unknown', '', '-', 'not handled', 'not treated', 'unhandled'}
+        pending_statuses = unsettled_statuses | {'available', 'reserved', 'open', 'opened', 'handled'}
+        settled_outcomes = {
+            'approved', 'agreed', 'parallel agreed', 'endorsed', 'noted', 'postponed',
+            'withdrawn', 'revised', 'merged', 'replied to', 'not agreed', 'not approved',
+            'not noted', 'not endorsed', 'not pursued', 'rejected', 'for e-mail approval',
+        }
+
+        def _append_revised_to(row_obj: dict, targets: list):
+            if not targets:
+                return
+            curr_revs = str(row_obj.get('Revised to', '') or '').strip()
+            rev_list = [r.strip() for r in curr_revs.split(',') if r.strip() and r.strip().lower() != 'none']
+            seen_upper = {r.upper() for r in rev_list}
+            for tgt in targets:
+                if tgt.upper() not in seen_upper:
+                    rev_list.append(tgt)
+                    seen_upper.add(tgt.upper())
+            row_obj['Revised to'] = ', '.join(rev_list)
 
         for tdoc_id, info in agenda_data.items():
             comments = info.get('Comments', '')
             email = info.get('e-mail_Discussion', '')
+            has_result_key = 'Result' in info
+            raw_res = info.get('Result', '')
+            clean_status, res_remark, res_rev_targets = parse_chair_result(raw_res)
 
-            remarks = ""
+            base_remarks = ""
             if comments and email:
-                remarks = f"{comments}\n\n[e-mail_Discussion]: {email}"
+                base_remarks = f"{comments}\n\n[e-mail_Discussion]: {email}"
             elif comments:
-                remarks = comments
+                base_remarks = comments
             elif email:
-                remarks = email
+                base_remarks = email
+
+            remarks = base_remarks
+            if res_remark and res_remark.lower() not in remarks.lower():
+                remarks = f"{remarks}\n{res_remark}" if remarks else res_remark
 
             if tdoc_id in existing_tdocs:
                 idx = existing_tdocs[tdoc_id]
-                if remarks:
-                    self._data[idx]['Secretary Remarks'] = remarks
+                existing_remarks = str(self._data[idx].get('Secretary Remarks', '') or '').strip()
+                if base_remarks:
+                    final_remarks = base_remarks
+                else:
+                    final_remarks = existing_remarks
+                if res_remark and res_remark.lower() not in final_remarks.lower():
+                    final_remarks = f"{final_remarks}\n{res_remark}" if final_remarks else res_remark
+                if final_remarks:
+                    self._data[idx]['Secretary Remarks'] = final_remarks
 
                 if info.get('Sub-Item'):
                     self._data[idx]['Sub-Item'] = info.get('Sub-Item')
@@ -1003,13 +1039,24 @@ class TDocsTableModel(QAbstractTableModel):
 
                 if info.get('For') and not self._data[idx].get('For'):
                     self._data[idx]['For'] = info.get('For')
-                res = info.get('Result')
-                if res:
-                    curr_st = str(self._data[idx].get('TDoc Status', 'Unknown')).strip()
-                    if any(sym in res for sym in ('🟢', '🟡', '🔵')) or 'agreement' in res.lower() or 'working assumption' in res.lower():
-                        self._data[idx]['TDoc Status'] = res
-                    elif curr_st in ['Unknown', '', '-', 'Not Handled']:
-                        self._data[idx]['TDoc Status'] = res
+
+                if res_rev_targets:
+                    _append_revised_to(self._data[idx], res_rev_targets)
+                    rev_links_to_apply.append((tdoc_id, res_rev_targets))
+
+                if clean_status:
+                    curr_st = str(self._data[idx].get('TDoc Status', 'Unknown') or '').strip()
+                    curr_low = curr_st.lower()
+                    if (
+                        any(sym in clean_status for sym in ('🟢', '🟡', '🔵'))
+                        or 'agreement' in clean_status.lower()
+                        or 'working assumption' in clean_status.lower()
+                    ):
+                        self._data[idx]['TDoc Status'] = clean_status
+                    elif curr_low in unsettled_statuses or (
+                        curr_low in pending_statuses and clean_status.lower() in settled_outcomes
+                    ):
+                        self._data[idx]['TDoc Status'] = clean_status
 
             else:
                 logger.info(f"✨ Injecting new on-the-fly TDoc: {tdoc_id}")
@@ -1076,6 +1123,15 @@ class TDocsTableModel(QAbstractTableModel):
                     if not related_wis:
                         related_wis = fuzzy_get('Related WIs')
 
+                if not has_result_key:
+                    initial_status = 'Unknown'
+                elif clean_status:
+                    initial_status = clean_status
+                elif res_remark:
+                    initial_status = 'Not Handled'
+                else:
+                    initial_status = ''
+
                 new_row = {
                     'TDoc': tdoc_id,
                     'Title': title if title else 'Unknown (Parsed from Agenda)',
@@ -1086,15 +1142,17 @@ class TDocsTableModel(QAbstractTableModel):
                     'Type': info.get('Type') or doc_type,
                     'For': info.get('For', ''),
                     'Abstract': abstract,
-                    'TDoc Status': info.get('Result', 'Unknown'),
+                    'TDoc Status': initial_status,
                     'Is revision of': predecessor if predecessor else '',
-                    'Revised to': '',
+                    'Revised to': ', '.join(res_rev_targets),
                     'Original LS': '',
                     'Reply in': '',
                     'Related WIs': related_wis,
                     '_agenda_order': info.get('_agenda_order'),
                     '_sub_item_order': info.get('_sub_item_order', 0),
                 }
+                if res_rev_targets:
+                    rev_links_to_apply.append((tdoc_id, res_rev_targets))
                 new_rows.append(new_row)
 
         if new_rows:
@@ -1116,12 +1174,13 @@ class TDocsTableModel(QAbstractTableModel):
                                 predecessor = base_tdoc
 
                     if predecessor in tdoc_dict:
-                        curr_revs = str(tdoc_dict[predecessor].get('Revised to', '')).strip()
-                        if tdoc_id not in curr_revs:
-                            if curr_revs and curr_revs != 'None':
-                                tdoc_dict[predecessor]['Revised to'] = f"{curr_revs}, {tdoc_id}"
-                            else:
-                                tdoc_dict[predecessor]['Revised to'] = tdoc_id
+                        _append_revised_to(tdoc_dict[predecessor], [tdoc_id])
+
+        for src_id, targets in rev_links_to_apply:
+            for tgt in targets:
+                tgt_row = tdoc_dict.get(tgt.upper()) or tdoc_dict.get(tgt)
+                if tgt_row and not str(tgt_row.get('Is revision of', '') or '').strip():
+                    tgt_row['Is revision of'] = src_id
 
         self.valid_tdocs = {str(r.get("TDoc", "")) for r in self._data if r.get("TDoc")}
         self._apply_user_data_logic()

@@ -53,6 +53,8 @@ class FilterFacetsMixin:
                     sub_val = str(row.get("Sub-Item", "") or "").strip()
                     if sub_val:
                         facets["sub_item"].add(sub_val)
+                    elif not row.get("_is_tracked_thread"):
+                        facets["sub_item"].add("(No Sub-Item)")
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="wi"):
                 facets["wi"].update(self.model.get_related_wis(row_idx))
             if self.proxy.rowMatchesFilters(row_idx, exclude_filter="status"):
@@ -200,17 +202,25 @@ class FilterFacetsMixin:
 
         unique_sub_items = []
         seen_subs = set()
+        has_no_sub_item = False
         for r in self.model._data:
-            for sub in (list(r.get("_linked_sub_items") or []) or [str(r.get("Sub-Item", "") or "").strip()]):
+            subs = list(r.get("_linked_sub_items") or []) or [str(r.get("Sub-Item", "") or "").strip()]
+            row_has_sub = False
+            for sub in subs:
                 sub = str(sub or "").strip()
-                if sub and sub not in seen_subs:
-                    seen_subs.add(sub)
-                    unique_sub_items.append(sub)
+                if sub:
+                    row_has_sub = True
+                    if sub not in seen_subs:
+                        seen_subs.add(sub)
+                        unique_sub_items.append(sub)
+            if not row_has_sub and not r.get("_is_tracked_thread"):
+                has_no_sub_item = True
 
         if hasattr(self, "sub_item_combo"):
             if unique_sub_items:
+                sub_items = list(unique_sub_items) + (["(No Sub-Item)"] if has_no_sub_item else [])
                 self.sub_item_combo.setVisible(True)
-                self.sub_item_combo.updateItems(unique_sub_items)
+                self.sub_item_combo.updateItems(sub_items)
                 self._apply_pending_combo_filter("sub_item", self.sub_item_combo)
                 self.proxy.setSubItemFilters(self.sub_item_combo.getCheckedItems())
             else:

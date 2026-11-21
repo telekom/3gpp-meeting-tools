@@ -359,6 +359,16 @@ class TDocsParser:
             ):
                 col_map['ai'] = idx
 
+            # 9. Work Item / Related WIs
+            elif clean_text in [
+                'work item', 'work items', 'wi', 'wis', 'related wi', 'related wis', 'work item(s)'
+            ]:
+                col_map['wi'] = idx
+
+            # 10. Release
+            elif clean_text in ['rel', 'release']:
+                col_map['rel'] = idx
+
         return col_map
 
     @staticmethod

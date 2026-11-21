@@ -68,20 +68,25 @@ def normalize_status(val: str) -> str:
     s = str(val or '').strip().lower()
     if not s or s in ['nan', 'none', '-', '']:
         return 'Unknown'
-    if 'not treated' in s or 'not handled' in s or 'left over' in s:
+    first_line = s.splitlines()[0].strip()
+    if first_line.endswith('?'):
+        return 'Unknown'
+    if 'not treated' in s or 'not handled' in s or 'not opened' in s or 'unhandled' in s or 'left over' in s:
         return 'Not Treated'
+    if 'not agreed' in s or 'not approved' in s or 'not endorsed' in s or 'not pursued' in s or 'not noted' in s:
+        return 'Not Treated'
+    if 'merged' in s or first_line.startswith('merge '):
+        return 'Merged'
     if 'agreed' in s:
         return 'Agreed'
     if 'approved' in s:
         return 'Approved'
-    if 'revised' in s or 'revision' in s:
+    if 'revised' in s or first_line.startswith('rev to ') or first_line.startswith('rev in '):
         return 'Revised'
     if 'noted' in s:
         return 'Noted'
     if 'postponed' in s:
         return 'Postponed'
-    if 'merged' in s:
-        return 'Merged'
     if 'endorsed' in s:
         return 'Endorsed'
     if 'replied' in s:
@@ -90,7 +95,9 @@ def normalize_status(val: str) -> str:
         return 'Available'
     if 'withdrawn' in s:
         return 'Withdrawn'
-    return s.title()
+    if first_line.startswith('open'):
+        return 'Available'
+    return first_line.title()
 
 
 def classify_doc_type(val: str, spec: str = "") -> str:

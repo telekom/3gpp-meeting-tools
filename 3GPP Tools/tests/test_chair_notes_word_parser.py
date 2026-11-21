@@ -179,6 +179,36 @@ class TestChairNotesWordParser(unittest.TestCase):
         self.assertIn("Room discussion: companies supported Option 2.", parsed["R2-2605890"]["Comments"])
         self.assertIn("Revised to R2-2606500", parsed["R2-2605890"]["Result"])
 
+    def test_parse_sa2_multi_ai_first_sub_item_and_wi_rel_preserved(self):
+        """Verifies SA2 10-column Chair Notes preserve the first Sub-Item under a new AI and extract Rel/WI."""
+        doc = docx.Document()
+        table = doc.add_table(rows=6, cols=10)
+
+        headers = ['AI', 'TD#', 'Type', 'Doc For', 'Subject', 'Source', 'Rel', 'Work Item', 'Comments', 'Result']
+        for i, h in enumerate(headers):
+            table.cell(0, i).text = h
+
+        rows_data = [
+            ['20.6.13', '-', '-', '-', 'Emergency Voice Services', 'Convenor = Mike', '-', '-', 'Docs:=1', '-'],
+            ['20.6.13', 'S2-2611520', 'P-CR', 'Approval', 'Emergency conclusions', 'Qualcomm', 'Rel-20', 'FS_6G_ARC', 'Handle', 'Revised to S2-2612696'],
+            ['20.6.14', '-', '-', '-', 'Location Services for 6G', 'Convenor = Mike', '-', '-', 'Docs:=16', '-'],
+            ['20.6.14', '-', '-', '-', 'Direct RAN-CN interface', '-', '-', '-', 'Docs:=6', '-'],
+            ['20.6.14', 'S2-2612591', 'P-CR', 'Approval', 'Location Services update', 'Ericsson', 'Rel-20', 'FS_6G_ARC', 'Discuss', 'Revised to S2-2612689'],
+        ]
+        for r_idx, r_vals in enumerate(rows_data, start=1):
+            for c_idx, val in enumerate(r_vals):
+                table.cell(r_idx, c_idx).text = val
+
+        file_path = self.test_dir / "sa2_178_mike.docx"
+        doc.save(str(file_path))
+
+        parsed = TDocsParser.parse_tdocs_from_docx(str(file_path))
+        self.assertIn('S2-2612591', parsed)
+        self.assertEqual(parsed['S2-2612591']['Agenda Item'], '20.6.14')
+        self.assertEqual(parsed['S2-2612591']['Sub-Item'], 'Direct RAN-CN interface')
+        self.assertEqual(parsed['S2-2612591']['Related WIs'], 'FS_6G_ARC')
+        self.assertEqual(parsed['S2-2612591']['Release'], 'Rel-20')
+
 
 if __name__ == '__main__':
     unittest.main()

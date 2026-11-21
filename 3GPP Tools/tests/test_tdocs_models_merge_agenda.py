@@ -135,6 +135,200 @@ class TestTDocsModelsMergeAgenda(unittest.TestCase):
         self.assertEqual(row['Related WIs'], '')
         self.assertEqual(row['Is revision of'], 'S2-269999')
 
+    def test_parse_chair_result_normalizes_sa2_and_ran_statuses(self):
+        """Verifies parse_chair_result extracts clean canonical statuses, remarks, and revision targets."""
+        from modules.meetings.core.tdocs.chair_notes_agreements_parser import parse_chair_result
+
+        cases = [
+            ("", ("", "", [])),
+            ("APPROVED", ("Approved", "", [])),
+            ("NOTED", ("Noted", "", [])),
+            ("POSTPONED", ("Postponed", "", [])),
+            ("WITHDRAWN", ("Withdrawn", "", [])),
+            ("OPEN", ("Open", "", [])),
+            ("Replied to", ("Replied to", "", [])),
+            ("Revised to S2-2612689", ("Revised", "", ["S2-2612689"])),
+            ("revised to S2-2613055", ("Revised", "", ["S2-2613055"])),
+            ("Rev in R3-264569 Agreed", ("Agreed", "Rev in R3-264569 Agreed", ["R3-264569"])),
+            ("Merged into S2-2612833", ("Merged", "Merged into S2-2612833", [])),
+            (
+                "OPEN\nDiscuss if agree with EN, and word the EN",
+                ("Open", "Discuss if agree with EN, and word the EN", []),
+            ),
+            (
+                "OPEN  Once updated we will add these slides to the tdoc",
+                ("Open", "Once updated we will add these slides to the tdoc", []),
+            ),
+            (
+                "Revision assigned after offline discussion, not opened yet.",
+                ("Not Handled", "Revision assigned after offline discussion, not opened yet.", []),
+            ),
+            ("Block Approve?", ("", "Block Approve?", [])),
+            ("Block Approved", ("Approved", "", [])),
+            ("not noted", ("Not Noted", "", [])),
+            ("🟢 Agreement", ("🟢 Agreement", "", [])),
+        ]
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                self.assertEqual(parse_chair_result(raw), expected)
+
+    def test_merge_agenda_normalizes_chair_statuses_and_links_revisions(self):
+        """Verifies merge_agenda_data keeps TDoc Status clean and preserves remarks/links."""
+        base_rows = [
+            {
+                'TDoc': 'S2-2612591',
+                'Title': 'LCS direct interface',
+                'Source': 'Ericsson',
+                'Type': 'P-CR',
+                'For': 'Approval',
+                'Secretary Remarks': '',
+                'Agenda Item': '20.6.14',
+                'TDoc Status': 'Available',
+                'Is revision of': '',
+                'Revised to': '',
+                'Related WIs': 'FS_6G_ARC',
+            },
+            {
+                'TDoc': 'S2-2612689',
+                'Title': 'LCS direct interface',
+                'Source': 'Ericsson',
+                'Type': 'P-CR',
+                'For': 'Approval',
+                'Secretary Remarks': '',
+                'Agenda Item': '20.6.14',
+                'TDoc Status': 'Available',
+                'Is revision of': '',
+                'Revised to': '',
+                'Related WIs': 'FS_6G_ARC',
+            },
+            {
+                'TDoc': 'S2-2611681',
+                'Title': 'Agentic AI',
+                'Source': 'NCSC',
+                'Type': 'DISCUSSION',
+                'For': 'Endorsement',
+                'Secretary Remarks': '',
+                'Agenda Item': '20.6.0',
+                'TDoc Status': 'Available',
+                'Is revision of': '',
+                'Revised to': '',
+                'Related WIs': 'FS_6G_ARC',
+            },
+        ]
+        model = TDocsTableModel(meeting_dir=self.meeting_dir, data=base_rows)
+
+        agenda_data = {
+            'S2-2612591': {
+                'Comments': 'Discuss offline',
+                'Result': 'Revised to S2-2612689',
+                'Agenda Item': '20.6.14',
+                'e-mail_Discussion': '',
+            },
+            'S2-2611681': {
+                'Comments': 'Handle',
+                'Result': 'Block Approve?',
+                'Agenda Item': '20.6.0',
+                'e-mail_Discussion': '',
+            },
+            'S2-2613114': {
+                'Title': 'Measurement based CN PDB',
+                'Source': 'Huawei, HiSilicon',
+                'Type': 'CR',
+                'For': 'Approval',
+                'Comments': 'Revision of S2-2613039',
+                'Result': 'OPEN\nDiscuss if agree with EN, and word the EN',
+                'Agenda Item': '20.50',
+                'e-mail_Discussion': '',
+            },
+            'S2-2612832': {
+                'Title': 'DL Data Transfer Assistance',
+                'Source': 'China Mobile',
+                'Type': 'CR',
+                'For': 'Approval',
+                'Comments': 'Revision of S2-2612797',
+                'Result': 'Merged into S2-2612833',
+                'Agenda Item': '20.5.2',
+                'e-mail_Discussion': '',
+            },
+            'S2-2612931': {
+                'Title': 'Consolidated architecture proposal',
+                'Source': 'China Mobile',
+                'Type': 'P-CR',
+                'For': 'Approval',
+                'Comments': 'Revision of S2-2612168',
+                'Result': 'Revision assigned after offline discussion, not opened yet.',
+                'Agenda Item': '20.6.0',
+                'e-mail_Discussion': '',
+            },
+        }
+        model.merge_agenda_data(agenda_data)
+        tdoc_map = {r.get('TDoc'): r for r in model._data}
+
+        # Stale Available updated to Revised, Revised to linked bidirectionally
+        self.assertEqual(tdoc_map['S2-2612591']['TDoc Status'], 'Revised')
+        self.assertEqual(tdoc_map['S2-2612591']['Revised to'], 'S2-2612689')
+        self.assertEqual(tdoc_map['S2-2612689']['Is revision of'], 'S2-2612591')
+
+        # Tentative question does NOT overwrite Available, preserved in Secretary Remarks
+        self.assertEqual(tdoc_map['S2-2611681']['TDoc Status'], 'Available')
+        self.assertIn('Block Approve?', tdoc_map['S2-2611681']['Secretary Remarks'])
+
+        # Multi-line OPEN status split cleanly
+        self.assertEqual(tdoc_map['S2-2613114']['TDoc Status'], 'Open')
+        self.assertIn('Discuss if agree with EN, and word the EN', tdoc_map['S2-2613114']['Secretary Remarks'])
+
+        # Merged into -> Merged + remark link preserved
+        self.assertEqual(tdoc_map['S2-2612832']['TDoc Status'], 'Merged')
+        self.assertIn('Merged into S2-2612833', tdoc_map['S2-2612832']['Secretary Remarks'])
+
+        # Not opened yet -> Not Handled + full text moved to Secretary Remarks
+        self.assertEqual(tdoc_map['S2-2612931']['TDoc Status'], 'Not Handled')
+        self.assertIn('Revision assigned after offline discussion, not opened yet.', tdoc_map['S2-2612931']['Secretary Remarks'])
+
+    def test_sub_item_combo_includes_no_sub_item_for_mixed_rows(self):
+        """Verifies rows without Sub-Item remain visible and statuses are not greyed out."""
+        import tempfile as tf
+        from modules.meetings.ui.tdocs_window import TDocsWindow
+
+        rows = [
+            {
+                'TDoc': 'S2-260100',
+                'Title': 'With Sub-Item',
+                'Source': 'Nokia',
+                'Type': 'CR',
+                'For': 'Approval',
+                'Agenda Item': '20.6.1',
+                'Sub-Item': 'NAS Routing',
+                'TDoc Status': 'Agreed',
+                'Related WIs': 'FS_6G_ARC',
+            },
+            {
+                'TDoc': 'S2-260101',
+                'Title': 'Without Sub-Item',
+                'Source': 'Ericsson',
+                'Type': 'CR',
+                'For': 'Approval',
+                'Agenda Item': '20.6.14',
+                'Sub-Item': '',
+                'TDoc Status': 'Merged',
+                'Related WIs': 'FS_6G_ARC',
+            },
+        ]
+        with tf.TemporaryDirectory() as tmp_dir:
+            agenda_path = Path(tmp_dir) / 'Agenda' / 'test.xlsx'
+            agenda_path.parent.mkdir(parents=True, exist_ok=True)
+            win = TDocsWindow({'wg_name': 'SA2', 'meeting_number': '178'}, rows, str(agenda_path))
+            self.assertEqual(win.proxy.rowCount(), 2)
+            # Both 'Agreed' and 'Merged' should be available (UserRole+1 == True)
+            status_model = win.status_combo.model()
+            avail = {
+                status_model.item(i).data(256): status_model.item(i).data(257)  # Qt.UserRole=256, Qt.UserRole+1=257
+                for i in range(1, status_model.rowCount())
+            }
+            self.assertTrue(avail.get('Agreed'))
+            self.assertTrue(avail.get('Merged'))
+            win.close()
+
 
 if __name__ == '__main__':
     unittest.main()
