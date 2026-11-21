@@ -73,7 +73,8 @@ src/modules/meetings/
     │   ├── tdocs_export_controller.py
     │   └── topic_dossier_dialog.py
     ├── search_controller.py           # GlobalSearchController (Quick TDoc Jump)
-    ├── session_plan_dialogs.py        # Timezone, Roster, Dispatch, Import & Diff dialogs
+    ├── session_plan/dialogs/          # Modular Timezone, Roster, Dispatch, Import & Diff dialogs (see dialogs/README.md)
+    ├── session_plan_dialogs.py        # Re-export shim (ui/session_plan/session_plan_dialogs.py -> dialogs/)
     ├── session_plan_window.py         # Re-export shim -> session_plan/window/ mixins
     ├── tdocs_components.py            # CheckableComboBox and styled UI widgets
     ├── tdocs_dialogs.py               # Statistics & export configuration dialogs

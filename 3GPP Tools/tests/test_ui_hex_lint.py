@@ -48,7 +48,6 @@ LEGACY_UI_HEX_ALLOWLIST: Dict[str, int] = {
     "src/modules/meetings/ui/dialogs/pre_meeting_export_dialog.py": 7,
     "src/modules/meetings/ui/dialogs/topic_inputs_dialog.py": 6,
     "src/modules/meetings/ui/meeting_agreements_dialog.py": 5,
-    "src/modules/meetings/ui/session_plan/session_plan_dialogs.py": 1,
     "src/modules/meetings/ui/session_plan/window/mixins/now_cards.py": 2,
     "src/modules/meetings/ui/session_plan/window/mixins/slot_cells.py": 6,
     "src/modules/meetings/ui/session_plan/window/mixins/team_render.py": 1,
