@@ -20,8 +20,10 @@ src/modules/meetings/
 │   │   ├── excel_exporter.py          # Formatted Excel (.xlsx) & Review Matrix export
 │   │   ├── llm_exporter.py            # Batch/single Markdown extraction
 │   │   ├── markdown_exporter.py       # Meeting summary reports
-│   │   ├── post_meeting_exporter.py   # Re-export shim -> exporters/post_meeting/ package (see post_meeting/README.md)
-│   │   ├── pre_meeting_exporter.py    # Pre-meeting briefing generator
+│   │   ├── post_meeting/              # Modular Post-Meeting Dossier package (see post_meeting/README.md)
+│   │   ├── post_meeting_exporter.py   # Re-export shim -> exporters/post_meeting/ package
+│   │   ├── pre_meeting/               # Modular Pre-Meeting Briefing & Dossier package (see pre_meeting/README.md)
+│   │   ├── pre_meeting_exporter.py    # Re-export shim -> exporters/pre_meeting/ package
 │   │   ├── tdoc2md.py                 # [PROTECTED] Standalone 3GPP TDoc -> Markdown core
 │   │   ├── tdocs_package_exporter.py  # Packaged TDoc archive exporter
 │   │   ├── topic_dossier/             # Modular Cross-WG Topic Dossier package (see topic_dossier/README.md)
