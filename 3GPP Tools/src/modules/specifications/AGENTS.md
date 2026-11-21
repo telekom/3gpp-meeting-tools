@@ -14,6 +14,7 @@ src/modules/specifications/
 │   ├── spec_markdown_converter.py             # Mode 1 (unified) & Mode 2 (clause-split) Markdown export
 │   └── spec_history_db.py / spec_history_extractor.py / spec_clause_attribution.py / spec_tdoc_opener.py / spec_tdoc_report.py
 └── ui/
+    ├── specs_tab/                             # Modular SpecificationsTab package (see specs_tab/README.md)
     ├── ui_tabs.py / components.py / spec_menu.py / spec_action_controller.py / threads.py
     ├── dialogs.py / spec_info_dialog.py / spec_annotations_dialog.py / spec_clause_dialog.py
     └── spec_history_dialog.py / spec_tdoc_report_dialog.py
