@@ -31,7 +31,8 @@ src/modules/meetings/
 │   │   ├── topic_dossier/             # Modular Cross-WG Topic Dossier package (see topic_dossier/README.md)
 │   │   └── topic_dossier_exporter.py  # Re-export shim -> exporters/topic_dossier/ package
 │   ├── session_plan/                  # SA2 Session Plan parsing, diffing, DB & HTML export
-│   │   ├── session_plan_db.py         # SQLite persistence & cross-meeting defaults
+│   │   ├── db/                        # Modular SessionPlanDatabase package (see db/README.md)
+│   │   ├── session_plan_db.py         # Re-export shim -> session_plan/db/ package
 │   │   ├── session_plan_diff.py       # Slot-by-slot snapshot diff engine
 │   │   ├── session_plan_exporter.py   # Re-export shim -> session_plan/exporter/ package (see exporter/README.md)
 │   │   ├── session_plan_models.py     # Domain models & boundary-aware delegate resolvers
