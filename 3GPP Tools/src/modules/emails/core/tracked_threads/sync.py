@@ -22,6 +22,7 @@ from .collection_and_pinning import (
 from .documents import _auto_cache_db_drafts
 from .parsing import (
     _extract_folder_paths,
+    _extract_folder_sub_flags,
     _mail_item_to_dict,
     call_load_wg_email_config as load_wg_email_config,
     normalize_subject,
@@ -89,6 +90,7 @@ def refresh_threads_batch(
     conv_to_tids: Dict[str, set] = {}
     subj_to_tids: Dict[str, set] = {}
     folder_to_tids: Dict[str, set] = {}
+    folder_sub_flags: Dict[str, bool] = {}
     folder_order: List[str] = []
     all_tids: set = set()
 
@@ -100,6 +102,9 @@ def refresh_threads_batch(
         extracted = _extract_folder_paths(raw_folders)
         if not extracted:
             continue
+        folder_sub_flags.update(_extract_folder_sub_flags(raw_folders))
+        if t.get("wg"):
+            folder_sub_flags.update(_extract_folder_sub_flags(load_wg_email_config(t.get("wg", ""))))
         tid_map[tid] = t
         all_tids.add(tid)
         tid_existing[tid] = db.get_existing_message_states(tid)
@@ -135,6 +140,7 @@ def refresh_threads_batch(
             if sk not in folder_to_tids:
                 folder_order.append(sent_path)
             folder_to_tids.setdefault(sk, set()).update(all_tids)
+            folder_sub_flags.setdefault(sk, False)
     except Exception:
         pass
 
@@ -146,18 +152,32 @@ def refresh_threads_batch(
     extracted_cache: Dict[str, Dict[str, Any]] = {}
 
     total_folders = len(folder_order)
+    visited_folder_keys: set = set()
+    expanded_folder_jobs: List[tuple] = []
     for f_idx, fpath in enumerate(folder_order):
         if cancel_check and cancel_check():
             break
         if progress_cb:
             short_name = fpath.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1] or fpath
             progress_cb(f_idx, total_folders, f"Folder: {short_name}", folder_order[f_idx + 1 :])
-        folder = OutlookClient.get_folder_by_path(fpath)
-        if not folder:
+        root_folder = OutlookClient.get_folder_by_path(fpath)
+        if not root_folder:
             continue
         allowed_tids = folder_to_tids.get(fpath.lower(), set())
         if not allowed_tids:
             continue
+        inc_sub = folder_sub_flags.get(fpath.lower(), True)
+        for sub_f in OutlookClient.iter_folder_tree(
+            root_folder,
+            include_subfolders=inc_sub,
+            visited_keys=visited_folder_keys,
+            fallback_path=fpath,
+        ):
+            expanded_folder_jobs.append((sub_f, fpath, allowed_tids))
+
+    for folder, fpath, allowed_tids in expanded_folder_jobs:
+        if cancel_check and cancel_check():
+            break
         try:
             tbl = folder.GetTable()
             try:

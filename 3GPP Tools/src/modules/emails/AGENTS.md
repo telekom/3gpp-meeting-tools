@@ -37,7 +37,7 @@ src/modules/emails/
 
 - **Untracked Thread Discovery (`PinFromOutlookDialog`, `classify_discovered_threads`):**
   - Accepts local `.msg` files, direct Outlook drags (`FileGroupDescriptorW` / `RenPrivateMessages` $\to$ `pin_thread_from_outlook_selection`), and structured discovery across configured WG folders + `Sent Items` (`GetDefaultFolder(5)`).
-  - Uses fast MAPI `folder.GetTable()` (up to 1,500 items/folder, matching normalized subject `normalize_subject` or `ConversationID`), `GetConversation().GetTable()`, and Listserv/DMARC sender resolution (`GeneralEmailSyncThread._resolve_sender`).
+  - Uses fast MAPI `folder.GetTable()` (up to 1,500 items/folder, matching normalized subject `normalize_subject` or `ConversationID`), `GetConversation().GetTable()`, recursive subfolder expansion (`OutlookClient.iter_folder_tree` with `include_subfolders=True` default in `GeneralEmailFoldersDialog`, most-specific path precedence, and deduplicated `visited_keys`), and Listserv/DMARC sender resolution (`GeneralEmailSyncThread._resolve_sender`).
   - Classifies threads via `valid_tdocs` and `GeneralEmailDatabase.get_tdoc_match_locations_by_email_id()` into `📌 Pinned`, `🟢 Subject TDoc`, `🟡 TDoc in Body Only`, `🔴 No TDoc` (default `UNTRACKED_AND_BODY`), with per-meeting exclusions in `<meeting_dir>/Agenda/email_discovery_config.json`.
 - **Cascading Selectors & Inheritance (`TrackedThreadDialog`, `topic_pills.py`):**
   - `TagCloudWidget` with `strict_dropdown=True` (scrollable searchable multi-token checklist popups) scopes `Sub-Topics` strictly to assigned `AIs` (`ai_to_sub_items`, pruning orphans when an AI is removed while preserving legacy links until `✕` removal).

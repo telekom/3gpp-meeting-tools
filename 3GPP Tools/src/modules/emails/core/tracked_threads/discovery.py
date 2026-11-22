@@ -11,6 +11,7 @@ from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from .parsing import (
     _TDOC_RE,
     _extract_folder_paths,
+    _extract_folder_sub_flags,
     auto_suggest_links,
     call_load_wg_email_config as load_wg_email_config,
     normalize_subject,
@@ -143,27 +144,44 @@ def list_recent_threads_in_folders(
     """Lists recent unique conversation threads across configured Outlook WG folders + Sent Items via MAPI GetTable()."""
     from modules.emails.core.outlook_client import OutlookClient
 
-    folders = _extract_folder_paths(load_wg_email_config(wg)) if wg else []
+    raw_cfg = load_wg_email_config(wg) if wg else []
+    folders = _extract_folder_paths(raw_cfg)
+    sub_flags = _extract_folder_sub_flags(raw_cfg)
     ns = OutlookClient.get_namespace()
     if ns:
         try:
             sent_path = getattr(ns.GetDefaultFolder(5), "FolderPath", "") or ""
             if sent_path and sent_path.lower() not in {p.lower() for p in folders}:
                 folders.append(sent_path)
+                sub_flags.setdefault(sent_path.lower(), False)
         except Exception:
             pass
 
     threads_by_key: Dict[str, Dict[str, Any]] = {}
     total_folders = len(folders)
+    visited_folder_keys: set = set()
+    expanded_folders: List[tuple] = []
 
     for idx, fpath in enumerate(folders):
         if cancel_check and cancel_check():
             break
         if progress_cb:
             progress_cb(idx, total_folders, fpath, folders[idx + 1 :])
-        folder = OutlookClient.get_folder_by_path(fpath)
-        if not folder:
+        root_folder = OutlookClient.get_folder_by_path(fpath)
+        if not root_folder:
             continue
+        inc_sub = sub_flags.get(fpath.lower(), True)
+        for sub_f in OutlookClient.iter_folder_tree(
+            root_folder,
+            include_subfolders=inc_sub,
+            visited_keys=visited_folder_keys,
+            fallback_path=fpath,
+        ):
+            expanded_folders.append((sub_f, fpath))
+
+    for folder, fpath in expanded_folders:
+        if cancel_check and cancel_check():
+            break
         try:
             if hasattr(folder, "GetTable"):
                 tbl = folder.GetTable()

@@ -175,24 +175,44 @@ class GeneralEmailSyncThread(QThread):
                 sent_path = getattr(ns.GetDefaultFolder(5), "FolderPath", "") or ""
                 known_paths = {str(fc.get("folder_path", "")).strip().lower() for fc in folder_configs}
                 if sent_path and sent_path.lower() not in known_paths:
-                    folder_configs.append({"folder_path": sent_path, "tag": "Sent"})
+                    folder_configs.append({"folder_path": sent_path, "tag": "Sent", "include_subfolders": False})
             except Exception:
                 pass
 
-        for folder_cfg in folder_configs:
+        # Expand configured folders + subfolders (most-specific path first so specific tags win over parent folders)
+        ordered_configs = sorted(
+            folder_configs,
+            key=lambda fc: len([p for p in str(fc.get("folder_path", "")).replace("\\", "/").split("/") if p]),
+            reverse=True,
+        )
+        visited_folder_keys: Set[str] = set()
+        resolved_targets = []
+        for folder_cfg in ordered_configs:
             if cancel_check and cancel_check():
                 break
             folder_path = folder_cfg.get("folder_path", "")
             folder_tag = folder_cfg.get("tag", "General")
+            include_sub = bool(folder_cfg.get("include_subfolders", True))
             if not folder_path:
                 continue
 
             if progress_cb:
                 progress_cb(f"Connecting to: {folder_path} [{folder_tag}]...")
-            folder = OutlookClient.get_folder_by_path(folder_path)
-            if not folder:
+            root_folder = OutlookClient.get_folder_by_path(folder_path)
+            if not root_folder:
                 logging.warning(f"Could not open Outlook folder: {folder_path}")
                 continue
+            for sub_f in OutlookClient.iter_folder_tree(
+                root_folder,
+                include_subfolders=include_sub,
+                visited_keys=visited_folder_keys,
+                fallback_path=folder_path,
+            ):
+                resolved_targets.append((sub_f, folder_tag, folder_path))
+
+        for folder, folder_tag, folder_path in resolved_targets:
+            if cancel_check and cancel_check():
+                break
 
             batch_emails = []
             batch_matches = []

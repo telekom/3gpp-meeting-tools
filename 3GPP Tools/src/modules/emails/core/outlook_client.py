@@ -72,6 +72,71 @@ class OutlookClient:
             return None
 
     @staticmethod
+    def folder_unique_key(folder, fallback_path: str = "") -> str:
+        """Returns a normalized unique key for an Outlook MAPIFolder to prevent duplicate scans."""
+        try:
+            fpath = str(getattr(folder, "FolderPath", "") or "").strip()
+            if fpath and not fpath.startswith("<MagicMock"):
+                return fpath.replace("\\", "/").strip("/").lower()
+        except Exception:
+            pass
+        try:
+            eid = str(getattr(folder, "EntryID", "") or "").strip()
+            if eid and not eid.startswith("<MagicMock"):
+                return f"eid:{eid}"
+        except Exception:
+            pass
+        if fallback_path:
+            return fallback_path.replace("\\", "/").strip("/").lower()
+        return f"obj:{id(folder)}"
+
+    @staticmethod
+    def iter_folder_tree(
+        folder,
+        *,
+        include_subfolders: bool = True,
+        max_depth: int = 4,
+        visited_keys: Optional[set] = None,
+        fallback_path: str = "",
+    ) -> list:
+        """
+        Returns `[folder, ...subfolders]` up to `max_depth` when `include_subfolders=True`,
+        deduplicating against `visited_keys` so nested configured folders are never scanned twice.
+        """
+        if folder is None:
+            return []
+        seen = visited_keys if visited_keys is not None else set()
+        result = []
+
+        def _walk(cur_folder, depth: int, cur_path: str):
+            if cur_folder is None:
+                return
+            key = OutlookClient.folder_unique_key(cur_folder, fallback_path=cur_path)
+            if key not in seen:
+                seen.add(key)
+                result.append(cur_folder)
+            if not include_subfolders or depth <= 0:
+                return
+            try:
+                subfolders = getattr(cur_folder, "Folders", None)
+                if not subfolders:
+                    return
+                for idx, sub in enumerate(subfolders):
+                    if sub is None or sub is cur_folder:
+                        continue
+                    try:
+                        sub_name = str(getattr(sub, "Name", "") or f"sub_{idx}").strip()
+                    except Exception:
+                        sub_name = f"sub_{idx}"
+                    sub_path = f"{cur_path}/{sub_name}".strip("/") if cur_path else sub_name
+                    _walk(sub, depth - 1, sub_path)
+            except Exception:
+                pass
+
+        _walk(folder, max_depth, fallback_path)
+        return result
+
+    @staticmethod
     def save_email_to_disk(mail_item, tdoc_id: str, meeting_dir: Path) -> str:
         """
         Saves the physical .msg file to [Meeting Dir]/[TDoc]/email approval/

@@ -313,6 +313,67 @@ class TestEMeetingUnifiedInbox(unittest.TestCase):
             finally:
                 dlg.close()
 
+    def test_subfolder_recursion_deduplication_and_folders_dialog(self):
+        from unittest.mock import patch
+        from modules.emails.core.outlook_client import OutlookClient
+        from modules.emails.ui.general_email_dialog import GeneralEmailFoldersDialog
+
+        class _FakeFolder:
+            def __init__(self, name: str, path: str, children=None):
+                self.Name = name
+                self.FolderPath = path
+                self.Folders = list(children or [])
+
+        sub_ai1 = _FakeFolder("AI_6_1", "user@domain/Inbox/SA2/AI_6_1")
+        sub_ai2 = _FakeFolder("AI_6_2", "user@domain/Inbox/SA2/AI_6_2")
+        sa2_folder = _FakeFolder("SA2", "user@domain/Inbox/SA2", [sub_ai1, sub_ai2])
+        other_sub = _FakeFolder("Other", "user@domain/Inbox/Other")
+        inbox_folder = _FakeFolder("Inbox", "user@domain/Inbox", [sa2_folder, other_sub])
+
+        visited = set()
+        # 1. Expand specific SA2 folder with include_subfolders=True first
+        sa2_tree = OutlookClient.iter_folder_tree(
+            sa2_folder,
+            include_subfolders=True,
+            visited_keys=visited,
+        )
+        self.assertEqual([f.Name for f in sa2_tree], ["SA2", "AI_6_1", "AI_6_2"])
+
+        # 2. Expand parent Inbox with include_subfolders=True -> SA2 and its subfolders are skipped (not scanned twice)
+        inbox_tree = OutlookClient.iter_folder_tree(
+            inbox_folder,
+            include_subfolders=True,
+            visited_keys=visited,
+        )
+        self.assertEqual([f.Name for f in inbox_tree], ["Inbox", "Other"])
+
+        # 3. Expand with include_subfolders=False -> only top folder returned
+        shallow = OutlookClient.iter_folder_tree(sa2_folder, include_subfolders=False)
+        self.assertEqual([f.Name for f in shallow], ["SA2"])
+
+        # 4. Verify GeneralEmailFoldersDialog 4-column UI and include_subfolders persistence
+        saved_payload = []
+        sample_cfg = [
+            {"folder_path": "user@domain/Inbox/Standardisierung/SA2", "tag": "WG", "color": "#0078D7"},
+            {"folder_path": "user@domain/Inbox", "tag": "Inbox", "color": "#E20074", "include_subfolders": False},
+        ]
+        with patch("modules.emails.ui.general_email_dialog.load_wg_email_config", return_value=sample_cfg), patch(
+            "modules.emails.ui.general_email_dialog.save_wg_email_config",
+            side_effect=lambda wg, flist: saved_payload.extend(flist),
+        ):
+            dlg = GeneralEmailFoldersDialog("SA2")
+            try:
+                self.assertEqual(dlg.table.columnCount(), 4)
+                self.assertEqual(dlg.table.rowCount(), 2)
+                self.assertTrue(dlg._get_row_include_subfolders(0))
+                self.assertFalse(dlg._get_row_include_subfolders(1))
+                dlg._save_and_close()
+                self.assertEqual(len(saved_payload), 2)
+                self.assertTrue(saved_payload[0]["include_subfolders"])
+                self.assertFalse(saved_payload[1]["include_subfolders"])
+            finally:
+                dlg.close()
+
 
 if __name__ == "__main__":
     unittest.main()

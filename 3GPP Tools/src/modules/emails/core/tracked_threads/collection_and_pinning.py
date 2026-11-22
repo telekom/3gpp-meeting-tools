@@ -18,6 +18,7 @@ from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from .documents import _auto_cache_db_drafts
 from .parsing import (
     _extract_folder_paths,
+    _extract_folder_sub_flags,
     _mail_item_to_dict,
     auto_suggest_links,
     call_load_wg_email_config as load_wg_email_config,
@@ -127,23 +128,39 @@ def _collect_matching_from_folders(
     # 2. Scan configured folders + Outlook Sent Items using bulk MAPI GetTable
     ns = OutlookClient.get_namespace()
     extracted_paths = _extract_folder_paths(folder_paths)
+    sub_flags = _extract_folder_sub_flags(folder_paths)
     if ns:
         try:
             sent_folder = ns.GetDefaultFolder(5)  # olFolderSentMail
             sent_path = getattr(sent_folder, "FolderPath", "") or ""
             if sent_path and sent_path.lower() not in {p.lower() for p in extracted_paths}:
                 extracted_paths.append(sent_path)
+                sub_flags.setdefault(sent_path.lower(), False)
         except Exception:
             pass
     total_folders = len(extracted_paths)
+    visited_folder_keys: set = set()
+    expanded_folders: List[tuple] = []
     for idx, fpath in enumerate(extracted_paths):
         if cancel_check and cancel_check():
             break
         if progress_cb:
             progress_cb(idx, total_folders, fpath, extracted_paths[idx + 1 :])
-        folder = OutlookClient.get_folder_by_path(fpath)
-        if not folder or not ns:
+        root_folder = OutlookClient.get_folder_by_path(fpath)
+        if not root_folder or not ns:
             continue
+        inc_sub = sub_flags.get(fpath.lower(), True)
+        for sub_f in OutlookClient.iter_folder_tree(
+            root_folder,
+            include_subfolders=inc_sub,
+            visited_keys=visited_folder_keys,
+            fallback_path=fpath,
+        ):
+            expanded_folders.append((sub_f, fpath))
+
+    for folder, fpath in expanded_folders:
+        if cancel_check and cancel_check():
+            break
         try:
             tbl = folder.GetTable()
             try:

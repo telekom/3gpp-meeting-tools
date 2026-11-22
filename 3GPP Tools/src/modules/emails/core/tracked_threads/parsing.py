@@ -175,6 +175,21 @@ def _extract_folder_paths(raw_folders: Optional[List[Any]]) -> List[str]:
     return paths
 
 
+def _extract_folder_sub_flags(raw_folders: Optional[List[Any]]) -> Dict[str, bool]:
+    """Maps lowercase folder_path -> include_subfolders (defaults to True)."""
+    flags: Dict[str, bool] = {}
+    for entry in (raw_folders or []):
+        if isinstance(entry, dict):
+            fp = str(entry.get("folder_path", "") or "").strip().lower()
+            if fp:
+                flags[fp] = bool(entry.get("include_subfolders", True))
+        else:
+            fp = str(entry or "").strip().lower()
+            if fp and fp not in flags:
+                flags[fp] = True
+    return flags
+
+
 def _extract_company(sender_name: str, sender_email: str) -> str:
     try:
         from modules.emails.core.general_email_sync import GeneralEmailSyncThread
