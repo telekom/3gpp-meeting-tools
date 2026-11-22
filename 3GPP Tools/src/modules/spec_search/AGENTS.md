@@ -21,7 +21,11 @@ src/modules/spec_search/
     ├── components/                    # Modular Version Cards, Delegate & Clause Inspector (see components/README.md)
     ├── spec_search_components.py      # Re-export shim -> components/ package
     ├── quick_search_panel.py          # Docked QuickSpecSearchPanel (Ctrl+Shift+F)
-    ├── spec_search_models.py / spec_search_dialogs.py / spec_clause_diff_dialog.py
+    ├── dialogs/                       # Modular Selection, Prune & Smart Import dialogs (see dialogs/README.md)
+    ├── spec_search_dialogs.py         # Re-export shim -> dialogs/ package (+ SpecClauseDiffDialog alias)
+    ├── clause_diff/                   # Modular SpecClauseDiffDialog package (see clause_diff/README.md)
+    ├── spec_clause_diff_dialog.py     # Re-export shim -> clause_diff/ package
+    └── spec_search_models.py
 ```
 
 ---
