@@ -48,7 +48,6 @@ LEGACY_UI_HEX_ALLOWLIST: Dict[str, int] = {
     "src/modules/meetings/ui/tdocs/window/mixins/tdoc_actions.py": 1,
     "src/modules/meetings/ui/tdocs/window/mixins/ui_header.py": 1,
     "src/modules/spec_search/ui/spec_clause_diff_dialog.py": 8,
-    "src/modules/spec_search/ui/spec_search_dialogs.py": 2,
     "src/modules/specifications/ui/dialogs.py": 13,
     "src/modules/specifications/ui/spec_annotations_dialog.py": 11,
     "src/modules/specifications/ui/spec_clause_dialog.py": 6,
