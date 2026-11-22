@@ -45,6 +45,7 @@ from modules.word_tools.core.styles_3gpp import (
 )
 from modules.word_tools.core.word_config import WordConfig
 from modules.word_tools.core.word_excerpt_naming import NAMING_SCHEMES, CR_NAMING_SCHEMES
+from core.ui.theme import C
 
 
 class SensitivityLabelEditDialog(QDialog):
@@ -211,7 +212,7 @@ class WordSettingsDialog(QDialog):
 
         policy_row = QHBoxLayout()
         self.lbl_policy_status = QLabel()
-        self.lbl_policy_status.setStyleSheet("font-size: 11px; color: #475569;")
+        self.lbl_policy_status.setStyleSheet(f"font-size: 11px; color: {C.TEXT_SECONDARY};")
         policy_row.addWidget(self.lbl_policy_status, 1)
 
         self.btn_sync_policy = QPushButton("🔄 Sync from Windows Policy")
@@ -271,7 +272,7 @@ class WordSettingsDialog(QDialog):
 
         self.lbl_label_desc = QLabel()
         self.lbl_label_desc.setWordWrap(True)
-        self.lbl_label_desc.setStyleSheet("font-size: 11px; color: #64748B; font-style: italic;")
+        self.lbl_label_desc.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED}; font-style: italic;")
         sens_form.addRow("", self.lbl_label_desc)
 
         self.chk_save_after_label = QCheckBox("Automatically save document immediately after labeling")
@@ -329,7 +330,7 @@ class WordSettingsDialog(QDialog):
         lo_layout.addLayout(lo_path_row)
 
         self.lbl_lo_detected = QLabel()
-        self.lbl_lo_detected.setStyleSheet("font-size: 11px; color: #475569;")
+        self.lbl_lo_detected.setStyleSheet(f"font-size: 11px; color: {C.TEXT_SECONDARY};")
         lo_layout.addWidget(self.lbl_lo_detected)
 
         main_layout.addWidget(grp_lo)
@@ -391,17 +392,17 @@ class WordSettingsDialog(QDialog):
             self.lbl_policy_status.setText(
                 f"🟢 Windows Policy: {upn} ({len(policy['labels'])} File labels{tid_info})"
             )
-            self.lbl_policy_status.setStyleSheet("font-size: 11px; color: #065F46; font-weight: 600;")
+            self.lbl_policy_status.setStyleSheet(f"font-size: 11px; color: {C.WG_RAN_TEXT}; font-weight: 600;")
         else:
             self.lbl_policy_status.setText(
                 "⚪ No Windows / Office sensitivity policy detected on this machine"
             )
-            self.lbl_policy_status.setStyleSheet("font-size: 11px; color: #64748B;")
+            self.lbl_policy_status.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED};")
 
     def _update_label_description(self, lbl: Optional[dict]):
         if not lbl:
             self.lbl_label_desc.setText("")
-            self.lbl_label_desc.setStyleSheet("font-size: 11px; color: #64748B; font-style: italic;")
+            self.lbl_label_desc.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED}; font-style: italic;")
             return
 
         desc = (lbl.get("description") or "").strip()
@@ -409,10 +410,10 @@ class WordSettingsDialog(QDialog):
             warn = "🔒 Encrypted label (RMS Rights Protection) — may restrict external 3GPP sharing and headless ZIP inspection."
             text = f"{warn}\n{desc}" if desc else warn
             self.lbl_label_desc.setText(text)
-            self.lbl_label_desc.setStyleSheet("font-size: 11px; color: #B45309; font-weight: 500;")
+            self.lbl_label_desc.setStyleSheet(f"font-size: 11px; color: {C.WARNING}; font-weight: 500;")
         else:
             self.lbl_label_desc.setText(desc)
-            self.lbl_label_desc.setStyleSheet("font-size: 11px; color: #64748B; font-style: italic;")
+            self.lbl_label_desc.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED}; font-style: italic;")
 
     def _populate_presets(self, active_id: Optional[str] = None):
         self.combo_label_presets.blockSignals(True)
@@ -638,11 +639,11 @@ class WordSettingsDialog(QDialog):
         installed = is_3gpp_dotx_installed()
         if installed:
             self.lbl_dotx_status.setText("🟢 Installed (in %APPDATA%\\Microsoft\\Templates)")
-            self.lbl_dotx_status.setStyleSheet("color: #065F46; font-weight: bold;")
+            self.lbl_dotx_status.setStyleSheet(f"color: {C.WG_RAN_TEXT}; font-weight: bold;")
             self.btn_toggle_dotx.setText("🗑️ Remove 3gpp_70.dotx")
         else:
             self.lbl_dotx_status.setText("⚪ Not Installed")
-            self.lbl_dotx_status.setStyleSheet("color: #64748B; font-weight: bold;")
+            self.lbl_dotx_status.setStyleSheet(f"color: {C.TEXT_MUTED}; font-weight: bold;")
             self.btn_toggle_dotx.setText("📥 Install 3gpp_70.dotx")
 
     def _refresh_lo_status(self):

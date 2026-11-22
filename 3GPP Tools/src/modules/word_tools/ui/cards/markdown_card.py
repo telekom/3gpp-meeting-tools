@@ -31,6 +31,7 @@ from core.ui.ui_components import (
 )
 from modules.word_tools.core.document_opener import open_document
 from modules.word_tools.ui.document_selector_pane import DocumentSelectorPane
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,7 @@ class WordMarkdownCard(QWidget):
         nav_layout.setSpacing(8)
 
         lbl_dir = QLabel("<b>Direction:</b>")
-        lbl_dir.setStyleSheet("color: #475569; font-size: 11px;")
+        lbl_dir.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px;")
         nav_layout.addWidget(lbl_dir)
 
         self.btn_mode_w2m = QPushButton("📄 Word → Markdown")
@@ -141,7 +142,7 @@ class WordMarkdownCard(QWidget):
         opts_layout.setSpacing(8)
 
         hdr_lbl = QLabel("<b>Conversion Options:</b>")
-        hdr_lbl.setStyleSheet("color: #334155; font-size: 12px;")
+        hdr_lbl.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 12px;")
         opts_layout.addWidget(hdr_lbl)
 
         grid = QGridLayout()
@@ -151,7 +152,7 @@ class WordMarkdownCard(QWidget):
         tc_box = QHBoxLayout()
         tc_box.setSpacing(6)
         tc_lbl = QLabel("Track Changes:")
-        tc_lbl.setStyleSheet("font-size: 12px; color: #334155;")
+        tc_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_BODY};")
         self.md_revisions_combo = QComboBox()
         self.md_revisions_combo.addItem("Inline Markup [INSERTED / DELETED]", "markup")
         self.md_revisions_combo.addItem("Accept All Changes (Clean Final View)", "accept")
@@ -211,13 +212,13 @@ class WordMarkdownCard(QWidget):
         self.md_result_frame.setObjectName("cardFrame")
         self.md_result_frame.setStyleSheet(
             CARD_FRAME_STYLE
-            + """
-            QFrame#cardFrame {
-                background-color: #F0FDF4;
-                border: 1px solid #86EFAC;
+            + f"""
+            QFrame#cardFrame {{
+                background-color: {C.SUCCESS_SOFT};
+                border: 1px solid {C.SUCCESS_BORDER_MEDIUM};
                 border-radius: 6px;
                 padding: 6px 12px;
-            }
+            }}
         """
         )
         self.md_result_frame.setVisible(False)
@@ -228,7 +229,7 @@ class WordMarkdownCard(QWidget):
         res_top_row = QHBoxLayout()
         self.md_result_icon = QLabel("✅")
         self.md_result_lbl = QLabel()
-        self.md_result_lbl.setStyleSheet("color: #166534; font-size: 11px; font-weight: bold;")
+        self.md_result_lbl.setStyleSheet(f"color: {C.SUCCESS_DARK}; font-size: 11px; font-weight: bold;")
         res_top_row.addWidget(self.md_result_icon)
         res_top_row.addWidget(self.md_result_lbl, 1)
 
@@ -295,7 +296,7 @@ class WordMarkdownCard(QWidget):
         opts_layout.setSpacing(8)
 
         hdr_lbl = QLabel("<b>Conversion Options:</b>")
-        hdr_lbl.setStyleSheet("color: #334155; font-size: 12px;")
+        hdr_lbl.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 12px;")
         opts_layout.addWidget(hdr_lbl)
 
         grid = QGridLayout()
@@ -367,13 +368,13 @@ class WordMarkdownCard(QWidget):
         self.m2w_result_frame.setObjectName("cardFrame")
         self.m2w_result_frame.setStyleSheet(
             CARD_FRAME_STYLE
-            + """
-            QFrame#cardFrame {
-                background-color: #F0FDF4;
-                border: 1px solid #86EFAC;
+            + f"""
+            QFrame#cardFrame {{
+                background-color: {C.SUCCESS_SOFT};
+                border: 1px solid {C.SUCCESS_BORDER_MEDIUM};
                 border-radius: 6px;
                 padding: 6px 12px;
-            }
+            }}
         """
         )
         self.m2w_result_frame.setVisible(False)
@@ -383,7 +384,7 @@ class WordMarkdownCard(QWidget):
 
         self.m2w_result_icon = QLabel("✅")
         self.m2w_result_lbl = QLabel()
-        self.m2w_result_lbl.setStyleSheet("color: #166534; font-size: 11px; font-weight: bold;")
+        self.m2w_result_lbl.setStyleSheet(f"color: {C.SUCCESS_DARK}; font-size: 11px; font-weight: bold;")
         m2w_res_layout.addWidget(self.m2w_result_icon)
         m2w_res_layout.addWidget(self.m2w_result_lbl, 1)
 
@@ -585,7 +586,7 @@ class WordMarkdownCard(QWidget):
             self.md_progress.setVisible(False)
             self.run_markdown_btn.setEnabled(True)
             self.md_result_icon.setText("✅")
-            self.md_result_lbl.setStyleSheet("font-weight: bold; color: #166534;")
+            self.md_result_lbl.setStyleSheet(f"font-weight: bold; color: {C.SUCCESS_DARK};")
             self.md_result_lbl.setText(f"Successfully converted to Markdown: {p.name}")
             self.md_open_folder_btn.setEnabled(True)
             self.md_open_file_btn.setEnabled(True)
@@ -609,7 +610,7 @@ class WordMarkdownCard(QWidget):
             self.m2w_progress.setVisible(False)
             self.run_m2w_btn.setEnabled(True)
             self.m2w_result_icon.setText("✅")
-            self.m2w_result_lbl.setStyleSheet("font-weight: bold; color: #166534;")
+            self.m2w_result_lbl.setStyleSheet(f"font-weight: bold; color: {C.SUCCESS_DARK};")
             self.m2w_result_lbl.setText(f"Successfully compiled Word document: {p.name}")
             self.m2w_open_folder_btn.setEnabled(True)
             self.m2w_open_file_btn.setEnabled(True)
@@ -623,7 +624,7 @@ class WordMarkdownCard(QWidget):
             self.m2w_progress.setVisible(False)
             self.run_m2w_btn.setEnabled(True)
             self.m2w_result_icon.setText("❌")
-            self.m2w_result_lbl.setStyleSheet("font-weight: bold; color: #DC2626;")
+            self.m2w_result_lbl.setStyleSheet(f"font-weight: bold; color: {C.DANGER_ALT};")
             self.m2w_result_lbl.setText(f"Compilation failed: {error_msg}")
             self.m2w_open_folder_btn.setEnabled(False)
             self.m2w_open_file_btn.setEnabled(False)
@@ -634,7 +635,7 @@ class WordMarkdownCard(QWidget):
             self.md_progress.setVisible(False)
             self.run_markdown_btn.setEnabled(True)
             self.md_result_icon.setText("❌")
-            self.md_result_lbl.setStyleSheet("font-weight: bold; color: #DC2626;")
+            self.md_result_lbl.setStyleSheet(f"font-weight: bold; color: {C.DANGER_ALT};")
             self.md_result_lbl.setText(f"Conversion failed: {error_msg}")
             self.md_open_folder_btn.setEnabled(False)
             self.md_open_file_btn.setEnabled(False)

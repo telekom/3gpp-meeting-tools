@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ui.theme import C
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 
 logger = logging.getLogger(__name__)
@@ -21,14 +22,14 @@ logger = logging.getLogger(__name__)
 def _get_btn_style(primary: bool = False) -> str:
     if primary:
         return (
-            "QPushButton { font-weight: bold; background-color: #0078D7; color: white; "
-            "padding: 5px 12px; border-radius: 4px; border: 1px solid #005A9E; } "
-            "QPushButton:hover { background-color: #005A9E; }"
+            f"QPushButton {{ font-weight: bold; background-color: {C.ACCENT_BRIGHT}; color: {C.TEXT_ON_ACCENT}; "
+            f"padding: 5px 12px; border-radius: 4px; border: 1px solid {C.OFFICE_BLUE}; }} "
+            f"QPushButton:hover {{ background-color: {C.OFFICE_BLUE}; }}"
         )
     return (
-        "QPushButton { font-weight: bold; background-color: #FFFFFF; color: #333333; "
-        "padding: 5px 12px; border-radius: 4px; border: 1px solid #CCCCCC; } "
-        "QPushButton:hover { background-color: #F0F4F8; border-color: #005A9E; color: #005A9E; }"
+        f"QPushButton {{ font-weight: bold; background-color: {C.BG_CARD}; color: {C.TEXT_BODY}; "
+        f"padding: 5px 12px; border-radius: 4px; border: 1px solid {C.BORDER_STRONG}; }} "
+        f"QPushButton:hover {{ background-color: {C.BLUE_TINT_SOFT}; border-color: {C.OFFICE_BLUE}; color: {C.OFFICE_BLUE}; }}"
     )
 
 
@@ -57,9 +58,9 @@ class EmailControlToolbar(QFrame):
 
     def _setup_ui(self):
         self.setStyleSheet(
-            "QFrame { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 8px; } "
-            "QLabel { font-weight: bold; color: #555; border: none; } "
-            "QLineEdit, QComboBox, QDateEdit { padding: 4px 6px; border: 1px solid #CCC; border-radius: 4px; background: #FFF; color: #333; height: 22px; }"
+            f"QFrame {{ background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_GRAY}; border-radius: 8px; }} "
+            f"QLabel {{ font-weight: bold; color: {C.TEXT_SECONDARY}; border: none; }} "
+            f"QLineEdit, QComboBox, QDateEdit {{ padding: 4px 6px; border: 1px solid {C.BORDER_STRONG}; border-radius: 4px; background: {C.BG_CARD}; color: {C.TEXT_BODY}; height: 22px; }}"
         )
         top_layout = QVBoxLayout(self)
         top_layout.setContentsMargins(10, 8, 10, 8)
@@ -100,11 +101,11 @@ class EmailControlToolbar(QFrame):
         self.btn_config.clicked.connect(self.config_requested.emit)
 
         self.lbl_status = QLabel("Ready.")
-        self.lbl_status.setStyleSheet("color: #666; font-style: italic; margin-left: 10px;")
+        self.lbl_status.setStyleSheet(f"color: {C.TEXT_MUTED}; font-style: italic; margin-left: 10px;")
 
         self.lbl_count = QLabel("Showing 0 Threads | 0 Emails")
         self.lbl_count.setStyleSheet(
-            "font-size: 13px; color: #0078D7; font-weight: bold; padding-left: 10px; border: none;"
+            f"font-size: 13px; color: {C.ACCENT_BRIGHT}; font-weight: bold; padding-left: 10px; border: none;"
         )
 
         for btn in [self.btn_sync, self.btn_move, self.btn_move_all, self.btn_rescan, self.btn_stats, self.btn_config]:
@@ -141,8 +142,8 @@ class EmailControlToolbar(QFrame):
         self.btn_filter_star.setCheckable(True)
         self.btn_filter_star.setToolTip("Filter left panel to only show threads containing a Starred TDoc.")
         self.btn_filter_star.setStyleSheet(
-            "QPushButton { padding: 4px 8px; background: white; border-radius: 3px; border: 1px solid #CCC; color: #333; } "
-            "QPushButton:checked { background-color: #FFF4CE; font-weight: bold; border-color: #E2C08D; }"
+            f"QPushButton {{ padding: 4px 8px; background: {C.BG_CARD}; border-radius: 3px; border: 1px solid {C.BORDER_STRONG}; color: {C.TEXT_BODY}; }} "
+            f"QPushButton:checked {{ background-color: {C.WARNING_SOFT_ALT}; font-weight: bold; border-color: {C.WARNING_BORDER_STRONG}; }}"
         )
         self.btn_filter_star.toggled.connect(self.filters_changed.emit)
 
@@ -150,8 +151,8 @@ class EmailControlToolbar(QFrame):
         self.btn_filter_follow.setCheckable(True)
         self.btn_filter_follow.setToolTip("Filter left panel to only show threads belonging to a Followed Agenda Item.")
         self.btn_filter_follow.setStyleSheet(
-            "QPushButton { padding: 4px 8px; background: white; border-radius: 3px; border: 1px solid #CCC; color: #333; } "
-            "QPushButton:checked { background-color: #E6F4E6; font-weight: bold; color: #0C6B0C; border-color: #0C6B0C; }"
+            f"QPushButton {{ padding: 4px 8px; background: {C.BG_CARD}; border-radius: 3px; border: 1px solid {C.BORDER_STRONG}; color: {C.TEXT_BODY}; }} "
+            f"QPushButton:checked {{ background-color: {C.SUCCESS_SOFT_MINT}; font-weight: bold; color: {C.SUCCESS}; border-color: {C.SUCCESS}; }}"
         )
         self.btn_filter_follow.toggled.connect(self.filters_changed.emit)
 

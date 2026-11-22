@@ -21,6 +21,7 @@ from core.ui.ui_components import (
     COMBOBOX_STYLE_TOOLBAR,
 )
 from modules.word_tools.ui.document_selector_pane import DocumentSelectorPane
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -47,13 +48,13 @@ class WordVisioCard(QWidget):
         vh_layout.setContentsMargins(14, 12, 14, 12)
         vh_layout.setSpacing(4)
         vh_title = QLabel("<b>🖼️ Embedded Visio &amp; Media Extractor</b>")
-        vh_title.setStyleSheet("font-size: 14px; color: #1E293B;")
+        vh_title.setStyleSheet(f"font-size: 14px; color: {C.TEXT_STRONG};")
         vh_desc = QLabel(
             "Extracts embedded Microsoft Visio drawings (.vsdx), OLE diagram objects, and vector media "
             "directly from Word documents into native editable Visio files."
         )
         vh_desc.setWordWrap(True)
-        vh_desc.setStyleSheet("color: #475569; font-size: 12px;")
+        vh_desc.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 12px;")
         vh_layout.addWidget(vh_title)
         vh_layout.addWidget(vh_desc)
         visio_layout.addWidget(visio_hdr)
@@ -73,13 +74,13 @@ class WordVisioCard(QWidget):
 
         self.visio_result_frame = QFrame()
         self.visio_result_frame.setObjectName("cardFrame")
-        self.visio_result_frame.setStyleSheet(CARD_FRAME_STYLE + """
-            QFrame#cardFrame {
-                background-color: #F0FDF4;
-                border: 1px solid #86EFAC;
+        self.visio_result_frame.setStyleSheet(CARD_FRAME_STYLE + f"""
+            QFrame#cardFrame {{
+                background-color: {C.SUCCESS_SOFT};
+                border: 1px solid {C.SUCCESS_BORDER_MEDIUM};
                 border-radius: 6px;
                 padding: 6px 12px;
-            }
+            }}
         """)
         self.visio_result_frame.setVisible(False)
         vr_layout = QHBoxLayout(self.visio_result_frame)
@@ -87,7 +88,7 @@ class WordVisioCard(QWidget):
 
         self.visio_result_icon = QLabel("✅")
         self.visio_result_lbl = QLabel()
-        self.visio_result_lbl.setStyleSheet("color: #166534; font-size: 11px; font-weight: bold;")
+        self.visio_result_lbl.setStyleSheet(f"color: {C.SUCCESS_DARK}; font-size: 11px; font-weight: bold;")
         self.visio_open_folder_btn = QPushButton("📂 Open Output Folder")
         self.visio_open_folder_btn.setStyleSheet("font-size: 11px; padding: 2px 8px;")
         self.visio_open_folder_btn.clicked.connect(self._open_visio_folder)
@@ -143,13 +144,13 @@ class WordConverterCard(QWidget):
         ch_layout.setContentsMargins(14, 12, 14, 12)
         ch_layout.setSpacing(4)
         ch_title = QLabel("<b>🔄 Multi-Format Document Converter</b>")
-        ch_title.setStyleSheet("font-size: 14px; color: #1E293B;")
+        ch_title.setStyleSheet(f"font-size: 14px; color: {C.TEXT_STRONG};")
         ch_desc = QLabel(
             "Converts Microsoft Word documents (.docx, legacy .doc) into modern formats: "
             "PDF, HTML, Plain Text, or Markdown."
         )
         ch_desc.setWordWrap(True)
-        ch_desc.setStyleSheet("color: #475569; font-size: 12px;")
+        ch_desc.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 12px;")
         ch_layout.addWidget(ch_title)
         ch_layout.addWidget(ch_desc)
         convert_layout.addWidget(conv_hdr)
@@ -173,7 +174,7 @@ class WordConverterCard(QWidget):
         co_layout.addWidget(self.format_combo)
 
         self.conv_engine_lbl = QLabel("Engine: 🟢 Microsoft Word COM")
-        self.conv_engine_lbl.setStyleSheet("font-size: 12px; color: #065F46; font-weight: 500;")
+        self.conv_engine_lbl.setStyleSheet(f"font-size: 12px; color: {C.WG_RAN_TEXT}; font-weight: 500;")
         co_layout.addWidget(self.conv_engine_lbl)
         co_layout.addStretch()
 
@@ -187,13 +188,13 @@ class WordConverterCard(QWidget):
 
         self.conv_result_frame = QFrame()
         self.conv_result_frame.setObjectName("cardFrame")
-        self.conv_result_frame.setStyleSheet(CARD_FRAME_STYLE + """
-            QFrame#cardFrame {
-                background-color: #F0FDF4;
-                border: 1px solid #86EFAC;
+        self.conv_result_frame.setStyleSheet(CARD_FRAME_STYLE + f"""
+            QFrame#cardFrame {{
+                background-color: {C.SUCCESS_SOFT};
+                border: 1px solid {C.SUCCESS_BORDER_MEDIUM};
                 border-radius: 6px;
                 padding: 6px 12px;
-            }
+            }}
         """)
         self.conv_result_frame.setVisible(False)
         cr_layout = QHBoxLayout(self.conv_result_frame)
@@ -201,7 +202,7 @@ class WordConverterCard(QWidget):
 
         self.conv_result_icon = QLabel("✅")
         self.conv_result_lbl = QLabel()
-        self.conv_result_lbl.setStyleSheet("color: #166534; font-size: 11px; font-weight: bold;")
+        self.conv_result_lbl.setStyleSheet(f"color: {C.SUCCESS_DARK}; font-size: 11px; font-weight: bold;")
         self.conv_open_folder_btn = QPushButton("📂 Open Output Folder")
         self.conv_open_folder_btn.setStyleSheet("font-size: 11px; padding: 2px 8px;")
         self.conv_open_folder_btn.clicked.connect(self._open_conv_folder)
@@ -216,13 +217,13 @@ class WordConverterCard(QWidget):
         fmt = self.format_combo.currentText().upper()
         if fmt == "DOCX":
             self.conv_engine_lbl.setText("Engine: 🟠 LibreOffice (for legacy .doc) / Word COM")
-            self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #B45309; font-weight: 500;")
+            self.conv_engine_lbl.setStyleSheet(f"font-size: 11px; color: {C.WARNING}; font-weight: 500;")
         elif fmt == "MD":
             self.conv_engine_lbl.setText("Engine: 🟢 Native High-Fidelity Markdown (with Media)")
-            self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #0F766E; font-weight: 500;")
+            self.conv_engine_lbl.setStyleSheet(f"font-size: 11px; color: {C.TEAL_DARK}; font-weight: 500;")
         else:
             self.conv_engine_lbl.setText("Engine: 🟢 Microsoft Word COM")
-            self.conv_engine_lbl.setStyleSheet("font-size: 11px; color: #065F46; font-weight: 500;")
+            self.conv_engine_lbl.setStyleSheet(f"font-size: 11px; color: {C.WG_RAN_TEXT}; font-weight: 500;")
 
     def _trigger_conversion(self):
         inputs = self.pane_convert.get_inputs()

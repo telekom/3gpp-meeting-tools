@@ -47,7 +47,7 @@ class TDocInfoDialog(QDialog):
         self.setMinimumWidth(580)
         self.setStyleSheet(f"""
             QDialog {{
-                background-color: #F8F9FA;
+                background-color: {C.BG_SURFACE};
             }}
             QFrame#cardFrame {{
                 background-color: {C.BG_CARD};
@@ -56,19 +56,19 @@ class TDocInfoDialog(QDialog):
             }}
             QLabel {{
                 font-size: 13px;
-                color: #2D3748;
+                color: {C.TEXT_STRONG};
             }}
             QPushButton {{
                 padding: 6px 14px;
                 font-size: 12px;
                 border-radius: 4px;
-                border: 1px solid #CBD5E0;
+                border: 1px solid {C.BORDER_STRONG};
                 background-color: {C.BG_CARD};
-                color: #2D3748;
+                color: {C.TEXT_STRONG};
             }}
             QPushButton:hover {{
-                background-color: #EDF2F7;
-                border-color: #A0AEC0;
+                background-color: {C.BG_CANVAS};
+                border-color: {C.BORDER_HOVER};
             }}
             QPushButton#primaryActionBtn {{
                 background-color: {C.OFFICE_BLUE};
@@ -80,8 +80,8 @@ class TDocInfoDialog(QDialog):
                 background-color: {C.OFFICE_BLUE_DARK};
             }}
             QPushButton#revChipBtn {{
-                background-color: #F0F4F8;
-                border: 1px solid #D2E3FC;
+                background-color: {C.BLUE_TINT_SOFT};
+                border: 1px solid {C.INFO_BORDER};
                 border-radius: 12px;
                 padding: 3px 10px;
                 font-size: 11px;
@@ -89,7 +89,7 @@ class TDocInfoDialog(QDialog):
                 font-weight: bold;
             }}
             QPushButton#revChipBtn:hover {{
-                background-color: #E1EFFF;
+                background-color: {C.ACCENT_SOFT_HOVER};
                 border-color: {C.OFFICE_BLUE};
             }}
         """)
@@ -129,7 +129,7 @@ class TDocInfoDialog(QDialog):
             title_row.addWidget(status_badge)
 
         tdoc_label = QLabel(f"<b>{tdoc_id}</b>")
-        tdoc_label.setStyleSheet("font-size: 18px; color: #1A202C; font-weight: bold;")
+        tdoc_label.setStyleSheet(f"font-size: 18px; color: {C.TEXT_PRIMARY}; font-weight: bold;")
         tdoc_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         title_row.addWidget(tdoc_label)
 
@@ -138,7 +138,7 @@ class TDocInfoDialog(QDialog):
 
         desc_label = QLabel(title)
         desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("color: #4A5568; font-size: 13px; line-height: 1.4;")
+        desc_label.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 13px; line-height: 1.4;")
         desc_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         header_layout.addWidget(desc_label)
 
@@ -264,7 +264,7 @@ class TDocInfoDialog(QDialog):
 
     def _make_key_label(self, text: str) -> QLabel:
         lbl = QLabel(f"<b>{text}</b>")
-        lbl.setStyleSheet("color: #718096; font-size: 12px;")
+        lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 12px;")
         return lbl
 
     def _add_row(self, form: QFormLayout, label_text: str, value_text: str):
@@ -293,10 +293,10 @@ class TDocInfoDialog(QDialog):
         if "agreed" in s or "approved" in s:
             return f"background-color: {C.SUCCESS_SOFT_MINT}; color: {C.SUCCESS_ALT}; border: 1px solid {C.SUCCESS_BORDER_MINT}; border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: bold;"
         if "noted" in s or "postponed" in s:
-            return "background-color: #FEF7E0; color: #B06000; border: 1px solid #FEEFC3; border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: bold;"
+            return f"background-color: {C.WARNING_SOFT}; color: {C.WARNING}; border: 1px solid {C.WARNING_BORDER}; border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: bold;"
         if "revised" in s or "withdrawn" in s:
-            return "background-color: #FCE8E6; color: #C5221F; border: 1px solid #FAD2CF; border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: bold;"
-        return "background-color: #F1F3F4; color: #3C4043; border: 1px solid #DADCE0; border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: bold;"
+            return f"background-color: {C.DANGER_SOFT}; color: {C.DANGER}; border: 1px solid {C.DANGER_BORDER}; border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: bold;"
+        return f"background-color: {C.BG_CANVAS}; color: {C.TEXT_BODY}; border: 1px solid {C.BORDER_STRONG}; border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: bold;"
 
     def _copy_tdoc_summary(self):
         lines = [

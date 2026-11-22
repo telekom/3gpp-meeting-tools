@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
 from core.ai.ollama_client import OllamaClient, load_ollama_config
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 from modules.emails.core.email_summary_worker import EmailSummaryWorker
+from core.ui.theme import C
 
 
 class EmailSummaryDialog(QDialog):
@@ -82,19 +83,19 @@ class EmailSummaryDialog(QDialog):
         top_strip.addStretch()
 
         self.status_lbl = QLabel("Ready.")
-        self.status_lbl.setStyleSheet("color: #64748B; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-weight: bold;")
         top_strip.addWidget(self.status_lbl)
         layout.addLayout(top_strip)
 
         # --- Thread Metadata Card ---
         meta_card = QFrame()
-        meta_card.setStyleSheet("""
-            QFrame {
-                background-color: #F8FAFC;
-                border: 1px solid #E2E8F0;
+        meta_card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_SUBTLE};
                 border-radius: 6px;
                 padding: 6px;
-            }
+            }}
         """)
         meta_layout = QVBoxLayout(meta_card)
         meta_layout.setSpacing(4)
@@ -102,16 +103,16 @@ class EmailSummaryDialog(QDialog):
 
         info_line = QHBoxLayout()
         tdoc_badge = QLabel(f"<b>{self.tdoc_id}</b>")
-        tdoc_badge.setStyleSheet("font-size: 14px; color: #005A9E; font-weight: bold;")
+        tdoc_badge.setStyleSheet(f"font-size: 14px; color: {C.OFFICE_BLUE}; font-weight: bold;")
         info_line.addWidget(tdoc_badge)
 
         chips_text = " ➔ ".join(self.family_tdocs)
         fam_lbl = QLabel(f"Family: <b>{chips_text}</b>")
-        fam_lbl.setStyleSheet("color: #334155; font-size: 12px;")
+        fam_lbl.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 12px;")
         info_line.addWidget(fam_lbl)
 
         count_lbl = QLabel(f"Messages: <b>{len(self.emails_data)}</b>")
-        count_lbl.setStyleSheet("color: #334155; font-size: 12px;")
+        count_lbl.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 12px;")
         info_line.addWidget(count_lbl)
 
         info_line.addStretch()
@@ -122,16 +123,16 @@ class EmailSummaryDialog(QDialog):
         self.output_text = QPlainTextEdit()
         self.output_text.setReadOnly(False)
         self.output_text.setPlaceholderText("Streaming AI discussion synthesis...")
-        self.output_text.setStyleSheet("""
-            QPlainTextEdit {
+        self.output_text.setStyleSheet(f"""
+            QPlainTextEdit {{
                 font-family: 'Segoe UI', Arial, sans-serif;
                 font-size: 13px;
                 line-height: 1.5;
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
+                background-color: {C.BG_CARD};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 10px;
-            }
+            }}
         """)
         layout.addWidget(self.output_text, stretch=1)
 
@@ -141,13 +142,13 @@ class EmailSummaryDialog(QDialog):
 
         self.save_notes_btn = QPushButton("💾 Save to My Notes")
         self.save_notes_btn.setEnabled(False)
-        self.save_notes_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #0C6B0C; color: white; font-weight: bold;
+        self.save_notes_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.SUCCESS}; color: {C.TEXT_ON_ACCENT}; font-weight: bold;
                 border-radius: 4px; padding: 6px 14px;
-            }
-            QPushButton:hover { background-color: #095209; }
-            QPushButton:disabled { background-color: #E2E8F0; color: #94A3B8; }
+            }}
+            QPushButton:hover {{ background-color: {C.SUCCESS_DARK}; }}
+            QPushButton:disabled {{ background-color: {C.BORDER_SUBTLE}; color: {C.TEXT_FAINT}; }}
         """)
         self.save_notes_btn.clicked.connect(self._save_to_notes)
         btn_bar.addWidget(self.save_notes_btn)
@@ -189,11 +190,11 @@ class EmailSummaryDialog(QDialog):
             elif "qwen2.5:7b" in models:
                 self.model_combo.setCurrentText("qwen2.5:7b")
             self.status_lbl.setText(f"🟢 Connected ({len(models)} models)")
-            self.status_lbl.setStyleSheet("color: #16A34A; font-weight: bold;")
+            self.status_lbl.setStyleSheet(f"color: {C.GREEN_ACCENT}; font-weight: bold;")
             self.regen_btn.setEnabled(True)
         else:
             self.status_lbl.setText("🔴 Ollama Offline")
-            self.status_lbl.setStyleSheet("color: #DC2626; font-weight: bold;")
+            self.status_lbl.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
             self.regen_btn.setEnabled(False)
 
     def _start_summary(self):
@@ -204,7 +205,7 @@ class EmailSummaryDialog(QDialog):
 
         self.output_text.clear()
         self.status_lbl.setText("⏳ Initializing worker...")
-        self.status_lbl.setStyleSheet("color: #2563EB; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.ACCENT_ALT}; font-weight: bold;")
         self.cancel_btn.setEnabled(True)
         self.regen_btn.setEnabled(False)
         self.save_notes_btn.setEnabled(False)
@@ -232,14 +233,14 @@ class EmailSummaryDialog(QDialog):
 
     def _handle_complete(self, full_text: str):
         self.status_lbl.setText("✅ Completed")
-        self.status_lbl.setStyleSheet("color: #16A34A; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.GREEN_ACCENT}; font-weight: bold;")
         self.cancel_btn.setEnabled(False)
         self.regen_btn.setEnabled(True)
         self.save_notes_btn.setEnabled(True)
 
     def _handle_failed(self, err_msg: str):
         self.status_lbl.setText("⚠️ Failed / Cancelled")
-        self.status_lbl.setStyleSheet("color: #DC2626; font-weight: bold;")
+        self.status_lbl.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
         self.cancel_btn.setEnabled(False)
         self.regen_btn.setEnabled(True)
         if self.output_text.toPlainText().strip():
@@ -264,11 +265,11 @@ class EmailSummaryDialog(QDialog):
             self.save_callback(self.tdoc_id, None, f"{header}\n{summary_text}")
 
         self.save_notes_btn.setText("✅ Saved to Notes!")
-        self.save_notes_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #15803D; color: white; font-weight: bold;
+        self.save_notes_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.SUCCESS}; color: white; font-weight: bold;
                 border-radius: 4px; padding: 6px 14px;
-            }
+            }}
         """)
 
     def _copy_summary(self):

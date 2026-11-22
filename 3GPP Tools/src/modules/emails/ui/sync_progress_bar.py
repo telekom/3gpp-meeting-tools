@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QWidget
+from core.ui.theme import C
 
 
 class AsyncSyncProgressBar(QFrame):
@@ -27,11 +28,11 @@ class AsyncSyncProgressBar(QFrame):
     def _apply_style(self, is_error: bool):
         if is_error:
             self.setStyleSheet(
-                "#AsyncSyncProgressBar { background: #FEF2F2; border: 1px solid #FECACA; border-radius: 6px; }"
+                f"#AsyncSyncProgressBar {{ background: {C.DANGER_SOFT}; border: 1px solid {C.DANGER_BORDER}; border-radius: 6px; }}"
             )
         else:
             self.setStyleSheet(
-                "#AsyncSyncProgressBar { background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 6px; }"
+                f"#AsyncSyncProgressBar {{ background: {C.INFO_SOFT}; border: 1px solid {C.INFO_BORDER}; border-radius: 6px; }}"
             )
 
     def _build_ui(self):
@@ -40,11 +41,11 @@ class AsyncSyncProgressBar(QFrame):
         layout.setSpacing(10)
 
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("font-size: 11px; font-weight: 600; color: #1E3A8A; border: none; background: transparent;")
+        self.status_label.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {C.INFO_NAVY}; border: none; background: transparent;")
         layout.addWidget(self.status_label, 0)
 
         self.remaining_label = QLabel("")
-        self.remaining_label.setStyleSheet("font-size: 11px; color: #475569; border: none; background: transparent;")
+        self.remaining_label.setStyleSheet(f"font-size: 11px; color: {C.TEXT_SECONDARY}; border: none; background: transparent;")
         layout.addWidget(self.remaining_label, 1)
 
         self.progress_bar = QProgressBar()
@@ -52,8 +53,8 @@ class AsyncSyncProgressBar(QFrame):
         self.progress_bar.setFixedHeight(10)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setStyleSheet(
-            "QProgressBar { background: #DBEAFE; border: none; border-radius: 5px; }"
-            "QProgressBar::chunk { background: #2563EB; border-radius: 5px; }"
+            f"QProgressBar {{ background: {C.INFO_SOFT_STRONG}; border: none; border-radius: 5px; }}"
+            f"QProgressBar::chunk {{ background: {C.ACCENT_ALT}; border-radius: 5px; }}"
         )
         layout.addWidget(self.progress_bar)
 
@@ -61,10 +62,10 @@ class AsyncSyncProgressBar(QFrame):
         self.cancel_btn.setCursor(Qt.PointingHandCursor)
         self.cancel_btn.setMinimumHeight(24)
         self.cancel_btn.setStyleSheet(
-            "QPushButton { background: #FFFFFF; color: #334155; border: 1px solid #CBD5E1; "
+            f"QPushButton {{ background: {C.BG_CARD}; color: {C.TEXT_BODY}; border: 1px solid {C.BORDER_STRONG}; "
             "border-radius: 4px; padding: 2px 10px; font-size: 11px; font-weight: 500; }"
-            "QPushButton:hover { background: #F1F5F9; border-color: #94A3B8; color: #0F172A; }"
-            "QPushButton:disabled { color: #94A3B8; background: #F8FAFC; }"
+            f"QPushButton:hover {{ background: {C.BG_CANVAS}; border-color: {C.TEXT_FAINT}; color: {C.TEXT_PRIMARY}; }}"
+            f"QPushButton:disabled {{ color: {C.TEXT_FAINT}; background: {C.BG_SURFACE}; }}"
         )
         self.cancel_btn.clicked.connect(self._on_action_clicked)
         layout.addWidget(self.cancel_btn)
@@ -88,7 +89,7 @@ class AsyncSyncProgressBar(QFrame):
         """Shows the strip in active progress mode."""
         self._error_mode = False
         self._apply_style(is_error=False)
-        self.status_label.setStyleSheet("font-size: 11px; font-weight: 600; color: #1E3A8A; border: none; background: transparent;")
+        self.status_label.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {C.INFO_NAVY}; border: none; background: transparent;")
         self.status_label.setText(f"⏳ {title}")
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, max(0, int(total)))
@@ -125,7 +126,7 @@ class AsyncSyncProgressBar(QFrame):
         """Switches the strip into a visible non-blocking warning/error state until dismissed."""
         self._error_mode = True
         self._apply_style(is_error=True)
-        self.status_label.setStyleSheet("font-size: 11px; font-weight: 600; color: #B91C1C; border: none; background: transparent;")
+        self.status_label.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {C.DANGER}; border: none; background: transparent;")
         self.status_label.setText(f"⚠️ {self._clip(message, 85)}")
         self.status_label.setToolTip(str(message or ""))
         self.remaining_label.setText("")

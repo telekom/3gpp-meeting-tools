@@ -45,6 +45,7 @@ from modules.word_tools.core.sensitivity_label import (
     get_document_sensitivity_label,
 )
 from modules.word_tools.core.word_config import WordConfig
+from core.ui.theme import C
 
 
 class BatchSensitivityLabelThread(QThread):
@@ -122,34 +123,34 @@ class BatchSensitivityLabelDialog(QDialog):
             "to comply with corporate DLP policies and prevent email or save restrictions."
         )
         desc_lbl.setWordWrap(True)
-        desc_lbl.setStyleSheet("color: #334155; font-size: 12px; margin-bottom: 2px;")
+        desc_lbl.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 12px; margin-bottom: 2px;")
         main_layout.addWidget(desc_lbl)
 
         # Dual Mode Tabs: Folder vs Selected Documents
         self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #CBD5E1;
+        self.tabs.setStyleSheet(f"""
+            QTabWidget::pane {{
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
-                background-color: #FFFFFF;
+                background-color: {C.BG_CARD};
                 top: -1px;
-            }
-            QTabBar::tab {
-                background: #F1F5F9;
-                border: 1px solid #CBD5E1;
+            }}
+            QTabBar::tab {{
+                background: {C.BG_CANVAS};
+                border: 1px solid {C.BORDER_STRONG};
                 padding: 6px 16px;
                 margin-right: 2px;
                 border-top-left-radius: 4px;
                 border-top-right-radius: 4px;
-                color: #475569;
+                color: {C.TEXT_SECONDARY};
                 font-size: 12px;
-            }
-            QTabBar::tab:selected {
-                background: #FFFFFF;
-                border-bottom-color: #FFFFFF;
-                color: #0F172A;
+            }}
+            QTabBar::tab:selected {{
+                background: {C.BG_CARD};
+                border-bottom-color: {C.BG_CARD};
+                color: {C.TEXT_PRIMARY};
                 font-weight: bold;
-            }
+            }}
         """)
 
         # Tab 1: Folder Mode
@@ -199,7 +200,7 @@ class BatchSensitivityLabelDialog(QDialog):
         btn_files_bar.addWidget(self.btn_clear_files)
 
         self.lbl_file_count = QLabel("0 documents queued")
-        self.lbl_file_count.setStyleSheet("font-size: 11px; color: #64748B; margin-left: 8px;")
+        self.lbl_file_count.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED}; margin-left: 8px;")
         btn_files_bar.addWidget(self.lbl_file_count, 1)
         files_layout.addLayout(btn_files_bar)
 
@@ -222,20 +223,20 @@ class BatchSensitivityLabelDialog(QDialog):
         self.tbl_files.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.tbl_files.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tbl_files.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.tbl_files.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #CBD5E1;
+        self.tbl_files.setStyleSheet(f"""
+            QTableWidget {{
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
-                background-color: #F8FAFC;
+                background-color: {C.BG_SURFACE};
                 font-size: 11px;
-            }
-            QHeaderView::section {
-                background-color: #F1F5F9;
+            }}
+            QHeaderView::section {{
+                background-color: {C.BG_CANVAS};
                 padding: 4px 8px;
                 font-weight: bold;
                 border: none;
-                border-bottom: 1px solid #CBD5E1;
-            }
+                border-bottom: 1px solid {C.BORDER_STRONG};
+            }}
         """)
         files_layout.addWidget(self.tbl_files)
         self.tabs.addTab(tab_files, "📄 Specific Documents")
@@ -267,13 +268,13 @@ class BatchSensitivityLabelDialog(QDialog):
         main_layout.addWidget(self.progress_bar)
 
         self.lbl_status = QLabel("Ready.")
-        self.lbl_status.setStyleSheet("font-size: 11px; color: #64748B;")
+        self.lbl_status.setStyleSheet(f"font-size: 11px; color: {C.TEXT_MUTED};")
         main_layout.addWidget(self.lbl_status)
 
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumHeight(110)
-        self.log_view.setStyleSheet("font-family: Consolas, monospace; font-size: 11px; background-color: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 4px;")
+        self.log_view.setStyleSheet(f"font-family: Consolas, monospace; font-size: 11px; background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_STRONG}; border-radius: 4px;")
         self.log_view.setVisible(False)
         main_layout.addWidget(self.log_view)
 

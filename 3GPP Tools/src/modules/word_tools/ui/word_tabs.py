@@ -99,13 +99,13 @@ class WordExtractorTab(QWidget):
         # ---------------------------------------------------------------------
         self.ribbon_frame = QFrame()
         self.ribbon_frame.setObjectName("cardFrame")
-        self.ribbon_frame.setStyleSheet(CARD_FRAME_STYLE + """
-            QFrame#cardFrame {
-                background-color: #F8FAFC;
-                border: 1px solid #CBD5E1;
+        self.ribbon_frame.setStyleSheet(CARD_FRAME_STYLE + f"""
+            QFrame#cardFrame {{
+                background-color: {C.BG_SURFACE};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 6px;
                 padding: 4px 8px;
-            }
+            }}
         """)
         ribbon_layout = QVBoxLayout(self.ribbon_frame)
         ribbon_layout.setContentsMargins(8, 4, 8, 4)
@@ -116,16 +116,16 @@ class WordExtractorTab(QWidget):
         row1.setSpacing(8)
 
         self.btn_active_word = QPushButton("🪟 Active Word: None Detected")
-        self.btn_active_word.setStyleSheet("""
-            QPushButton {
-                background-color: #F1F5F9;
-                color: #475569;
-                border: 1px solid #CBD5E1;
+        self.btn_active_word.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.BG_CANVAS};
+                color: {C.TEXT_SECONDARY};
+                border: 1px solid {C.BORDER_STRONG};
                 border-radius: 4px;
                 padding: 3px 10px;
                 font-weight: 500;
                 font-size: 11px;
-            }
+            }}
         """)
         self.btn_active_word.setToolTip("Refreshes automatically. Click to open the active document folder.")
         self.btn_active_word.clicked.connect(self._on_active_word_clicked)
@@ -133,7 +133,7 @@ class WordExtractorTab(QWidget):
 
         sep1 = QFrame()
         sep1.setFrameShape(QFrame.VLine)
-        sep1.setStyleSheet("color: #CBD5E1;")
+        sep1.setStyleSheet(f"color: {C.BORDER_STRONG};")
         row1.addWidget(sep1)
 
         self.dotx_badge = QLabel("3GPP Macro Template (3gpp_70.dotx): Checking...")
@@ -436,16 +436,16 @@ class WordExtractorTab(QWidget):
                 self._active_word_file = file_path
                 mod_suffix = "*" if doc_info.get("modified") else ""
                 self.btn_active_word.setText(f"🪟 Active Word: {doc_name}{mod_suffix}")
-                self.btn_active_word.setStyleSheet("""
-                    QPushButton {
-                        background-color: #ECFDF5;
-                        color: #065F46;
-                        border: 1px solid #6EE7B7;
+                self.btn_active_word.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {C.WG_RAN_BG};
+                        color: {C.WG_RAN_TEXT};
+                        border: 1px solid {C.EMERALD_BORDER};
                         border-radius: 4px;
                         padding: 3px 10px;
                         font-weight: 600;
                         font-size: 11px;
-                    }
+                    }}
                 """)
                 if file_path:
                     self.btn_active_word.setToolTip(f"Active in Microsoft Word:\n{file_path.resolve()}\n\nClick to reveal in folder.")
@@ -454,16 +454,16 @@ class WordExtractorTab(QWidget):
             else:
                 self._active_word_file = None
                 self.btn_active_word.setText("🪟 Active Word: None Detected")
-                self.btn_active_word.setStyleSheet("""
-                    QPushButton {
-                        background-color: #F1F5F9;
-                        color: #64748B;
-                        border: 1px solid #CBD5E1;
+                self.btn_active_word.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {C.BG_CANVAS};
+                        color: {C.TEXT_MUTED};
+                        border: 1px solid {C.BORDER_STRONG};
                         border-radius: 4px;
                         padding: 3px 10px;
                         font-weight: 500;
                         font-size: 11px;
-                    }
+                    }}
                 """)
                 self.btn_active_word.setToolTip("No active document currently open in Microsoft Word.")
         except Exception as exc:
@@ -511,35 +511,35 @@ class WordExtractorTab(QWidget):
         lo_path = WordConfig.load().get("libreoffice_path", "")
         if lo_path and Path(lo_path).is_file():
             self.lo_badge.setText("🟢 LibreOffice: Configured")
-            self.lo_badge.setStyleSheet("color: #166534; font-weight: 600; font-size: 11px;")
+            self.lo_badge.setStyleSheet(f"color: {C.SUCCESS_DARK}; font-weight: 600; font-size: 11px;")
         else:
             found = shutil.which("soffice") or shutil.which("libreoffice")
             if found:
                 self.lo_badge.setText("🟢 LibreOffice: In PATH")
-                self.lo_badge.setStyleSheet("color: #166534; font-weight: 600; font-size: 11px;")
+                self.lo_badge.setStyleSheet(f"color: {C.SUCCESS_DARK}; font-weight: 600; font-size: 11px;")
             else:
                 self.lo_badge.setText("🟠 LibreOffice: Not Found")
-                self.lo_badge.setStyleSheet("color: #92400E; font-weight: 600; font-size: 11px;")
+                self.lo_badge.setStyleSheet(f"color: {C.WARNING_DARK}; font-weight: 600; font-size: 11px;")
 
     def _check_dotx_status(self):
         installed = is_3gpp_dotx_installed()
         if installed:
             self.dotx_badge.setText("🟢 3GPP Macro Template: Installed")
-            self.dotx_badge.setStyleSheet("color: #166534; font-weight: 600; font-size: 11px;")
+            self.dotx_badge.setStyleSheet(f"color: {C.SUCCESS_DARK}; font-weight: 600; font-size: 11px;")
             self.dotx_btn.setText("Uninstall Template")
-            self.dotx_btn.setStyleSheet("font-size: 10px; padding: 2px 6px; color: #991B1B;")
+            self.dotx_btn.setStyleSheet(f"font-size: 10px; padding: 2px 6px; color: {C.DANGER_DARK};")
             if hasattr(self, "cr_card_dotx_lbl"):
                 self.cr_card_dotx_lbl.setText("🟢 Installed in Microsoft Templates")
-                self.cr_card_dotx_lbl.setStyleSheet("color: #065F46; font-weight: bold; font-size: 11px;")
+                self.cr_card_dotx_lbl.setStyleSheet(f"color: {C.WG_RAN_TEXT}; font-weight: bold; font-size: 11px;")
                 self.btn_cr_install_dotx.setText("🗑️ Remove")
         else:
             self.dotx_badge.setText("⚪ 3GPP Macro Template: Not Installed")
-            self.dotx_badge.setStyleSheet("color: #475569; font-size: 11px;")
+            self.dotx_badge.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px;")
             self.dotx_btn.setText("Install Template")
-            self.dotx_btn.setStyleSheet("font-size: 10px; padding: 2px 6px; color: #1E40AF;")
+            self.dotx_btn.setStyleSheet(f"font-size: 10px; padding: 2px 6px; color: {C.INFO_DARK};")
             if hasattr(self, "cr_card_dotx_lbl"):
                 self.cr_card_dotx_lbl.setText("⚪ Not installed in Word templates")
-                self.cr_card_dotx_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
+                self.cr_card_dotx_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
                 self.btn_cr_install_dotx.setText("📥 Install")
 
     def _on_toggle_dotx_clicked(self):

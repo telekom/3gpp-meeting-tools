@@ -98,16 +98,16 @@ class TDocActionDelegate(QStyledItemDelegate):
         rect = self._button_rect(option.rect)
 
         if state == 'THREAD':
-            bg_color, border_color, text_color = QColor("#EEF2FF"), QColor("#A5B4FC"), QColor("#4338CA")
+            bg_color, border_color, text_color = QColor(C.WG_SA_BG), QColor(C.WG_SA_BORDER), QColor(C.INDIGO_DARK)
             text = "📧 View"
         elif state == 'EXISTS':
-            bg_color, border_color, text_color = QColor("#E6F4E6"), QColor("#A3DDA3"), QColor("#0C6B0C")
+            bg_color, border_color, text_color = QColor(C.SUCCESS_SOFT_MINT), QColor(C.SUCCESS_BORDER_MEDIUM), QColor(C.SUCCESS)
             text = "✓ Open"
         elif state == 'LOADING':
-            bg_color, border_color, text_color = QColor("#FFF4CE"), QColor("#F3C74C"), QColor("#B85C00")
+            bg_color, border_color, text_color = QColor(C.WARNING_SOFT_ALT), QColor(C.WARNING_BORDER_STRONG), QColor(C.WARNING)
             text = "⏳ Fetching"
         else:
-            bg_color, border_color, text_color = QColor("#E1F0FF"), QColor("#99C9FF"), QColor(C.OFFICE_BLUE)
+            bg_color, border_color, text_color = QColor(C.ACCENT_SOFT_HOVER), QColor(C.INFO_BORDER_MEDIUM), QColor(C.OFFICE_BLUE)
             text = "⬇ Download"
 
         if has_revs and state != 'LOADING':

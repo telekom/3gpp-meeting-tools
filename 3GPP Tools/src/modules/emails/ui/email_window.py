@@ -26,6 +26,7 @@ from modules.meetings.ui.tdocs_components import CheckableComboBox
 # Dialogs extracted to email_dialogs.py (re-exported for backward compatibility)
 from modules.emails.ui.email_dialogs import EditEmailDialog
 from modules.emails.ui.email_toolbar import EmailControlToolbar
+from core.ui.theme import C
 
 
 
@@ -75,7 +76,7 @@ class EmailManagerWindow(QWidget):
 
         self.setWindowTitle("📧 eMeeting Email Manager")
         self.resize(1300, 800)
-        self.setStyleSheet("QWidget { background-color: #FAFAFA; }")
+        self.setStyleSheet(f"QWidget {{ background-color: {C.BG_ALT_LIGHT}; }}")
 
         self._setup_ui()
         self._refresh_table()
@@ -208,7 +209,7 @@ class EmailManagerWindow(QWidget):
         self.tdoc_view.setAlternatingRowColors(True)
         self.tdoc_view.doubleClicked.connect(self._on_tdoc_double_clicked)
         self.tdoc_view.setStyleSheet(
-            "QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; } QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }")
+            f"QTableView {{ gridline-color: {C.BORDER_GRAY}; border: 1px solid {C.BORDER_GRAY}; background-color: {C.BG_CARD}; }} QHeaderView::section {{ background-color: {C.BG_SURFACE}; padding: 4px; font-weight: bold; border: 1px solid {C.BORDER_GRAY}; }}")
         left_layout.addWidget(self.tdoc_view)
 
         # --- RIGHT PANEL: EMAILS ---
@@ -218,7 +219,7 @@ class EmailManagerWindow(QWidget):
 
         right_header_layout = QHBoxLayout()
         self.lbl_right_title = QLabel("📧 Thread History")
-        self.lbl_right_title.setStyleSheet("font-weight: bold; color: #0078D7;")
+        self.lbl_right_title.setStyleSheet(f"font-weight: bold; color: {C.ACCENT_BRIGHT};")
 
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("🔍 Search this thread...")
@@ -246,7 +247,7 @@ class EmailManagerWindow(QWidget):
         self.email_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.email_view.customContextMenuRequested.connect(self._show_context_menu)
         self.email_view.setStyleSheet(
-            "QTableView { gridline-color: #E0E0E0; border: 1px solid #E0E0E0; background-color: #FFFFFF; } QHeaderView::section { background-color: #F5F5F5; padding: 4px; font-weight: bold; border: 1px solid #E0E0E0; }")
+            f"QTableView {{ gridline-color: {C.BORDER_GRAY}; border: 1px solid {C.BORDER_GRAY}; background-color: {C.BG_CARD}; }} QHeaderView::section {{ background-color: {C.BG_SURFACE}; padding: 4px; font-weight: bold; border: 1px solid {C.BORDER_GRAY}; }}")
         right_splitter.addWidget(self.email_view)
 
         # Reading Pane
@@ -473,11 +474,11 @@ class EmailManagerWindow(QWidget):
 
         real_email = row_data.get('sender_email', '')
         html = f"""
-        <h2 style='color:#005A9E; margin-bottom: 2px;'>{row_data.get('subject', '')}</h2>
+        <h2 style='color:{C.OFFICE_BLUE}; margin-bottom: 2px;'>{row_data.get('subject', '')}</h2>
         <p style='color:#555; margin-top:0px;'><b>From:</b> {row_data.get('sender_name')} &lt;{real_email}&gt; ({row_data.get('company')}) | <b>TDoc:</b> {row_data.get('tdoc_id')} | <b>Rev:</b> {row_data.get('revisions_mentioned')}</p>
         <hr>
-        <h3 style='color:#D83B01;'>Short Text / Comments</h3>
-        <p style='background-color:#FFF3E0; padding:10px; border-left: 4px solid #FFB74D;'>{row_data.get('short_text', '').replace(chr(10), '<br>')}</p>
+        <h3 style='color:{C.ORANGE_DARK};'>Short Text / Comments</h3>
+        <p style='background-color:{C.WG_CT_BG}; padding:10px; border-left: 4px solid {C.ORANGE_BORDER};'>{row_data.get('short_text', '').replace(chr(10), '<br>')}</p>
         <h3>Free Text</h3>
         <p style='color:#333;'>{row_data.get('free_text', '').replace(chr(10), '<br>')}</p>
         """

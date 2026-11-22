@@ -23,6 +23,7 @@ from core.ai.ollama_client import (
     is_local_host,
     is_ollama_port_open
 )
+from core.ui.theme import C
 
 
 class OllamaConfigDialog(QDialog):
@@ -32,7 +33,7 @@ class OllamaConfigDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("🦙 Ollama LLM Configuration")
         self.setMinimumWidth(560)
-        self.setStyleSheet("background-color: #FAFAFA;")
+        self.setStyleSheet(f"background-color: {C.BG_ALT_LIGHT};")
 
         self.cfg = load_ollama_config()
         self.client = OllamaClient(
@@ -52,7 +53,7 @@ class OllamaConfigDialog(QDialog):
 
         # Title & Description
         title = QLabel("🦙 Local LLM Server (Ollama)")
-        title.setStyleSheet("font-size: 14px; font-weight: bold; color: #1E293B;")
+        title.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {C.TEXT_STRONG};")
         layout.addWidget(title)
 
         desc = QLabel(
@@ -60,7 +61,7 @@ class OllamaConfigDialog(QDialog):
             "PlantUML diagram synthesis, and semantic specification queries."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #64748B; font-size: 11px; margin-bottom: 2px;")
+        desc.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px; margin-bottom: 2px;")
         layout.addWidget(desc)
 
         # ==========================================
@@ -80,26 +81,26 @@ class OllamaConfigDialog(QDialog):
         # Service Action Buttons
         self.start_btn = QPushButton("▶️ Start Service")
         self.start_btn.setToolTip("Start local Ollama daemon (ollama serve)")
-        self.start_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #DCFCE7; color: #166534; font-weight: bold;
-                border: 1px solid #86EFAC; border-radius: 4px; padding: 4px 12px;
-            }
-            QPushButton:hover { background-color: #BBF7D0; }
-            QPushButton:disabled { background-color: #F1F5F9; color: #94A3B8; border-color: #E2E8F0; }
+        self.start_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.SUCCESS_SOFT_ALT}; color: {C.SUCCESS_DARK}; font-weight: bold;
+                border: 1px solid {C.SUCCESS_BORDER_MEDIUM}; border-radius: 4px; padding: 4px 12px;
+            }}
+            QPushButton:hover {{ background-color: {C.SUCCESS_BORDER}; }}
+            QPushButton:disabled {{ background-color: {C.BG_CANVAS}; color: {C.TEXT_FAINT}; border-color: {C.BORDER_SUBTLE}; }}
         """)
         self.start_btn.clicked.connect(lambda: self._execute_service_action("start"))
         status_row.addWidget(self.start_btn)
 
         self.stop_btn = QPushButton("⏹️ Stop Service")
         self.stop_btn.setToolTip("Stop running local Ollama processes")
-        self.stop_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #FEE2E2; color: #991B1B; font-weight: bold;
-                border: 1px solid #FCA5A5; border-radius: 4px; padding: 4px 12px;
-            }
-            QPushButton:hover { background-color: #FECACA; }
-            QPushButton:disabled { background-color: #F1F5F9; color: #94A3B8; border-color: #E2E8F0; }
+        self.stop_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.DANGER_SOFT_HOVER}; color: {C.DANGER_DARK}; font-weight: bold;
+                border: 1px solid {C.DANGER_BORDER_ALT}; border-radius: 4px; padding: 4px 12px;
+            }}
+            QPushButton:hover {{ background-color: {C.DANGER_BORDER}; }}
+            QPushButton:disabled {{ background-color: {C.BG_CANVAS}; color: {C.TEXT_FAINT}; border-color: {C.BORDER_SUBTLE}; }}
         """)
         self.stop_btn.clicked.connect(lambda: self._execute_service_action("stop"))
         status_row.addWidget(self.stop_btn)
@@ -164,7 +165,7 @@ class OllamaConfigDialog(QDialog):
         server_layout.addLayout(p_layout)
 
         self.status_label = QLabel("Status: Not checked")
-        self.status_label.setStyleSheet("color: #64748B; font-size: 11px; font-weight: bold;")
+        self.status_label.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px; font-weight: bold;")
         server_layout.addWidget(self.status_label)
 
         layout.addWidget(server_group)
@@ -218,7 +219,7 @@ class OllamaConfigDialog(QDialog):
 
         self.acceleration_label = QLabel("Acceleration: Checking...")
         self.acceleration_label.setWordWrap(True)
-        self.acceleration_label.setStyleSheet("color: #475569; font-size: 11px;")
+        self.acceleration_label.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px;")
         diagnostics_layout.addWidget(self.acceleration_label)
 
         self.models_table = QTableWidget(0, 6)
@@ -241,7 +242,7 @@ class OllamaConfigDialog(QDialog):
             "It is derived from Ollama runtime VRAM placement, not from the configured GPU checkboxes."
         )
         diagnostics_note.setWordWrap(True)
-        diagnostics_note.setStyleSheet("color: #64748B; font-size: 10px;")
+        diagnostics_note.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 10px;")
         diagnostics_layout.addWidget(diagnostics_note)
 
         layout.addWidget(diagnostics_group)
@@ -309,7 +310,7 @@ class OllamaConfigDialog(QDialog):
             "Restart Ollama after changing them. Existing Windows environment variables remain valid."
         )
         gpu_note.setWordWrap(True)
-        gpu_note.setStyleSheet("color: #64748B; font-size: 10px;")
+        gpu_note.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 10px;")
         adv_layout.addWidget(gpu_note)
 
         layout.addWidget(adv_group)
@@ -360,7 +361,7 @@ class OllamaConfigDialog(QDialog):
         # Refresh local service and API state
         self._refresh_service_status()
         self.status_label.setText("⏳ Checking connection...")
-        self.status_label.setStyleSheet("color: #D97706; font-weight: bold;")
+        self.status_label.setStyleSheet(f"color: {C.WARNING_AMBER}; font-weight: bold;")
         self._refresh_diagnostics()
 
     def _on_igpu_toggled(self, checked: bool):
@@ -377,7 +378,7 @@ class OllamaConfigDialog(QDialog):
         self.service_group.setEnabled(is_local)
         if not is_local:
             self.service_status_label.setText("⚪ Remote host (service controls disabled)")
-            self.service_status_label.setStyleSheet("color: #64748B;")
+            self.service_status_label.setStyleSheet(f"color: {C.TEXT_MUTED};")
         else:
             self._refresh_service_status()
 
@@ -385,7 +386,7 @@ class OllamaConfigDialog(QDialog):
         host = self.host_input.text().strip() or "http://127.0.0.1:11434"
         if not is_local_host(host):
             self.service_status_label.setText("⚪ Remote host (service controls disabled)")
-            self.service_status_label.setStyleSheet("color: #64748B;")
+            self.service_status_label.setStyleSheet(f"color: {C.TEXT_MUTED};")
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(False)
             self.restart_btn.setEnabled(False)
@@ -394,13 +395,13 @@ class OllamaConfigDialog(QDialog):
         is_running = is_ollama_port_open(host)
         if is_running:
             self.service_status_label.setText("🟢 Running (Port 11434 open)")
-            self.service_status_label.setStyleSheet("color: #166534; font-weight: bold;")
+            self.service_status_label.setStyleSheet(f"color: {C.SUCCESS_DARK}; font-weight: bold;")
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
             self.restart_btn.setEnabled(True)
         else:
             self.service_status_label.setText("🔴 Stopped")
-            self.service_status_label.setStyleSheet("color: #DC2626; font-weight: bold;")
+            self.service_status_label.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
             self.start_btn.setEnabled(True)
             self.stop_btn.setEnabled(False)
             self.restart_btn.setEnabled(False)
@@ -446,7 +447,7 @@ class OllamaConfigDialog(QDialog):
         if success:
             # Refresh connection, models, and runtime diagnostics asynchronously
             self.status_label.setText("⏳ Checking connection...")
-            self.status_label.setStyleSheet("color: #D97706; font-weight: bold;")
+            self.status_label.setStyleSheet(f"color: {C.WARNING_AMBER}; font-weight: bold;")
             self._refresh_diagnostics()
             if self._close_after_service_action:
                 self._close_after_service_action = False
@@ -461,7 +462,7 @@ class OllamaConfigDialog(QDialog):
         self.client.reconfigure(host, proxy_mode)
 
         self.status_label.setText("⏳ Testing connection...")
-        self.status_label.setStyleSheet("color: #D97706; font-weight: bold;")
+        self.status_label.setStyleSheet(f"color: {C.WARNING_AMBER}; font-weight: bold;")
         self.test_btn.setEnabled(False)
 
         is_online, models, err = self.client.ping_and_get_models()
@@ -469,7 +470,7 @@ class OllamaConfigDialog(QDialog):
 
         if is_online:
             self.status_label.setText(f"✅ Connected! Found {len(models)} installed model(s).")
-            self.status_label.setStyleSheet("color: #166534; font-weight: bold;")
+            self.status_label.setStyleSheet(f"color: {C.SUCCESS_DARK}; font-weight: bold;")
 
             curr_selected = self.model_combo.currentText()
             self.model_combo.clear()
@@ -482,7 +483,7 @@ class OllamaConfigDialog(QDialog):
                 self.model_combo.setCurrentIndex(0)
         else:
             self.status_label.setText(f"❌ Offline: {err}")
-            self.status_label.setStyleSheet("color: #DC2626; font-weight: bold;")
+            self.status_label.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
 
         self._refresh_service_status()
 
@@ -513,7 +514,7 @@ class OllamaConfigDialog(QDialog):
         if not info.get("online"):
             error = info.get("error") or "Ollama server is not available."
             self.status_label.setText(f"❌ Offline: {error}")
-            self.status_label.setStyleSheet("color: #DC2626; font-weight: bold;")
+            self.status_label.setStyleSheet(f"color: {C.DANGER_ALT}; font-weight: bold;")
             self.version_label.setText("Version: Unavailable")
             self.runtime_label.setText("Runtime: Offline")
             self.acceleration_label.setText(f"Acceleration: Unavailable ({error})")
@@ -527,7 +528,7 @@ class OllamaConfigDialog(QDialog):
 
         model_names = [m.get("name") for m in installed if m.get("name")]
         self.status_label.setText(f"✅ Connected! Found {len(model_names)} installed model(s).")
-        self.status_label.setStyleSheet("color: #166534; font-weight: bold;")
+        self.status_label.setStyleSheet(f"color: {C.SUCCESS_DARK}; font-weight: bold;")
 
         curr_selected = self.model_combo.currentText()
         self.model_combo.clear()
