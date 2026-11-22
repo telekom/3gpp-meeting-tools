@@ -19,7 +19,9 @@ src/modules/meetings/
 │   │   ├── dossier/                   # Modular Per-TDoc Navigable Dossier package (see dossier/README.md)
 │   │   ├── dossier_exporter.py        # Re-export shim -> exporters/dossier/ package
 │   │   ├── excel_exporter.py          # Formatted Excel (.xlsx) & Review Matrix export
+│   │   ├── export_manifest.py         # Re-export shim -> exporters/manifest/ package
 │   │   ├── llm_exporter.py            # Batch/single Markdown extraction
+│   │   ├── manifest/                  # Modular Incremental Export Manifest package (see manifest/README.md)
 │   │   ├── markdown_exporter.py       # Meeting summary reports
 │   │   ├── post_meeting/              # Modular Post-Meeting Dossier package (see post_meeting/README.md)
 │   │   ├── post_meeting_exporter.py   # Re-export shim -> exporters/post_meeting/ package
