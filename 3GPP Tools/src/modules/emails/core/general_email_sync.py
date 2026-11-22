@@ -3,7 +3,7 @@ import re
 import logging
 import datetime
 from pathlib import Path
-from typing import List, Dict, Set
+from typing import List, Dict, Optional, Set
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from modules.emails.core.outlook_client import (
@@ -29,8 +29,14 @@ class GeneralEmailSyncThread(QThread):
     progress_val = pyqtSignal(int, int)  # current, total
     finished = pyqtSignal(bool, str, int)  # success, message, total_synced
 
-    TDOC_REGEX = re.compile(r'\b((?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,8})\b', re.IGNORECASE)
-    REV_REGEX = re.compile(r'\b((?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,8})(?:r|rev)\s*0?([1-9]\d*)\b', re.IGNORECASE)
+    TDOC_REGEX = re.compile(
+        r'(?<![A-Za-z0-9])((?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,8})(?![A-Za-z0-9])',
+        re.IGNORECASE,
+    )
+    REV_REGEX = re.compile(
+        r'(?<![A-Za-z0-9])((?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,8})(?:r|rev)\s*0?([1-9]\d*)[a-z]?(?![A-Za-z0-9])',
+        re.IGNORECASE,
+    )
 
     # Regex identifying the boundary where previous email quotations begin
     QUOTE_SPLIT_REGEX = re.compile(
@@ -89,7 +95,18 @@ class GeneralEmailSyncThread(QThread):
             return None, []
         subject = getattr(mail_item, "Subject", "") or ""
         body = getattr(mail_item, "Body", "") or ""
-        matches = self._extract_tdocs(subject, body)
+        attachments: List[str] = []
+        try:
+            atts = getattr(mail_item, "Attachments", None)
+            if atts:
+                for ai in range(1, atts.Count + 1):
+                    fname = getattr(atts.Item(ai), "FileName", "") or ""
+                    if fname:
+                        attachments.append(fname)
+        except Exception:
+            pass
+
+        matches = self._extract_tdocs(subject, body, attachments=attachments)
         if not matches and fallback_tdocs:
             matches = [
                 {"tdoc_id": str(t).upper(), "rev_matched": "", "location": "Thread"}
@@ -116,17 +133,6 @@ class GeneralEmailSyncThread(QThread):
             pass
         rich_body = unwrap_outlook_safelinks(rich_body)
         clean_body = strip_trailing_quotes(rich_body)
-
-        attachments: List[str] = []
-        try:
-            atts = getattr(mail_item, "Attachments", None)
-            if atts:
-                for ai in range(1, atts.Count + 1):
-                    fname = getattr(atts.Item(ai), "FileName", "") or ""
-                    if fname:
-                        attachments.append(fname)
-        except Exception:
-            pass
 
         dt_raw = getattr(mail_item, "ReceivedTime", None) or getattr(mail_item, "SentOn", None) or ""
         date_str = dt_raw.strftime("%Y-%m-%d %H:%M:%S") if hasattr(dt_raw, "strftime") else str(dt_raw)
@@ -373,29 +379,51 @@ class GeneralEmailSyncThread(QThread):
 
         return total_synced + total_flags_updated
 
-    def _extract_tdocs(self, subject: str, body: str) -> List[dict]:
+    @classmethod
+    def extract_tdocs_from_parts(
+        cls,
+        subject: str,
+        body: str,
+        attachments: Optional[List[str]] = None,
+    ) -> List[dict]:
+        """Extracts TDoc matches from subject, direct/quoted body, and attachment filenames."""
         results = {}
+        subj_s = str(subject or "")
+        body_s = str(body or "")
 
         # 1. Subject extraction (Highest Priority)
-        for tdoc in self.TDOC_REGEX.findall(subject):
+        for tdoc in cls.TDOC_REGEX.findall(subj_s):
             tdoc_up = tdoc.upper()
             results[tdoc_up] = {"tdoc_id": tdoc_up, "rev_matched": "", "location": "Subject"}
 
-        for base, rev in self.REV_REGEX.findall(subject):
+        for base, rev in cls.REV_REGEX.findall(subj_s):
             base_up = base.upper()
             rev_str = f"{base_up}r{int(rev):02d}"
             results[base_up] = {"tdoc_id": base_up, "rev_matched": rev_str, "location": "Subject"}
 
-        # 2. Split Body into Direct Text vs Quoted History
-        direct_body, quoted_body = split_direct_and_quoted_body(body)
+        # 2. Attachment filenames (treated as Body priority)
+        att_text = "\n".join(str(a or "") for a in (attachments or []) if str(a or "").strip())
+        if att_text:
+            for tdoc in cls.TDOC_REGEX.findall(att_text):
+                tdoc_up = tdoc.upper()
+                if tdoc_up not in results:
+                    results[tdoc_up] = {"tdoc_id": tdoc_up, "rev_matched": "", "location": "Body"}
+            for base, rev in cls.REV_REGEX.findall(att_text):
+                base_up = base.upper()
+                rev_str = f"{base_up}r{int(rev):02d}"
+                if base_up not in results or results[base_up]["location"] != "Subject":
+                    results[base_up] = {"tdoc_id": base_up, "rev_matched": rev_str, "location": "Body"}
+
+        # 3. Split Body into Direct Text vs Quoted History
+        direct_body, quoted_body = split_direct_and_quoted_body(body_s)
 
         # Direct Body extraction
-        for tdoc in self.TDOC_REGEX.findall(direct_body):
+        for tdoc in cls.TDOC_REGEX.findall(direct_body):
             tdoc_up = tdoc.upper()
             if tdoc_up not in results:
                 results[tdoc_up] = {"tdoc_id": tdoc_up, "rev_matched": "", "location": "Body"}
 
-        for base, rev in self.REV_REGEX.findall(direct_body):
+        for base, rev in cls.REV_REGEX.findall(direct_body):
             base_up = base.upper()
             rev_str = f"{base_up}r{int(rev):02d}"
             if base_up not in results or results[base_up]["location"] != "Subject":
@@ -403,18 +431,21 @@ class GeneralEmailSyncThread(QThread):
 
         # Quoted History extraction
         if quoted_body:
-            for tdoc in self.TDOC_REGEX.findall(quoted_body):
+            for tdoc in cls.TDOC_REGEX.findall(quoted_body):
                 tdoc_up = tdoc.upper()
                 if tdoc_up not in results:
                     results[tdoc_up] = {"tdoc_id": tdoc_up, "rev_matched": "", "location": "Quoted"}
 
-            for base, rev in self.REV_REGEX.findall(quoted_body):
+            for base, rev in cls.REV_REGEX.findall(quoted_body):
                 base_up = base.upper()
                 rev_str = f"{base_up}r{int(rev):02d}"
                 if base_up not in results:
                     results[base_up] = {"tdoc_id": base_up, "rev_matched": rev_str, "location": "Quoted"}
 
         return list(results.values())
+
+    def _extract_tdocs(self, subject: str, body: str, attachments: Optional[List[str]] = None) -> List[dict]:
+        return self.extract_tdocs_from_parts(subject, body, attachments=attachments)
 
     @staticmethod
     def _resolve_sender(mail_item, sender_name: str, sender_email: str, body: str):

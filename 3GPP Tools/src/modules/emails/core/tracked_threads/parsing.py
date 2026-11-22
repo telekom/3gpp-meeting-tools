@@ -7,7 +7,7 @@ import logging
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from modules.emails.core.email_config import (
     load_wg_email_config as _ORIG_LOAD_WG_EMAIL_CONFIG,
@@ -22,9 +22,35 @@ logger = logging.getLogger(__name__)
 
 _PREFIX_RE = re.compile(r"^(?:\s*(?:re|fwd|fw|aw|wg|sv|antw|回复|答复|转发)\s*[:：]\s*)+", re.IGNORECASE)
 _TAG_RE = re.compile(r"^\s*\[[^\]]{2,80}\]\s*")
-_TDOC_RE = re.compile(r"\b(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,7}(?:(?:r|rev)\d{1,2}[a-z]?)?\b", re.IGNORECASE)
-_KI_AI_RE = re.compile(r"\b(?:KI\s*#?\s*\d+(?:[._]\d+)?|AI\s*\d+(?:\.\d+)+)\b", re.IGNORECASE)
-_WI_RE = re.compile(r"\b(?:FS|TEI\d+|e?[A-Z0-9]{2,})_[A-Z0-9_]{2,}\b")
+_TDOC_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,8}(?:(?:r|rev)\d{1,2}[a-z]?)?(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+_KI_AI_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:KI\s*#?\s*\d+(?:[._]\d+)?|AI\s*#?\s*\d+(?:\.\d+)+)(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+_WI_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:FS|TEI\d+|e?[A-Z][A-Za-z0-9]{1,})_[A-Za-z0-9][A-Za-z0-9_]{1,}(?![A-Za-z0-9])"
+)
+
+
+def _extract_wi_tokens(text: str) -> List[str]:
+    """Extracts 3GPP Work Item / Study Item tokens (e.g. FS_enIMS_ARC, FS_6G_ARC, eV2X_Ph2)."""
+    out: List[str] = []
+    for raw in _WI_RE.findall(text or ""):
+        tok = raw.strip()
+        if not tok:
+            continue
+        up = tok.upper()
+        if up.startswith(("AI_", "KI_")) or re.match(r"^(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-", up):
+            continue
+        letters = [c for c in tok if c.isalpha()]
+        upper_cnt = sum(1 for c in letters if c.isupper())
+        is_wi_shape = up.startswith(("FS_", "TEI")) or (len(letters) >= 3 and (upper_cnt / len(letters)) >= 0.6)
+        if is_wi_shape and tok not in out:
+            out.append(tok)
+    return out
 
 
 def _resolve_ais_against_agenda(
@@ -53,8 +79,8 @@ def _resolve_ais_against_agenda(
     resolved: List[str] = []
     for tok in raw_ais:
         t_clean = tok.strip()
-        # Direct AI number match (e.g. "AI20.6.1" -> "20.6.1")
-        num_part = re.sub(r"^AI\s*", "", t_clean, flags=re.IGNORECASE).strip()
+        # Direct AI number match (e.g. "AI20.6.1" or "AI#20.10.1" -> "20.6.1" / "20.10.1")
+        num_part = re.sub(r"^AI\s*#?\s*", "", t_clean, flags=re.IGNORECASE).strip()
         if num_part.lower() in known_by_lower:
             cand = known_by_lower[num_part.lower()]
             if cand not in resolved:
@@ -80,6 +106,76 @@ def _resolve_ais_against_agenda(
     return sorted(resolved)
 
 
+def infer_wis_for_ais(
+    ais: Sequence[str],
+    *,
+    agenda_map: Optional[Dict[str, Any]] = None,
+    tdoc_meta_map: Optional[Dict[str, Dict[str, Any]]] = None,
+    valid_wis: Optional[List[str]] = None,
+) -> List[str]:
+    """
+    Infers Work Item (WI) tokens associated with one or more Agenda Items using:
+    1. Explicit WI tokens mentioned inside `agenda_map[ai].description`
+    2. Unambiguous WI(s) from `tdoc_meta_map` entries under that AI (when 1..3 distinct WIs exist)
+    """
+    clean_ais = [str(a).strip() for a in (ais or ()) if str(a).strip()]
+    if not clean_ais:
+        return []
+    wi_by_lower = (
+        {str(w).strip().lower(): str(w).strip() for w in valid_wis if str(w).strip()}
+        if valid_wis is not None
+        else None
+    )
+    inferred: List[str] = []
+
+    def _add_wi(raw_w: str):
+        wc = str(raw_w or "").strip()
+        if not wc or wc.lower() in ("(no wi)", "none", "nan", "-"):
+            return
+        if wi_by_lower is not None:
+            if wc.lower() not in wi_by_lower:
+                return
+            wc = wi_by_lower[wc.lower()]
+        if wc not in inferred:
+            inferred.append(wc)
+
+    for ai in clean_ais:
+        # 1. Check Agenda Item description in agenda_map
+        if agenda_map:
+            ag_item = agenda_map.get(ai)
+            desc = str(getattr(ag_item, "description", "") or "") if ag_item is not None else ""
+            if desc:
+                for tok in _extract_wi_tokens(desc):
+                    _add_wi(tok)
+                if wi_by_lower:
+                    desc_low = desc.lower()
+                    for w_low, w_orig in wi_by_lower.items():
+                        if len(w_low) >= 4 and re.search(rf"(?<![A-Za-z0-9_]){re.escape(w_low)}(?![A-Za-z0-9_])", desc_low):
+                            _add_wi(w_orig)
+
+        # 2. Check TDocs under this AI in tdoc_meta_map (skip catch-all AIs with > 3 distinct WIs)
+        if tdoc_meta_map:
+            ai_wis: List[str] = []
+            for meta in tdoc_meta_map.values():
+                if not isinstance(meta, dict):
+                    continue
+                if str(meta.get("ai") or "").strip().lower() != ai.lower():
+                    continue
+                for w in (meta.get("wis") or []):
+                    wc = str(w or "").strip()
+                    if not wc or wc.lower() in ("(no wi)", "none", "nan", "-"):
+                        continue
+                    if wi_by_lower is not None:
+                        wc = wi_by_lower.get(wc.lower(), wc)
+                    if wc not in ai_wis:
+                        ai_wis.append(wc)
+            if 1 <= len(ai_wis) <= 3:
+                for w in ai_wis:
+                    _add_wi(w)
+
+    return sorted(set(inferred))
+
+
 def auto_suggest_links(
     subject: str,
     body: str = "",
@@ -89,16 +185,18 @@ def auto_suggest_links(
     valid_wis: Optional[List[str]] = None,
     tdoc_meta_map: Optional[Dict[str, Dict[str, Any]]] = None,
     extra_tdocs: Optional[List[str]] = None,
+    attachments: Optional[List[str]] = None,
 ) -> Dict[str, List[str]]:
     """
-    Extracts candidate AIs/KIs, Sub-Topics, WIs, and TDocs from an email subject, body, and linked TDocs.
+    Extracts candidate AIs/KIs, Sub-Topics, WIs, and TDocs from an email subject, body, attachments, and linked TDocs.
     When meeting metadata (`agenda_map`/`valid_ais`/`valid_wis`/`tdoc_meta_map`) is provided,
-    tokens are resolved against real meeting Agenda Items, Sub-Items, and WIs.
+    tokens are resolved against real meeting Agenda Items, Sub-Items, and WIs (including AI -> WI inference).
     """
     text_subj = subject or ""
-    text_all = f"{text_subj}\n{(body or '')[:2000]}"
+    att_text = "\n".join(str(a or "") for a in (attachments or []) if str(a or "").strip())
+    text_all = f"{text_subj}\n{att_text}\n{(body or '')[:2000]}"
     raw_ais = sorted({re.sub(r"\s+", "", m.upper()) for m in _KI_AI_RE.findall(text_subj)})
-    raw_wis = sorted({m.strip() for m in _WI_RE.findall(text_subj)})
+    raw_wis = _extract_wi_tokens(text_subj)
     tdocs = sorted(
         {m.upper() for m in _TDOC_RE.findall(text_all)}
         | {str(t).strip().upper() for t in (extra_tdocs or []) if str(t).strip()}
@@ -107,13 +205,18 @@ def auto_suggest_links(
     if agenda_map is not None or valid_ais is not None:
         ais = _resolve_ais_against_agenda(raw_ais, raw_wis, agenda_map, valid_ais)
     else:
-        ais = raw_ais
+        ais = [
+            re.sub(r"^AI\s*#?\s*", "", a, flags=re.IGNORECASE).strip()
+            if re.match(r"^AI\s*#?\s*\d+", a, flags=re.IGNORECASE)
+            else a
+            for a in raw_ais
+        ]
 
     if valid_wis is not None:
         wi_by_lower = {str(w).strip().lower(): str(w).strip() for w in valid_wis if str(w).strip()}
         wis = sorted({wi_by_lower[w.lower()] for w in raw_wis if w.lower() in wi_by_lower})
     else:
-        wis = raw_wis
+        wis = list(raw_wis)
 
     sub_items: List[str] = []
     if tdoc_meta_map:
@@ -141,6 +244,10 @@ def auto_suggest_links(
                     wc = wi_by_lower.get(wc.lower(), wc)
                 if wc not in wis:
                     wis.append(wc)
+
+    for w in infer_wis_for_ais(ais, agenda_map=agenda_map, tdoc_meta_map=tdoc_meta_map, valid_wis=valid_wis):
+        if w not in wis:
+            wis.append(w)
 
     return {"ais": sorted(set(ais)), "sub_items": sub_items, "wis": sorted(set(wis)), "tdocs": tdocs}
 

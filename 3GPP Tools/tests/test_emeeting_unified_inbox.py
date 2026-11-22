@@ -374,6 +374,243 @@ class TestEMeetingUnifiedInbox(unittest.TestCase):
             finally:
                 dlg.close()
 
+    def test_underscore_tdoc_ai_wi_extraction_and_ai_to_wi_inference(self):
+        from types import SimpleNamespace
+        from modules.emails.core.general_email_sync import GeneralEmailSyncThread
+        from modules.emails.core.tracked_threads.parsing import auto_suggest_links, infer_wis_for_ais
+
+        subj = (
+            "Re: [SA2#178, FS_enIMS_ARC, AI#20.10.1, S2-2612919_was_S2-2612519] "
+            "23.801-04: [KI#3, New Solution] Association and correlation"
+        )
+        atts = ["S2-2613005_S2-2612919_was_S2-2612519_New Solution for KI3.docx"]
+        agenda_map = {
+            "20.10.1": SimpleNamespace(description="KI#3, FS_enIMS_ARC New Solution"),
+            "6.1": SimpleNamespace(description="FS_XRM Monitoring"),
+        }
+        tdoc_meta_map = {
+            "S2-2612919": {"ai": "20.10.1", "sub_item": "KI#3", "wis": ["FS_enIMS_ARC"]},
+            "S2-2612519": {"ai": "20.10.1", "sub_item": "KI#3", "wis": ["FS_enIMS_ARC"]},
+            "S2-2601111": {"ai": "6.1", "sub_item": "KI#1", "wis": ["FS_XRM"]},
+        }
+
+        matches = GeneralEmailSyncThread.extract_tdocs_from_parts(subj, "Please see attached.", attachments=atts)
+        matched_ids = {m["tdoc_id"]: m["location"] for m in matches}
+        self.assertEqual(matched_ids.get("S2-2612919"), "Subject")
+        self.assertEqual(matched_ids.get("S2-2612519"), "Subject")
+        self.assertEqual(matched_ids.get("S2-2613005"), "Body")
+
+        sugg = auto_suggest_links(
+            subj,
+            "",
+            agenda_map=agenda_map,
+            valid_ais=["20.10.1", "6.1"],
+            valid_wis=["FS_enIMS_ARC", "FS_XRM"],
+            tdoc_meta_map=tdoc_meta_map,
+            attachments=atts,
+        )
+        self.assertEqual(sugg["ais"], ["20.10.1"])
+        self.assertEqual(sugg["wis"], ["FS_enIMS_ARC"])
+        self.assertEqual(sugg["tdocs"], ["S2-2612519", "S2-2612919", "S2-2613005"])
+
+        # AI -> WI inference even when subject has NO WI and NO TDocs!
+        inferred = infer_wis_for_ais(
+            ["6.1"],
+            agenda_map=agenda_map,
+            tdoc_meta_map=tdoc_meta_map,
+            valid_wis=["FS_enIMS_ARC", "FS_XRM"],
+        )
+        self.assertEqual(inferred, ["FS_XRM"])
+
+    def test_lossless_deduplication_across_general_and_tracked_dbs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agenda_dir = Path(tmpdir) / "Agenda"
+            gdb = GeneralEmailDatabase(agenda_dir / "emails.db")
+            tdb = TrackedThreadsDatabase(agenda_dir / "tracked_threads.db")
+
+            # Simulate colleague's duplicate scenario: same email in 2 folders with different EntryIDs
+            # One copy is Read with attachment, the other is Unread without attachment
+            gdb.save_emails_batch(
+                [
+                    {
+                        "id": "EID-INBOX-12",
+                        "folder_tag": "Inbox",
+                        "subject": "Re: [SA2#178] S2-2612919",
+                        "sender_name": "Pallab Gupta (Nokia)",
+                        "sender_email": "pallab@nokia.com",
+                        "company": "Nokia",
+                        "date_received": "2026-11-20 14:57:05",
+                        "body_text": "Hi Nishant, I have tried to provide some clarification text.",
+                        "clean_body": "Hi Nishant, I have tried to provide some clarification text.",
+                        "attachments": ["S2-2613005_S2-2612919_was_S2-2612519.docx"],
+                        "is_read": 1,
+                        "flag_status": 0,
+                    },
+                    {
+                        "id": "EID-WG-13",
+                        "folder_tag": "WG",
+                        "subject": "Re: [SA2#178] S2-2612919",
+                        "sender_name": "Pallab Gupta",
+                        "sender_email": "pallab@nokia.com",
+                        "company": "Nokia",
+                        "date_received": "2026-11-20 14:57:05",
+                        "body_text": "Hi Nishant, I have tried to provide some clarification text.",
+                        "clean_body": "Hi Nishant, I have tried to provide some clarification text.",
+                        "attachments": [],
+                        "is_read": 0,
+                        "flag_status": 2,
+                    },
+                ],
+                [
+                    {"email_id": "EID-INBOX-12", "tdoc_id": "S2-2612919", "rev_matched": "", "match_location": "Subject"},
+                    {"email_id": "EID-WG-13", "tdoc_id": "S2-2612519", "rev_matched": "", "match_location": "Quoted"},
+                ],
+                sync_unread=True,
+            )
+
+            rows = gdb.get_all_emails_with_tdocs()
+            self.assertEqual(len(rows), 1)
+            merged = rows[0]
+            self.assertEqual(merged["is_read"], 1)
+            self.assertEqual(merged["flag_status"], 2)
+            self.assertEqual(merged["attachments"], ["S2-2613005_S2-2612919_was_S2-2612519.docx"])
+            matched_set = set(merged["matched_tdocs"].split(","))
+            self.assertEqual(matched_set, {"S2-2612919", "S2-2612519"})
+
+            # TrackedThreadMessages deduplication when merging or upserting overlapping messages
+            tid = tdb.create_or_get_thread("Thread X", "thread x", meeting_id="SA2#178", wg="SA2")
+            tdb.upsert_messages(
+                tid,
+                [
+                    {
+                        "id": "MSG-LOCAL-1",
+                        "subject": "Thread X",
+                        "sender_name": "Nishant Gupta (QSIO)",
+                        "sender_email": "nishant@qti.qualcomm.com",
+                        "company": "Qualcomm",
+                        "date_sent": "2026-11-20 06:19:12",
+                        "body_text": "Please add the following ENs.",
+                        "clean_body": "Please add the following ENs.",
+                        "is_read": 0,
+                        "attachments": [],
+                    },
+                    {
+                        "id": "EID-OUTLOOK-11",
+                        "subject": "Thread X",
+                        "sender_name": "Nishant Gupta",
+                        "sender_email": "nishant@qti.qualcomm.com",
+                        "company": "Qualcomm",
+                        "date_sent": "2026-11-20 06:19:12",
+                        "body_text": "Please add the following ENs.",
+                        "clean_body": "Please add the following ENs.",
+                        "is_read": 1,
+                        "attachments": ["EN.docx"],
+                    },
+                ],
+                sync_unread=True,
+            )
+            tmsgs = tdb.get_thread_messages(tid)
+            self.assertEqual(len(tmsgs), 1)
+            self.assertEqual(tmsgs[0]["id"], "EID-OUTLOOK-11")
+            self.assertEqual(tmsgs[0]["is_read"], 1)
+            self.assertEqual(tmsgs[0]["attachments"], ["EN.docx"])
+
+    def test_batch_multi_thread_drop_and_dual_db_indexing(self):
+        from modules.emails.core.tracked_threads.collection_and_pinning import pin_threads_from_seeds_batch
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agenda_dir = Path(tmpdir) / "Agenda"
+            gdb = GeneralEmailDatabase(agenda_dir / "emails.db")
+            tdb = TrackedThreadsDatabase(agenda_dir / "tracked_threads.db")
+
+            tdoc_meta_map = {
+                "S2-2612919": {"ai": "20.10.1", "sub_item": "KI#3", "wis": ["FS_enIMS_ARC"]},
+                "S2-2609999": {"ai": "6.1", "sub_item": "KI#1", "wis": ["FS_XRM"]},
+            }
+
+            seeds = [
+                (
+                    {
+                        "id": "M1",
+                        "subject": "[SA2#178, AI#20.10.1, S2-2612919_was_S2-2612519] Solution",
+                        "sender_name": "Alice",
+                        "sender_email": "alice@nokia.com",
+                        "company": "Nokia",
+                        "date_sent": "2026-11-21 10:00:00",
+                        "body_text": "Initial draft.",
+                        "clean_body": "Initial draft.",
+                        "conversation_id": "CID-A",
+                        "is_read": 0,
+                        "flag_status": 0,
+                        "attachments": [],
+                    },
+                    None,
+                ),
+                (
+                    {
+                        "id": "M2",
+                        "subject": "Re: [SA2#178, AI#20.10.1, S2-2612919_was_S2-2612519] Solution",
+                        "sender_name": "Bob",
+                        "sender_email": "bob@qualcomm.com",
+                        "company": "Qualcomm",
+                        "date_sent": "2026-11-21 10:05:00",
+                        "body_text": "We support.",
+                        "clean_body": "We support.",
+                        "conversation_id": "CID-A",
+                        "is_read": 0,
+                        "flag_status": 0,
+                        "attachments": [],
+                    },
+                    None,
+                ),
+                (
+                    {
+                        "id": "M3",
+                        "subject": "[SA2#178, AI 6.1] S2-2609999 XRM Discussion",
+                        "sender_name": "Carol",
+                        "sender_email": "carol@huawei.com",
+                        "company": "Huawei",
+                        "date_sent": "2026-11-21 11:00:00",
+                        "body_text": "Please review.",
+                        "clean_body": "Please review.",
+                        "conversation_id": "CID-B",
+                        "is_read": 0,
+                        "flag_status": 0,
+                        "attachments": [],
+                    },
+                    None,
+                ),
+            ]
+
+            res = pin_threads_from_seeds_batch(
+                tdb,
+                seeds,
+                meeting_id="SA2#178",
+                wg="SA2",
+                valid_wis=["FS_enIMS_ARC", "FS_XRM"],
+                tdoc_meta_map=tdoc_meta_map,
+                general_email_db=gdb,
+                refresh_outlook=False,
+            )
+            self.assertEqual(len(res["thread_ids"]), 2)
+            self.assertEqual(res["message_count"], 3)
+
+            threads = tdb.get_threads_for_meeting("SA2#178")
+            self.assertEqual(len(threads), 2)
+            th_a = next(t for t in threads if "CID-A" in t["conversation_ids"])
+            th_b = next(t for t in threads if "CID-B" in t["conversation_ids"])
+            self.assertEqual(th_a["linked_ais"], ["20.10.1"])
+            self.assertEqual(th_a["linked_wis"], ["FS_enIMS_ARC"])
+            self.assertEqual(th_b["linked_ais"], ["6.1"])
+            self.assertEqual(th_b["linked_wis"], ["FS_XRM"])
+            self.assertEqual(len(tdb.get_thread_messages(th_a["thread_id"])), 2)
+
+            # Verify GeneralEmailDatabase was also indexed cleanly for Related Emails dialogs!
+            gen_rows = gdb.get_all_emails_with_tdocs()
+            self.assertEqual(len(gen_rows), 3)
+            self.assertTrue(any("S2-2612919" in r["matched_tdocs"] for r in gen_rows))
+            self.assertTrue(any("S2-2609999" in r["matched_tdocs"] for r in gen_rows))
+
 
 if __name__ == "__main__":
     unittest.main()

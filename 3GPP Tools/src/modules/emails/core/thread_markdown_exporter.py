@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from core.ui.theme import C
 
 
-_TDOC_RE = re.compile(r"\b(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,7}\b", re.IGNORECASE)
+_TDOC_RE = re.compile(r"(?<![A-Za-z0-9])(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,8}(?![A-Za-z0-9])", re.IGNORECASE)
 _TDOC_URL_PREFIX_ARTIFACT_RE = re.compile(
     r"^(?:2F|20|2520)+(?=(?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,8}\b)",
     re.IGNORECASE,
@@ -543,7 +543,7 @@ def linkify_markdown_urls(text: str, shorten_long_urls: bool = False) -> str:
 
 
 _TDOC_LINK_OR_EXISTING_MD_RE = re.compile(
-    r"(\[[^\]]*\]\([^\)]*\))|\b((?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,7}(?:r\d{1,2}[a-zA-Z]?)?)\b",
+    r"(\[[^\]]*\]\([^\)]*\))|(?<![A-Za-z0-9])((?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{6,8}(?:r\d{1,2}[a-zA-Z]?)?)(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
 

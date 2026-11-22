@@ -10,12 +10,17 @@ from pathlib import Path
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (
+    QApplication,
     QMessageBox,
     QToolTip,
     QDialog,
 )
 from modules.meetings.ui.tdocs_models import natural_sort_key
-from modules.emails.core.tracked_threads_service import pin_thread_from_msg, pin_thread_from_outlook_selection
+from modules.emails.core.tracked_threads_service import (
+    pin_thread_from_msg,
+    pin_thread_from_outlook_selection,
+    pin_threads_from_msg_files,
+)
 from modules.emails.core.tracked_threads_workers import TrackedThreadsRefreshWorker
 from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
 from modules.emails.ui.tracked_thread_dialog import PinFromOutlookDialog, TrackedThreadDialog
@@ -300,8 +305,9 @@ class TrackedThreadsMixin:
         meeting_id = self._get_meeting_id_label()
         agenda_map, valid_wis = self._get_pin_meeting_context()
         tdoc_meta_map = self._build_tdoc_meta_map()
+        general_db = getattr(self, "general_email_db", None)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            # First try reading Outlook ActiveExplorer Selection (most reliable for .msg drags in Windows)
             pinned_ids = pin_thread_from_outlook_selection(
                 self.tracked_threads_db,
                 meeting_id=meeting_id,
@@ -309,10 +315,9 @@ class TrackedThreadsMixin:
                 agenda_map=agenda_map,
                 valid_wis=valid_wis,
                 tdoc_meta_map=tdoc_meta_map,
+                general_email_db=general_db,
             )
             if not pinned_ids and mime_data:
-                # Fallback: try extracting FileContents if non-empty
-                import struct
                 formats = mime_data.formats()
                 fgd_fmt = next((f for f in formats if "FileGroupDescriptor" in f), None)
                 fc_fmt = next((f for f in formats if "FileContents" in f), None)
@@ -338,12 +343,23 @@ class TrackedThreadsMixin:
                                     agenda_map=agenda_map,
                                     valid_wis=valid_wis,
                                     tdoc_meta_map=tdoc_meta_map,
+                                    general_email_db=general_db,
                                 )
                                 if tid:
                                     pinned_ids.append(tid)
             if pinned_ids:
                 self._on_tracked_thread_changed()
-                self._open_tracked_thread_dialog(pinned_ids[-1])
+                if hasattr(self, "_refresh_email_counts"):
+                    self._refresh_email_counts()
+                if len(pinned_ids) == 1:
+                    self._open_tracked_thread_dialog(pinned_ids[0])
+                else:
+                    notify_success(
+                        self,
+                        "Threads Imported",
+                        f"Imported {len(pinned_ids)} email thread(s) with automatic AI/WI/TDoc linking.",
+                    )
+                    self._open_meeting_email_inbox()
             else:
                 QMessageBox.warning(
                     self,
@@ -354,29 +370,41 @@ class TrackedThreadsMixin:
         except Exception as e:
             logging.error(f"Error handling Outlook drag & drop: {e}", exc_info=True)
             QMessageBox.warning(self, "Outlook Drag & Drop Failed", f"Failed to process dragged Outlook email:\n{e}")
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def _process_dropped_msg_files(self, msg_files: list):
         wg = str(self.mtg_info.get("wg_name", "SA2")).strip().upper()
         meeting_id = self._get_meeting_id_label()
         agenda_map, valid_wis = self._get_pin_meeting_context()
         tdoc_meta_map = self._build_tdoc_meta_map()
-        pinned_ids = []
+        general_db = getattr(self, "general_email_db", None)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            for mp in msg_files:
-                tid = pin_thread_from_msg(
-                    self.tracked_threads_db,
-                    Path(mp),
-                    meeting_id=meeting_id,
-                    wg=wg,
-                    agenda_map=agenda_map,
-                    valid_wis=valid_wis,
-                    tdoc_meta_map=tdoc_meta_map,
-                )
-                if tid:
-                    pinned_ids.append(tid)
+            res = pin_threads_from_msg_files(
+                self.tracked_threads_db,
+                [Path(mp) for mp in msg_files],
+                meeting_id=meeting_id,
+                wg=wg,
+                agenda_map=agenda_map,
+                valid_wis=valid_wis,
+                tdoc_meta_map=tdoc_meta_map,
+                general_email_db=general_db,
+            )
+            pinned_ids = list(res.get("thread_ids") or [])
             if pinned_ids:
                 self._on_tracked_thread_changed()
-                self._open_tracked_thread_dialog(pinned_ids[-1])
+                if hasattr(self, "_refresh_email_counts"):
+                    self._refresh_email_counts()
+                if len(pinned_ids) == 1:
+                    self._open_tracked_thread_dialog(pinned_ids[0])
+                else:
+                    notify_success(
+                        self,
+                        "Threads Imported",
+                        f"Imported {res.get('message_count', len(msg_files))} email(s) across {len(pinned_ids)} thread(s).",
+                    )
+                    self._open_meeting_email_inbox()
             else:
                 QMessageBox.warning(
                     self,
@@ -386,6 +414,8 @@ class TrackedThreadsMixin:
         except Exception as e:
             logging.error(f"Error processing dropped .msg file(s): {e}", exc_info=True)
             QMessageBox.warning(self, "Error Processing .msg", f"Failed to process dropped .msg file:\n{e}")
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def _on_pin_thread_from_msg_dialog(self):
         from PyQt5.QtWidgets import QFileDialog

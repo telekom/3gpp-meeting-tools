@@ -73,7 +73,9 @@ class GeneralEmailDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_gen_flagged ON general_emails(flag_status)")
             conn.commit()
             from modules.emails.core.legacy_email_migrator import migrate_legacy_emeeting_emails
+            from modules.emails.core.email_deduplicator import deduplicate_general_emails
             migrate_legacy_emeeting_emails(conn)
+            deduplicate_general_emails(conn)
 
     def get_cached_email_states(self) -> Dict[str, Dict[str, Any]]:
         """Returns {email_id: {'is_read': int, 'flag_status': int, 'has_body': bool}} for cached emails."""
@@ -170,6 +172,8 @@ class GeneralEmailDatabase:
                 VALUES (?, ?, ?, ?)
             """, match_tuples)
             conn.commit()
+            from modules.emails.core.email_deduplicator import deduplicate_general_emails
+            deduplicate_general_emails(conn)
 
     def get_email_counts_per_tdoc(self) -> Dict[str, Dict]:
         """

@@ -21,12 +21,12 @@ START_END_BLOCK_RE = re.compile(
 )
 
 FULL_TDOC_REV_RE = re.compile(
-    r"\b((?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{5,8})(?:r|rev\.?\s*)0?([1-9]\d*)\b",
+    r"(?<![A-Za-z0-9])((?:S[1-6]|R[1-5]|C[1-6]|SP|RP|CP)-\d{5,8})(?:r|rev\.?\s*)0?([1-9]\d*)(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
 
 SHORTHAND_REV_RE = re.compile(
-    r"\b(?:r|rev\.?\s*)0?([1-9]\d*)\b",
+    r"(?<![A-Za-z0-9])(?:r|rev\.?\s*)0?([1-9]\d*)(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
 

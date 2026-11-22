@@ -8,6 +8,8 @@ from .collection_and_pinning import (
     _pin_from_seed_dict,
     pin_thread_from_msg,
     pin_thread_from_outlook_selection,
+    pin_threads_from_msg_files,
+    pin_threads_from_seeds_batch,
 )
 from .discovery import (
     _add_thread_row_to_bucket,
@@ -53,6 +55,7 @@ from .parsing import (
     _resolve_ais_against_agenda,
     _strip_trailing_quotes,
     auto_suggest_links,
+    infer_wis_for_ais,
     normalize_subject,
     parse_msg_file,
 )
@@ -90,6 +93,7 @@ __all__ = [
     "classify_discovered_threads",
     "get_drafts_cache_dir",
     "get_meeting_discovery_config_path",
+    "infer_wis_for_ais",
     "list_recent_threads_in_folders",
     "load_meeting_discovery_config",
     "mark_thread_read_with_outlook",
@@ -100,6 +104,8 @@ __all__ = [
     "pin_thread_by_subject_or_cid",
     "pin_thread_from_msg",
     "pin_thread_from_outlook_selection",
+    "pin_threads_from_msg_files",
+    "pin_threads_from_seeds_batch",
     "prepare_thread_llm_workspace",
     "refresh_meeting_threads",
     "refresh_thread",

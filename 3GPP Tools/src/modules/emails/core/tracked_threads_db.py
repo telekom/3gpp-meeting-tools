@@ -104,6 +104,15 @@ class TrackedThreadsDatabase:
             if "flag_status" not in msg_cols:
                 cursor.execute("ALTER TABLE tracked_thread_messages ADD COLUMN flag_status INTEGER DEFAULT 0")
             conn.commit()
+            from modules.emails.core.email_deduplicator import deduplicate_tracked_thread_messages
+            removed_msgs, affected_tids = deduplicate_tracked_thread_messages(conn)
+            if removed_msgs and affected_tids:
+                for tid in affected_tids:
+                    self._recompute_thread_stats(cursor, tid)
+                conn.commit()
+
+        from modules.emails.core.email_deduplicator import deduplicate_tracked_threads_table
+        deduplicate_tracked_threads_table(self)
 
     @staticmethod
     def _row_to_thread(row: sqlite3.Row) -> Dict[str, Any]:
@@ -294,6 +303,12 @@ class TrackedThreadsDatabase:
                 )
             self._recompute_thread_stats(cursor, thread_id)
             conn.commit()
+            from modules.emails.core.email_deduplicator import deduplicate_tracked_thread_messages
+            removed_msgs, affected_tids = deduplicate_tracked_thread_messages(conn)
+            if removed_msgs and affected_tids:
+                for tid in affected_tids:
+                    self._recompute_thread_stats(cursor, tid)
+                conn.commit()
         return new_count
 
     def _recompute_thread_stats(self, cursor: sqlite3.Cursor, thread_id: str):
@@ -528,6 +543,11 @@ class TrackedThreadsDatabase:
             )
             self._recompute_thread_stats(cursor, target_thread_id)
             conn.commit()
+            from modules.emails.core.email_deduplicator import deduplicate_tracked_thread_messages
+            removed_msgs, _ = deduplicate_tracked_thread_messages(conn)
+            if removed_msgs:
+                self._recompute_thread_stats(cursor, target_thread_id)
+                conn.commit()
 
     def delete_thread(self, thread_id: str):
         with self._get_connection() as conn:

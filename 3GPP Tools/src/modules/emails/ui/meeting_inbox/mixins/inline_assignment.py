@@ -10,6 +10,7 @@ from core.ui.theme import C
 from core.ui.toast import notify_success
 from modules.emails.core.tracked_threads_service import (
     auto_suggest_links,
+    infer_wis_for_ais,
     normalize_subject,
     pin_thread_by_subject_or_cid,
 )
@@ -234,6 +235,20 @@ class InboxInlineAssignmentMixin:
                 finally:
                     self._updating_assign_bar = False
         selected_wis = self.assign_wis_pills.tags()
+        if selected_ais and not selected_wis:
+            suggested_wis = infer_wis_for_ais(
+                selected_ais,
+                agenda_map=self._agenda_map,
+                tdoc_meta_map=self._tdoc_meta_map,
+                valid_wis=self._valid_wis if self._wi_suggestions else None,
+            )
+            if suggested_wis:
+                selected_wis = suggested_wis
+                self._updating_assign_bar = True
+                try:
+                    self.assign_wis_pills.setText(", ".join(suggested_wis))
+                finally:
+                    self._updating_assign_bar = False
 
         if not it.get("in_tracked_db"):
             self._pin_item_in_place(
