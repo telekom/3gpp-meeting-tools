@@ -60,7 +60,8 @@ src/modules/meetings/
 │   ├── topic_manager.py               # Persistent Meta-Topic manager & rule evaluation
 │   └── stats/                         # Meeting statistics & HTML dashboard compilation
 └── ui/
-    ├── agreement_tracker_dialog.py    # Cross-Meeting Agreement Tracker dialog
+    ├── agreement_tracker/             # Modular AgreementTrackerDialog package (see agreement_tracker/README.md)
+    ├── agreement_tracker_dialog.py    # Re-export shim -> agreement_tracker/ package
     ├── contribution_dialog.py         # Multi-meeting company contribution audit dialog
     ├── delegate_owner_picker.py       # Multi-delegate checkbox dropdown picker
     ├── dialogs.py                     # MeetingInfoDialog, AddMeetingDialog, MeetingsConfigDialog
