@@ -135,6 +135,10 @@ Full component architecture lives in [`docs/UI_SHELL_AND_STYLING.md`](docs/UI_SH
 ### 4.10. Protected Drop-In Files
 - **`src/modules/meetings/core/exporters/tdoc2md.py`** is a standalone stdlib-only core synced with `3gpp-tdoc-markdown-exporter`. Keep Qt/Office COM/app adapters in `tdoc_markdown_converter.py` or calling modules, and preserve 100% stdlib compatibility when enhancing `tdoc2md.py`.
 
+### 4.11. Modularity, File-Size Limits & Anti-God-Class Rules
+- **Size Budgets (`tests/test_code_modularity_lint.py`):** Keep new/refactored Python files in `src/` under **500 lines** (hard ratchet: **<= 600 lines** for new files, **<= 1,000 lines** hard ceiling for all non-protected files; never grow entries in `LEGACY_LARGE_FILE_ALLOWLIST`).
+- **Prevent God Classes:** Split large dialogs/windows into `dialog.py` + focused `mixins/` (`ui_setup.py`, data/filtering, actions/export) and large engines into acyclic leaf-to-orchestrator packages (`models`, `persistence`, `planning`, `formatters`) with a thin backward-compatible re-export shim + package `README.md`.
+
 ---
 
 ## 5. Development, Documentation & Local Commit Workflow
@@ -142,6 +146,7 @@ Full component architecture lives in [`docs/UI_SHELL_AND_STYLING.md`](docs/UI_SH
 1. **Verify Imports & Tests:** Run with `PYTHONPATH=".;src"`:
    - UI ampersand lint: `python -m unittest tests/test_ui_ampersand_escaping.py`
    - UI hex token lint: `python -m unittest tests/test_ui_hex_lint.py`
+   - Modularity & `AGENTS.md` size lint: `python -m unittest tests/test_code_modularity_lint.py`
    - Taskbar icon / Session Plan / targeted unit tests as applicable (`tests/test_taskbar_icon.py`, `tests/test_session_plan_ui_and_html.py`, etc.).
    - When modifying GUI tabs/workers, verify `python -m main_tools` starts and closes cleanly without tracebacks or leaked threads.
 2. **Preserve Unrelated Comments/Docstrings** in untouched code.
