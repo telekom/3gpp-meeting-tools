@@ -22,7 +22,14 @@ src/modules/work_items/
     │   └── mixins/                    # ui_setup, filters_and_tracking, data_and_sync, dialogs_and_menus
     ├── work_items_model.py            # Tabular data model
     ├── work_items_delegates.py        # 1-click TrackingDelegate
-    └── work_items_dialogs.py          # AddWorkItemDialog, WorkItemInfoDialog, Quick Copy
+    ├── work_items_dialogs.py          # Backward-compatible re-export shim -> dialogs/
+    └── dialogs/                       # Modular UI dialogs & Quick Copy package
+        ├── __init__.py                # Public dialog & clipboard exports + logger
+        ├── README.md                  # Dialog package map & invariants
+        ├── copy_menus.py              # build_wi_copy_data, Quick Copy & batch copy menus
+        ├── info_dialog.py             # WorkItemInfoDialog
+        ├── linked_specs_dialog.py     # LinkedSpecsDialog
+        └── add_dialog.py              # ManualWIFetcherThread, AddWorkItemDialog
 ```
 
 ---
