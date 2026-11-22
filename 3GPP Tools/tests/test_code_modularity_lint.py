@@ -9,7 +9,7 @@ SRC_ROOT = PROJECT_ROOT / "src"
 
 MAX_NEW_FILE_LINES = 600
 HARD_MAX_FILE_LINES = 1000
-MAX_ROOT_AGENTS_BYTES = 18 * 1024  # 18 KB
+MAX_AGENTS_MD_BYTES = 16 * 1024  # 16 KB (2 KB safety margin below 18 KB context cutoff)
 
 # Protected upstream-synced drop-in files exempt from line-count limits.
 PROTECTED_FILES = {
@@ -124,14 +124,20 @@ class TestCodeModularityLint(unittest.TestCase):
             "Modularity lint violations found:\n  - " + "\n  - ".join(violations),
         )
 
-    def test_root_agents_md_under_18kb(self) -> None:
-        agents_path = PROJECT_ROOT / "AGENTS.md"
-        size_bytes = agents_path.stat().st_size
-        self.assertLess(
-            size_bytes,
-            MAX_ROOT_AGENTS_BYTES,
-            f"AGENTS.md is {size_bytes} bytes (>= {MAX_ROOT_AGENTS_BYTES} bytes). "
-            "Move detailed subsystem notes into module AGENTS.md or docs/*.md.",
+    def test_all_agents_md_files_under_16kb(self) -> None:
+        oversized = []
+        for agents_path in sorted(PROJECT_ROOT.rglob("AGENTS.md")):
+            size_bytes = agents_path.stat().st_size
+            if size_bytes >= MAX_AGENTS_MD_BYTES:
+                rel = agents_path.relative_to(PROJECT_ROOT).as_posix()
+                oversized.append(
+                    f"{rel}: {size_bytes} bytes (>= {MAX_AGENTS_MD_BYTES} bytes). "
+                    "Tighten prose or move detailed specs into docs/*.md / README.md."
+                )
+        self.assertEqual(
+            oversized,
+            [],
+            "Oversized AGENTS.md files found:\n  - " + "\n  - ".join(oversized),
         )
 
 

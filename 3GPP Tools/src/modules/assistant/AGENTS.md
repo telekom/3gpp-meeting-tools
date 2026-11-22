@@ -1,18 +1,15 @@
 # 3GPP Assistant Subsystem Guide
 
-This document outlines the architecture, authority boundaries, tool registry, and execution rules for the **3GPP Research Assistant** (`src/modules/assistant`). For detailed design rationale and multi-phase specifications, see [`README.md`](file:///src/modules/assistant/README.md).
+Architecture, authority boundaries, tool registry, and execution rules for the **3GPP Research Assistant** (`src/modules/assistant`). Detailed multi-phase design specs live in [`README.md`](README.md).
 
 ---
 
 ## 1. Subsystem Overview
 
-The Research Assistant is a bounded, evidence-grounded agent architecture connecting a local Ollama LLM to application knowledge services (specifications catalogue, indexed specification text, and structured protocol hierarchies).
+Bounded, evidence-grounded agent connecting local Ollama (`127.0.0.1:11434`) to read-only knowledge services (specs catalogue, indexed spec text, structured protocols).
 
 > [!IMPORTANT]
-> **Strict Authority Boundary: `KNOWLEDGE_READ` Only**
-> - The model has **no** arbitrary SQL access, filesystem write access, process/shell execution, or network access.
-> - The assistant operates **100% offline and locally** using the local Ollama daemon (`127.0.0.1:11434`). Cloud fallbacks are strictly prohibited.
-> - Python retains complete authority over database access, input validation, evidence provenance, and state.
+> **Strict Authority Boundary: `KNOWLEDGE_READ` Only** — No arbitrary SQL, filesystem writes, shell execution, or network/cloud LLM access. Python retains sole authority over DB access, input validation, evidence provenance, and state.
 
 ---
 
@@ -83,31 +80,24 @@ The LLM is strictly exposed to semantic engineering tools (not database primitiv
 
 ## 5. UI Architecture & Cockpit Components
 
-The Assistant presentation layer (`src/modules/assistant/ui`) is built on a responsive, card-framed cockpit architecture:
-
-- **Top Control Ribbon:** Features an active Ollama model status pill (`🟢 Ollama: {model}`) with 1-click configuration launcher, session management (`➕ New Chat`, `📋 Copy Chat`, `💾 Export Markdown`), and a layout toggle (`◫ Side Drawer` <-> `⬒ Bottom Split`).
-- **Chat Stream & Message Cards:**
-  - Distinct styled message cards for user questions (`render_user_message_card`) and grounded assistant answers (`render_assistant_message_card`) with timestamps and KPI metadata (`⏱️ Latency · Steps · Sources`).
-  - Formatted technical Markdown rendering (`render_markdown_to_html`) supporting bold text, lists, code blocks, and markdown tables.
-  - Interactive clickable evidence citations (`<a href="evidence:E#">E#</a>`) that auto-switch to the Sources tab, select the cited item in the tree, and display its retrieved text in the inspector.
-  - Per-message copy action (`📋 Copy Answer`).
-  - Empty-state quick starter chips (`StarterChipsWidget`).
-- **Multi-Line Prompt Editor (`MultilinePromptEdit`):**
-  - Auto-wrapping `QPlainTextEdit` supporting `Enter` to submit and `Shift+Enter` for multiline input, character count label, clear button, and danger-styled cooperative `■ Stop` button.
-- **Tabbed Research Cockpit Drawer:**
-  - **Tab 1: 📚 Sources & Embedded Inspector (`EvidenceInspectorWidget`):** Upper tree list plus embedded excerpt viewer with source badges (`[Spec Text]`, `[Protocol]`, `[Catalogue]`) and 1-click cross-tab deep-linking (`🔎 In Spec Search`, `🔬 In Protocols`, `📚 In Specs`, `📋 Copy Excerpt`).
-  - **Tab 2: ⚡ Research Activity Timeline (`ActivityTimelineWidget`):** Semantic tool icons, live progress bar, step counter, and citable evidence tags.
-  - **Tab 3: 🔬 Diagnostics Trace (`DiagnosticsTraceWidget`):** Real-time KPI strip (latency, prompt tokens, eval tokens, speed in tok/s), filterable raw trace, and 1-click trace copy.
-- **Docked Companion Mode (`Ctrl+Shift+A`):** Toggling Assistant in `RightSidePanel` reparents the single live `AssistantTab.body_container` into the right dock (leaving a non-destructive `docked_placeholder_card` on tab 9), swaps `main_splitter` to `Qt.Vertical` with a compact strip (`dock_compact_strip`), auto-expands `Sources` on `[E#]` citation clicks, and cleanly restores the full view when opening the Assistant tab, clicking `Full View`, or closing the dock.
+Responsive, card-framed cockpit in `src/modules/assistant/ui`:
+- **Top Control Ribbon:** Active Ollama status pill (`🟢 Ollama: {model}`) with 1-click config launcher, session actions (`➕ New Chat`, `📋 Copy Chat`, `💾 Export Markdown`), and layout toggle (`◫ Side Drawer` <-> `⬒ Bottom Split`).
+- **Chat Stream & Message Cards:** Distinct user (`render_user_message_card`) and grounded assistant (`render_assistant_message_card`) cards with latency/steps/sources KPIs, technical Markdown rendering (`render_markdown_to_html`), clickable evidence citations (`<a href="evidence:E#">E#</a>` auto-selecting the source in the inspector), per-message `📋 Copy Answer`, and `StarterChipsWidget`.
+- **Prompt Editor (`MultilinePromptEdit`):** Auto-wrapping `QPlainTextEdit` (`Enter` submit, `Shift+Enter` newline), char counter, clear button, and cooperative `■ Stop`.
+- **Cockpit Drawer Tabs:**
+  - **Sources (`EvidenceInspectorWidget`):** Tree + excerpt viewer with badges (`[Spec Text]`, `[Protocol]`, `[Catalogue]`) and deep-links (`🔎 In Spec Search`, `🔬 In Protocols`, `📚 In Specs`, `📋 Copy Excerpt`).
+  - **Activity (`ActivityTimelineWidget`):** Tool icons, live progress bar, step counter, evidence tags.
+  - **Diagnostics (`DiagnosticsTraceWidget`):** KPI strip (latency, prompt/eval tokens, tok/s), filterable raw trace, copy button.
+- **Docked Companion Mode (`Ctrl+Shift+A`):** Reparents the live `AssistantTab.body_container` into `RightSidePanel` (leaving `docked_placeholder_card` on tab 9), switches `main_splitter` to `Qt.Vertical` with `dock_compact_strip`, auto-expands `Sources` on `[E#]` clicks, and restores cleanly on tab switch / `Full View` / dock close.
 
 ---
 
-## 6. External Agent Integration (Claude CLI & Codex CLI via MCP & Headless CLI)
+## 6. External Agent Integration (MCP & Headless CLI)
 
-In addition to the in-app Ollama Research Assistant, the tool registry powers a zero-dependency **Model Context Protocol (MCP) `stdio` server** (`src/mcp_server.py`, `src/Launch_MCP.cmd`) and a **Headless CLI** (`src/cli_tools.py`) exposing 39+ application capabilities to external coding and standards agents such as **Claude CLI (`claude`)** and **Codex CLI (`codex`)**.
+The tool registry also powers a zero-dependency **MCP `stdio` server** (`src/mcp_server.py`, `src/Launch_MCP.cmd`) and **Headless CLI** (`src/cli_tools.py`) for external agents (`claude`, `codex`, `gemini`).
 
 ### 6.1. Token-Budget Discipline (12 Multi-Action Domain Tools)
-To prevent system prompt bloat on every turn in Claude/Codex, all 39+ capabilities are consolidated into **12 compact multi-action domain tools** (`src/modules/assistant/core/tools/external_agent/`, re-exported via `external_agent_tools.py`) with `ToolDefinition.mcp_schema()` omitting empty descriptions (<2,000 tokens total for `all`, and 500–850 tokens when scoped via `--profile`):
+All 39+ capabilities are consolidated into **12 domain tools** (`src/modules/assistant/core/tools/external_agent/`, shim `external_agent_tools.py`) with `ToolDefinition.mcp_schema()` omitting empty descriptions (<2,000 tokens for `all`, 500–850 tokens per `--profile`):
 
 | Domain Tool | Actions | Permissions |
 | :--- | :--- | :--- |
