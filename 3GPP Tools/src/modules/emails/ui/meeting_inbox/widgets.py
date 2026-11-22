@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from PyQt5.QtCore import QItemSelectionModel, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QPainter
-from PyQt5.QtWidgets import QPlainTextEdit, QStyledItemDelegate, QTableWidget
+from PyQt5.QtWidgets import (
+    QMenu,
+    QPlainTextEdit,
+    QPushButton,
+    QStyledItemDelegate,
+    QTableWidget,
+    QToolButton,
+)
 
 from core.ui.font_scale import scale_px
 from core.ui.theme import C
@@ -50,6 +57,60 @@ def get_status_combo_qss(status_val: str) -> str:
         f"border: 1px solid {accent}; border-radius: 4px; padding: 2px 6px; "
         f"font-weight: {'bold' if st != '⚪ Neutral' else 'normal'}; }}"
     )
+
+
+def get_live_sync_pill_qss() -> str:
+    """Returns QSS styling for the checkable continuous Live Auto-Sync pill button."""
+    return (
+        f"QPushButton {{ padding: 4px 10px; border-radius: 13px; border: 1px solid {C.BORDER_STRONG}; "
+        f"background-color: {C.BG_CARD}; color: {C.TEXT_BODY}; font-size: 12px; }} "
+        f"QPushButton:hover {{ background-color: {C.SUCCESS_SOFT}; border-color: {C.SUCCESS_BORDER_MEDIUM}; }} "
+        f"QPushButton:checked {{ background-color: {C.SUCCESS_SOFT_ALT}; border-color: {C.SUCCESS}; "
+        f"color: {C.SUCCESS_DARK}; font-weight: bold; }} "
+        f"QPushButton:checked:hover {{ background-color: {C.SUCCESS_BORDER}; }}"
+    )
+
+
+def build_inbox_sync_controls(dialog):
+    """Creates and attaches the Sync Outlook split button + Live (2m) toggle pill to `dialog`."""
+    sync_btn = QToolButton(dialog)
+    sync_btn.setText("⚡ Sync New")
+    sync_btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+    sync_btn.setPopupMode(QToolButton.MenuButtonPopup)
+    sync_btn.setToolTip(
+        "Fast incremental Outlook sync of new Tracked Thread replies, TDoc emails, and read/flag updates since your last sync."
+    )
+    sync_menu = QMenu(sync_btn)
+    act_selected = sync_menu.addAction("🔄 Sync Selected Thread")
+    act_selected.setEnabled(False)
+    act_selected.triggered.connect(dialog._on_sync_selected_clicked)
+    act_filtered = sync_menu.addAction("⚡ Sync Filtered Only")
+    act_filtered.triggered.connect(lambda: dialog._start_outlook_sync(scoped=True))
+    sync_menu.addSeparator()
+    act_full = sync_menu.addAction("📅 Full Meeting Sync (Date Range)...")
+    act_full.triggered.connect(dialog._on_full_meeting_sync_clicked)
+    sync_btn.setMenu(sync_menu)
+    sync_btn.clicked.connect(dialog._on_sync_outlook_clicked)
+
+    btn_live = QPushButton("🟢 Live (2m)", dialog)
+    btn_live.setCheckable(True)
+    btn_live.setChecked(bool(getattr(dialog, "_live_sync_enabled", False)))
+    btn_live.setToolTip(
+        "Continuous eMeeting Update Mode (every 2 minutes).\n"
+        "Silently pulls newly arrived emails using the persisted watermark without rescanning old history.\n"
+        "Persists across restarts and catches up the missing gap automatically when reopened."
+    )
+    btn_live.setStyleSheet(get_live_sync_pill_qss())
+    btn_live.toggled.connect(dialog._on_live_sync_toggled)
+
+    dialog.sync_outlook_btn = sync_btn
+    dialog._sync_menu = sync_menu
+    dialog._act_sync_selected = act_selected
+    dialog._act_sync_filtered = act_filtered
+    dialog._act_sync_full = act_full
+    dialog._default_sync_scoped = False
+    dialog.btn_live_sync = btn_live
+    return sync_btn, btn_live
 
 
 class _InboxStatusStripDelegate(QStyledItemDelegate):

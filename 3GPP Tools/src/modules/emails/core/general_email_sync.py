@@ -15,6 +15,11 @@ from modules.emails.core.outlook_client import (
     safe_mapi_row_val,
 )
 from modules.emails.core.general_email_db import GeneralEmailDatabase
+from modules.emails.core.sync_watermark import (
+    apply_mapi_since_restriction,
+    local_naive_to_utc,
+    utc_to_local_naive,
+)
 from modules.emails.core.thread_markdown_exporter import (
     inject_html_tables_into_body,
     split_direct_and_quoted_body,
@@ -45,13 +50,15 @@ class GeneralEmailSyncThread(QThread):
     )
 
     def __init__(self, folder_configs: List[dict], db_path: Path,
-                 start_date: str = "", end_date: str = "", days_buffer: int = 3):
+                 start_date: str = "", end_date: str = "", days_buffer: int = 3,
+                 since_dt_utc: Optional[datetime.datetime] = None):
         super().__init__()
         self.folder_configs = folder_configs
         self.db = GeneralEmailDatabase(db_path)
         self.start_date = start_date
         self.end_date = end_date
         self.days_buffer = days_buffer
+        self.since_dt_utc = since_dt_utc
 
     def run(self):
         import pythoncom
@@ -171,16 +178,23 @@ class GeneralEmailSyncThread(QThread):
             filter_start = s_dt - datetime.timedelta(days=self.days_buffer)
             filter_end = e_dt + datetime.timedelta(days=self.days_buffer + 1)
 
+        if self.since_dt_utc is not None:
+            since_local = utc_to_local_naive(self.since_dt_utc)
+            if filter_start is None or since_local > filter_start:
+                filter_start = since_local
+
         total_synced = 0
         total_flags_updated = 0
         cached_states = self.db.get_cached_email_states()
         folder_configs = list(self.folder_configs or [])
         ns = OutlookClient.get_namespace()
+        sent_path_lower = ""
         if ns:
             try:
                 sent_path = getattr(ns.GetDefaultFolder(5), "FolderPath", "") or ""
+                sent_path_lower = sent_path.strip().lower()
                 known_paths = {str(fc.get("folder_path", "")).strip().lower() for fc in folder_configs}
-                if sent_path and sent_path.lower() not in known_paths:
+                if sent_path and sent_path_lower not in known_paths:
                     folder_configs.append({"folder_path": sent_path, "tag": "Sent", "include_subfolders": False})
             except Exception:
                 pass
@@ -232,6 +246,14 @@ class GeneralEmailSyncThread(QThread):
                     tbl = None
 
             if tbl is not None and ns is not None:
+                cur_folder_path = str(getattr(folder, "FolderPath", folder_path) or "").strip().lower()
+                is_sent = (str(folder_tag or "").strip().lower() == "sent") or (
+                    bool(sent_path_lower) and cur_folder_path == sent_path_lower
+                )
+                restrict_utc = self.since_dt_utc
+                if restrict_utc is None and filter_start is not None:
+                    restrict_utc = local_naive_to_utc(filter_start)
+                tbl, restricted = apply_mapi_since_restriction(tbl, restrict_utc, is_sent_folder=is_sent)
                 try:
                     tbl.Sort("[ReceivedTime]", True)
                 except Exception:
@@ -245,7 +267,10 @@ class GeneralEmailSyncThread(QThread):
                 )
                 row_count = getattr(tbl, "GetRowCount", lambda: 0)() or 0
                 if progress_cb:
-                    progress_cb(f"Scanning {row_count or 'recent'} items in [{folder_tag}]...")
+                    if restricted:
+                        progress_cb(f"Scanning {row_count} recent item(s) in [{folder_tag}]...")
+                    else:
+                        progress_cb(f"Scanning {row_count or 'recent'} items in [{folder_tag}]...")
 
                 idx = 0
                 while not tbl.EndOfTable:
@@ -262,12 +287,12 @@ class GeneralEmailSyncThread(QThread):
                     if msg_cls and not msg_cls.startswith("IPM.Note"):
                         continue
 
-                    if filter_start and filter_end:
+                    if filter_start or filter_end:
                         dt = self._to_naive_dt(safe_mapi_row_val(row, "ReceivedTime", "SentOn"))
                         if dt:
-                            if dt > filter_end:
+                            if filter_end and dt > filter_end:
                                 continue
-                            if dt < filter_start:
+                            if filter_start and dt < filter_start:
                                 break
 
                     entry_id = str(safe_mapi_row_val(row, "EntryID", default="") or "")
@@ -322,12 +347,12 @@ class GeneralEmailSyncThread(QThread):
                     if getattr(mail_item, "Class", 43) != 43:
                         continue
 
-                    if filter_start and filter_end:
+                    if filter_start or filter_end:
                         dt = self._to_naive_dt(getattr(mail_item, "ReceivedTime", None) or getattr(mail_item, "SentOn", None))
                         if dt:
-                            if dt > filter_end:
+                            if filter_end and dt > filter_end:
                                 continue
-                            if dt < filter_start:
+                            if filter_start and dt < filter_start:
                                 break
 
                     entry_id = getattr(mail_item, "EntryID", "")
@@ -364,7 +389,8 @@ class GeneralEmailSyncThread(QThread):
             if flag_updates:
                 total_flags_updated += self.db.update_email_flags_batch(flag_updates)
 
-        if not (cancel_check and cancel_check()) and self.db and str(self.db.db_path) != ":memory:":
+        should_cache_drafts = (self.since_dt_utc is None) or (total_synced > 0)
+        if should_cache_drafts and not (cancel_check and cancel_check()) and self.db and str(self.db.db_path) != ":memory:":
             try:
                 from modules.emails.core.tracked_threads_service import cache_drafts_for_messages
                 all_msgs = self.db.get_all_emails_with_tdocs(show_ignored=True)

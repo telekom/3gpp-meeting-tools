@@ -19,8 +19,9 @@
 | Facet counts, combobox population, AI tooltips, clear all filters | `mixins/filter_facets.py` |
 | Table construction, row heights, column width fitting / font scaling, header sorting, copy selection | `mixins/table_layout.py` |
 | Per-TDoc actions: action/related menus, cell popup, notes, open/reveal/scroll to TDoc, agreements, draft CR, triage | `mixins/tdoc_actions.py` |
-| Compose/send TDoc e-mails, email manager, per-TDoc emails, general email sync | `mixins/email_compose.py` |
-| Tracked e-mail threads: pin from Outlook/.msg, refresh worker, inbox dialog, table sync | `mixins/tracked_threads.py` |
+| Compose/send TDoc e-mails, email manager, per-TDoc emails, full date-range dialog | `mixins/email_compose.py` |
+| Unified email sync (`InboxOutlookSyncWorker`), `🟢 Live Auto-Sync (2m)`, and `📧 Emails ▾` menu builder | `mixins/email_sync.py` |
+| Tracked e-mail threads: pin from Outlook/.msg, inbox dialog, table sync, TDoc meta map | `mixins/tracked_threads.py` |
 | Reports / statistics, Markdown & LLM export, package & Excel export, export folders | `mixins/exports.py` |
 | Refresh Excel / revisions / agenda, WI enrichment, agenda & chair-notes delegates, Session Plan integration | `mixins/meeting_data.py` |
 | Drag & drop of files / Outlook items | `mixins/drag_drop.py` |

@@ -35,6 +35,7 @@ from ..widgets import (
     _InboxStatusStripDelegate,
     _InboxTableWidget,
     _NotePlainTextEdit,
+    build_inbox_sync_controls,
     get_compact_action_bar_qss,
 )
 
@@ -165,25 +166,9 @@ class InboxUiSetupMixin:
         self.refresh_btn.clicked.connect(self.reload_from_dbs)
         top_row.addWidget(self.refresh_btn)
 
-        self.sync_outlook_btn = QToolButton()
-        self.sync_outlook_btn.setText("📡 Sync Outlook")
-        self.sync_outlook_btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        self.sync_outlook_btn.setPopupMode(QToolButton.MenuButtonPopup)
-        self.sync_outlook_btn.setToolTip(
-            "Pull new Tracked Thread replies, TDoc emails, and Outlook read/flag updates asynchronously."
-        )
-        self._sync_menu = QMenu(self.sync_outlook_btn)
-        self._act_sync_selected = self._sync_menu.addAction("🔄 Sync Selected Thread")
-        self._act_sync_selected.setEnabled(False)
-        self._act_sync_selected.triggered.connect(self._on_sync_selected_clicked)
-        self._act_sync_filtered = self._sync_menu.addAction("⚡ Sync Filtered Only")
-        self._act_sync_filtered.triggered.connect(lambda: self._start_outlook_sync(scoped=True))
-        self._act_sync_full = self._sync_menu.addAction("📡 Full Sync (All Threads && Folders)")
-        self._act_sync_full.triggered.connect(lambda: self._start_outlook_sync(scoped=False))
-        self.sync_outlook_btn.setMenu(self._sync_menu)
-        self.sync_outlook_btn.clicked.connect(self._on_sync_outlook_clicked)
-        self._default_sync_scoped = False
-        top_row.addWidget(self.sync_outlook_btn)
+        sync_btn, btn_live = build_inbox_sync_controls(self)
+        top_row.addWidget(sync_btn)
+        top_row.addWidget(btn_live)
 
         self.btn_stats = QPushButton("📊 Stats")
         self.btn_stats.setToolTip("Generate an interactive HTML Email Analytics Dashboard for this meeting.")
@@ -199,6 +184,7 @@ class InboxUiSetupMixin:
 
         self.help_pill_btn = create_help_tips_pill(
             [
+                "⚡ Sync New & 🟢 Live (2m): incremental MAPI Table.Restrict sync using a persisted watermark (survives app closes & reboots cleanly)",
                 "🔥 Priority: unread activity on your Watched TDocs (non-Neutral My Status), Flagged items, or Followed AIs",
                 "📄 By TDoc: rolls up all emails per Base TDoc ID with Author, Revisions (🆕 rXX), <<START>> (📋), and Objection signals (⚠️ / 🛑)",
                 "🛑 Objected: parks an objected thread/TDoc out of Priority; automatically resurfaces if a newer revision (r02 > r01) is posted!",

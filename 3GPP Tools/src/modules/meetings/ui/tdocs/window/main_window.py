@@ -22,6 +22,7 @@ from modules.meetings.core.tdocs.tdocs_db import TDocsDatabase
 from modules.meetings.core.tdocs.tdocs_parser import TDocsParser
 from modules.meetings.ui.tdocs_menu import handle_table_context_menu
 from modules.emails.core.general_email_db import GeneralEmailDatabase
+from modules.emails.core.sync_watermark import DEFAULT_LIVE_SYNC_INTERVAL_MS
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.meetings.ui.tdocs_drop_overlay import DropOverlayWidget
 from modules.meetings.ui.tdocs.window.mixins import (
@@ -32,6 +33,7 @@ from modules.meetings.ui.tdocs.window.mixins import (
     FilterFacetsMixin,
     TDocActionsMixin,
     EmailMixin,
+    EmailSyncMixin,
     TrackedThreadsMixin,
     ExportsMixin,
     MeetingDataMixin,
@@ -47,6 +49,7 @@ class TDocsWindow(
     FilterFacetsMixin,
     TDocActionsMixin,
     EmailMixin,
+    EmailSyncMixin,
     TrackedThreadsMixin,
     ExportsMixin,
     MeetingDataMixin,
@@ -83,9 +86,13 @@ class TDocsWindow(
         self.general_email_sync_thread = None
         self.tracked_threads_db = TrackedThreadsDatabase(self.meeting_dir / "Agenda" / "tracked_threads.db")
         self._tracked_thread_dialogs = {}
+        self._unified_email_sync_worker = None
+        self._live_sync_catchup_scheduled = False
         self.tracked_threads_timer = QTimer(self)
-        self.tracked_threads_timer.setInterval(300000)  # 5 minutes auto-refresh
-        self.tracked_threads_timer.timeout.connect(lambda: self._on_refresh_tracked_threads(silent=True))
+        self.tracked_threads_timer.setInterval(DEFAULT_LIVE_SYNC_INTERVAL_MS)  # 2 minutes live auto-sync
+        self.tracked_threads_timer.timeout.connect(
+            lambda: self._start_unified_email_sync(sync_mode="incremental", silent=True)
+        )
 
         self._import_queue = []
         self._is_importing_agenda = False
@@ -144,6 +151,8 @@ class TDocsWindow(
 
         self.drop_overlay = DropOverlayWidget(self)
         self._start_background_wi_enrichment()
+        if hasattr(self, "act_auto_refresh_threads") and self.act_auto_refresh_threads.isChecked():
+            self.tracked_threads_timer.start()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -151,6 +160,18 @@ class TDocsWindow(
         self._update_filter_facets()
         self._schedule_column_fit()
         self._schedule_row_height_adjustment()
+        if (
+            hasattr(self, "act_auto_refresh_threads")
+            and self.act_auto_refresh_threads.isChecked()
+            and not getattr(self, "_live_sync_catchup_scheduled", False)
+        ):
+            self._live_sync_catchup_scheduled = True
+            QTimer.singleShot(
+                2500,
+                lambda: self._start_unified_email_sync(sync_mode="incremental", silent=True)
+                if self.isVisible()
+                else None,
+            )
 
     def _setup_cache(self):
         agenda_dir = self.meeting_dir / "Agenda"
@@ -304,12 +325,14 @@ class TDocsWindow(
             self.routing_timer.stop()
         if hasattr(self, 'tracked_threads_timer'):
             self.tracked_threads_timer.stop()
-        if getattr(self, '_tracked_threads_sync_worker', None) and self._tracked_threads_sync_worker.isRunning():
-            try:
-                self._tracked_threads_sync_worker.request_cancel()
-                self._tracked_threads_sync_worker.wait(1500)
-            except Exception:
-                pass
+        for w_attr in ("_tracked_threads_sync_worker", "_unified_email_sync_worker"):
+            w = getattr(self, w_attr, None)
+            if w and w.isRunning():
+                try:
+                    w.request_cancel()
+                    w.wait(1500)
+                except Exception:
+                    pass
         if hasattr(self, 'search_timer'):
             self.search_timer.stop()
 

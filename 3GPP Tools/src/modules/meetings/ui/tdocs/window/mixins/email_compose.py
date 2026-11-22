@@ -298,6 +298,16 @@ class EmailMixin:
             return
 
         params = dialog.get_params()
+        if hasattr(self, "_start_unified_email_sync"):
+            self._start_unified_email_sync(
+                sync_mode="full",
+                start_date=params["start_date"],
+                end_date=params["end_date"],
+                days_buffer=params["buffer"],
+                silent=False,
+            )
+            return
+
         self.email_btn.setEnabled(False)
         self.email_btn.setText("⏳ Syncing...")
 

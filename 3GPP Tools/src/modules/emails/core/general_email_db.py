@@ -3,7 +3,7 @@ import contextlib
 import json
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 
 class GeneralEmailDatabase:
@@ -51,6 +51,12 @@ class GeneralEmailDatabase:
                     rev_matched TEXT,
                     match_location TEXT,
                     FOREIGN KEY(email_id) REFERENCES general_emails(id) ON DELETE CASCADE
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sync_metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
                 )
             """)
 
@@ -445,11 +451,45 @@ class GeneralEmailDatabase:
             )
             conn.commit()
 
+    def get_sync_meta(self, key: str, default: str = "") -> str:
+        """Returns a persisted sync metadata value by key."""
+        clean_key = str(key or "").strip()
+        if not clean_key:
+            return default
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT value FROM sync_metadata WHERE key = ?", (clean_key,)).fetchone()
+            return str(row[0]) if row and row[0] is not None else default
+
+    def set_sync_meta(self, key: str, value: str) -> None:
+        """Persists a sync metadata key/value pair."""
+        clean_key = str(key or "").strip()
+        if not clean_key:
+            return
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO sync_metadata (key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (clean_key, str(value if value is not None else "")),
+            )
+            conn.commit()
+
+    def delete_sync_meta(self, key: str) -> None:
+        """Removes a sync metadata entry by key."""
+        clean_key = str(key or "").strip()
+        if not clean_key:
+            return
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM sync_metadata WHERE key = ?", (clean_key,))
+            conn.commit()
+
     def wipe_generic_emails(self):
         """High-speed purge of generic tables only; preserves SA2 eMeeting tables."""
         with self._get_connection() as conn:
             conn.execute("DELETE FROM general_email_tdoc_matches")
             conn.execute("DELETE FROM general_emails")
+            conn.execute("DELETE FROM sync_metadata WHERE key = 'last_sync_utc'")
             conn.execute("PRAGMA optimize")
             conn.commit()
 

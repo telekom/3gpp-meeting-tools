@@ -2754,7 +2754,7 @@ def test_batch_folder_sync_fast_skip_and_filter_scoped_sync(tmp_path):
     )
     dlg.pill_all.click()
     assert not dlg._default_sync_scoped
-    assert dlg.sync_outlook_btn.text() == "📡 Sync Outlook"
+    assert dlg.sync_outlook_btn.text() == "⚡ Sync New"
 
     dlg.search_edit.setText("2612800")
     dlg._apply_filters()

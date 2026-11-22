@@ -223,6 +223,9 @@ class InboxLayoutAndSettingsMixin:
     def showEvent(self, event):
         super().showEvent(event)
         QTimer.singleShot(0, self._fit_columns_to_viewport)
+        if getattr(self, "_live_sync_enabled", False) and not getattr(self, "_live_catchup_done", False):
+            self._live_catchup_done = True
+            QTimer.singleShot(1500, self._on_live_sync_timer_tick)
 
     def _on_header_section_resized(self, *_args):
         if getattr(self, "_restoring_header", False) or getattr(self, "_restoring_filters", False):
@@ -269,6 +272,8 @@ class InboxLayoutAndSettingsMixin:
     def closeEvent(self, event):
         try:
             self._flush_pending_note_save(reload_view=False)
+            if getattr(self, "_live_sync_timer", None) is not None:
+                self._live_sync_timer.stop()
             if getattr(self, "_sync_worker", None) and self._sync_worker.isRunning():
                 self._sync_worker.request_cancel()
                 self._sync_worker.wait(1500)

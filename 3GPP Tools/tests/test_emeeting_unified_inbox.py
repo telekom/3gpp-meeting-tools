@@ -730,6 +730,299 @@ class TestEMeetingUnifiedInbox(unittest.TestCase):
             finally:
                 dlg.close()
 
+    def test_sync_watermark_persistence_and_restart_gap(self):
+        from datetime import datetime, timedelta, timezone
+        from modules.emails.core.sync_watermark import (
+            LAST_SYNC_META_KEY,
+            format_utc_iso,
+            resolve_sync_window,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "Agenda" / "emails.db"
+            gdb = GeneralEmailDatabase(db_path)
+            last_dt = datetime(2026, 11, 17, 10, 0, 0, tzinfo=timezone.utc)
+            gdb.set_sync_meta(LAST_SYNC_META_KEY, format_utc_iso(last_dt))
+
+            # Simulate closing the app / restarting laptop and reopening 3 days later
+            gdb_reopened = GeneralEmailDatabase(db_path)
+            now_dt = datetime(2026, 11, 20, 12, 30, 0, tzinfo=timezone.utc)
+            win = resolve_sync_window(
+                gdb_reopened,
+                meeting_start="2026-11-16",
+                meeting_end="2026-11-20",
+                sync_mode="incremental",
+                now_utc=now_dt,
+            )
+            self.assertFalse(win["is_first_sync"])
+            self.assertEqual(win["since_dt_utc"], last_dt - timedelta(minutes=5))
+            self.assertEqual(win["start_date"], "")
+            self.assertEqual(win["end_date"], "")
+            self.assertIn("catch-up 3d", win["gap_description"])
+
+            # Wiping DB resets watermark cleanly
+            gdb_reopened.wipe_generic_emails()
+            self.assertEqual(gdb_reopened.get_sync_meta(LAST_SYNC_META_KEY, ""), "")
+
+    def test_first_time_sync_uses_meeting_window_not_all_history(self):
+        from datetime import datetime, timezone
+        from modules.emails.core.sync_watermark import resolve_sync_window
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            gdb = GeneralEmailDatabase(Path(tmpdir) / "Agenda" / "emails.db")
+            now_dt = datetime(2026, 11, 20, 12, 0, 0, tzinfo=timezone.utc)
+
+            # First incremental sync with no watermark falls back to meeting window - 3 days
+            win_inc = resolve_sync_window(
+                gdb,
+                meeting_start="2026-11-16",
+                meeting_end="2026-11-20",
+                sync_mode="incremental",
+                days_buffer=3,
+                now_utc=now_dt,
+            )
+            self.assertTrue(win_inc["is_first_sync"])
+            self.assertEqual(win_inc["start_date"], "2026-11-16")
+            self.assertEqual(win_inc["end_date"], "2026-11-20")
+            self.assertEqual(win_inc["days_buffer"], 3)
+            self.assertIsNotNone(win_inc["since_dt_utc"])
+            self.assertLessEqual(win_inc["since_dt_utc"].date().isoformat(), "2026-11-13")
+
+            # Explicit Full Sync keeps since_dt_utc=None and honors explicit dates/buffer
+            win_full = resolve_sync_window(
+                gdb,
+                meeting_start="2026-11-10",
+                meeting_end="2026-11-14",
+                sync_mode="full",
+                days_buffer=5,
+                now_utc=now_dt,
+            )
+            self.assertEqual(win_full["mode"], "full")
+            self.assertIsNone(win_full["since_dt_utc"])
+            self.assertEqual(win_full["start_date"], "2026-11-10")
+            self.assertEqual(win_full["end_date"], "2026-11-14")
+            self.assertEqual(win_full["days_buffer"], 5)
+
+    def test_apply_mapi_since_restriction_dasl_and_fallback(self):
+        from datetime import datetime, timedelta, timezone
+        from modules.emails.core.sync_watermark import (
+            apply_mapi_since_restriction,
+            format_dasl_since_filter,
+        )
+
+        tz_plus1 = timezone(timedelta(hours=1))
+        local_dt = datetime(2026, 11, 20, 14, 55, 0, tzinfo=tz_plus1)
+        dasl_inbox = format_dasl_since_filter(local_dt, is_sent_folder=False)
+        self.assertEqual(dasl_inbox, '@SQL="urn:schemas:httpmail:datereceived" >= \'2026-11-20 13:55:00\'')
+        dasl_sent = format_dasl_since_filter(local_dt, is_sent_folder=True)
+        self.assertEqual(dasl_sent, '@SQL="urn:schemas:httpmail:date" >= \'2026-11-20 13:55:00\'')
+
+        class _FilteredTable:
+            pass
+
+        filtered_tbl = _FilteredTable()
+        seen_filters = []
+
+        class _RawTable:
+            def Restrict(self, filt):
+                seen_filters.append(filt)
+                return filtered_tbl
+
+        out_tbl, applied = apply_mapi_since_restriction(_RawTable(), local_dt)
+        self.assertTrue(applied)
+        self.assertIs(out_tbl, filtered_tbl)
+        self.assertEqual(seen_filters, [dasl_inbox])
+
+        class _FailingTable:
+            def Restrict(self, _filt):
+                raise RuntimeError("store does not support DASL Restrict")
+
+        raw_fail = _FailingTable()
+        out_fail, applied_fail = apply_mapi_since_restriction(raw_fail, local_dt)
+        self.assertFalse(applied_fail)
+        self.assertIs(out_fail, raw_fail)
+
+    def test_inbox_sync_worker_incremental_writes_watermark_and_scoped_preserves(self):
+        from datetime import datetime
+        from unittest.mock import patch
+        from modules.emails.core.outlook_client import OutlookClient
+        from modules.emails.core.sync_watermark import LAST_SYNC_META_KEY
+        from modules.emails.core.tracked_threads_workers import InboxOutlookSyncWorker
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agenda_dir = Path(tmpdir) / "Agenda"
+            gdb = GeneralEmailDatabase(agenda_dir / "emails.db")
+            tdb = TrackedThreadsDatabase(agenda_dir / "tracked_threads.db")
+
+            restrict_calls = []
+            recent_row = {
+                "EntryID": "EID-RECENT-1",
+                "MessageClass": "IPM.Note",
+                "ReceivedTime": datetime(2026, 11, 22, 12, 0, 0),
+                "UnRead": True,
+                "FlagStatus": 0,
+            }
+
+            class _FakeMail:
+                Class = 43
+                EntryID = "EID-RECENT-1"
+                Subject = "Re: [SA2#178] S2-2612999 Update"
+                Body = "Looks good for S2-2612999."
+                HTMLBody = ""
+                SenderName = "Alice"
+                SenderEmailAddress = "alice@nokia.com"
+                SenderEmailType = "SMTP"
+                ReceivedTime = datetime(2026, 11, 22, 12, 0, 0)
+                UnRead = True
+                FlagStatus = 0
+                Attachments = []
+
+            class _FakeRow:
+                def __init__(self, data):
+                    self._data = data
+
+                def __call__(self, key):
+                    if key not in self._data:
+                        raise KeyError(key)
+                    return self._data[key]
+
+            class _FakeTable:
+                def __init__(self, rows):
+                    self._rows = list(rows)
+                    self._idx = 0
+
+                def Restrict(self, filt):
+                    restrict_calls.append(filt)
+                    # Server-side restriction leaves only the 1 recent row instead of 500 historical ones
+                    return _FakeTable([recent_row])
+
+                def Sort(self, *_args):
+                    pass
+
+                @property
+                def Columns(self):
+                    return type("Cols", (), {"Add": lambda *_a: None})()
+
+                def GetRowCount(self):
+                    return len(self._rows)
+
+                @property
+                def EndOfTable(self):
+                    return self._idx >= len(self._rows)
+
+                def GetNextRow(self):
+                    r = self._rows[self._idx]
+                    self._idx += 1
+                    return _FakeRow(r)
+
+            fake_folder = type(
+                "FakeFolder",
+                (),
+                {
+                    "Name": "WG",
+                    "FolderPath": "\\\\me@example.com\\Inbox\\WG",
+                    "Folders": [],
+                    "GetTable": lambda self: _FakeTable([recent_row] * 50),
+                },
+            )()
+
+            class _FakeNS:
+                def GetDefaultFolder(self, _idx):
+                    return type("F", (), {"FolderPath": ""})()
+
+                def GetItemFromID(self, eid):
+                    if eid == "EID-RECENT-1":
+                        return _FakeMail()
+                    raise KeyError(eid)
+
+            with patch.object(OutlookClient, "get_namespace", return_value=_FakeNS()), patch.object(
+                OutlookClient, "get_folder_by_path", return_value=fake_folder
+            ), patch(
+                "modules.emails.core.tracked_threads_workers.load_wg_email_config",
+                return_value=[{"folder_path": "\\\\me@example.com\\Inbox\\WG", "tag": "WG"}],
+            ):
+                w = InboxOutlookSyncWorker(
+                    tdb.db_path,
+                    gdb.db_path,
+                    meeting_id="SA2#178",
+                    wg="SA2",
+                    start_date="2026-11-16",
+                    end_date="2026-11-22",
+                    sync_mode="incremental",
+                )
+                results = []
+                w.finished_sync.connect(lambda ok, nt, ng, err: results.append((ok, nt, ng, err)))
+                w.run()
+
+            self.assertTrue(restrict_calls)
+            self.assertEqual(len(results), 1)
+            self.assertTrue(results[0][0])
+            self.assertGreaterEqual(results[0][2], 1)
+            saved_wm = gdb.get_sync_meta(LAST_SYNC_META_KEY, "")
+            self.assertTrue(saved_wm.endswith("Z"))
+
+            # Scoped sync must NOT overwrite global last_sync_utc watermark
+            sentinel = "2026-11-20T08:00:00Z"
+            gdb.set_sync_meta(LAST_SYNC_META_KEY, sentinel)
+            with patch.object(OutlookClient, "get_namespace", return_value=_FakeNS()), patch(
+                "modules.emails.core.tracked_threads_workers.sync_scoped_inbox_items",
+                return_value=(0, 1),
+            ):
+                w_scoped = InboxOutlookSyncWorker(
+                    tdb.db_path,
+                    gdb.db_path,
+                    meeting_id="SA2#178",
+                    wg="SA2",
+                    scoped_thread_ids=[],
+                    scoped_email_ids=["EID-RECENT-1"],
+                )
+                w_scoped.run()
+            self.assertEqual(gdb.get_sync_meta(LAST_SYNC_META_KEY, ""), sentinel)
+
+    def test_live_sync_toggle_persists_per_meeting(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agenda_dir = Path(tmpdir) / "Agenda"
+            gdb = GeneralEmailDatabase(agenda_dir / "emails.db")
+            tdb = TrackedThreadsDatabase(agenda_dir / "tracked_threads.db")
+            ini_settings = QSettings(str(agenda_dir / "live_sync.ini"), QSettings.IniFormat)
+
+            dlg = MeetingEmailInboxDialog(
+                tracked_db=tdb,
+                general_email_db=gdb,
+                meeting_id="SA2#178",
+                settings=ini_settings,
+            )
+            emitted = []
+            dlg.live_sync_toggled.connect(lambda val: emitted.append(bool(val)))
+            try:
+                self.assertEqual(dlg.sync_outlook_btn.text(), "⚡ Sync New")
+                self.assertFalse(dlg.is_live_sync_enabled())
+                self.assertFalse(dlg.btn_live_sync.isChecked())
+                self.assertFalse(dlg._live_sync_timer.isActive())
+
+                dlg.btn_live_sync.setChecked(True)
+                self.assertTrue(dlg.is_live_sync_enabled())
+                self.assertTrue(dlg._live_sync_timer.isActive())
+                self.assertEqual(emitted, [True])
+            finally:
+                dlg.close()
+
+            self.assertFalse(dlg._live_sync_timer.isActive())
+
+            # Reopening Inbox for the same meeting restores Live Auto-Sync state automatically
+            dlg2 = MeetingEmailInboxDialog(
+                tracked_db=tdb,
+                general_email_db=gdb,
+                meeting_id="SA2#178",
+                settings=ini_settings,
+            )
+            try:
+                self.assertTrue(dlg2.is_live_sync_enabled())
+                self.assertTrue(dlg2.btn_live_sync.isChecked())
+                self.assertTrue(dlg2._live_sync_timer.isActive())
+            finally:
+                dlg2.close()
+
 
 if __name__ == "__main__":
     unittest.main()

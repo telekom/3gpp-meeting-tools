@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import List, Optional
 
 from PyQt5.QtWidgets import QDialog, QMenu
 
 from core.ui.theme import C
 from core.ui.toast import notify_info, notify_success, notify_toast
+from modules.emails.core.sync_watermark import (
+    LAST_SYNC_META_KEY,
+    parse_utc_iso,
+    save_meeting_live_sync_enabled,
+    utc_to_local_naive,
+)
 
 
 class InboxSyncAndMergeMixin:
@@ -41,13 +48,23 @@ class InboxSyncAndMergeMixin:
                 self.sync_outlook_btn.setText(f"⚡ Sync Filtered ({visible_count})")
                 self.sync_outlook_btn.setToolTip(
                     f"Fast sync ONLY the {visible_count} filtered conversation(s) with Outlook (skips full folder scan). "
-                    "Use dropdown ▾ for Full Sync."
+                    "Use dropdown ▾ for 📅 Full Meeting Sync."
                 )
             else:
-                self.sync_outlook_btn.setText("📡 Sync Outlook")
+                self.sync_outlook_btn.setText("⚡ Sync New")
+                last_txt = ""
+                gdb = getattr(self, "general_email_db", None)
+                if gdb is not None and hasattr(gdb, "get_sync_meta"):
+                    try:
+                        parsed = parse_utc_iso(gdb.get_sync_meta(LAST_SYNC_META_KEY, ""))
+                        if parsed is not None:
+                            last_txt = f"\nLast completed sync: {utc_to_local_naive(parsed).strftime('%Y-%m-%d %H:%M')}"
+                    except Exception:
+                        pass
                 self.sync_outlook_btn.setToolTip(
-                    "Pull new Tracked Thread replies, TDoc emails, and Outlook read/flag updates asynchronously. "
-                    "Use dropdown ▾ to sync only currently visible items."
+                    "Fast incremental Outlook sync of new Tracked Thread replies, TDoc emails, and read/flag updates.\n"
+                    "Uses MAPI Table.Restrict() + persisted watermark (covers app-close / reboot gaps automatically)."
+                    f"{last_txt}"
                 )
 
     def _update_selected_sync_controls(self, selected_count: int):
@@ -259,6 +276,72 @@ class InboxSyncAndMergeMixin:
                     unpinned_ids.append(eid)
         return tracked_ids, unpinned_ids
 
+    def is_live_sync_enabled(self) -> bool:
+        return bool(getattr(self, "_live_sync_enabled", False))
+
+    def set_live_sync_enabled(self, enabled: bool, *, emit_signal: bool = True) -> None:
+        state = bool(enabled)
+        self._live_sync_enabled = state
+        save_meeting_live_sync_enabled(
+            getattr(self, "meeting_id", ""),
+            state,
+            settings=getattr(self, "_live_sync_store", None),
+        )
+        btn = getattr(self, "btn_live_sync", None)
+        if btn is not None and btn.isChecked() != state:
+            btn.blockSignals(True)
+            btn.setChecked(state)
+            btn.blockSignals(False)
+        timer = getattr(self, "_live_sync_timer", None)
+        if timer is not None:
+            if state:
+                if not timer.isActive():
+                    timer.start()
+            else:
+                timer.stop()
+        if emit_signal and hasattr(self, "live_sync_toggled"):
+            self.live_sync_toggled.emit(state)
+
+    def _on_live_sync_toggled(self, enabled: bool):
+        self.set_live_sync_enabled(enabled, emit_signal=True)
+        if enabled and self.isVisible():
+            self._on_live_sync_timer_tick()
+
+    def _on_live_sync_timer_tick(self):
+        if not self.is_live_sync_enabled():
+            return
+        if getattr(self, "_sync_worker", None) and self._sync_worker.isRunning():
+            return
+        if getattr(self, "tracked_db", None) is None and getattr(self, "general_email_db", None) is None:
+            return
+        self._start_outlook_sync(scoped=False, sync_mode="incremental", silent=True)
+
+    def _on_full_meeting_sync_clicked(self):
+        if getattr(self, "_sync_worker", None) and self._sync_worker.isRunning():
+            notify_info(self, "Sync Running", "An Outlook sync is already in progress.")
+            return
+        from modules.emails.core.email_config import load_wg_email_config
+        from modules.emails.ui.general_email_dialog import GeneralEmailFoldersDialog, GeneralEmailSyncDialog
+
+        folders = load_wg_email_config(self.wg) if self.wg else []
+        if not folders:
+            folder_dlg = GeneralEmailFoldersDialog(self.wg or "SA2", self)
+            if folder_dlg.exec_() != QDialog.Accepted:
+                return
+
+        sync_dlg = GeneralEmailSyncDialog(self.wg or "SA2", self._meeting_start, self._meeting_end, self)
+        if sync_dlg.exec_() != QDialog.Accepted:
+            return
+        params = sync_dlg.get_params()
+        self._start_outlook_sync(
+            scoped=False,
+            sync_mode="full",
+            start_date=params["start_date"],
+            end_date=params["end_date"],
+            days_buffer=params["buffer"],
+            silent=False,
+        )
+
     def _on_sync_selected_clicked(self):
         targets = self._selected_items or ([self._current_item] if self._current_item else [])
         if not targets:
@@ -267,9 +350,23 @@ class InboxSyncAndMergeMixin:
         self._start_outlook_sync(scoped=True, target_items=targets)
 
     def _on_sync_outlook_clicked(self):
-        self._start_outlook_sync(scoped=bool(getattr(self, "_default_sync_scoped", False)))
+        self._start_outlook_sync(
+            scoped=bool(getattr(self, "_default_sync_scoped", False)),
+            sync_mode="incremental",
+            silent=False,
+        )
 
-    def _start_outlook_sync(self, scoped: bool = False, target_items: Optional[List[dict]] = None):
+    def _start_outlook_sync(
+        self,
+        scoped: bool = False,
+        target_items: Optional[List[dict]] = None,
+        *,
+        sync_mode: str = "incremental",
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        days_buffer: int = 3,
+        silent: bool = False,
+    ):
         if getattr(self, "_sync_worker", None) and self._sync_worker.isRunning():
             return
         tdb_path = getattr(self.tracked_db, "db_path", None) if self.tracked_db is not None else None
@@ -285,11 +382,19 @@ class InboxSyncAndMergeMixin:
         if scoped:
             scoped_tids, scoped_eids = self._collect_scoped_sync_targets(target_items)
             if not scoped_tids and not scoped_eids:
-                notify_info(self, "Nothing in Filter", "No conversations in the current filter to sync.")
+                if not silent:
+                    notify_info(self, "Nothing in Filter", "No conversations in the current filter to sync.")
                 return
 
+        self._last_sync_silent = bool(silent)
+        self._pending_sync_preserve_id = self._current_item.get("id") if getattr(self, "_current_item", None) else None
+        vbar = self.table.verticalScrollBar() if hasattr(self, "table") else None
+        self._pending_sync_scroll = vbar.value() if vbar is not None else None
+
         self.sync_outlook_btn.setEnabled(False)
-        self.sync_outlook_btn.setText("⏳ Syncing...")
+        self.sync_outlook_btn.setText("🟢 Checking..." if silent else "⏳ Syncing...")
+        if silent and hasattr(self, "status_lbl"):
+            self.status_lbl.setText("🟢 Live sync checking Outlook...")
         if hasattr(self, "btn_sync_selected"):
             self.btn_sync_selected.setEnabled(False)
         if hasattr(self, "_act_sync_selected"):
@@ -299,35 +404,62 @@ class InboxSyncAndMergeMixin:
             gdb_path,
             meeting_id=self.meeting_id,
             wg=self.wg,
-            start_date=self._meeting_start,
-            end_date=self._meeting_end,
+            start_date=self._meeting_start if start_date is None else start_date,
+            end_date=self._meeting_end if end_date is None else end_date,
             parent=self,
             scoped_thread_ids=scoped_tids,
             scoped_email_ids=scoped_eids,
+            sync_mode=sync_mode,
+            days_buffer=days_buffer,
+            silent=silent,
         )
-        worker.progress_text.connect(lambda msg: self.status_lbl.setText(f"⏳ {msg}"))
+        worker.progress_text.connect(
+            lambda msg: self.status_lbl.setText(f"🟢 {msg}" if silent else f"⏳ {msg}")
+        )
         worker.finished_sync.connect(self._on_inbox_sync_finished)
         self._sync_worker = worker
         worker.start()
 
     def _on_inbox_sync_finished(self, ok: bool, new_thread_msgs: int, general_synced: int, err_msg: str):
+        was_silent = bool(getattr(self, "_last_sync_silent", False))
+        preserve_id = getattr(self, "_pending_sync_preserve_id", None)
+        prev_scroll = getattr(self, "_pending_sync_scroll", None)
+        self._pending_sync_preserve_id = None
+        self._pending_sync_scroll = None
+
         self.sync_outlook_btn.setEnabled(True)
         self._sync_worker = None
-        self.reload_from_dbs()
+        self.reload_from_dbs(preserve_id=preserve_id)
+        if prev_scroll is not None and hasattr(self, "table"):
+            vbar = self.table.verticalScrollBar()
+            if vbar is not None:
+                vbar.setValue(min(prev_scroll, vbar.maximum()))
         self.data_changed.emit()
+
         if not ok:
-            notify_toast(
-                self,
-                "Outlook Sync Warning",
-                err_msg or "Outlook sync did not finish cleanly.",
-                variant="warning",
-            )
+            if was_silent:
+                if hasattr(self, "status_lbl"):
+                    self.status_lbl.setText(f"⚠️ Live sync warning: {err_msg or 'cancelled'}")
+            else:
+                notify_toast(
+                    self,
+                    "Outlook Sync Warning",
+                    err_msg or "Outlook sync did not finish cleanly.",
+                    variant="warning",
+                )
             return
+
+        if hasattr(self, "status_lbl"):
+            stamp = datetime.now().strftime("%H:%M")
+            live_tag = "🟢 Live · " if self.is_live_sync_enabled() else ""
+            base_status = self.status_lbl.text()
+            self.status_lbl.setText(f"{base_status} · {live_tag}Synced {stamp}")
+
         if new_thread_msgs > 0 or general_synced > 0:
             notify_success(
                 self,
                 "Inbox Synced with Outlook",
                 f"Synced {new_thread_msgs} new tracked message(s) and {general_synced} TDoc email match(es).",
             )
-        else:
+        elif not was_silent:
             notify_info(self, "Inbox Up to Date", "No new matching messages found in Outlook.")

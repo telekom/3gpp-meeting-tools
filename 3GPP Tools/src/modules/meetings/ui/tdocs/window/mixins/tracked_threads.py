@@ -8,11 +8,9 @@ import logging
 import re
 from pathlib import Path
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (
     QApplication,
     QMessageBox,
-    QToolTip,
     QDialog,
 )
 from modules.meetings.ui.tdocs_models import natural_sort_key
@@ -21,14 +19,9 @@ from modules.emails.core.tracked_threads_service import (
     pin_thread_from_outlook_selection,
     pin_threads_from_msg_files,
 )
-from modules.emails.core.tracked_threads_workers import TrackedThreadsRefreshWorker
 from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
 from modules.emails.ui.tracked_thread_dialog import PinFromOutlookDialog, TrackedThreadDialog
-from core.ui.toast import (
-    notify_info,
-    notify_success,
-    notify_toast,
-)
+from core.ui.toast import notify_success
 from modules.emails.ui.general_email_dialog import load_wg_email_config
 
 
@@ -500,94 +493,7 @@ class TrackedThreadsMixin:
             jump_tdoc_callback=getattr(self, "_jump_to_tdoc_from_signal", None),
         )
         dlg.data_changed.connect(self._refresh_email_counts)
+        dlg.live_sync_toggled.connect(self._on_inbox_live_sync_toggled)
         self._inbox_dialog = dlg
         dlg.finished.connect(lambda _=None: setattr(self, "_inbox_dialog", None))
         dlg.show()
-
-    def _on_refresh_tracked_threads(self, silent: bool = False):
-        if getattr(self, "_tracked_threads_sync_worker", None) and self._tracked_threads_sync_worker.isRunning():
-            if not silent:
-                notify_info(self, "Thread Sync Running", "Tracked email thread sync is already in progress.")
-            return
-        if not hasattr(self, "tracked_threads_db"):
-            return
-        meeting_id = self._get_meeting_id_label()
-        threads = self.tracked_threads_db.get_threads_for_meeting(meeting_id)
-        if not threads:
-            if not silent:
-                notify_info(self, "Tracked Threads", "No pinned email threads found for this meeting.")
-            return
-
-        self._sync_silent_mode = bool(silent)
-        titles = [str(t.get("title") or t.get("thread_id") or "") for t in threads]
-        if hasattr(self, "thread_sync_bar"):
-            self.thread_sync_bar.start_busy("Syncing tracked threads...", total=len(titles), remaining=titles)
-        if hasattr(self, "email_btn"):
-            if not hasattr(self, "_default_email_btn_tooltip"):
-                self._default_email_btn_tooltip = self.email_btn.toolTip()
-            self.email_btn.setText(f"⏳ Emails (0/{len(titles)}) ▾")
-
-        worker = TrackedThreadsRefreshWorker(self.tracked_threads_db.db_path, meeting_id, parent=self)
-        worker.progress.connect(self._on_tracked_threads_sync_progress)
-        worker.thread_updated.connect(lambda _tid, _n: (self._sync_tracked_threads_to_table(), self._refresh_inbox_dialog_if_open()))
-        worker.finished_sync.connect(self._on_tracked_threads_sync_finished)
-        self._tracked_threads_sync_worker = worker
-        worker.start()
-
-    def _on_cancel_tracked_threads_sync(self):
-        if getattr(self, "_tracked_threads_sync_worker", None) and self._tracked_threads_sync_worker.isRunning():
-            self._tracked_threads_sync_worker.request_cancel()
-
-    def _on_tracked_threads_sync_progress(self, completed: int, total: int, current_title: str, remaining: list):
-        if hasattr(self, "thread_sync_bar"):
-            self.thread_sync_bar.update_progress(completed, total, current_title, remaining)
-        if hasattr(self, "email_btn"):
-            self.email_btn.setText(f"⏳ Emails ({completed}/{total}) ▾")
-            rem_txt = "\n• ".join(remaining[:8]) if remaining else "(none)"
-            self.email_btn.setToolTip(
-                f"Syncing thread ({completed}/{total}): {current_title}\n\nRemaining:\n• {rem_txt}"
-            )
-
-    def _on_tracked_threads_sync_finished(self, ok: bool, updates: dict, err: str):
-        silent = bool(getattr(self, "_sync_silent_mode", False))
-        if hasattr(self, "email_btn") and hasattr(self, "_default_email_btn_tooltip"):
-            self.email_btn.setToolTip(self._default_email_btn_tooltip)
-        self._on_tracked_thread_changed()
-        if not ok:
-            if hasattr(self, "thread_sync_bar"):
-                self.thread_sync_bar.show_error(err or "Tracked thread sync interrupted.")
-            notify_toast(
-                self,
-                "Tracked Thread Sync Warning",
-                err or "Tracked thread sync did not complete cleanly.",
-                variant="warning",
-            )
-            return
-
-        if hasattr(self, "thread_sync_bar"):
-            self.thread_sync_bar.finish_ok()
-        new_total = sum((updates or {}).values())
-        if new_total > 0:
-            notify_success(
-                self,
-                "Tracked Threads Refreshed",
-                f"Found {new_total} new message(s) across {len(updates)} tracked thread(s).",
-            )
-            if silent:
-                QToolTip.showText(
-                    QCursor.pos(),
-                    f"📧 {new_total} new reply/replies across {len(updates)} tracked email thread(s)!",
-                    self,
-                )
-        elif not silent:
-            notify_info(
-                self,
-                "Tracked Threads Up-to-Date",
-                "No new replies found in configured Outlook folders.",
-            )
-
-    def _on_toggle_auto_refresh_threads(self, enabled: bool):
-        if enabled:
-            self.tracked_threads_timer.start()
-        else:
-            self.tracked_threads_timer.stop()

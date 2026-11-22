@@ -7,6 +7,10 @@ from typing import Any, Callable, Dict, List, Optional
 from PyQt5.QtCore import QSettings, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QDialog, QWidget
 
+from modules.emails.core.sync_watermark import (
+    DEFAULT_LIVE_SYNC_INTERVAL_MS,
+    load_meeting_live_sync_enabled,
+)
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from .mixins import (
     InboxDataAndFilteringMixin,
@@ -32,6 +36,7 @@ class MeetingEmailInboxDialog(
     """Unified cockpit for triaging unread, flagged, unassigned, and unpinned emails/threads."""
 
     data_changed = pyqtSignal()
+    live_sync_toggled = pyqtSignal(bool)
 
     def __init__(
         self,
@@ -97,6 +102,14 @@ class MeetingEmailInboxDialog(
         self._current_item: Optional[dict] = None
         self._multi_base_common: Dict[str, List[str]] = {"ais": [], "subs": [], "wis": []}
         self._settings = settings if settings is not None else QSettings("3GPP_Tools", "MeetingEmailInboxDialog")
+        self._has_custom_settings = settings is not None
+        self._live_sync_store = self._settings if self._has_custom_settings else None
+        self._last_sync_silent = False
+        self._live_catchup_done = False
+        self._live_sync_enabled = load_meeting_live_sync_enabled(self.meeting_id, settings=self._live_sync_store)
+        self._live_sync_timer = QTimer(self)
+        self._live_sync_timer.setInterval(DEFAULT_LIVE_SYNC_INTERVAL_MS)
+        self._live_sync_timer.timeout.connect(self._on_live_sync_timer_tick)
         self._restoring_filters = True
         self._active_mode = "UNREAD"
         self._view_mode = "MESSAGES"
@@ -141,3 +154,6 @@ class MeetingEmailInboxDialog(
             self.reload_from_dbs()
         finally:
             self._restoring_filters = False
+
+        if self._live_sync_enabled:
+            self._live_sync_timer.start()

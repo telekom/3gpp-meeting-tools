@@ -13,6 +13,12 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from modules.emails.core.email_config import load_wg_email_config
 from modules.emails.core.general_email_db import GeneralEmailDatabase
 from modules.emails.core.general_email_sync import GeneralEmailSyncThread
+from modules.emails.core.sync_watermark import (
+    LAST_SYNC_META_KEY,
+    format_utc_iso,
+    resolve_sync_window,
+    utc_now,
+)
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.emails.core.tracked_threads_service import (
     list_recent_threads_in_folders,
@@ -207,6 +213,9 @@ class InboxOutlookSyncWorker(_BaseComWorker):
         *,
         scoped_thread_ids: Optional[List[str]] = None,
         scoped_email_ids: Optional[List[str]] = None,
+        sync_mode: str = "incremental",
+        days_buffer: int = 3,
+        silent: bool = False,
     ):
         super().__init__(parent)
         self.tracked_db_path = Path(tracked_db_path) if tracked_db_path else None
@@ -217,6 +226,11 @@ class InboxOutlookSyncWorker(_BaseComWorker):
         self.end_date = str(end_date or "").strip()
         self.scoped_thread_ids = list(scoped_thread_ids) if scoped_thread_ids is not None else None
         self.scoped_email_ids = list(scoped_email_ids) if scoped_email_ids is not None else None
+        is_scoped = self.scoped_thread_ids is not None or self.scoped_email_ids is not None
+        self.sync_mode = "scoped" if is_scoped else (str(sync_mode or "incremental").strip().lower() or "incremental")
+        self.days_buffer = max(0, int(days_buffer if days_buffer is not None else 3))
+        self.silent = bool(silent)
+        self.last_sync_window_info: Optional[dict] = None
 
     @staticmethod
     def _resolve_incremental_window(
@@ -225,27 +239,23 @@ class InboxOutlookSyncWorker(_BaseComWorker):
         end_date: str,
     ) -> tuple[str, str]:
         today = datetime.now().date()
-        end_s = end_date or today.strftime("%Y-%m-%d")
-        if general_db_path and Path(general_db_path).exists():
-            try:
-                gdb = GeneralEmailDatabase(general_db_path)
-                with gdb._get_connection() as conn:
-                    row = conn.execute("SELECT MAX(date_received) FROM general_emails").fetchone()
-                if row and row[0]:
-                    latest_d = datetime.strptime(str(row[0])[:10], "%Y-%m-%d").date()
-                    inc_start = (latest_d - timedelta(days=2)).strftime("%Y-%m-%d")
-                    return inc_start, max(end_s, today.strftime("%Y-%m-%d"))
-            except Exception:
-                pass
-        start_s = start_date or (today - timedelta(days=10)).strftime("%Y-%m-%d")
-        return start_s, max(end_s, today.strftime("%Y-%m-%d"))
+        gdb = GeneralEmailDatabase(general_db_path) if (general_db_path and Path(general_db_path).exists()) else None
+        win = resolve_sync_window(gdb, start_date, end_date, sync_mode="incremental")
+        if win.get("start_date") and win.get("end_date"):
+            return win["start_date"], win["end_date"]
+        since_utc = win.get("since_dt_utc")
+        if since_utc is not None:
+            return since_utc.astimezone().strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")
+        return start_date or (today - timedelta(days=10)).strftime("%Y-%m-%d"), end_date or today.strftime("%Y-%m-%d")
 
     def run(self):
         def _work():
+            sync_started_utc = format_utc_iso(utc_now())
             new_thread_msgs = 0
             general_synced = 0
+            is_scoped = self.scoped_thread_ids is not None or self.scoped_email_ids is not None
 
-            if self.scoped_thread_ids is not None or self.scoped_email_ids is not None:
+            if is_scoped:
                 tdb = TrackedThreadsDatabase(self.tracked_db_path) if self.tracked_db_path else None
                 gdb = GeneralEmailDatabase(self.general_db_path) if self.general_db_path else None
                 self.progress_text.emit("Syncing filtered conversations...")
@@ -258,8 +268,19 @@ class InboxOutlookSyncWorker(_BaseComWorker):
                     cancel_check=self.is_cancelled,
                 )
             else:
+                gdb_meta = GeneralEmailDatabase(self.general_db_path) if self.general_db_path else None
+                win = resolve_sync_window(
+                    gdb_meta,
+                    self.start_date,
+                    self.end_date,
+                    sync_mode=self.sync_mode,
+                    days_buffer=self.days_buffer,
+                )
+                self.last_sync_window_info = win
+                gap_lbl = win.get("gap_description") or self.sync_mode
+
                 if self.tracked_db_path and self.meeting_id and not self.is_cancelled():
-                    self.progress_text.emit("Syncing pinned tracked threads...")
+                    self.progress_text.emit(f"Syncing pinned threads ({gap_lbl})...")
                     tdb = TrackedThreadsDatabase(self.tracked_db_path)
                     updates = refresh_meeting_threads(
                         tdb,
@@ -268,26 +289,31 @@ class InboxOutlookSyncWorker(_BaseComWorker):
                             f"Folder ({idx + 1}/{tot}): {cur[:28]}"
                         ),
                         cancel_check=self.is_cancelled,
+                        since_dt_utc=win.get("since_dt_utc"),
                     )
                     new_thread_msgs = sum((updates or {}).values())
 
                 if self.general_db_path and not self.is_cancelled():
                     folders = load_wg_email_config(self.wg) if self.wg else []
-                    s_date, e_date = self._resolve_incremental_window(
-                        self.general_db_path, self.start_date, self.end_date
-                    )
-                    self.progress_text.emit("Scanning Outlook folders for TDoc emails...")
+                    self.progress_text.emit(f"Scanning Outlook folders ({gap_lbl})...")
                     syncer = GeneralEmailSyncThread(
                         folders,
                         self.general_db_path,
-                        start_date=s_date,
-                        end_date=e_date,
-                        days_buffer=2,
+                        start_date=str(win.get("start_date") or ""),
+                        end_date=str(win.get("end_date") or ""),
+                        days_buffer=int(win.get("days_buffer", 0)),
+                        since_dt_utc=win.get("since_dt_utc"),
                     )
                     general_synced = syncer.sync_folders(
                         progress_cb=lambda m: self.progress_text.emit(m),
                         cancel_check=self.is_cancelled,
                     )
+
+                if not self.is_cancelled() and gdb_meta is not None:
+                    try:
+                        gdb_meta.set_sync_meta(LAST_SYNC_META_KEY, sync_started_utc)
+                    except Exception as exc:
+                        logger.debug("Could not persist %s watermark: %s", LAST_SYNC_META_KEY, exc)
 
             if self.is_cancelled():
                 self.finished_sync.emit(False, new_thread_msgs, general_synced, "Outlook sync cancelled.")
