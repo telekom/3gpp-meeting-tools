@@ -51,7 +51,6 @@ LEGACY_UI_HEX_ALLOWLIST: Dict[str, int] = {
     "src/modules/specifications/ui/dialogs.py": 13,
     "src/modules/specifications/ui/spec_annotations_dialog.py": 11,
     "src/modules/specifications/ui/spec_clause_dialog.py": 6,
-    "src/modules/specifications/ui/spec_history_dialog.py": 3,
     "src/modules/specifications/ui/spec_info_dialog.py": 10,
     "src/modules/specifications/ui/spec_menu.py": 4,
     "src/modules/word_tools/ui/cards/compare_card.py": 2,
