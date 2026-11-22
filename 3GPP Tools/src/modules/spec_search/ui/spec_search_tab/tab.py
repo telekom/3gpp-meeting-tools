@@ -61,6 +61,10 @@ class SpecSearchTab(
         self._active_query_workers: Dict[int, SpecSearchQueryWorker] = {}
         self._current_req_id: int = 0
         self.selected_version_ids: List[int] = []
+        self._specs_minimal_mode: bool = False
+        self._solo_spec: Optional[str] = None
+        self._pre_collapse_splitter_sizes: List[int] = [300, 750]
+        self._active_doc_workers: List[object] = []
         self.auto_replace_older_versions: bool = True
         self.thread: Optional[SpecSearchImportThread] = None
         self._import_thread: Optional[SpecSearchImportThread] = None

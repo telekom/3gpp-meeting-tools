@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PyQt5.QtCore import QDate, Qt
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QCheckBox,
     QDateEdit,
@@ -13,6 +14,7 @@ from PyQt5.QtWidgets import (
     QMenu,
     QProgressBar,
     QPushButton,
+    QShortcut,
     QSplitter,
     QTabWidget,
     QVBoxLayout,
@@ -24,6 +26,7 @@ from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon
 from core.ui.theme import C, R, S, T
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 from modules.spec_search.ui.spec_search_components import (
+    ActiveSpecsScopeBar,
     SpecClauseInspector,
     SpecSearchVersionCardsWidget,
 )
@@ -44,6 +47,7 @@ class SpecSearchTabUiSetupMixin:
 
         # Left Panel: Versions Tree inside a Card Frame
         left_widget = QWidget()
+        self.left_specs_panel = left_widget
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(6)
@@ -154,6 +158,29 @@ class SpecSearchTabUiSetupMixin:
         self.act_wipe_db.triggered.connect(self._on_wipe_db_clicked)
         self.db_menu_btn.setMenu(db_menu)
         tree_hdr_layout.addWidget(self.db_menu_btn)
+
+        # 3. Collapse Sidebar to Minimal Mode Button
+        self.btn_collapse_specs = QPushButton("◀")
+        self.btn_collapse_specs.setCursor(Qt.PointingHandCursor)
+        self.btn_collapse_specs.setToolTip("Hide specs sidebar (Minimal Mode — Ctrl+B)")
+        self.btn_collapse_specs.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C.BG_SURFACE};
+                color: {C.TEXT_SECONDARY};
+                border: 1px solid {C.BORDER_STRONG};
+                border-radius: 4px;
+                padding: 2px 6px;
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: {C.BG_CANVAS};
+                color: {C.ACCENT_SKY_DARK};
+                border-color: {C.ACCENT_SKY};
+            }}
+        """)
+        self.btn_collapse_specs.clicked.connect(lambda: self.set_specs_minimal_mode(True))
+        tree_hdr_layout.addWidget(self.btn_collapse_specs)
 
         # Aliases for background workers and existing callbacks
         self.fetch_btn = self.import_menu_btn
@@ -311,6 +338,17 @@ class SpecSearchTabUiSetupMixin:
         matrix_layout.setContentsMargins(0, 0, 0, 0)
         matrix_layout.setSpacing(6)
 
+        # Minimal-Mode Top Scope Badge Bar (visible when left sidebar is collapsed)
+        self.scope_bar = ActiveSpecsScopeBar(self)
+        self.scope_bar.setVisible(False)
+        self.scope_bar.expand_full_mode_requested.connect(lambda: self.set_specs_minimal_mode(False))
+        self.scope_bar.solo_spec_toggled.connect(self._on_solo_spec_toggled)
+        self.scope_bar.preset_requested.connect(self._on_scope_preset_requested)
+        self.scope_bar.import_smart_requested.connect(lambda: self._open_smart_import_dialog())
+        self.scope_bar.import_browse_requested.connect(self._on_fetch_clicked)
+        self.scope_bar.import_local_requested.connect(self._on_import_local_clicked)
+        matrix_layout.addWidget(self.scope_bar)
+
         # ---------------------------------------------------------------------
         # 2-Tier Carded Search & Filter Ribbon
         # ---------------------------------------------------------------------
@@ -344,6 +382,9 @@ class SpecSearchTabUiSetupMixin:
 
         self.clause_filter_input = QLineEdit()
         self.clause_filter_input.setPlaceholderText("Clause (e.g. 5.2)...")
+        self.clause_filter_input.setToolTip(
+            "Filter by clause number or title (also works with no keyword to browse a clause hierarchy, e.g. 5.15)"
+        )
         self.clause_filter_input.setMinimumWidth(scale_px(150))
         self.clause_filter_input.setMaximumWidth(scale_px(240))
         self.clause_filter_input.setClearButtonEnabled(True)
@@ -470,9 +511,15 @@ class SpecSearchTabUiSetupMixin:
         self.inspector.export_markdown_requested.connect(self._handle_export_clause_markdown)
         self.inspector.layout_orientation_toggle_requested.connect(self._toggle_inspector_layout)
         self.inspector.maximize_toggle_requested.connect(self._toggle_inspector_maximize)
+        self.inspector.clause_reference_clicked.connect(self._handle_clause_reference_clicked)
+        if hasattr(self.inspector, "doc_menu"):
+            self.inspector.doc_menu.aboutToShow.connect(self._refresh_inspector_doc_menu)
         self.right_splitter.addWidget(self.inspector)
 
         self.right_splitter.setSizes([380, 260])
         self.main_splitter.addWidget(self.right_splitter)
         self.main_splitter.setSizes([300, 750])
         layout.addWidget(self.main_splitter, 1)
+
+        self._toggle_specs_shortcut = QShortcut(QKeySequence("Ctrl+B"), self)
+        self._toggle_specs_shortcut.activated.connect(self.toggle_specs_panel_mode)

@@ -10,6 +10,58 @@ from PyQt5.QtGui import QTextCursor, QTextDocument
 from core.ui.theme import C
 from modules.spec_search.core.spec_clause_exporter import copy_clause_to_clipboard
 
+_CLAUSE_REF_RE = re.compile(
+    r"(?P<cross1>\b(?:3GPP\s+)?(?:TS|TR)\s+(?P<spec1>\d{2}\.\d{3}(?:-\d{2})?)(?:\s*\[\d+\])?,?\s+(?:clauses?|subclauses?|sub-clauses?|sections?)\s+(?P<cl1>\d+(?:\.\d+)*)\b)"
+    r"|(?P<cross2>\b(?:clauses?|subclauses?|sub-clauses?|sections?)\s+(?P<cl2>\d+(?:\.\d+)*)\s+(?:of|in)\s+(?:3GPP\s+)?(?:TS|TR)\s+(?P<spec2>\d{2}\.\d{3}(?:-\d{2})?)\b)"
+    r"|(?P<same>\b(?:clauses?|subclauses?|sub-clauses?|sections?)\s+(?P<cl3>\d+(?:\.\d+)*)\b)"
+    r"|(?P<annex>\bAnnex\s+(?P<anx>[A-Z](?:\.\d+)*)\b)",
+    re.IGNORECASE,
+)
+
+
+def linkify_clause_references(escaped_html: str) -> str:
+    """Converts in-text 3GPP clause and Annex references into clickable custom-scheme links."""
+    if not escaped_html:
+        return ""
+
+    link_style = f"color: {C.ACCENT_SKY}; text-decoration: underline;"
+
+    def _replace(match: re.Match) -> str:
+        full_text = match.group(0)
+        if match.group("cross1"):
+            spec = match.group("spec1")
+            clause = match.group("cl1")
+            return f'<a href="spec-clause:{spec}/{clause}" style="{link_style}">{full_text}</a>'
+        if match.group("cross2"):
+            spec = match.group("spec2")
+            clause = match.group("cl2")
+            return f'<a href="spec-clause:{spec}/{clause}" style="{link_style}">{full_text}</a>'
+        if match.group("same"):
+            clause = match.group("cl3")
+            return f'<a href="clause:{clause}" style="{link_style}">{full_text}</a>'
+        anx = match.group("anx")
+        if anx and anx[0].isupper():
+            return f'<a href="clause:Annex%20{anx}" style="{link_style}">{full_text}</a>'
+        return full_text
+
+    return _CLAUSE_REF_RE.sub(_replace, escaped_html)
+
+
+def _highlight_html_text_nodes(html_str: str, query: str) -> str:
+    """Applies <mark> highlighting to HTML text nodes without corrupting tag attributes."""
+    if not html_str or not query:
+        return html_str
+    pattern = re.compile(re.escape(html.escape(query)), re.IGNORECASE)
+    mark_tpl = (
+        f'<mark style="background-color: {C.HIGHLIGHT_YELLOW}; font-weight: bold; '
+        f'padding: 1px 4px; border-radius: 2px; color: {C.TEXT_PRIMARY};">{{}}</mark>'
+    )
+    segments = re.split(r"(<[^>]+>)", html_str)
+    for idx, seg in enumerate(segments):
+        if seg and not seg.startswith("<"):
+            segments[idx] = pattern.sub(lambda m: mark_tpl.format(m.group(0)), seg)
+    return "".join(segments)
+
 
 class SpecClauseInspectorRenderMixin:
     """Rendering, search navigation, and clipboard formatting methods for SpecClauseInspector."""
@@ -26,6 +78,7 @@ class SpecClauseInspectorRenderMixin:
         first_added_ver: Optional[str] = None,
         prev_ver: Optional[str] = None,
         spec_title: Optional[str] = None,
+        record_history: bool = True,
     ):
         self._current_spec = spec_number
         self._current_version = version
@@ -37,6 +90,42 @@ class SpecClauseInspectorRenderMixin:
         self._first_added_ver = first_added_ver or ""
         self._prev_ver = prev_ver or ""
         self._current_spec_title = spec_title or ""
+
+        if record_history:
+            entry = {
+                "clause_number": clause_number,
+                "clause_title": clause_title,
+                "spec_number": spec_number,
+                "version": version,
+                "content": content,
+                "release_date": release_date,
+                "search_query": search_query,
+                "first_added_ver": first_added_ver,
+                "prev_ver": prev_ver,
+                "spec_title": spec_title,
+            }
+            if not hasattr(self, "_nav_history"):
+                self._nav_history = []
+                self._nav_index = -1
+            if 0 <= self._nav_index < len(self._nav_history) - 1:
+                self._nav_history = self._nav_history[: self._nav_index + 1]
+            same_as_current = (
+                0 <= self._nav_index < len(self._nav_history)
+                and (
+                    self._nav_history[self._nav_index]["spec_number"],
+                    self._nav_history[self._nav_index]["version"],
+                    self._nav_history[self._nav_index]["clause_number"],
+                )
+                == (spec_number, version, clause_number)
+            )
+            if same_as_current:
+                self._nav_history[self._nav_index] = entry
+            else:
+                self._nav_history.append(entry)
+                if len(self._nav_history) > 50:
+                    self._nav_history.pop(0)
+                self._nav_index = len(self._nav_history) - 1
+        self._update_nav_buttons()
 
         date_str = f" ({release_date})" if release_date else ""
         if spec_title:
@@ -110,13 +199,9 @@ class SpecClauseInspectorRenderMixin:
             ):
                 cleaned_body = "\n".join(lines[1:]).strip()
 
-        escaped_content = html.escape(cleaned_body)
+        escaped_content = linkify_clause_references(html.escape(cleaned_body))
         if self._current_search_query:
-            pattern = re.compile(re.escape(html.escape(self._current_search_query)), re.IGNORECASE)
-            escaped_content = pattern.sub(
-                lambda m: f'<mark style="background-color: {C.HIGHLIGHT_YELLOW}; font-weight: bold; padding: 1px 4px; border-radius: 2px; color: {C.TEXT_PRIMARY};">{m.group(0)}</mark>',
-                escaped_content,
-            )
+            escaped_content = _highlight_html_text_nodes(escaped_content, self._current_search_query)
 
         formatted_html = f"""
         <html>
@@ -221,6 +306,30 @@ class SpecClauseInspectorRenderMixin:
     def _copy_citation(self):
         self._copy_formatted("citation")
 
+    def navigate_back(self):
+        """Navigates to the previously viewed clause in inspector history."""
+        if getattr(self, "_nav_index", -1) > 0:
+            self._nav_index -= 1
+            entry = self._nav_history[self._nav_index]
+            self.display_clause(record_history=False, **entry)
+
+    def navigate_forward(self):
+        """Navigates forward to the next clause in inspector history."""
+        history = getattr(self, "_nav_history", [])
+        idx = getattr(self, "_nav_index", -1)
+        if 0 <= idx < len(history) - 1:
+            self._nav_index += 1
+            entry = history[self._nav_index]
+            self.display_clause(record_history=False, **entry)
+
+    def _update_nav_buttons(self):
+        history = getattr(self, "_nav_history", [])
+        idx = getattr(self, "_nav_index", -1)
+        if hasattr(self, "btn_nav_back"):
+            self.btn_nav_back.setEnabled(idx > 0)
+        if hasattr(self, "btn_nav_forward"):
+            self.btn_nav_forward.setEnabled(0 <= idx < len(history) - 1)
+
     def clear_display(self):
         self.title_lbl.setText("No clause selected")
         self.match_badge.setVisible(False)
@@ -247,3 +356,6 @@ class SpecClauseInspectorRenderMixin:
         self._current_release_date = ""
         self._first_added_ver = ""
         self._prev_ver = ""
+        self._nav_history = []
+        self._nav_index = -1
+        self._update_nav_buttons()

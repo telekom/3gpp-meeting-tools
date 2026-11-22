@@ -2,6 +2,7 @@
 
 from .clause_inspector import SpecClauseInspector
 from .delegates import SpecEvolutionStatusDelegate
+from .scope_bar import ActiveSpecsScopeBar
 from .spec_card import ReleasePillWidget, SpecCardWidget
 from .styles import (
     INSPECTOR_BTN_AI,
@@ -19,6 +20,7 @@ from .version_cards import (
 )
 
 __all__ = [
+    "ActiveSpecsScopeBar",
     "INSPECTOR_BTN_AI",
     "INSPECTOR_BTN_BASE",
     "INSPECTOR_BTN_INFO",

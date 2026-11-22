@@ -33,6 +33,7 @@ class SpecSearchTabSearchMixin:
                 "auto_replace_older_versions": getattr(self, "auto_replace_older_versions", True),
                 "checked_versions": checked_versions,
                 "inspector_side_by_side": (self.right_splitter.orientation() == Qt.Horizontal),
+                "specs_minimal_mode": bool(getattr(self, "_specs_minimal_mode", False)),
             }
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(config_data, f, indent=4)
@@ -96,10 +97,14 @@ class SpecSearchTabSearchMixin:
                 self.right_splitter.setOrientation(Qt.Horizontal)
                 self.right_splitter.setSizes([550, 450])
 
-        self._update_db_stats()
+            if config.get("specs_minimal_mode", False):
+                self.set_specs_minimal_mode(True, save=False)
 
-        # Trigger search if a saved query exists
-        if self.search_input.text().strip():
+        self._update_db_stats()
+        self._refresh_scope_bar()
+
+        # Trigger search if a saved query or clause filter exists
+        if self.search_input.text().strip() or self.clause_filter_input.text().strip():
             self._execute_search()
 
     def _toggle_inspector_layout(self, side_by_side: bool):
@@ -150,8 +155,88 @@ class SpecSearchTabSearchMixin:
 
     def _on_version_selection_changed(self):
         self.selected_version_ids = self.version_tree.get_selected_version_ids()
+        self._refresh_scope_bar()
         self._search_timer.start()
         self._save_config_timer.start()
+
+    def toggle_specs_panel_mode(self):
+        """Toggles between Full Mode (left sidebar) and Minimal Mode (top badge strip)."""
+        self.set_specs_minimal_mode(not getattr(self, "_specs_minimal_mode", False))
+
+    def set_specs_minimal_mode(self, minimal: bool, save: bool = True):
+        """Switches between Full Mode left sidebar and Minimal Mode top active-specs bar."""
+        minimal = bool(minimal)
+        self._specs_minimal_mode = minimal
+        if hasattr(self, "left_specs_panel") and hasattr(self, "scope_bar"):
+            if minimal:
+                sizes = self.main_splitter.sizes()
+                if sizes and sizes[0] > 40:
+                    self._pre_collapse_splitter_sizes = list(sizes)
+                self.left_specs_panel.setVisible(False)
+                self.main_splitter.setSizes([0, 1000])
+                self.scope_bar.setVisible(True)
+            else:
+                self.scope_bar.setVisible(False)
+                self.left_specs_panel.setVisible(True)
+                restored = getattr(self, "_pre_collapse_splitter_sizes", None) or [300, 750]
+                if not any(restored) or restored[0] < 40:
+                    restored = [300, 750]
+                self.main_splitter.setSizes(restored)
+            self._refresh_scope_bar()
+        if save:
+            self._save_config()
+
+    def _refresh_scope_bar(self):
+        """Updates the Minimal Mode top bar badges from current checked specification pills."""
+        if not hasattr(self, "scope_bar"):
+            return
+        checked = self.version_tree.get_checked_versions_info()
+        checked_by_spec: dict[str, list[str]] = {}
+        for item in checked:
+            spec = str(item.get("spec_number", "")).strip()
+            ver = str(item.get("version", "")).strip()
+            if spec:
+                checked_by_spec.setdefault(spec, []).append(ver)
+
+        if self._solo_spec and self._solo_spec not in checked_by_spec:
+            self._solo_spec = None
+
+        total_specs = len(getattr(self.version_tree, "_cards", {}))
+        titles = {s: self.get_spec_title(s) for s in checked_by_spec}
+        self.scope_bar.update_scope(
+            checked_by_spec=checked_by_spec,
+            total_indexed_specs=total_specs,
+            spec_titles=titles,
+            solo_spec=self._solo_spec,
+        )
+
+    def _get_effective_version_ids(self) -> list[int]:
+        """Returns active version IDs, scoped to _solo_spec when solo mode is active."""
+        solo = getattr(self, "_solo_spec", None)
+        if solo:
+            card = getattr(self.version_tree, "_cards", {}).get(solo)
+            if card:
+                ids = [p.version_id for p in card.pills if p.isChecked() and p.version_id]
+                if ids:
+                    return ids
+        return self.selected_version_ids
+
+    def _on_solo_spec_toggled(self, spec_number: str):
+        """Temporarily scopes searches to a single spec (or clears solo when empty)."""
+        self._solo_spec = spec_number.strip() or None
+        self._refresh_scope_bar()
+        self._execute_search()
+
+    def _on_scope_preset_requested(self, preset: str):
+        """Applies a quick scope preset from the Minimal Mode Scope menu."""
+        if preset == "all":
+            self.version_tree.select_all()
+        elif preset == "none":
+            self.version_tree.deselect_all()
+        elif preset == "latest":
+            self.version_tree.select_latest_per_release()
+        elif preset == "rel18":
+            self.version_tree.select_releases_min(18)
 
     # -------------------------------------------------------------------------
     # Search Execution
@@ -160,10 +245,11 @@ class SpecSearchTabSearchMixin:
     def _execute_search(self):
         query = self.search_input.text().strip()
         clause_filter = self.clause_filter_input.text().strip()
+        effective_ids = self._get_effective_version_ids()
 
-        if not self.selected_version_ids or not query:
+        if not effective_ids or (not query and not clause_filter):
             self.spec_results_tabs.clear()
-            self.matrix_title.setText(f"<span style='color: {C.TEXT_MUTED}; font-size: 12px;'>💡 Type a query above to trace clause evolution across releases.</span>")
+            self.matrix_title.setText(f"<span style='color: {C.TEXT_MUTED}; font-size: 12px;'>💡 Type a query or clause number above to trace clause evolution across releases.</span>")
             self.inspector.clear_display()
             return
 
@@ -177,7 +263,7 @@ class SpecSearchTabSearchMixin:
         worker = SpecSearchQueryWorker(
             db=self.db,
             query_str=query,
-            version_ids=self.selected_version_ids,
+            version_ids=effective_ids,
             clause_filter=clause_filter,
             request_id=req_id,
         )
@@ -197,10 +283,12 @@ class SpecSearchTabSearchMixin:
             return
 
         query = self.search_input.text().strip()
+        clause_filter = self.clause_filter_input.text().strip()
+        search_label = query if query else f"Clause {clause_filter}"
         self.spec_results_tabs.clear()
 
         if df.empty:
-            self.matrix_title.setText(f"<span style='color: {C.TEXT_MUTED}; font-size: 12px;'>No matching clauses found for '<b>{html.escape(query)}</b>' across selected releases.</span>")
+            self.matrix_title.setText(f"<span style='color: {C.TEXT_MUTED}; font-size: 12px;'>No matching clauses found for '<b>{html.escape(search_label)}</b>' across selected releases.</span>")
             self.inspector.clear_display()
             return
 
@@ -279,7 +367,7 @@ class SpecSearchTabSearchMixin:
                 self.spec_results_tabs.setTabToolTip(tab_idx, f"TS {spec_num} ({model.rowCount()} clauses)")
 
         if specs_with_hits == 0:
-            self.matrix_title.setText(f"<span style='color: {C.TEXT_MUTED}; font-size: 12px;'>No matching clauses found for '<b>{html.escape(query)}</b>' matching active filters.</span>")
+            self.matrix_title.setText(f"<span style='color: {C.TEXT_MUTED}; font-size: 12px;'>No matching clauses found for '<b>{html.escape(search_label)}</b>' matching active filters.</span>")
             self.inspector.clear_display()
             return
 
@@ -288,12 +376,22 @@ class SpecSearchTabSearchMixin:
             if cutoff_date and only_post_date
             else ""
         )
+        solo_badge = (
+            f" <span style='background-color: {C.SKY_SURFACE}; color: {C.ACCENT_SKY_DARK}; font-weight: bold; padding: 2px 7px; border-radius: 4px; border: 1px solid {C.SKY_BORDER}; font-size: 11px;'>🎯 Solo: TS {html.escape(self._solo_spec)}</span>"
+            if getattr(self, "_solo_spec", None)
+            else ""
+        )
+        query_pill = (
+            f"<span style='background-color: {C.ACCENT_SOFT}; color: {C.ACCENT_SKY}; font-weight: bold; padding: 2px 8px; border-radius: 4px; border: 1px solid {C.INFO_BORDER_ALT}; font-size: 11px;'>🔍 {html.escape(query)}</span>"
+            if query
+            else f"<span style='background-color: {C.ACCENT_SOFT}; color: {C.ACCENT_SKY}; font-weight: bold; padding: 2px 8px; border-radius: 4px; border: 1px solid {C.INFO_BORDER_ALT}; font-size: 11px;'>📑 Clause: {html.escape(clause_filter)}</span>"
+        )
         self.matrix_title.setText(
             f"<span style='color: {C.TEXT_SECONDARY}; font-size: 11px; font-weight: 600;'>Results:</span> "
-            f"<span style='background-color: {C.ACCENT_SOFT}; color: {C.ACCENT_SKY}; font-weight: bold; padding: 2px 8px; border-radius: 4px; border: 1px solid {C.INFO_BORDER_ALT}; font-size: 11px;'>🔍 {html.escape(query)}</span> "
+            f"{query_pill} "
             f"<span style='background-color: {C.SUCCESS_SOFT_ALT}; color: {C.SUCCESS}; font-weight: bold; padding: 2px 8px; border-radius: 4px; border: 1px solid {C.SUCCESS_BORDER_MEDIUM}; font-size: 11px;'>{total_clauses_count} Clauses</span> "
             f"<span style='background-color: {C.BG_CANVAS}; color: {C.TEXT_BODY}; font-weight: bold; padding: 2px 8px; border-radius: 4px; border: 1px solid {C.BORDER_STRONG}; font-size: 11px;'>{specs_with_hits} Spec(s)</span>"
-            f"{date_badge}"
+            f"{solo_badge}{date_badge}"
         )
 
     def _on_tab_table_clicked(self, index, spec_num: str, table: QTableView):

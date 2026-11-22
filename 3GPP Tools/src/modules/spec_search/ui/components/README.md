@@ -10,12 +10,13 @@ re-export shim.
 | Module | Classes / Constants | Responsibility |
 |---|---|---|
 | [`styles.py`](styles.py) | `INSPECTOR_BTN_BASE`, `INSPECTOR_BTN_SUCCESS`, `INSPECTOR_BTN_AI`, `INSPECTOR_BTN_WARNING`, `INSPECTOR_BTN_INFO` | Inspector toolbar button QSS (`core.ui.theme.C` tokens, 0 raw hexes) |
-| [`delegates.py`](delegates.py) | `SpecEvolutionStatusDelegate` | Evolution Matrix pill badges & highlight rendering (`scaled_font` / `scale_px` guarded by `test_font_scale.py`) |
+| [`delegates.py`](delegates.py) | `SpecEvolutionStatusDelegate` | Evolution Matrix pill badges (`Added`, `Modified`, `Present`, `Post-Cutoff`) & highlight rendering (`scaled_font` / `scale_px` guarded by `test_font_scale.py`) |
+| [`scope_bar.py`](scope_bar.py) | `ActiveSpecsScopeBar` | Minimal-Mode top scope strip with clickable Solo spec badges, `Scope ▾` presets, and `Import ▾` |
 | [`spec_card.py`](spec_card.py) | `ReleasePillWidget`, `SpecCardWidget` | Checkable major-release pills, tri-state card header, and card context menus |
 | [`version_cards.py`](version_cards.py) | `_TreeCompatChildItem`, `_TreeCompatSpecItem`, `_TreeCompatRootItem`, `SpecSearchVersionCardsWidget`, `SpecSearchVersionTreeWidget` | Scrollable flow cards container & legacy `QTreeWidget` compatibility adapters |
-| [`clause_inspector_render.py`](clause_inspector_render.py) | `SpecClauseInspectorRenderMixin` | HTML clause highlighting, match excerpting, next/prev search, clipboard formatting |
-| [`clause_inspector.py`](clause_inspector.py) | `SpecClauseInspector` | Two-tier header, action toolbar menus, layout/maximize toggles, and Qt signal emitters |
-| [`__init__.py`](__init__.py) | All 14 public/compat exports | Package exports |
+| [`clause_inspector_render.py`](clause_inspector_render.py) | `SpecClauseInspectorRenderMixin`, `linkify_clause_references` | HTML clause highlighting, clickable clause cross-references, Back/Forward history, match excerpting, clipboard formatting |
+| [`clause_inspector.py`](clause_inspector.py) | `SpecClauseInspector` | Two-tier header with `⬅`/`➡` history, action toolbar menus, layout/maximize toggles, and Qt signal emitters |
+| [`__init__.py`](__init__.py) | All 15 public/compat exports | Package exports |
 
 ## Invariants
 - **Font Scaling Source Guard (`tests/test_font_scale.py`):** `delegates.py` is monitored directly — always use `scaled_font()` / `scale_px()`, never `setPointSize` or multi-arg `QFont(..., N)`.

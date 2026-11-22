@@ -1,8 +1,10 @@
 """SpecClauseInspector widget: two-tier header, action toolbar, and signal emitters."""
 
 from typing import Optional
+from urllib.parse import unquote
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices, QKeySequence
 from PyQt5.QtWidgets import (
     QFrame,
     QGroupBox,
@@ -10,6 +12,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QMenu,
     QPushButton,
+    QShortcut,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -45,6 +48,7 @@ class SpecClauseInspector(SpecClauseInspectorRenderMixin, QGroupBox):
     maximize_toggle_requested = pyqtSignal(bool)                # True = maximized, False = restored
     version_changes_requested = pyqtSignal(str, str)            # spec_number, version
     identify_origin_tdoc_requested = pyqtSignal(str, str, str, str, str)  # spec_number, base_ver, target_ver, clause_number, clause_title
+    clause_reference_clicked = pyqtSignal(str, str, str)        # spec_number, version ("" for cross-spec), target_clause
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__("Clause Content Inspector", parent)
@@ -60,6 +64,8 @@ class SpecClauseInspector(SpecClauseInspectorRenderMixin, QGroupBox):
         self._prev_ver = ""
         self._is_side_by_side = False
         self._is_maximized = False
+        self._nav_history: list = []
+        self._nav_index: int = -1
         self.setStyleSheet(f"""
             QGroupBox {{
                 font-weight: bold;
@@ -85,10 +91,34 @@ class SpecClauseInspector(SpecClauseInspectorRenderMixin, QGroupBox):
         layout.setSpacing(5)
 
         # ---------------------------------------------------------------------
-        # Tier 1: Context Title, First Added Chip, Matches & Layout Toggles
+        # Tier 1: Back/Forward History, Context Title, First Added Chip & Toggles
         # ---------------------------------------------------------------------
         tier1_bar = QHBoxLayout()
         tier1_bar.setSpacing(6)
+
+        self.btn_nav_back = QPushButton("⬅")
+        self.btn_nav_back.setToolTip("Back to previous clause (Alt+Left)")
+        self.btn_nav_back.setCursor(Qt.PointingHandCursor)
+        self.btn_nav_back.setStyleSheet(INSPECTOR_BTN_BASE + "QPushButton { min-width: 22px; padding: 2px 6px; font-weight: bold; }")
+        self.btn_nav_back.setEnabled(False)
+        self.btn_nav_back.clicked.connect(self.navigate_back)
+        tier1_bar.addWidget(self.btn_nav_back)
+
+        self.btn_nav_forward = QPushButton("➡")
+        self.btn_nav_forward.setToolTip("Forward to next clause (Alt+Right)")
+        self.btn_nav_forward.setCursor(Qt.PointingHandCursor)
+        self.btn_nav_forward.setStyleSheet(INSPECTOR_BTN_BASE + "QPushButton { min-width: 22px; padding: 2px 6px; font-weight: bold; }")
+        self.btn_nav_forward.setEnabled(False)
+        self.btn_nav_forward.clicked.connect(self.navigate_forward)
+        tier1_bar.addWidget(self.btn_nav_forward)
+
+        self._shortcut_nav_back = QShortcut(QKeySequence("Alt+Left"), self)
+        self._shortcut_nav_back.setContext(Qt.WidgetWithChildrenShortcut)
+        self._shortcut_nav_back.activated.connect(self.navigate_back)
+
+        self._shortcut_nav_forward = QShortcut(QKeySequence("Alt+Right"), self)
+        self._shortcut_nav_forward.setContext(Qt.WidgetWithChildrenShortcut)
+        self._shortcut_nav_forward.activated.connect(self.navigate_forward)
 
         self.title_lbl = QLabel("No clause selected")
         self.title_lbl.setStyleSheet(f"font-weight: bold; color: {C.ACCENT_SKY}; font-size: 12px;")
@@ -217,6 +247,8 @@ class SpecClauseInspector(SpecClauseInspectorRenderMixin, QGroupBox):
         doc_menu.addSeparator()
         act_folder = doc_menu.addAction("📂 Open Containing Folder in Explorer")
         act_folder.triggered.connect(lambda: self._on_open_doc_clicked("folder"))
+        self.doc_menu = doc_menu
+        self.act_pdf = act_pdf
         self.btn_open_doc.setMenu(doc_menu)
         self.btn_open_doc.setEnabled(False)
         tier2_bar.addWidget(self.btn_open_doc)
@@ -274,7 +306,9 @@ class SpecClauseInspector(SpecClauseInspectorRenderMixin, QGroupBox):
         # Document Browser
         self.browser = QTextBrowser()
         self.browser.setReadOnly(True)
-        self.browser.setOpenExternalLinks(True)
+        self.browser.setOpenLinks(False)
+        self.browser.setOpenExternalLinks(False)
+        self.browser.anchorClicked.connect(self._on_anchor_clicked)
         self.browser.setPlaceholderText("Select a cell in the evolution matrix above to inspect the full clause content and match context...")
         self.browser.setStyleSheet(f"""
             QTextBrowser {{
@@ -394,3 +428,30 @@ class SpecClauseInspector(SpecClauseInspectorRenderMixin, QGroupBox):
                 self._current_clause_num,
                 self._current_clause_title,
             )
+
+    def _on_anchor_clicked(self, url: QUrl):
+        """Routes clicked clause/spec-clause links to SpecSearchTab or opens external URLs."""
+        scheme = (url.scheme() or "").lower()
+        if scheme == "clause":
+            raw = unquote((url.host() or "") + (url.path() or "")).lstrip("/")
+            if raw.lower().startswith("annex "):
+                raw = "Annex " + raw[6:].upper()
+            if raw and self._current_spec and self._current_version:
+                self.clause_reference_clicked.emit(self._current_spec, self._current_version, raw)
+            return
+
+        if scheme == "spec-clause":
+            raw_path = unquote(url.path() or "").lstrip("/")
+            if url.host():
+                spec = unquote(url.host()).strip()
+                clause = raw_path.strip()
+            elif "/" in raw_path:
+                spec, clause = (part.strip() for part in raw_path.split("/", 1))
+            else:
+                spec, clause = "", ""
+            if spec and clause:
+                self.clause_reference_clicked.emit(spec, "", clause)
+            return
+
+        if scheme in ("http", "https", "mailto"):
+            QDesktopServices.openUrl(url)

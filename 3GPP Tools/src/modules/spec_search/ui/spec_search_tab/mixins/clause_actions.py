@@ -165,6 +165,27 @@ class SpecSearchTabClauseActionsMixin:
             parent_widget=self,
         )
 
+    def _refresh_inspector_doc_menu(self):
+        """Updates the Inspector Full Doc PDF action label depending on local PDF availability."""
+        act_pdf = getattr(self.inspector, "act_pdf", None)
+        if not act_pdf:
+            return
+        spec = getattr(self.inspector, "_current_spec", "")
+        ver = getattr(self.inspector, "_current_version", "")
+        clause = getattr(self.inspector, "_current_clause_num", "")
+        if not spec or not ver:
+            act_pdf.setText("📕 Open Converted PDF (.pdf)")
+            return
+        try:
+            info = SpecDocResolver.resolve_spec_files(spec, ver, self.cache_dir, self.specs_db)
+            pdf_target = SpecDocResolver.find_matching_pdf(info, clause)
+            if pdf_target and pdf_target.exists():
+                act_pdf.setText("📕 Open Converted PDF (.pdf)")
+            else:
+                act_pdf.setText("📕 Convert && Open PDF (.pdf)...")
+        except Exception:
+            act_pdf.setText("📕 Open Converted PDF (.pdf)")
+
     def _start_clause_word_compare(self, spec_num: str, base_ver: str, target_ver: str, clause_num: str, clause_title: str):
         """Extracts clause from both releases and executes Word comparison with Track Changes."""
         from modules.spec_search.core.spec_clause_word_comparator import SpecClauseWordCompareThread

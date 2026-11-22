@@ -7,6 +7,7 @@ The implementation was split into ``modules.spec_search.ui.components``
 from __future__ import annotations
 
 from .components import (  # noqa: F401
+    ActiveSpecsScopeBar,
     INSPECTOR_BTN_AI,
     INSPECTOR_BTN_BASE,
     INSPECTOR_BTN_INFO,
@@ -24,6 +25,7 @@ from .components import (  # noqa: F401
 )
 
 __all__ = [
+    "ActiveSpecsScopeBar",
     "INSPECTOR_BTN_AI",
     "INSPECTOR_BTN_BASE",
     "INSPECTOR_BTN_INFO",

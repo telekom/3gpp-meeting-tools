@@ -69,6 +69,11 @@ class SpecEvolutionStatusDelegate(QStyledItemDelegate):
                     pill_border = QColor(C.SUCCESS_BORDER_MEDIUM)
                     pill_fg = QColor(C.SUCCESS)
                     badge_label = "🟢 Added"
+                elif "Modified" in display_text or "✏️" in display_text:
+                    pill_bg = QColor(C.INFO_SOFT)
+                    pill_border = QColor(C.INFO_BORDER_MEDIUM)
+                    pill_fg = QColor(C.INFO_DARK)
+                    badge_label = "✏️ Modified"
                 elif "Present" in display_text or "✓" in display_text:
                     pill_bg = QColor(C.BG_CANVAS)
                     pill_border = QColor(C.BORDER_SUBTLE)

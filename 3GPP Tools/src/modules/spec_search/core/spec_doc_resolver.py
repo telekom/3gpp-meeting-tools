@@ -11,11 +11,17 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QMessageBox, QProgressDialog, QWidget
 
 from core.network.session import NetworkSession
 from core.utils.paths import get_specs_root, to_extended_path
+from modules.spec_search.core.spec_pdf_converter import (
+    convert_word_to_pdf_and_open,
+    find_matching_pdf as _find_matching_pdf,
+    handle_pdf_open_request,
+    open_pdf_with_feedback,
+)
 from modules.spec_search.core.spec_search_threads import is_change_mark_file
 from modules.word_tools.core.document_opener import open_document
 
@@ -271,6 +277,48 @@ class SpecDocResolver:
         return extracted
 
     @staticmethod
+    def find_matching_pdf(
+        info: Dict[str, Any], clause_number: Optional[str] = None
+    ) -> Optional[Path]:
+        """Locates the converted PDF matching the target clause (multi-part aware)."""
+        return _find_matching_pdf(info, clause_number, match_multipart_document_for_clause)
+
+    @staticmethod
+    def _open_pdf_with_feedback(
+        pdf_path: Path,
+        spec_number: str,
+        clause_number: Optional[str] = None,
+        parent_widget: Optional[QWidget] = None,
+        on_opened_callback: Optional[Any] = None,
+    ) -> bool:
+        """Copies clause number for Ctrl+F, opens the PDF, and updates status feedback."""
+        return open_pdf_with_feedback(
+            pdf_path,
+            clause_number=clause_number,
+            parent_widget=parent_widget,
+            on_opened_callback=on_opened_callback,
+        )
+
+    @staticmethod
+    def _convert_word_to_pdf_and_open(
+        word_doc: Path,
+        spec_number: str,
+        version: str,
+        clause_number: Optional[str] = None,
+        parent_widget: Optional[QWidget] = None,
+        on_opened_callback: Optional[Any] = None,
+    ) -> bool:
+        """Converts a local Word specification document to PDF via WordConverterThread and opens it."""
+        return convert_word_to_pdf_and_open(
+            word_doc,
+            spec_number=spec_number,
+            version=version,
+            clause_number=clause_number,
+            parent_widget=parent_widget,
+            on_opened_callback=on_opened_callback,
+        )
+
+    @staticmethod
     def open_spec(
         spec_number: str,
         version: str,
@@ -283,7 +331,7 @@ class SpecDocResolver:
     ) -> bool:
         """
         Main entry point to resolve and launch a specification document.
-        Assists search by copying 'Clause X.Y.Z' to clipboard when opening Word.
+        Assists search by copying 'Clause X.Y.Z' to clipboard when opening Word or PDF.
         """
         info = SpecDocResolver.resolve_spec_files(spec_number, version, cache_dir, specs_db)
         spec_dir = info["spec_dir"]
@@ -304,24 +352,21 @@ class SpecDocResolver:
                 )
             return False
 
-        # --- 2. OPEN PDF ---
+        # --- 2. OPEN PDF (WITH ON-DEMAND CONVERSION PROMPT) ---
         if doc_format == "pdf":
-            if info["pdf_docs"]:
-                try:
-                    open_document(info["pdf_docs"][0])
-                    return True
-                except Exception as e:
-                    logger.error(f"Failed to open PDF {info['pdf_docs'][0]}: {e}")
-                    QMessageBox.warning(parent_widget, "Open Error", f"Could not open PDF:\n{e}")
-                    return False
-            else:
-                QMessageBox.information(
-                    parent_widget,
-                    "PDF Not Available",
-                    f"No converted PDF document found for TS {spec_number} v{version}.\n\n"
-                    f"You can open the Word (.docx) version instead, or convert it via the Specifications tab.",
-                )
-                return False
+            return handle_pdf_open_request(
+                resolver_cls=SpecDocResolver,
+                info=info,
+                spec_number=spec_number,
+                version=version,
+                clause_number=clause_number,
+                cache_dir=cache_dir,
+                specs_db=specs_db,
+                parent_widget=parent_widget,
+                on_opened_callback=on_opened_callback,
+                multipart_matcher=match_multipart_document_for_clause,
+                download_worker_cls=SpecDownloadWorker,
+            )
 
         # --- 3. OPEN WORD (.docx / .doc) ---
         target_doc = None

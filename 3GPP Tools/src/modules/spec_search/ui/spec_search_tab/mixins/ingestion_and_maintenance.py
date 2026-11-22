@@ -38,6 +38,8 @@ class SpecSearchTabIngestionMixin:
         self.version_tree.populate(versions, saved_checked=saved_checked, spec_titles=self._spec_titles)
         self.selected_version_ids = self.version_tree.get_selected_version_ids()
         self._update_db_stats()
+        if hasattr(self, "_refresh_scope_bar"):
+            self._refresh_scope_bar()
 
     def _open_smart_import_dialog(self, initial_spec: Optional[str] = None):
         """Opens the targeted Smart Import dialog to check and ingest latest versions of all releases."""
@@ -132,6 +134,8 @@ class SpecSearchTabIngestionMixin:
         self._current_ingesting_tasks = tasks
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
+        if hasattr(self, "scope_bar"):
+            self.scope_bar.set_progress(0, True)
         self.fetch_btn.setEnabled(False)
         self.import_local_btn.setEnabled(False)
 
@@ -149,10 +153,14 @@ class SpecSearchTabIngestionMixin:
 
     def _on_import_progress(self, msg: str, val: int):
         self.progress_bar.setValue(val)
+        if hasattr(self, "scope_bar"):
+            self.scope_bar.set_progress(val, True)
         logger.log(logging.INFO, msg)
 
     def _on_import_success(self, specs_count: int, clauses_count: int):
         self.progress_bar.setVisible(False)
+        if hasattr(self, "scope_bar"):
+            self.scope_bar.set_progress(0, False)
         self.fetch_btn.setEnabled(True)
         self.import_local_btn.setEnabled(True)
         logger.log(logging.INFO, f"✅ Indexed {specs_count} specification(s) ({clauses_count} total clauses).")
@@ -176,6 +184,8 @@ class SpecSearchTabIngestionMixin:
         versions = self.db.get_imported_versions()
         self.version_tree.populate(versions, saved_checked=saved_checked, spec_titles=self._spec_titles)
         self.selected_version_ids = self.version_tree.get_selected_version_ids()
+        if hasattr(self, "_refresh_scope_bar"):
+            self._refresh_scope_bar()
         self._save_config()
 
         # Focus newly indexed version if single spec
@@ -185,6 +195,8 @@ class SpecSearchTabIngestionMixin:
 
     def _on_import_error(self, err: str):
         self.progress_bar.setVisible(False)
+        if hasattr(self, "scope_bar"):
+            self.scope_bar.set_progress(0, False)
         self.fetch_btn.setEnabled(True)
         self.import_local_btn.setEnabled(True)
         QMessageBox.critical(self, "Indexing Error", err)
@@ -279,6 +291,8 @@ class SpecSearchTabIngestionMixin:
 
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
+        if hasattr(self, "scope_bar"):
+            self.scope_bar.set_progress(0, True, indeterminate=True)
         self.wipe_db_btn.setEnabled(False)
         self.fetch_btn.setEnabled(False)
         self.import_local_btn.setEnabled(False)
@@ -292,6 +306,8 @@ class SpecSearchTabIngestionMixin:
     def _on_wipe_db_success(self):
         self.progress_bar.setVisible(False)
         self.progress_bar.setRange(0, 100)
+        if hasattr(self, "scope_bar"):
+            self.scope_bar.set_progress(0, False)
         self.wipe_db_btn.setEnabled(True)
         self.fetch_btn.setEnabled(True)
         self.import_local_btn.setEnabled(True)
@@ -307,6 +323,8 @@ class SpecSearchTabIngestionMixin:
     def _on_wipe_db_error(self, err: str):
         self.progress_bar.setVisible(False)
         self.progress_bar.setRange(0, 100)
+        if hasattr(self, "scope_bar"):
+            self.scope_bar.set_progress(0, False)
         self.wipe_db_btn.setEnabled(True)
         self.fetch_btn.setEnabled(True)
         self.import_local_btn.setEnabled(True)

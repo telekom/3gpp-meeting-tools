@@ -11,6 +11,13 @@ import sqlite3
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 import pandas as pd
 
+from modules.spec_search.core.spec_search_queries import (
+    execute_clause_only_search,
+    execute_fts_substring_search,
+    execute_like_fallback_search,
+    norm_content_hash,
+)
+
 
 def parse_version_tuple(version_str: str) -> tuple:
     """Converts version strings (e.g. '18.4.0', 'v15.2.1') into comparable tuples for natural sorting."""
@@ -67,6 +74,7 @@ class SpecSearchDatabase:
         conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         try:
             conn.row_factory = sqlite3.Row
+            conn.create_function("norm_hash", 1, norm_content_hash)
             conn.execute("PRAGMA foreign_keys = ON;")
             conn.execute("PRAGMA synchronous = NORMAL;")
             with conn:
@@ -263,47 +271,24 @@ class SpecSearchDatabase:
     ) -> pd.DataFrame:
         """
         Executes substring matching across selected specification versions using SQLite FTS5.
-        Returns a DataFrame containing clause metadata, version details, release dates, and hit snippets.
+        Falls back to clause-only browsing if query_str is empty and clause_filter is provided.
         """
-        if not version_ids or not query_str.strip():
+        if not version_ids:
             return pd.DataFrame()
 
-        clean_query = query_str.strip()
+        clean_query = (query_str or "").strip()
+        clean_clause = (clause_filter or "").strip()
+
+        if not clean_query:
+            if clean_clause:
+                return self.search_by_clause(version_ids, clean_clause)
+            return pd.DataFrame()
+
         if len(clean_query) < 3:
             return self._search_like_fallback(clean_query, version_ids, clause_filter)
 
-        placeholders = ",".join("?" for _ in version_ids)
-        sanitized_query = clean_query.replace('"', '""')
-        escaped_query = f'"{sanitized_query}"'
-
-        sql = f"""
-            SELECT 
-                f.spec_number,
-                f.version,
-                v.release_date,
-                f.clause_number,
-                f.clause_title,
-                f.version_id,
-                f.clause_pk,
-                snippet(spec_fts, 6, '<mark>', '</mark>', '...', 20) AS snippet_text,
-                c.order_index
-            FROM spec_fts f
-            JOIN spec_clauses c ON f.clause_pk = c.id
-            JOIN indexed_versions v ON f.version_id = v.id
-            WHERE f.version_id IN ({placeholders})
-              AND spec_fts MATCH ?
-        """
-        params: List[Any] = list(version_ids) + [escaped_query]
-
-        if clause_filter and clause_filter.strip():
-            sql += " AND (f.clause_number LIKE ? OR f.clause_title LIKE ?)"
-            pat = f"%{clause_filter.strip()}%"
-            params.extend([pat, pat])
-
-        sql += " ORDER BY c.order_index ASC"
-
         with self._get_connection() as conn:
-            return pd.read_sql_query(sql, conn, params=params)
+            return execute_fts_substring_search(conn, clean_query, version_ids, clause_filter)
 
     def _search_like_fallback(
         self,
@@ -312,36 +297,17 @@ class SpecSearchDatabase:
         clause_filter: Optional[str] = None,
     ) -> pd.DataFrame:
         """Fallback scanning for queries with fewer than 3 characters."""
-        placeholders = ",".join("?" for _ in version_ids)
-        pattern = f"%{clean_query}%"
-
-        sql = f"""
-            SELECT 
-                v.spec_number,
-                v.version,
-                v.release_date,
-                c.clause_number,
-                c.clause_title,
-                c.version_id,
-                c.id AS clause_pk,
-                substr(c.content, max(1, instr(lower(c.content), lower(?)) - 25), 80) AS snippet_text,
-                c.order_index
-            FROM spec_clauses c
-            JOIN indexed_versions v ON c.version_id = v.id
-            WHERE c.version_id IN ({placeholders})
-              AND (c.content LIKE ? OR c.clause_title LIKE ?)
-        """
-        params: List[Any] = [clean_query] + list(version_ids) + [pattern, pattern]
-
-        if clause_filter and clause_filter.strip():
-            sql += " AND (c.clause_number LIKE ? OR c.clause_title LIKE ?)"
-            pat = f"%{clause_filter.strip()}%"
-            params.extend([pat, pat])
-
-        sql += " ORDER BY c.order_index ASC"
-
         with self._get_connection() as conn:
-            return pd.read_sql_query(sql, conn, params=params)
+            return execute_like_fallback_search(conn, clean_query, version_ids, clause_filter)
+
+    def search_by_clause(
+        self,
+        version_ids: List[int],
+        clause_filter: str,
+    ) -> pd.DataFrame:
+        """Browses clauses by clause number prefix or title when no keyword is provided."""
+        with self._get_connection() as conn:
+            return execute_clause_only_search(conn, version_ids, clause_filter)
 
     def get_clause_content(self, clause_pk: int) -> Optional[Dict[str, Any]]:
         """Fetches full clause content by direct primary key."""

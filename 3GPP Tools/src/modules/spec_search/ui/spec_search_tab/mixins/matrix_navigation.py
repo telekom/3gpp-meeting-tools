@@ -8,7 +8,9 @@ from typing import Optional
 from PyQt5.QtCore import QThread, Qt
 from PyQt5.QtWidgets import QApplication, QMenu, QMessageBox, QTableView
 
+from core.ui.toast import notify_info
 from modules.spec_search.core.spec_clause_exporter import copy_clause_to_clipboard
+from modules.spec_search.core.spec_search_db import parse_version_tuple
 from modules.spec_search.ui.spec_search_models import SpecEvolutionMatrixModel
 
 
@@ -284,12 +286,83 @@ class SpecSearchTabMatrixNavMixin:
         if self.search_input.text().strip():
             self._execute_search()
 
+    def _handle_clause_reference_clicked(self, spec_number: str, version: str, target_clause: str):
+        """Navigates the Clause Inspector directly to a clicked same-spec or cross-spec clause."""
+        clean_spec = re.sub(r"^(?:TS|TR)\s*", "", str(spec_number or "").strip(), flags=re.IGNORECASE)
+        if not clean_spec or not target_clause:
+            return
+
+        versions = self.db.get_versions_for_spec(clean_spec)
+        if not versions:
+            notify_info(
+                self,
+                "Specification Not Indexed",
+                f"TS {clean_spec} is not indexed in Spec Search yet.",
+            )
+            return
+
+        target_ver = str(version or "").lstrip("vV").strip()
+        avail_vers = [str(v.get("version", "")) for v in versions if v.get("version")]
+
+        if not target_ver or target_ver not in avail_vers:
+            checked_for_spec = [
+                str(item.get("version", "")).lstrip("vV").strip()
+                for item in self.version_tree.get_checked_versions_info()
+                if str(item.get("spec_number", "")).strip() == clean_spec
+            ]
+            checked_for_spec = [v for v in checked_for_spec if v in avail_vers]
+            if checked_for_spec:
+                checked_for_spec.sort(key=parse_version_tuple, reverse=True)
+                target_ver = checked_for_spec[0]
+            else:
+                target_ver = avail_vers[0]
+
+        candidates = [target_clause.strip()]
+        if target_clause.lower().startswith("annex "):
+            candidates.append(target_clause[6:].strip())
+
+        clause_data = None
+        for cand in candidates:
+            clause_data = self.db.get_clause_content_by_spec_ver(clean_spec, target_ver, cand)
+            if clause_data:
+                break
+
+        if not clause_data:
+            notify_info(
+                self,
+                "Clause Not Found",
+                f"Clause {target_clause} was not found in TS {clean_spec} v{target_ver}.",
+            )
+            return
+
+        prev_ver = None
+        if target_ver in avail_vers:
+            idx = avail_vers.index(target_ver)
+            if idx + 1 < len(avail_vers):
+                prev_ver = avail_vers[idx + 1]
+
+        spec_title = self.get_spec_short_name(clean_spec) or self.get_spec_title(clean_spec)
+        self.inspector.display_clause(
+            clause_number=clause_data.get("clause_number", target_clause),
+            clause_title=clause_data.get("clause_title", ""),
+            spec_number=clause_data.get("spec_number", clean_spec),
+            version=clause_data.get("version", target_ver),
+            release_date=clause_data.get("release_date"),
+            content=clause_data.get("content", ""),
+            search_query="",
+            first_added_ver=None,
+            prev_ver=prev_ver,
+            spec_title=spec_title,
+        )
+
     def shutdown(self, wait_ms: int = 1500):
         """Cooperatively stop timers and wait for active background workers during app shutdown."""
         self._search_timer.stop()
         self._save_config_timer.stop()
 
         workers = list(self._active_query_workers.values())
+        workers.extend(w for w in getattr(self, "_active_doc_workers", []) if isinstance(w, QThread))
+        workers.extend(w for w in getattr(self, "_active_word_workers", []) if isinstance(w, QThread))
         import_thread = getattr(self, "_import_thread", None) or getattr(self, "thread", None)
         if isinstance(import_thread, QThread) and import_thread.isRunning():
             workers.append(import_thread)

@@ -31,6 +31,7 @@ class SpecEvolutionMatrixModel(QAbstractTableModel):
         self._version_cols: List[str] = []
         self._ver_date_map: Dict[str, str] = {}
         self._cell_pk_map: Dict[Tuple[str, str], int] = {}
+        self._cell_hash_map: Dict[Tuple[str, str], str] = {}
         self._row_first_pk: Dict[int, int] = {}
         self._setup_matrix()
 
@@ -40,6 +41,7 @@ class SpecEvolutionMatrixModel(QAbstractTableModel):
             self._version_cols = []
             self._ver_date_map = {}
             self._cell_pk_map = {}
+            self._cell_hash_map = {}
             self._row_first_pk = {}
             return
 
@@ -51,10 +53,13 @@ class SpecEvolutionMatrixModel(QAbstractTableModel):
         else:
             df["ver_label"] = "v" + df["version"]
 
-        # Map (clause_number, ver_label) -> clause_pk
+        # Map (clause_number, ver_label) -> clause_pk & normalized content hash
+        has_content_hash = "content_hash" in df.columns
         for _, r in df.iterrows():
             key = (str(r["clause_number"]), str(r["ver_label"]))
             self._cell_pk_map[key] = int(r["clause_pk"])
+            if has_content_hash:
+                self._cell_hash_map[key] = str(r["content_hash"] or "")
 
         # Cache release dates
         for _, r in df[["ver_label", "release_date"]].drop_duplicates().iterrows():
@@ -185,11 +190,21 @@ class SpecEvolutionMatrixModel(QAbstractTableModel):
             if is_first_added and self._cutoff_date and ver_date and ver_date >= self._cutoff_date:
                 is_post_cutoff = True
 
+            is_modified = False
+            if is_match and not is_first_added and v_idx > 0:
+                prev_col = self._version_cols[v_idx - 1]
+                c_num = str(self._pivot_df.iloc[row]["clause_number"])
+                curr_h = self._cell_hash_map.get((c_num, ver_col), "")
+                prev_h = self._cell_hash_map.get((c_num, prev_col), "")
+                is_modified = bool(curr_h and prev_h and curr_h != prev_h)
+
             if role == Qt.DisplayRole:
                 if not is_match:
                     return "—"
                 if is_first_added:
                     return "⚡ Post-Cutoff" if is_post_cutoff else "🟢 Added"
+                if is_modified:
+                    return "✏️ Modified"
                 return "✓ Present"
 
             if role == Qt.TextAlignmentRole:
@@ -199,7 +214,12 @@ class SpecEvolutionMatrixModel(QAbstractTableModel):
                 date_str = f" [Date: {ver_date}]" if ver_date else ""
                 if is_match:
                     clean_snip = cell_val.replace("<mark>", "【").replace("</mark>", "】")
-                    status_prefix = "⚠️ FIRST INTRODUCED IN THIS VERSION\n" if is_first_added else ""
+                    if is_first_added:
+                        status_prefix = "⚠️ FIRST INTRODUCED IN THIS VERSION\n"
+                    elif is_modified:
+                        status_prefix = f"✏️ CONTENT MODIFIED vs {self._version_cols[v_idx - 1]} (click 'Diff Prev' to compare)\n"
+                    else:
+                        status_prefix = ""
                     return f"Match in {ver_col}{date_str}:\n{status_prefix}{clean_snip}"
                 return f"Text not present in {ver_col}{date_str}"
 
