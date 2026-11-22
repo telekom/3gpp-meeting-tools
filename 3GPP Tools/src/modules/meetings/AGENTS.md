@@ -16,7 +16,8 @@ src/modules/meetings/
 ├── AGENTS.md                          # This concise module guide
 ├── core/
 │   ├── exporters/                     # Multi-format export engines
-│   │   ├── dossier_exporter.py        # Per-TDoc dossier exporter
+│   │   ├── dossier/                   # Modular Per-TDoc Navigable Dossier package (see dossier/README.md)
+│   │   ├── dossier_exporter.py        # Re-export shim -> exporters/dossier/ package
 │   │   ├── excel_exporter.py          # Formatted Excel (.xlsx) & Review Matrix export
 │   │   ├── llm_exporter.py            # Batch/single Markdown extraction
 │   │   ├── markdown_exporter.py       # Meeting summary reports
