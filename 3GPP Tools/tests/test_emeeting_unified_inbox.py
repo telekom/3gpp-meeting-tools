@@ -611,6 +611,125 @@ class TestEMeetingUnifiedInbox(unittest.TestCase):
             self.assertTrue(any("S2-2612919" in r["matched_tdocs"] for r in gen_rows))
             self.assertTrue(any("S2-2609999" in r["matched_tdocs"] for r in gen_rows))
 
+    def test_startup_cleanup_on_dirty_dbs_tdoc_links_and_live_ai_to_wi(self):
+        from modules.emails.core.thread_markdown_exporter import linkify_tdoc_tokens
+
+        # 1. Verify underscore-delimited TDoc linkification in Markdown viewer
+        linked = linkify_tdoc_tokens("Re: S2-2612919_was_S2-2612519")
+        self.assertIn("[S2-2612919](tdoc:S2-2612919)", linked)
+        self.assertIn("[S2-2612519](tdoc:S2-2612519)", linked)
+
+        # 2. Verify opening pre-existing dirty DBs cleans up duplicates automatically on startup
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agenda_dir = Path(tmpdir) / "Agenda"
+            agenda_dir.mkdir(parents=True, exist_ok=True)
+            edb_path = agenda_dir / "emails.db"
+            tdb_path = agenda_dir / "tracked_threads.db"
+
+            # Seed dirty general_emails + duplicate tracked_threads directly via raw SQLite
+            conn_e = sqlite3.connect(edb_path)
+            conn_e.execute("""
+                CREATE TABLE general_emails (
+                    id TEXT PRIMARY KEY, folder_tag TEXT, subject TEXT, sender_name TEXT,
+                    sender_email TEXT, company TEXT, date_received TEXT, body_text TEXT,
+                    clean_body TEXT DEFAULT '', attachments TEXT DEFAULT '[]',
+                    is_read INTEGER DEFAULT 0, is_ignored INTEGER DEFAULT 0, flag_status INTEGER DEFAULT 0
+                )
+            """)
+            conn_e.execute("""
+                CREATE TABLE general_email_tdoc_matches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, email_id TEXT, tdoc_id TEXT,
+                    rev_matched TEXT, match_location TEXT
+                )
+            """)
+            conn_e.execute(
+                "INSERT INTO general_emails VALUES ('OLD-1','Inbox','Subj','Pallab Gupta','p@n.com','Nokia','2026-11-20 14:57:00','Body text','Body text','[\"a.docx\"]',1,0,0)"
+            )
+            conn_e.execute(
+                "INSERT INTO general_emails VALUES ('OLD-2','WG','Subj','Pallab Gupta','p@n.com','Nokia','2026-11-20 14:57:59','Body text','Body text','[]',0,0,2)"
+            )
+            conn_e.execute("INSERT INTO general_email_tdoc_matches (email_id, tdoc_id, rev_matched, match_location) VALUES ('OLD-1','S2-2612919','','Subject')")
+            conn_e.execute("INSERT INTO general_email_tdoc_matches (email_id, tdoc_id, rev_matched, match_location) VALUES ('OLD-2','S2-2612519','','Quoted')")
+            conn_e.commit()
+            conn_e.close()
+
+            gdb = GeneralEmailDatabase(edb_path)
+            cleaned_gen = gdb.get_all_emails_with_tdocs()
+            self.assertEqual(len(cleaned_gen), 1)
+            self.assertEqual(cleaned_gen[0]["is_read"], 1)
+            self.assertEqual(cleaned_gen[0]["flag_status"], 2)
+            self.assertEqual(cleaned_gen[0]["attachments"], ["a.docx"])
+
+            # Seed dirty tracked_threads with duplicate thread subjects and duplicate messages
+            conn_t = sqlite3.connect(tdb_path)
+            conn_t.execute("""
+                CREATE TABLE tracked_threads (
+                    thread_id TEXT PRIMARY KEY, title TEXT NOT NULL, normalized_subject TEXT NOT NULL,
+                    conversation_ids TEXT DEFAULT '[]', subject_patterns TEXT DEFAULT '[]',
+                    outlook_folders TEXT DEFAULT '[]', meeting_id TEXT DEFAULT '', wg TEXT DEFAULT '',
+                    linked_ais TEXT DEFAULT '[]', linked_wis TEXT DEFAULT '[]', linked_tdocs TEXT DEFAULT '[]',
+                    linked_sub_items TEXT DEFAULT '[]', unread_count INTEGER DEFAULT 0, message_count INTEGER DEFAULT 0,
+                    last_message_date TEXT DEFAULT '', last_synced_at TEXT DEFAULT '', created_at TEXT DEFAULT '',
+                    user_status TEXT DEFAULT '⚪ Neutral', user_notes TEXT DEFAULT '', user_tags TEXT DEFAULT '[]',
+                    flagged_count INTEGER DEFAULT 0, is_objected INTEGER DEFAULT 0, objected_at_rev TEXT DEFAULT ''
+                )
+            """)
+            conn_t.execute("""
+                CREATE TABLE tracked_thread_messages (
+                    id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, subject TEXT DEFAULT '',
+                    sender_name TEXT DEFAULT '', sender_email TEXT DEFAULT '', company TEXT DEFAULT '',
+                    date_sent TEXT DEFAULT '', body_text TEXT DEFAULT '', clean_body TEXT DEFAULT '',
+                    message_id_header TEXT DEFAULT '', in_reply_to TEXT DEFAULT '', conversation_id TEXT DEFAULT '',
+                    is_read INTEGER DEFAULT 0, flag_status INTEGER DEFAULT 0, attachments TEXT DEFAULT '[]'
+                )
+            """)
+            conn_t.execute("INSERT INTO tracked_threads (thread_id, title, normalized_subject, meeting_id, message_count, last_message_date) VALUES ('THR-1','Same Topic','same topic','SA2#178',1,'2026-11-20 14:57:00')")
+            conn_t.execute("INSERT INTO tracked_threads (thread_id, title, normalized_subject, meeting_id, message_count, last_message_date) VALUES ('THR-2','Same Topic','same topic','SA2#178',1,'2026-11-20 14:57:00')")
+            conn_t.execute("INSERT INTO tracked_thread_messages (id, thread_id, subject, sender_name, sender_email, date_sent, body_text, clean_body, is_read) VALUES ('TM-1','THR-1','Same Topic','Pallab','p@n.com','2026-11-20 14:57:00','Hello','Hello',1)")
+            conn_t.execute("INSERT INTO tracked_thread_messages (id, thread_id, subject, sender_name, sender_email, date_sent, body_text, clean_body, is_read) VALUES ('TM-2','THR-2','Same Topic','Pallab','p@n.com','2026-11-20 14:57:00','Hello','Hello',0)")
+            conn_t.commit()
+            conn_t.close()
+
+            tdb = TrackedThreadsDatabase(tdb_path)
+            threads_after = tdb.get_threads_for_meeting("SA2#178")
+            self.assertEqual(len(threads_after), 1)
+            msgs_after = tdb.get_thread_messages(threads_after[0]["thread_id"])
+            self.assertEqual(len(msgs_after), 1)
+            self.assertEqual(msgs_after[0]["is_read"], 1)
+
+            # 3. Verify live AI -> WI inference in MeetingEmailInboxDialog inline assignment bar
+            tdb.upsert_messages(
+                threads_after[0]["thread_id"],
+                [{
+                    "id": "TM-UNLINKED",
+                    "subject": "General topic",
+                    "sender_name": "Alice",
+                    "sender_email": "alice@test.com",
+                    "company": "Nokia",
+                    "date_sent": "2026-11-21 10:00:00",
+                    "body_text": "No WI in body.",
+                    "clean_body": "No WI in body.",
+                    "is_read": 0,
+                }],
+            )
+            settings = QSettings(str(agenda_dir / "ai_wi_test.ini"), QSettings.IniFormat)
+            dlg = MeetingEmailInboxDialog(
+                tracked_db=tdb,
+                general_email_db=gdb,
+                meeting_id="SA2#178",
+                tdoc_meta_map={"S2-2601111": {"ai": "6.1", "wis": ["FS_XRM"]}},
+                ai_suggestions=["6.1 — XRM Study"],
+                wi_suggestions=["FS_XRM"],
+                settings=settings,
+            )
+            try:
+                dlg._set_mode("ALL")
+                dlg.assign_ais_pills.setText("6.1")
+                dlg._on_inline_links_changed()
+                self.assertIn("FS_XRM", dlg.assign_wis_pills.tags())
+            finally:
+                dlg.close()
+
 
 if __name__ == "__main__":
     unittest.main()
