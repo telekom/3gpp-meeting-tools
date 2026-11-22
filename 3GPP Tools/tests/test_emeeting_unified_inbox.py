@@ -999,6 +999,23 @@ class TestEMeetingUnifiedInbox(unittest.TestCase):
                 self.assertFalse(dlg.is_live_sync_enabled())
                 self.assertFalse(dlg.btn_live_sync.isChecked())
                 self.assertFalse(dlg._live_sync_timer.isActive())
+                self.assertIsNotNone(dlg.findChild(object, "inboxTopBar"))
+                self.assertIsNotNone(dlg.findChild(object, "inboxViewSegment"))
+                self.assertIsNotNone(dlg.findChild(object, "inboxFilterBar"))
+                self.assertEqual(
+                    dlg.sync_outlook_btn.minimumHeight(),
+                    dlg.btn_live_sync.minimumHeight(),
+                )
+                self.assertEqual(
+                    dlg.btn_live_sync.minimumHeight(),
+                    dlg.btn_stats.minimumHeight(),
+                )
+
+                dlg.search_edit.setText("test")
+                dlg.btn_hide_objected.setChecked(True)
+                dlg.btn_clear_filters.click()
+                self.assertEqual(dlg.search_edit.text(), "")
+                self.assertFalse(dlg.btn_hide_objected.isChecked())
 
                 dlg.btn_live_sync.setChecked(True)
                 self.assertTrue(dlg.is_live_sync_enabled())

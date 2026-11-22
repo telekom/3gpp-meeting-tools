@@ -15,34 +15,27 @@ from modules.emails.core.sync_watermark import (
     save_meeting_live_sync_enabled,
     utc_to_local_naive,
 )
+from ..widgets import get_sync_toolbutton_qss
 
 
 class InboxSyncAndMergeMixin:
     """Manages row context menus, thread merge workflows, and scoped/full Outlook syncs."""
 
     def _update_sync_button_state(self, total_count: int = 0, visible_count: int = 0, has_narrow_filter: bool = False):
+        if hasattr(self, "source_combo"):
+            src_active = bool((self.source_combo.currentData() or "").strip())
+            if getattr(self.source_combo, "_active_filter_state", None) != src_active:
+                self.source_combo._active_filter_state = src_active
+                self.source_combo.setProperty("activeFilter", "true" if src_active else "false")
+                self.source_combo.style().unpolish(self.source_combo)
+                self.source_combo.style().polish(self.source_combo)
         if not hasattr(self, "sync_outlook_btn"):
             return
         can_scope = (0 < visible_count < total_count)
         self._default_sync_scoped = bool(can_scope and has_narrow_filter)
         self._act_sync_filtered.setEnabled(visible_count > 0)
         self._act_sync_filtered.setText(f"⚡ Sync Filtered Only ({visible_count})")
-        if self._default_sync_scoped:
-            self.sync_outlook_btn.setStyleSheet(
-                f"QToolButton {{ background-color: {C.INFO_SOFT}; color: {C.INFO}; "
-                f"border: 1px solid {C.INFO_BORDER}; border-radius: 5px; padding: 4px 20px 4px 9px; font-weight: bold; }} "
-                f"QToolButton:hover {{ background-color: {C.ACCENT_SOFT_HOVER}; }} "
-                f"QToolButton:disabled {{ background-color: {C.BG_MUTED}; color: {C.TEXT_FAINT}; border: 1px solid {C.BORDER_STRONG}; }} "
-                f"QToolButton::menu-button {{ border-left: 1px solid {C.INFO_BORDER}; width: 18px; }}"
-            )
-        else:
-            self.sync_outlook_btn.setStyleSheet(
-                f"QToolButton {{ background-color: {C.BG_CARD}; color: {C.TEXT_BODY}; "
-                f"border: 1px solid {C.BORDER_STRONG}; border-radius: 5px; padding: 4px 20px 4px 9px; }} "
-                f"QToolButton:hover {{ background-color: {C.BG_HOVER}; }} "
-                f"QToolButton:disabled {{ background-color: {C.BG_MUTED}; color: {C.TEXT_FAINT}; border: 1px solid {C.BORDER_STRONG}; }} "
-                f"QToolButton::menu-button {{ border-left: 1px solid {C.BORDER_SUBTLE}; width: 18px; }}"
-            )
+        self.sync_outlook_btn.setStyleSheet(get_sync_toolbutton_qss(scoped=self._default_sync_scoped))
         if not (getattr(self, "_sync_worker", None) and self._sync_worker.isRunning()):
             if self._default_sync_scoped:
                 self.sync_outlook_btn.setText(f"⚡ Sync Filtered ({visible_count})")
