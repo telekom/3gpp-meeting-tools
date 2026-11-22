@@ -88,10 +88,18 @@ class InboxSyncAndMergeMixin:
         act_read.triggered.connect(self._on_toggle_read)
         act_flag = menu.addAction(self.btn_toggle_flag.text())
         act_flag.triggered.connect(self._on_toggle_flag)
+        if hasattr(self, "btn_toggle_objected") and self.btn_toggle_objected.isEnabled():
+            any_obj = any(bool(t.get("is_objected")) for t in targets)
+            obj_lbl = "🛑 Unmark Objected (Unpark)" if any_obj else "🛑 Mark as Objected (Park)"
+            act_obj = menu.addAction(obj_lbl)
+            act_obj.triggered.connect(self._on_toggle_objected_clicked)
         if self.btn_open_context.isEnabled():
             menu.addSeparator()
             act_ctx = menu.addAction(self.btn_open_context.text())
             act_ctx.triggered.connect(self._on_open_context)
+        if hasattr(self, "btn_jump_tdoc_table") and self.btn_jump_tdoc_table.isEnabled():
+            act_jmp = menu.addAction("🎯 Show TDoc in Meeting Table")
+            act_jmp.triggered.connect(self._on_jump_tdoc_table_clicked)
         if self.tracked_db is not None:
             merge_targets = self._distinct_mergeable_targets(targets)
             if len(merge_targets) >= 2:

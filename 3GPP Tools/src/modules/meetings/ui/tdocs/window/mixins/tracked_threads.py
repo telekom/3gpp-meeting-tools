@@ -145,17 +145,53 @@ class TrackedThreadsMixin:
                     t["participants_companies"] = ", ".join(comps)
             self.model.sync_tracked_thread_rows(threads)
             tdoc_unread_ids = set()
+            tdoc_counts_map = {}
             if hasattr(self, "general_email_db") and self.general_email_db is not None:
-                for stats in (self.general_email_db.get_email_counts_per_tdoc() or {}).values():
+                tdoc_counts_map = self.general_email_db.get_email_counts_per_tdoc() or {}
+                for stats in tdoc_counts_map.values():
                     tdoc_unread_ids.update(str(eid) for eid in (stats.get("unread_ids") or ()) if eid)
             total_unread = len(tracked_unread_ids | tdoc_unread_ids)
+            priority_unread_ids = set()
+            if total_unread > 0:
+                try:
+                    from modules.emails.ui.meeting_inbox.followed_ais_helper import compute_inherited_followed_ais
+                    meta_map = self._build_tdoc_meta_map()
+                    gdb_path = getattr(self.general_email_db, "db_path", None) if getattr(self, "general_email_db", None) else None
+                    followed_ais = compute_inherited_followed_ais(tdoc_meta_map=meta_map, general_email_db_path=gdb_path)
+                    for t in threads:
+                        if bool(t.get("is_objected")):
+                            continue
+                        st = str(t.get("user_status") or "⚪ Neutral").strip() or "⚪ Neutral"
+                        t_ais = set(t.get("linked_ais") or [])
+                        is_prio_th = (st != "⚪ Neutral") or bool(t.get("flagged_count")) or bool(followed_ais and (t_ais & followed_ais))
+                        if is_prio_th:
+                            for m in self.tracked_threads_db.get_thread_messages(t["thread_id"]):
+                                if int(m.get("is_read", 0) or 0) == 0 and m.get("id"):
+                                    priority_unread_ids.add(str(m["id"]))
+                    for tdoc_key, stats in tdoc_counts_map.items():
+                        u_ids = stats.get("unread_ids") or set()
+                        if not u_ids:
+                            continue
+                        tmeta = meta_map.get(tdoc_key.upper()) or {}
+                        if bool(tmeta.get("is_objected")):
+                            continue
+                        tst = str(tmeta.get("my_status") or "⚪ Neutral").strip() or "⚪ Neutral"
+                        tai = str(tmeta.get("ai") or "").strip()
+                        if (tst != "⚪ Neutral") or bool(stats.get("flagged")) or (tai and tai in followed_ais):
+                            priority_unread_ids.update(str(eid) for eid in u_ids if eid)
+                except Exception:
+                    pass
+            prio_cnt = len(priority_unread_ids)
             if hasattr(self, "email_btn"):
                 if total_unread > 0:
-                    self.email_btn.setText(f"📧 Emails ({total_unread} new) ▾")
+                    if prio_cnt > 0:
+                        self.email_btn.setText(f"📧 Emails (🔥 {prio_cnt} Priority | {total_unread} new) ▾")
+                    else:
+                        self.email_btn.setText(f"📧 Emails ({total_unread} new) ▾")
                     self.email_btn.setToolTip(
                         f"Email Discussions & Tracked Threads\n"
-                        f"{total_unread} unread email(s) total "
-                        f"({len(tracked_unread_ids)} in Tracked Threads, {len(tdoc_unread_ids)} in TDoc Emails)."
+                        f"{total_unread} unread email(s) total ({prio_cnt} on your Priority Radar; "
+                        f"{len(tracked_unread_ids)} in Tracked Threads, {len(tdoc_unread_ids)} in TDoc Emails)."
                     )
                 else:
                     self.email_btn.setText("📧 Emails ▾")
@@ -211,10 +247,16 @@ class TrackedThreadsMixin:
         self._refresh_inbox_dialog_if_open()
 
     def _build_tdoc_meta_map(self) -> dict:
-        """Maps TDoc IDs to their Agenda Item, Sub-Item, and Related WIs for email link inheritance."""
+        """Maps TDoc IDs to their Agenda Item, Sub-Item, WIs, Title, Source, Type, Status, and user annotations."""
         meta_map = {}
         if not hasattr(self, "model") or not hasattr(self.model, "_data"):
             return meta_map
+        user_data = {}
+        if hasattr(self, "db") and self.db is not None and hasattr(self.db, "get_all_user_data"):
+            try:
+                user_data = self.db.get_all_user_data() or {}
+            except Exception:
+                user_data = {}
         for r in self.model._data:
             if r.get("_is_tracked_thread"):
                 continue
@@ -231,7 +273,20 @@ class TrackedThreadsMixin:
                 w for w in self.model._split_related_wis(r.get("Related WIs", ""))
                 if w and w.lower() not in ("(no wi)", "none", "nan", "-")
             ]
-            meta_map[td] = {"ai": ai, "sub_item": sub, "wis": wis}
+            ud = user_data.get(td) or {}
+            meta_map[td] = {
+                "ai": ai,
+                "sub_item": sub,
+                "wis": wis,
+                "title": str(r.get("Title") or "").strip(),
+                "source": str(r.get("Source") or "").strip(),
+                "type": str(r.get("Type") or "").strip(),
+                "tdoc_status": str(r.get("TDoc Status") or "").strip(),
+                "my_status": str(r.get("My Status") or ud.get("my_status") or "⚪ Neutral").strip() or "⚪ Neutral",
+                "my_notes": str(r.get("My Notes") or ud.get("my_notes") or "").strip(),
+                "is_objected": bool(ud.get("is_objected")),
+                "objected_at_rev": str(ud.get("objected_at_rev") or "").strip(),
+            }
         return meta_map
 
     def _get_pin_meeting_context(self):
@@ -410,6 +465,9 @@ class TrackedThreadsMixin:
             agenda_map=getattr(self, "agenda_map", None),
             meeting_start=str(self.mtg_info.get("start_date", "") or ""),
             meeting_end=str(self.mtg_info.get("end_date", "") or ""),
+            tdocs_db=getattr(self, "db", None),
+            user_data_callback=getattr(self, "_save_user_data", None),
+            jump_tdoc_callback=getattr(self, "_jump_to_tdoc_from_signal", None),
         )
         dlg.data_changed.connect(self._refresh_email_counts)
         self._inbox_dialog = dlg

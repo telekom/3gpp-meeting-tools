@@ -7,6 +7,8 @@ Modular decomposition of `MeetingEmailInboxDialog` (Unified Unread & Flagged Ema
 | Module | Class / Responsibility | Key Methods / Symbols |
 |---|---|---|
 | [`dialog.py`](dialog.py) | Main `QDialog` composition and state initialization | `MeetingEmailInboxDialog`, `data_changed`, `__init__` |
+| [`tdoc_grouping.py`](tdoc_grouping.py) | Pure-Python `📄 By TDoc` / `🧵 By Thread` grouping, signal rollup & `🔥 Priority` radar | `enrich_message_item_signals`, `build_grouped_thread_items`, `build_grouped_tdoc_items`, `is_priority_item`, `is_item_effectively_parked` |
+| [`followed_ais_helper.py`](followed_ais_helper.py) | Auto-inherited Followed AIs (from WIs, Session Plan, My TDocs) + per-meeting overrides | `compute_inherited_followed_ais`, `load_effective_followed_ais`, `save_followed_ais_override` |
 | [`widgets.py`](widgets.py) | Shared custom Qt delegates/widgets and badge/bar QSS builders (0 raw hexes) | `_STATUS_COLOR_MAP`, `_STATUS_BADGE_BG_MAP`, `_status_color_hex`, `get_compact_action_bar_qss`, `get_status_combo_qss`, `_InboxStatusStripDelegate`, `_NotePlainTextEdit`, `_InboxTableWidget` |
 | [`mixins/ui_setup.py`](mixins/ui_setup.py) | Toolbar pills, view toggles, filter combos, splitter panes, detail header, inline bars | `InboxUiSetupMixin._build_ui` |
 | [`mixins/layout_and_settings.py`](mixins/layout_and_settings.py) | Per-meeting `QSettings` filter persistence, splitter orientation, responsive column fitting, session state | `InboxLayoutAndSettingsMixin` (`_load_filter_settings`, `_save_filter_settings`, `compute_fitted_column_widths`, `_fit_columns_to_viewport`, `closeEvent`, `get_session_state`) |

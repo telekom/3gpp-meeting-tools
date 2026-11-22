@@ -95,6 +95,10 @@ class TrackedThreadsDatabase:
                 cursor.execute("ALTER TABLE tracked_threads ADD COLUMN user_tags TEXT DEFAULT '[]'")
             if "flagged_count" not in cols:
                 cursor.execute("ALTER TABLE tracked_threads ADD COLUMN flagged_count INTEGER DEFAULT 0")
+            if "is_objected" not in cols:
+                cursor.execute("ALTER TABLE tracked_threads ADD COLUMN is_objected INTEGER DEFAULT 0")
+            if "objected_at_rev" not in cols:
+                cursor.execute("ALTER TABLE tracked_threads ADD COLUMN objected_at_rev TEXT DEFAULT ''")
             cursor.execute("PRAGMA table_info(tracked_thread_messages)")
             msg_cols = [info[1] for info in cursor.fetchall()]
             if "flag_status" not in msg_cols:
@@ -111,6 +115,8 @@ class TrackedThreadsDatabase:
                 d[key] = []
         d.setdefault("user_status", "⚪ Neutral")
         d.setdefault("user_notes", "")
+        d["is_objected"] = bool(int(d.get("is_objected", 0) or 0))
+        d["objected_at_rev"] = str(d.get("objected_at_rev") or "").strip()
         return d
 
     @staticmethod
@@ -262,9 +268,9 @@ class TrackedThreadsDatabase:
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         subject = excluded.subject,
-                        body_text = excluded.body_text,
-                        clean_body = excluded.clean_body,
-                        attachments = excluded.attachments,
+                        body_text = CASE WHEN excluded.body_text != '' THEN excluded.body_text ELSE tracked_thread_messages.body_text END,
+                        clean_body = CASE WHEN excluded.clean_body != '' THEN excluded.clean_body ELSE tracked_thread_messages.clean_body END,
+                        attachments = CASE WHEN excluded.attachments != '[]' THEN excluded.attachments ELSE tracked_thread_messages.attachments END,
                         is_read = {read_expr},
                         flag_status = CASE WHEN excluded.id LIKE 'MSG-%' THEN tracked_thread_messages.flag_status ELSE excluded.flag_status END
                     """,
@@ -371,8 +377,10 @@ class TrackedThreadsDatabase:
         user_status: Optional[str] = None,
         user_notes: Optional[str] = None,
         user_tags: Optional[List[str]] = None,
+        is_objected: Optional[bool] = None,
+        objected_at_rev: Optional[str] = None,
     ):
-        """Persists personal stance, comments, and tags onto a tracked email thread."""
+        """Persists personal stance, comments, tags, and smart-parking objection state onto a tracked email thread."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             if user_status is not None:
@@ -381,6 +389,10 @@ class TrackedThreadsDatabase:
                 cursor.execute("UPDATE tracked_threads SET user_notes = ? WHERE thread_id = ?", (user_notes, thread_id))
             if user_tags is not None:
                 cursor.execute("UPDATE tracked_threads SET user_tags = ? WHERE thread_id = ?", (json.dumps(user_tags), thread_id))
+            if is_objected is not None:
+                cursor.execute("UPDATE tracked_threads SET is_objected = ? WHERE thread_id = ?", (1 if is_objected else 0, thread_id))
+            if objected_at_rev is not None:
+                cursor.execute("UPDATE tracked_threads SET objected_at_rev = ? WHERE thread_id = ?", (str(objected_at_rev or "").strip(), thread_id))
             conn.commit()
 
     def add_conversation_ids(self, thread_id: str, cids: List[str]):

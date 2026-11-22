@@ -1,20 +1,29 @@
-"""Read/flag/status/note triage mutations and anchor/Outlook link dispatch mixin."""
+"""Read/flag/status/note/objection triage mutations and anchor/Outlook link dispatch mixin."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import List
 import urllib.parse
+import webbrowser
 
 from PyQt5.QtCore import Qt, QUrl
-from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from PyQt5.QtGui import QCursor, QDesktopServices
+from PyQt5.QtWidgets import QApplication, QMenu, QMessageBox
 
-from core.ui.toast import notify_info, notify_toast
+from core.ui.toast import notify_info, notify_success, notify_toast
+from modules.emails.core.emeeting_signals import extract_base_tdoc_id
 from modules.emails.core.outlook_client import OutlookClient
-from modules.emails.core.thread_markdown_exporter import is_cacheable_document_url
+from modules.emails.core.thread_markdown_exporter import (
+    export_thread_to_markdown,
+    find_heading_block_for_message_index,
+    is_cacheable_document_url,
+    scroll_browser_to_block,
+)
 from modules.emails.core.tracked_threads_service import (
     cache_and_open_thread_document_url,
+    normalize_subject,
     open_outlook_attachment,
     open_outlook_message,
     reload_outlook_message,
@@ -24,7 +33,7 @@ from ..widgets import _status_color_hex, get_status_combo_qss
 
 
 class InboxTriageActionsMixin:
-    """Implements bidirectional read/flag/status/note updates and interactive reader links."""
+    """Implements bidirectional read/flag/status/note/objection updates, LLM export, and reader links."""
 
     def _mutate_read(self, it: dict, is_read: bool):
         targets = (
@@ -47,7 +56,7 @@ class InboxTriageActionsMixin:
         for m in self._all_items:
             if m["id"] in tset:
                 m["is_read"] = bool(is_read)
-        self._grouped_items = self._build_grouped_thread_items()
+        self._rebuild_all_grouped_datasets()
         self._update_pill_counts()
         self.data_changed.emit()
 
@@ -62,8 +71,17 @@ class InboxTriageActionsMixin:
         self._updating_status_bar = True
         self._updating_note_bar = True
         try:
-            self.detail_status_combo.setEnabled(bool(targets) and self.tracked_db is not None)
-            self.btn_toggle_note.setEnabled(bool(targets) and self.tracked_db is not None)
+            can_annotate = bool(targets) and (self.tracked_db is not None or getattr(self, "tdocs_db", None) is not None or getattr(self, "_user_data_callback", None) is not None)
+            self.detail_status_combo.setEnabled(can_annotate)
+            self.btn_toggle_note.setEnabled(can_annotate)
+            if hasattr(self, "btn_toggle_objected"):
+                self.btn_toggle_objected.setEnabled(can_annotate)
+                any_obj = any(bool(it.get("is_objected")) for it in targets)
+                self.btn_toggle_objected.blockSignals(True)
+                self.btn_toggle_objected.setChecked(any_obj)
+                self.btn_toggle_objected.setText("🛑 Objected ✓" if any_obj else "🛑 Objected")
+                self.btn_toggle_objected.blockSignals(False)
+
             statuses = [str(it.get("user_status") or "⚪ Neutral").strip() or "⚪ Neutral" for it in targets]
             common_status = statuses[0] if (statuses and len(set(statuses)) == 1) else "⚪ Neutral"
             idx = self.detail_status_combo.findText(common_status)
@@ -100,34 +118,35 @@ class InboxTriageActionsMixin:
             if not item_cell:
                 continue
             u_status = str(vis_it.get("user_status") or "⚪ Neutral").strip() or "⚪ Neutral"
-            u_notes = str(vis_it.get("user_notes") or "").strip()
-            note_badge = "📝" if u_notes else ""
-            if vis_it.get("_is_group"):
-                u_cnt = int(vis_it.get("_unread_count", 0))
-                t_cnt = int(vis_it.get("_total_count", 1))
-                f_part = "🚩" if vis_it["is_flagged"] else ""
-                core_s = f"🔵 {u_cnt}/{t_cnt} {f_part}".strip() if u_cnt > 0 else f"✓ {t_cnt} {f_part}".strip()
-                state_txt = f"{core_s} {note_badge}".strip()
-            else:
-                parts = []
-                if not vis_it["is_read"]:
-                    parts.append("🔵")
-                if vis_it["is_flagged"]:
-                    parts.append("🚩")
-                if not parts:
-                    parts.append("✓")
-                if note_badge:
-                    parts.append(note_badge)
-                state_txt = " ".join(parts)
+            state_txt, state_tip = self._format_row_state_cell_text_and_tip(vis_it)
             item_cell.setText(state_txt)
             item_cell.setData(Qt.UserRole + 1, _status_color_hex(u_status))
-            st_tip = [f"Status: {u_status}"] if u_status != "⚪ Neutral" else []
-            if u_notes:
-                st_tip.append(f"Comment: {(u_notes[:180] + '…') if len(u_notes) > 180 else u_notes}")
-            item_cell.setToolTip("\n".join(st_tip))
+            item_cell.setToolTip(state_tip)
+
+    def _sync_tdoc_user_data(self, base_tdoc: str, *, new_status: str = "", new_notes: Optional[str] = None):
+        """Synchronizes status and notes directly with TDocsWindow (`user_tdocs.db` + live model callback)."""
+        btd = extract_base_tdoc_id(base_tdoc)
+        if not btd:
+            return
+        meta = self._tdoc_meta_map.setdefault(btd, {})
+        cur_status = new_status or str(meta.get("my_status") or "⚪ Neutral").strip() or "⚪ Neutral"
+        cur_notes = new_notes if new_notes is not None else str(meta.get("my_notes") or "").strip()
+        meta["my_status"] = cur_status
+        meta["my_notes"] = cur_notes
+        if getattr(self, "_user_data_callback", None) is not None:
+            try:
+                self._user_data_callback(btd, cur_status, cur_notes)
+                return
+            except Exception:
+                pass
+        if getattr(self, "tdocs_db", None) is not None and hasattr(self.tdocs_db, "update_tdoc_user_data"):
+            try:
+                self.tdocs_db.update_tdoc_user_data(btd, status=cur_status, notes=cur_notes)
+            except Exception:
+                pass
 
     def _on_detail_status_changed(self):
-        if getattr(self, "_updating_status_bar", False) or self.tracked_db is None:
+        if getattr(self, "_updating_status_bar", False):
             return
         targets = self._selected_items or ([self._current_item] if self._current_item else [])
         if not targets:
@@ -139,49 +158,84 @@ class InboxTriageActionsMixin:
         seen_tids = set()
         needs_full_reload = False
         for it in targets:
-            if not it.get("in_tracked_db"):
+            primary_tdoc = str(it.get("_primary_tdoc") or "").strip().upper()
+            if not primary_tdoc and it.get("linked_tdocs"):
+                primary_tdoc = extract_base_tdoc_id(it["linked_tdocs"][0])
+            if primary_tdoc:
+                self._sync_tdoc_user_data(primary_tdoc, new_status=new_status)
+
+            tid = str(it.get("thread_id") or "")
+            if not it.get("in_tracked_db") and self.tracked_db is not None and self._view_mode != "TDOCS":
                 tid = self._pin_item_in_place(it, reload=False)
                 needs_full_reload = True
-            else:
-                tid = str(it.get("thread_id") or "")
-            if tid and tid not in seen_tids:
+            if tid and tid not in seen_tids and self.tracked_db is not None:
                 seen_tids.add(tid)
                 self.tracked_db.update_thread_annotations(tid, user_status=new_status)
                 for m in self._all_items:
                     if m.get("thread_id") == tid:
                         m["user_status"] = new_status
-                for vis in self._visible_items:
-                    if vis.get("thread_id") == tid:
-                        vis["user_status"] = new_status
-            preserved_ids.append(f"THR::{tid}" if (self._view_mode == "THREADS" and tid) else it["id"])
+            it["user_status"] = new_status
+            if self._view_mode == "TDOCS" and primary_tdoc:
+                preserved_ids.append(f"TDOC::{primary_tdoc}")
+            elif self._view_mode == "THREADS" and tid:
+                preserved_ids.append(f"THR::{tid}")
+            else:
+                preserved_ids.append(it["id"])
 
-        self._grouped_items = self._build_grouped_thread_items()
+        self._rebuild_all_grouped_datasets()
         self._populate_filter_combos()
+        self._update_pill_counts()
         status_filter_active = hasattr(self, "status_combo") and self.status_combo.isFiltered()
-        if needs_full_reload or status_filter_active:
+        if needs_full_reload or status_filter_active or self._view_mode == "TDOCS" or self._active_mode == "PRIORITY":
             self.reload_from_dbs(preserve_ids=list(dict.fromkeys(preserved_ids)))
         else:
             for tid in seen_tids:
                 self._refresh_table_state_cells_for_thread(tid)
-            self._update_sync_button_state(
-                total_count=len(self._active_dataset()),
-                visible_count=len(self._visible_items),
-                has_narrow_filter=bool(
-                    self.company_combo.isFiltered()
-                    or self.ai_combo.isFiltered()
-                    or (hasattr(self, "status_combo") and self.status_combo.isFiltered())
-                    or self.search_edit.text().strip()
-                    or (self.source_combo.currentData() or "").strip()
-                    or self._active_mode == "FLAGGED"
-                ),
-            )
+        self.data_changed.emit()
+
+    def _on_toggle_objected_clicked(self):
+        targets = self._selected_items or ([self._current_item] if self._current_item else [])
+        if not targets:
+            return
+        mark_obj = any(not bool(it.get("is_objected")) for it in targets)
+        preserved_ids: List[str] = []
+
+        for it in targets:
+            sig = it.get("_signals") or {}
+            obj_rev = str(sig.get("max_rev_tag") or "").strip() if mark_obj else ""
+            primary_tdoc = str(it.get("_primary_tdoc") or "").strip().upper()
+            if not primary_tdoc and it.get("linked_tdocs"):
+                primary_tdoc = extract_base_tdoc_id(it["linked_tdocs"][0])
+            if primary_tdoc and getattr(self, "tdocs_db", None) is not None and hasattr(self.tdocs_db, "set_tdoc_objected"):
+                self.tdocs_db.set_tdoc_objected(primary_tdoc, mark_obj, objected_at_rev=obj_rev)
+                meta = self._tdoc_meta_map.setdefault(primary_tdoc, {})
+                meta["is_objected"] = mark_obj
+                meta["objected_at_rev"] = obj_rev
+
+            tid = str(it.get("thread_id") or "")
+            if not tid and self.tracked_db is not None and not primary_tdoc:
+                tid = self._pin_item_in_place(it, reload=False)
+            if tid and self.tracked_db is not None:
+                self.tracked_db.update_thread_annotations(
+                    tid,
+                    is_objected=mark_obj,
+                    objected_at_rev=obj_rev,
+                )
+            if self._view_mode == "TDOCS" and primary_tdoc:
+                preserved_ids.append(f"TDOC::{primary_tdoc}")
+            elif self._view_mode == "THREADS" and tid:
+                preserved_ids.append(f"THR::{tid}")
+            else:
+                preserved_ids.append(it["id"])
+
+        self.reload_from_dbs(preserve_ids=list(dict.fromkeys(preserved_ids)))
         self.data_changed.emit()
 
     def _on_toggle_note_clicked(self, checked: bool):
         targets = self._selected_items or ([self._current_item] if self._current_item else [])
         if len(targets) != 1:
             if len(targets) > 1:
-                notify_info(self, "Select Single Thread", "Select a single thread or email to add/edit its comment.")
+                notify_info(self, "Select Single Item", "Select a single TDoc, thread, or email to add/edit its comment.")
             self.btn_toggle_note.setChecked(False)
             return
         if checked or str(self.note_edit.toPlainText() or "").strip():
@@ -201,7 +255,7 @@ class InboxTriageActionsMixin:
     def _flush_pending_note_save(self, reload_view: bool = True):
         if self._note_save_timer.isActive():
             self._note_save_timer.stop()
-        if not getattr(self, "_note_dirty", False) or self.tracked_db is None:
+        if not getattr(self, "_note_dirty", False):
             return
         it = self._note_target_item
         if not it:
@@ -209,8 +263,15 @@ class InboxTriageActionsMixin:
             return
         new_note = self.note_edit.toPlainText().strip()
         self._note_dirty = False
-        if not it.get("in_tracked_db"):
-            if not new_note:
+
+        primary_tdoc = str(it.get("_primary_tdoc") or "").strip().upper()
+        if not primary_tdoc and it.get("linked_tdocs"):
+            primary_tdoc = extract_base_tdoc_id(it["linked_tdocs"][0])
+        if primary_tdoc:
+            self._sync_tdoc_user_data(primary_tdoc, new_notes=new_note)
+
+        if not it.get("in_tracked_db") and self.tracked_db is not None and self._view_mode != "TDOCS":
+            if not new_note and not primary_tdoc:
                 if hasattr(self, "note_saved_lbl"):
                     self.note_saved_lbl.setText("")
                 return
@@ -222,15 +283,14 @@ class InboxTriageActionsMixin:
                     self.reload_from_dbs(preserve_id=pres)
         else:
             tid = str(it.get("thread_id") or "")
-            if tid:
+            if tid and self.tracked_db is not None:
                 self.tracked_db.update_thread_annotations(tid, user_notes=new_note)
                 for m in self._all_items:
                     if m.get("thread_id") == tid:
                         m["user_notes"] = new_note
-                for vis in self._visible_items:
-                    if vis.get("thread_id") == tid:
-                        vis["user_notes"] = new_note
-                self._grouped_items = self._build_grouped_thread_items()
+            it["user_notes"] = new_note
+            self._rebuild_all_grouped_datasets()
+            if tid:
                 self._refresh_table_state_cells_for_thread(tid)
         if hasattr(self, "note_saved_lbl"):
             self.note_saved_lbl.setText("✓ Saved" if new_note else "")
@@ -258,7 +318,7 @@ class InboxTriageActionsMixin:
         for m in self._all_items:
             if m["id"] in tset:
                 m["is_flagged"] = bool(is_flagged)
-        self._grouped_items = self._build_grouped_thread_items()
+        self._rebuild_all_grouped_datasets()
         self._update_pill_counts()
         self.data_changed.emit()
 
@@ -269,10 +329,9 @@ class InboxTriageActionsMixin:
         it = self._current_item
         if not it["is_read"]:
             self._mutate_read(it, True)
-            if self._active_mode == "UNREAD":
+            if self._active_mode in ("UNREAD", "PRIORITY"):
                 self._apply_filters(preserve_id="", select_row=max(0, cur_row))
                 return
-        # Move to next unread row in current filtered view
         if self._visible_items:
             for offset in range(1, len(self._visible_items) + 1):
                 idx = (max(0, cur_row) + offset) % len(self._visible_items)
@@ -292,7 +351,7 @@ class InboxTriageActionsMixin:
             self._mutate_read(it, not it["is_read"])
             self._apply_filters(
                 preserve_id=it["id"],
-                select_row=cur_row if self._active_mode == "UNREAD" else None,
+                select_row=cur_row if self._active_mode in ("UNREAD", "PRIORITY") else None,
             )
             return
         mark_read = any(not it["is_read"] for it in targets)
@@ -318,22 +377,216 @@ class InboxTriageActionsMixin:
             self._mutate_flag(it, flag_on)
         self._apply_filters(preserve_ids=[it["id"] for it in targets])
 
+    def _latest_outlook_message_id(self) -> str:
+        it = self._current_item
+        if not it:
+            return ""
+        if it.get("_is_group") and it.get("_group_messages"):
+            return str(it["_group_messages"][-1].get("id") or "")
+        return str(it.get("id") or "")
+
     def _on_reply(self):
-        if not self._current_item:
+        msg_id = self._latest_outlook_message_id()
+        if not msg_id:
             return
-        if not reply_to_outlook_message(self._current_item["id"], reply_all=True):
+        if not reply_to_outlook_message(msg_id, reply_all=True):
             QMessageBox.warning(self, "Outlook Reply", "Could not open a Reply window in Microsoft Outlook.")
 
     def _on_open_outlook(self):
-        if not self._current_item:
+        msg_id = self._latest_outlook_message_id()
+        if not msg_id:
             return
-        if not open_outlook_message(self._current_item["id"]):
+        if not open_outlook_message(msg_id):
             QMessageBox.warning(self, "Outlook Message", "Could not open the selected message in Microsoft Outlook.")
+
+    def _on_copy_start_template_clicked(self):
+        it = self._current_item
+        if not it:
+            return
+        primary_tdoc = str(it.get("_primary_tdoc") or "").strip().upper()
+        if not primary_tdoc and it.get("linked_tdocs"):
+            primary_tdoc = extract_base_tdoc_id(it["linked_tdocs"][0])
+        sig = it.get("_signals") or {}
+        rev_tag = str(sig.get("max_rev_tag") or "").strip()
+        tdoc_ref = f"{primary_tdoc}{rev_tag}" if primary_tdoc else "TDoc"
+        template = f"<<START>>\n[{tdoc_ref}] \n<<END>>"
+        QApplication.clipboard().setText(template)
+        notify_info(self, "e-Meeting Template Copied", f"Copied <<START>>...<<END>> block for {tdoc_ref} to clipboard.")
+
+    def _on_jump_tdoc_table_clicked(self):
+        it = self._current_item
+        if not it or not getattr(self, "_jump_tdoc_callback", None):
+            return
+        primary_tdoc = str(it.get("_primary_tdoc") or "").strip().upper()
+        if not primary_tdoc and it.get("linked_tdocs"):
+            primary_tdoc = extract_base_tdoc_id(it["linked_tdocs"][0])
+        if primary_tdoc:
+            self._jump_tdoc_callback(primary_tdoc)
+
+    def _build_current_item_pure_markdown(self) -> str:
+        it = self._current_item
+        if not it:
+            return ""
+        msgs = (
+            [
+                {
+                    "id": m["id"],
+                    "sender_name": m.get("sender_name", ""),
+                    "sender_email": m.get("sender_email", ""),
+                    "company": m.get("company", ""),
+                    "date_sent": m.get("date_str", ""),
+                    "subject": m.get("subject", ""),
+                    "body_text": m.get("raw_body_text") or m.get("body_text", ""),
+                    "clean_body": m.get("clean_body") or m.get("body_text", ""),
+                    "is_read": 1 if m["is_read"] else 0,
+                    "flag_status": 2 if m["is_flagged"] else 0,
+                    "attachments": m.get("attachments") or [],
+                }
+                for m in (it.get("_group_messages") or [])
+            ]
+            if it.get("_is_group")
+            else [
+                {
+                    "id": it["id"],
+                    "sender_name": it.get("sender_name", ""),
+                    "sender_email": it.get("sender_email", ""),
+                    "company": it.get("company", ""),
+                    "date_sent": it.get("date_str", ""),
+                    "subject": it.get("subject", ""),
+                    "body_text": it.get("raw_body_text") or it.get("body_text", ""),
+                    "clean_body": it.get("clean_body") or it.get("body_text", ""),
+                    "is_read": 1 if it["is_read"] else 0,
+                    "flag_status": 2 if it["is_flagged"] else 0,
+                    "attachments": it.get("attachments") or [],
+                }
+            ]
+        )
+        synth = {
+            "thread_id": it.get("thread_id") or it["id"],
+            "title": it.get("thread_title") or it.get("subject") or "Email Discussion",
+            "normalized_subject": normalize_subject(it.get("subject") or "").lower(),
+            "meeting_id": self.meeting_id,
+            "wg": self.wg,
+            "linked_ais": it.get("linked_ais") or [],
+            "linked_sub_items": it.get("linked_sub_items") or [],
+            "linked_wis": it.get("linked_wis") or [],
+            "linked_tdocs": it.get("linked_tdocs") or [],
+            "user_status": it.get("user_status") or "⚪ Neutral",
+            "user_notes": it.get("user_notes") or "",
+        }
+        return export_thread_to_markdown(
+            synth,
+            msgs,
+            deduplicate_quotes=True,
+            interactive_links=False,
+            newest_first=False,
+            include_metadata=True,
+        )
+
+    def _on_llm_export_clicked(self):
+        it = self._current_item
+        if not it:
+            return
+        menu = QMenu(self)
+        act_copy_md = menu.addAction("📋 Copy Pure Markdown (for ChatGPT / Claude / Codex)")
+        act_ai_sum = menu.addAction("🤖 Summarize Discussion with Local AI (Ollama)...")
+        chosen = menu.exec_(QCursor.pos())
+        if chosen == act_copy_md:
+            md = self._build_current_item_pure_markdown()
+            if md:
+                QApplication.clipboard().setText(md)
+                notify_success(self, "Markdown Copied", "Copied clean thread Markdown to clipboard.")
+        elif chosen == act_ai_sum:
+            primary_tdoc = str(it.get("_primary_tdoc") or "").strip().upper()
+            if not primary_tdoc and it.get("linked_tdocs"):
+                primary_tdoc = extract_base_tdoc_id(it["linked_tdocs"][0])
+            label = primary_tdoc or str(it.get("thread_title") or it.get("subject") or "Thread")
+            raw_msgs = it.get("_group_messages") if it.get("_is_group") else [it]
+            emails_payload = [
+                {
+                    "id": m.get("id", ""),
+                    "subject": m.get("subject", ""),
+                    "sender_name": m.get("sender_name", ""),
+                    "company": m.get("company", ""),
+                    "date_received": m.get("date_str", ""),
+                    "body_text": m.get("clean_body") or m.get("body_text", ""),
+                }
+                for m in (raw_msgs or [])
+            ]
+            from modules.emails.ui.email_summary_dialog import EmailSummaryDialog
+
+            dlg = EmailSummaryDialog(
+                tdoc_id=label,
+                emails_data=emails_payload,
+                wg=self.wg,
+                save_callback=lambda tid, st, notes: self._sync_tdoc_user_data(tid, new_status=st, new_notes=notes),
+                parent=None,
+            )
+            self._summary_dlg = dlg
+            dlg.show()
+            dlg.raise_()
+            dlg.activateWindow()
+
+    def _on_generate_email_statistics(self):
+        if not self._all_items:
+            QMessageBox.information(self, "No Emails", "There are no indexed emails in this meeting to analyze.")
+            return
+        gdb_path = getattr(self.general_email_db, "db_path", None) if self.general_email_db is not None else None
+        tdb_path = getattr(self.tracked_db, "db_path", None) if self.tracked_db is not None else None
+        base_db_path = gdb_path or tdb_path
+        if not base_db_path:
+            return
+        meeting_dir = Path(base_db_path).parent.parent
+        from modules.emails.core.stats.dataset_builder import build_unified_email_stats_dataset
+        from modules.emails.core.stats.statistics_threads import EmailStatsExporterThread
+        from modules.meetings.ui.tdocs_dialogs import StatisticsSettingsDialog
+
+        dataset = build_unified_email_stats_dataset(
+            all_inbox_items=self._all_items,
+            tdoc_ai_lookup=self.tdoc_ai_lookup,
+            tdoc_meta_map=self._tdoc_meta_map,
+        )
+        cfg = StatisticsSettingsDialog().load_config()
+        if hasattr(self, "btn_stats"):
+            self.btn_stats.setEnabled(False)
+            self.btn_stats.setText("⏳ Stats...")
+        self._stats_thread = EmailStatsExporterThread(
+            meeting_dir,
+            dataset,
+            self.meeting_id or meeting_dir.name,
+            cfg,
+        )
+        self._stats_thread.finished.connect(self._on_email_stats_finished)
+        self._stats_thread.start()
+
+    def _on_email_stats_finished(self, success: bool, msg: str):
+        if hasattr(self, "btn_stats"):
+            self.btn_stats.setEnabled(True)
+            self.btn_stats.setText("📊 Stats")
+        if success:
+            notify_success(self, "Email Analytics Ready", "Opened HTML Email Statistics Dashboard.")
+            if hasattr(os, "startfile"):
+                os.startfile(msg)
+            else:
+                webbrowser.open(f"file:///{msg}")
+        else:
+            QMessageBox.warning(self, "Email Statistics Failed", f"Could not generate email statistics:\n{msg}")
 
     def _on_open_context(self):
         if not self._current_item:
             return
         it = self._current_item
+        is_tdoc_bucket = it.get("_group_kind") == "TDOC" and bool(it.get("_primary_tdoc"))
+        if is_tdoc_bucket and self._open_tdoc_callback:
+            primary_tdoc = str(it.get("_primary_tdoc") or "").strip().upper()
+            sig = it.get("_signals") or {}
+            rev_tokens = sig.get("rev_tokens") or []
+            latest_rev_tok = next(
+                (rt for rt in reversed(rev_tokens) if rt.upper().startswith(primary_tdoc)),
+                primary_tdoc,
+            )
+            self._open_tdoc_callback(latest_rev_tok)
+            return
         if it.get("thread_id") and self._open_thread_callback:
             self._open_thread_callback(it["thread_id"])
             self.reload_from_dbs(preserve_id=it["id"])
@@ -343,6 +596,18 @@ class InboxTriageActionsMixin:
 
     def _on_anchor_clicked(self, url: QUrl):
         scheme = url.scheme().lower()
+        if scheme == "jump":
+            path_parts = [p for p in url.path().strip("/").split("/") if p]
+            raw_idx = path_parts[0] if path_parts else url.host()
+            try:
+                msg_idx = int(raw_idx)
+                blk = find_heading_block_for_message_index(self.preview_browser, msg_idx)
+                if blk is not None:
+                    scroll_browser_to_block(self.preview_browser, blk)
+            except Exception:
+                pass
+            return
+
         if scheme == "tdoc" and self._open_tdoc_callback:
             target_tdoc = url.path().strip() or url.toString().split(":", 1)[1].strip()
             if target_tdoc:

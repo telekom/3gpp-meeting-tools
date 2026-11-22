@@ -48,6 +48,10 @@ class TDocsDatabase:
             cols = [info[1] for info in conn.execute("PRAGMA table_info(user_tdocs)").fetchall()]
             if "tags" not in cols:
                 conn.execute("ALTER TABLE user_tdocs ADD COLUMN tags TEXT DEFAULT ''")
+            if "is_objected" not in cols:
+                conn.execute("ALTER TABLE user_tdocs ADD COLUMN is_objected INTEGER DEFAULT 0")
+            if "objected_at_rev" not in cols:
+                conn.execute("ALTER TABLE user_tdocs ADD COLUMN objected_at_rev TEXT DEFAULT ''")
 
     def get_all(self) -> dict:
         """Returns a dictionary of {tdoc_id: {metadata}}"""
@@ -78,8 +82,27 @@ class TDocsDatabase:
             d.setdefault("my_status", d.get("status", ""))
             d.setdefault("my_notes", d.get("notes", ""))
             d.setdefault("my_tags", d.get("tags", ""))
+            d["is_objected"] = bool(int(d.get("is_objected", 0) or 0))
+            d["objected_at_rev"] = str(d.get("objected_at_rev") or "").strip()
             enriched[tid] = d
         return enriched
+
+    def set_tdoc_objected(self, tdoc_id: str, is_objected: bool, objected_at_rev: str = ""):
+        """Marks or unmarks a TDoc as Objected/Parked (with the revision at objection time)."""
+        clean_id = str(tdoc_id or "").strip().upper()
+        if not clean_id:
+            return
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_tdocs (tdoc_id, status, notes, tags, is_objected, objected_at_rev)
+                VALUES (?, '⚪ Neutral', '', '', ?, ?)
+                ON CONFLICT(tdoc_id) DO UPDATE SET
+                    is_objected = excluded.is_objected,
+                    objected_at_rev = excluded.objected_at_rev
+                """,
+                (clean_id, 1 if is_objected else 0, str(objected_at_rev or "").strip() if is_objected else ""),
+            )
 
     def upsert(self, tdoc_id: str, status: str, notes: str, tags: Optional[str] = None):
         with self._get_connection() as conn:

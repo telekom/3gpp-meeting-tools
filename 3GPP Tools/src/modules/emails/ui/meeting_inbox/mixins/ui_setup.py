@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PyQt5.QtCore import Qt, QTimer, QUrl
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -14,6 +15,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QMenu,
     QPushButton,
+    QShortcut,
     QSizePolicy,
     QSplitter,
     QTextBrowser,
@@ -42,15 +44,15 @@ class InboxUiSetupMixin:
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(10, 6, 10, 8)
+        layout.setSpacing(4)
 
-        # Row 1: Responsive FlowLayout for State Pills + View Toggle + Search + Dropdown Filters + Reload
-        top_widget = QWidget(self)
-        top_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-        top_sp.setHeightForWidth(True)
-        top_widget.setSizePolicy(top_sp)
-        top_row = FlowLayout(top_widget, margin=0, h_spacing=6, v_spacing=4)
+        # Row 1: State Pills + View Mode Toggle (By Message / By Thread / By TDoc) + Sync/Stats/Layout
+        row1_widget = QWidget(self)
+        row1_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        row1_sp.setHeightForWidth(True)
+        row1_widget.setSizePolicy(row1_sp)
+        top_row = FlowLayout(row1_widget, margin=0, h_spacing=5, v_spacing=3)
 
         self.mode_group = QButtonGroup(self)
         self.mode_group.setExclusive(True)
@@ -61,6 +63,24 @@ class InboxUiSetupMixin:
             f"QPushButton:checked {{ background-color: {C.INFO_SOFT_STRONG}; border-color: {C.ACCENT_ALT}; "
             f"color: {C.INFO}; font-weight: bold; }}"
         )
+
+        self.pill_priority = QPushButton("🔥 Priority (0)")
+        self.pill_priority.setCheckable(True)
+        self.pill_priority.setChecked(self._active_mode == "PRIORITY")
+        self.pill_priority.setToolTip(
+            "Unread activity on your Important/Watched TDocs (non-Neutral My Status), Flagged items, "
+            "or inside your Followed AIs (excluding parked 🛑 Objected items unless a newer revision arrived)."
+        )
+        self.pill_priority.setStyleSheet(
+            f"QPushButton {{ padding: 4px 10px; border-radius: 13px; border: 1px solid {C.BORDER_STRONG}; "
+            f"background-color: {C.BG_CARD}; color: {C.TEXT_BODY}; font-size: 12px; }} "
+            f"QPushButton:hover {{ background-color: {C.WARNING_SOFT}; }} "
+            f"QPushButton:checked {{ background-color: {C.WARNING_SOFT_ALT}; border-color: {C.WARNING_ACCENT}; "
+            f"color: {C.WARNING_DARK}; font-weight: bold; }}"
+        )
+        self.mode_group.addButton(self.pill_priority)
+        self.pill_priority.clicked.connect(lambda: self._set_mode("PRIORITY"))
+        top_row.addWidget(self.pill_priority)
 
         self.pill_unread = QPushButton("🔵 Unread Only (0)")
         self.pill_unread.setCheckable(True)
@@ -100,7 +120,7 @@ class InboxUiSetupMixin:
         self.pill_all.clicked.connect(lambda: self._set_mode("ALL"))
         top_row.addWidget(self.pill_all)
 
-        # View Mode Toggle: By Message vs. By Thread
+        # View Mode Toggle: By Message vs. By Thread vs. By TDoc
         view_style = (
             f"QPushButton {{ padding: 4px 9px; border-radius: 5px; border: 1px solid {C.BORDER_STRONG}; "
             f"background-color: {C.BG_SURFACE}; color: {C.TEXT_BODY}; font-size: 12px; }} "
@@ -128,48 +148,17 @@ class InboxUiSetupMixin:
         self.view_mode_group.addButton(self.btn_view_threads)
         top_row.addWidget(self.btn_view_threads)
 
-        self.search_edit = QLineEdit()
-        self.search_edit.setMinimumWidth(190)
-        self.search_edit.setClearButtonEnabled(True)
-        self.search_edit.setPlaceholderText("🔍 Search subject, sender, company, TDoc, or body...")
-        if self._saved_search_text:
-            self.search_edit.setText(self._saved_search_text)
-        self.search_edit.textChanged.connect(self._apply_filters)
-        top_row.addWidget(self.search_edit)
-
-        self.company_combo = CheckableComboBox("Company")
-        self.company_combo.setMinimumWidth(scale_px(135))
-        self.company_combo.setMaximumWidth(scale_px(185))
-        self.company_combo.setToolTip("Filter by one or more participating/sender companies.")
-        self.company_combo.selectionChanged.connect(self._apply_filters)
-        top_row.addWidget(self.company_combo)
-
-        self.ai_combo = CheckableComboBox("AI")
-        self.ai_combo.setMinimumWidth(scale_px(130))
-        self.ai_combo.setMaximumWidth(scale_px(210))
-        self.ai_combo.setToolTip("Filter by one or more Agenda Items (or Unassigned).")
-        self.ai_combo.selectionChanged.connect(self._apply_filters)
-        top_row.addWidget(self.ai_combo)
-
-        self.status_combo = CheckableComboBox("Status")
-        self.status_combo.setMinimumWidth(scale_px(120))
-        self.status_combo.setMaximumWidth(scale_px(175))
-        self.status_combo.setToolTip("Filter by thread/delegate status (My Status).")
-        self.status_combo.selectionChanged.connect(self._apply_filters)
-        top_row.addWidget(self.status_combo)
-
-        self.source_combo = QComboBox()
-        self.source_combo.addItem("All Sources", "")
-        self.source_combo.addItem("⚠️ Needs Assignment (No AI / Unpinned)", "NEEDS_TRIAGE")
-        self.source_combo.addItem("🧵 Tracked Threads Only", "THREAD")
-        self.source_combo.addItem("📄 Unpinned Only", "UNPINNED")
-        if self._saved_source_filter:
-            src_idx = self.source_combo.findData(self._saved_source_filter)
-            if src_idx >= 0:
-                self.source_combo.setCurrentIndex(src_idx)
-        self.source_combo.setToolTip("Filter by Tracked Thread vs. Unpinned TDoc Email, or isolate items needing assignment.")
-        self.source_combo.currentIndexChanged.connect(self._apply_filters)
-        top_row.addWidget(self.source_combo)
+        self.btn_view_tdocs = QPushButton("📄 By TDoc")
+        self.btn_view_tdocs.setCheckable(True)
+        self.btn_view_tdocs.setChecked(self._view_mode == "TDOCS")
+        self.btn_view_tdocs.setStyleSheet(view_style)
+        self.btn_view_tdocs.setToolTip(
+            "Group all meeting emails by Base TDoc ID (ideal for e-Meetings) with Author, Revisions, "
+            "Objection signals, and direct TDocsWindow status/notes synchronization."
+        )
+        self.btn_view_tdocs.clicked.connect(lambda: self._set_view_mode("TDOCS"))
+        self.view_mode_group.addButton(self.btn_view_tdocs)
+        top_row.addWidget(self.btn_view_tdocs)
 
         self.refresh_btn = QPushButton("🔄 Reload")
         self.refresh_btn.setToolTip("Reload latest messages already saved in local meeting databases.")
@@ -196,24 +185,111 @@ class InboxUiSetupMixin:
         self._default_sync_scoped = False
         top_row.addWidget(self.sync_outlook_btn)
 
+        self.btn_stats = QPushButton("📊 Stats")
+        self.btn_stats.setToolTip("Generate an interactive HTML Email Analytics Dashboard for this meeting.")
+        self.btn_stats.clicked.connect(self._on_generate_email_statistics)
+        top_row.addWidget(self.btn_stats)
+
         self.btn_layout_toggle = QPushButton("⬒ List on Top")
-        self.btn_layout_toggle.setToolTip("Switch between Side-by-Side (desktop) and Top/Bottom (laptop) layout.")
+        self.btn_layout_toggle.setToolTip("Switch between Side-by-Side (desktop) and Top/Bottom (laptop) layout (Ctrl+L).")
         self.btn_layout_toggle.clicked.connect(self._toggle_layout_orientation)
         top_row.addWidget(self.btn_layout_toggle)
+        self._layout_shortcut = QShortcut(QKeySequence("Ctrl+L"), self)
+        self._layout_shortcut.activated.connect(self._toggle_layout_orientation)
 
         self.help_pill_btn = create_help_tips_pill(
             [
+                "🔥 Priority: unread activity on your Watched TDocs (non-Neutral My Status), Flagged items, or Followed AIs",
+                "📄 By TDoc: rolls up all emails per Base TDoc ID with Author, Revisions (🆕 rXX), <<START>> (📋), and Objection signals (⚠️ / 🛑)",
+                "🛑 Objected: parks an objected thread/TDoc out of Priority; automatically resurfaces if a newer revision (r02 > r01) is posted!",
                 "Ctrl + Mouse Wheel in reading pane: zoom text larger/smaller (Ctrl+0 to reset; saved automatically)",
-                "Ctrl + Click / Shift + Click rows: select multiple emails or threads to batch-assign AI, Sub-Topics, WI, Pin, Read, or Flag",
-                "Click blue TDoc links (e.g. S2-xxxxxx, R3-xxxxxx) to open documents directly",
-                "Side-by-Side / List on Top: switch desktop vs. laptop split layout",
+                "Ctrl + L: toggle Side-by-Side (large monitor) vs. List on Top (laptop) split layout",
             ],
-            parent=top_widget,
-            title="Email Inbox Tips",
+            parent=row1_widget,
+            title="Email & e-Meeting Inbox Tips",
         )
         top_row.addWidget(self.help_pill_btn)
+        layout.addWidget(row1_widget)
 
-        layout.addWidget(top_widget)
+        # Row 2: Search + Followed AIs Radar Scope + Hide Objected + Filter Combos
+        row2_widget = QWidget(self)
+        row2_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        row2_sp.setHeightForWidth(True)
+        row2_widget.setSizePolicy(row2_sp)
+        filter_row = FlowLayout(row2_widget, margin=0, h_spacing=6, v_spacing=3)
+
+        self.search_edit = QLineEdit()
+        self.search_edit.setMinimumWidth(scale_px(185))
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.setPlaceholderText("🔍 Search subject, sender, company, TDoc, or body...")
+        if self._saved_search_text:
+            self.search_edit.setText(self._saved_search_text)
+        self.search_edit.textChanged.connect(self._apply_filters)
+        filter_row.addWidget(self.search_edit)
+
+        self.followed_ais_combo = CheckableComboBox("👀 Followed AIs")
+        self.followed_ais_combo.setMinimumWidth(scale_px(145))
+        self.followed_ais_combo.setMaximumWidth(scale_px(210))
+        self.followed_ais_combo.setToolTip(
+            "Agenda Items on your Priority Radar (auto-inherited from Followed/Starred WIs, Session Plan, and My TDocs).\n"
+            "Check/uncheck to override for this meeting, or right-click to reset to inherited defaults."
+        )
+        self.followed_ais_combo.selectionChanged.connect(self._on_followed_ais_combo_changed)
+        self.followed_ais_combo.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.followed_ais_combo.customContextMenuRequested.connect(self._on_followed_ais_context_menu)
+        filter_row.addWidget(self.followed_ais_combo)
+
+        self.btn_hide_objected = QPushButton("🛑 Hide Objected")
+        self.btn_hide_objected.setCheckable(True)
+        self.btn_hide_objected.setChecked(bool(getattr(self, "_hide_objected", False)))
+        self.btn_hide_objected.setToolTip(
+            "Hide threads/TDocs marked as 🛑 Objected (Parked), unless a newer revision arrived after the objection."
+        )
+        self.btn_hide_objected.setStyleSheet(
+            f"QPushButton {{ padding: 3px 9px; border-radius: 5px; border: 1px solid {C.BORDER_STRONG}; "
+            f"background-color: {C.BG_SURFACE}; color: {C.TEXT_BODY}; font-size: 12px; }} "
+            f"QPushButton:hover {{ background-color: {C.DANGER_SOFT}; }} "
+            f"QPushButton:checked {{ background-color: {C.DANGER_SOFT_HOVER}; border-color: {C.DANGER_ALT}; "
+            f"color: {C.DANGER}; font-weight: bold; }}"
+        )
+        self.btn_hide_objected.toggled.connect(self._on_hide_objected_toggled)
+        filter_row.addWidget(self.btn_hide_objected)
+
+        self.ai_combo = CheckableComboBox("AI")
+        self.ai_combo.setMinimumWidth(scale_px(125))
+        self.ai_combo.setMaximumWidth(scale_px(195))
+        self.ai_combo.setToolTip("Filter by one or more Agenda Items (or Unassigned).")
+        self.ai_combo.selectionChanged.connect(self._apply_filters)
+        filter_row.addWidget(self.ai_combo)
+
+        self.company_combo = CheckableComboBox("Company")
+        self.company_combo.setMinimumWidth(scale_px(130))
+        self.company_combo.setMaximumWidth(scale_px(180))
+        self.company_combo.setToolTip("Filter by one or more participating/sender companies.")
+        self.company_combo.selectionChanged.connect(self._apply_filters)
+        filter_row.addWidget(self.company_combo)
+
+        self.status_combo = CheckableComboBox("Status")
+        self.status_combo.setMinimumWidth(scale_px(115))
+        self.status_combo.setMaximumWidth(scale_px(170))
+        self.status_combo.setToolTip("Filter by thread/TDoc status (My Status).")
+        self.status_combo.selectionChanged.connect(self._apply_filters)
+        filter_row.addWidget(self.status_combo)
+
+        self.source_combo = QComboBox()
+        self.source_combo.addItem("All Sources", "")
+        self.source_combo.addItem("⚠️ Needs Assignment (No AI / Unpinned)", "NEEDS_TRIAGE")
+        self.source_combo.addItem("🧵 Tracked Threads Only", "THREAD")
+        self.source_combo.addItem("📄 Unpinned Only", "UNPINNED")
+        if self._saved_source_filter:
+            src_idx = self.source_combo.findData(self._saved_source_filter)
+            if src_idx >= 0:
+                self.source_combo.setCurrentIndex(src_idx)
+        self.source_combo.setToolTip("Filter by Tracked Thread vs. Unpinned TDoc Email, or isolate items needing assignment.")
+        self.source_combo.currentIndexChanged.connect(self._apply_filters)
+        filter_row.addWidget(self.source_combo)
+
+        layout.addWidget(row2_widget)
 
         # Row 2: Master-Detail Splitter
         self.splitter = QSplitter(Qt.Horizontal, self)
@@ -318,7 +394,21 @@ class InboxUiSetupMixin:
         meta_info_row.addWidget(self.detail_links_lbl, 1)
         meta_layout.addLayout(meta_info_row)
 
-        # Inline Assignment Bar (Single compact row: AIs, Sub-Topics, WIs + Auto/Pin)
+        # Compact Clickable In-Thread Message Jump Strip (auto-shown for multi-message Threads / TDocs)
+        self.detail_jump_strip_lbl = QLabel("")
+        self.detail_jump_strip_lbl.setWordWrap(True)
+        self.detail_jump_strip_lbl.setTextFormat(Qt.RichText)
+        self.detail_jump_strip_lbl.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        self.detail_jump_strip_lbl.setOpenExternalLinks(False)
+        self.detail_jump_strip_lbl.linkActivated.connect(lambda href: self._on_anchor_clicked(QUrl(href)))
+        self.detail_jump_strip_lbl.setStyleSheet(
+            f"background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; "
+            f"border-radius: 4px; padding: 2px 6px; font-size: 11px;"
+        )
+        self.detail_jump_strip_lbl.setVisible(False)
+        meta_layout.addWidget(self.detail_jump_strip_lbl)
+
+        # Inline Assignment Bar (Single compact row: AIs, Sub-Topics, WIs + Auto/Pin; persisted in QSettings)
         self._show_assign_bar = bool(self._settings.value("show_assign_bar", True, type=bool))
         self.assign_frame = QFrame(meta_frame)
         self.assign_frame.setObjectName("InboxAssignBar")
@@ -452,10 +542,25 @@ class InboxUiSetupMixin:
         self.btn_toggle_flag.clicked.connect(self._on_toggle_flag)
         act_row.addWidget(self.btn_toggle_flag)
 
+        self.btn_toggle_objected = QPushButton("🛑 Objected")
+        self.btn_toggle_objected.setCheckable(True)
+        self.btn_toggle_objected.setToolTip(
+            "Mark this thread/TDoc as 🛑 Objected (Parked out of Priority Radar unless a newer revision r01/r02 arrives)."
+        )
+        self.btn_toggle_objected.clicked.connect(self._on_toggle_objected_clicked)
+        act_row.addWidget(self.btn_toggle_objected)
+
         self.btn_reply = QPushButton("↩️ Reply")
         self.btn_reply.setToolTip("Reply in Outlook.")
         self.btn_reply.clicked.connect(self._on_reply)
         act_row.addWidget(self.btn_reply)
+
+        self.btn_copy_start_template = QPushButton("📋 <<START>>")
+        self.btn_copy_start_template.setToolTip(
+            "Copy a pre-formatted 3GPP e-Meeting <<START>> ... <<END>> formal comment block to the clipboard."
+        )
+        self.btn_copy_start_template.clicked.connect(self._on_copy_start_template_clicked)
+        act_row.addWidget(self.btn_copy_start_template)
 
         self.btn_open_outlook = QPushButton("📧 Outlook")
         self.btn_open_outlook.setToolTip("Open email in Outlook.")
@@ -463,9 +568,20 @@ class InboxUiSetupMixin:
         act_row.addWidget(self.btn_open_outlook)
 
         self.btn_open_context = QPushButton("📂 Thread")
-        self.btn_open_context.setToolTip("Open full Tracked Thread or TDoc viewer.")
+        self.btn_open_context.setToolTip("Open full Tracked Thread or TDoc viewer (or latest cached /Drafts/ doc).")
         self.btn_open_context.clicked.connect(self._on_open_context)
         act_row.addWidget(self.btn_open_context)
+
+        self.btn_jump_tdoc_table = QPushButton("🎯 Table")
+        self.btn_jump_tdoc_table.setToolTip("Scroll to and highlight this TDoc in the TDocsWindow meeting table.")
+        self.btn_jump_tdoc_table.clicked.connect(self._on_jump_tdoc_table_clicked)
+        self.btn_jump_tdoc_table.setVisible(False)
+        act_row.addWidget(self.btn_jump_tdoc_table)
+
+        self.btn_llm_export = QPushButton("🤖 LLM && Export")
+        self.btn_llm_export.setToolTip("Copy pure Markdown for LLMs or launch local AI summary.")
+        self.btn_llm_export.clicked.connect(self._on_llm_export_clicked)
+        act_row.addWidget(self.btn_llm_export)
 
         self.btn_sync_selected = QPushButton("🔄 Sync")
         self.btn_sync_selected.setToolTip(

@@ -9,16 +9,17 @@ import urllib.parse
 from PyQt5.QtCore import QTimer
 
 from core.ui.theme import C
+from modules.emails.core.emeeting_signals import (
+    build_message_jump_strip_html,
+    extract_base_tdoc_id,
+)
 from modules.emails.core.thread_markdown_exporter import (
-    _format_trailing_quoted_history,
-    escape_non_html_angles,
     export_thread_to_markdown,
     find_unread_heading_blocks,
     format_compact_timestamp,
+    format_emeeting_body_with_callouts,
     format_sender_display,
     inject_html_tables_into_body,
-    linkify_markdown_urls,
-    linkify_tdoc_tokens,
     partition_email_attachments,
     scroll_browser_to_block,
 )
@@ -47,12 +48,33 @@ class InboxDetailRenderingMixin:
         self.detail_subject_lbl.setText("No matching emails in this filter")
         self.detail_meta_lbl.setText("")
         self.detail_links_lbl.setText("")
+        if hasattr(self, "detail_jump_strip_lbl"):
+            self.detail_jump_strip_lbl.setText("")
+            self.detail_jump_strip_lbl.setVisible(False)
         self.assign_frame.setVisible(False)
         self.note_frame.setVisible(False)
         self.preview_browser.setMarkdown("*Select another filter tab or adjust search criteria.*")
-        for btn in (self.btn_mark_next, self.btn_toggle_read, self.btn_toggle_flag, self.btn_reply, self.btn_open_outlook, self.btn_open_context, self.btn_sync_selected, self.btn_toggle_note, self.btn_merge_selected):
-            btn.setEnabled(False)
+        for btn_name in (
+            "btn_mark_next",
+            "btn_toggle_read",
+            "btn_toggle_flag",
+            "btn_toggle_objected",
+            "btn_reply",
+            "btn_copy_start_template",
+            "btn_open_outlook",
+            "btn_open_context",
+            "btn_jump_tdoc_table",
+            "btn_llm_export",
+            "btn_sync_selected",
+            "btn_toggle_note",
+            "btn_merge_selected",
+        ):
+            btn = getattr(self, btn_name, None)
+            if btn is not None:
+                btn.setEnabled(False)
         self.btn_merge_selected.setVisible(False)
+        if hasattr(self, "btn_jump_tdoc_table"):
+            self.btn_jump_tdoc_table.setVisible(False)
         if hasattr(self, "detail_status_combo"):
             self.detail_status_combo.setEnabled(False)
         self._update_selected_sync_controls(0)
@@ -135,7 +157,12 @@ class InboxDetailRenderingMixin:
             self._updating_assign_bar = False
 
     def _render_multi_detail(self, selected: List[dict]):
-        noun = "Threads" if self._view_mode == "THREADS" else "Emails"
+        if self._view_mode == "TDOCS":
+            noun = "TDocs"
+        elif self._view_mode == "THREADS":
+            noun = "Threads"
+        else:
+            noun = "Emails"
         unread_cnt = sum(1 for it in selected if not it["is_read"])
         flagged_cnt = sum(1 for it in selected if it["is_flagged"])
         unpinned_cnt = sum(1 for it in selected if not it.get("in_tracked_db"))
@@ -146,6 +173,9 @@ class InboxDetailRenderingMixin:
             f"{unread_cnt} unread  |  {flagged_cnt} flagged  |  "
             f"{pinned_cnt} tracked, {unpinned_cnt} unpinned"
         )
+        if hasattr(self, "detail_jump_strip_lbl"):
+            self.detail_jump_strip_lbl.setText("")
+            self.detail_jump_strip_lbl.setVisible(False)
 
         cleaned_tdocs = list(dict.fromkeys(
             self._clean_tdoc_id(td)
@@ -153,7 +183,7 @@ class InboxDetailRenderingMixin:
             for td in (it.get("linked_tdocs") or [])
             if self._clean_tdoc_id(td)
         ))
-        links_html = [f"Batch selection ({len(selected)} items) — adding AIs/Sub-Topics/WIs applies to all selected items without removing each item's other existing tags"]
+        links_html = [f"Batch selection ({len(selected)} items) — adding AIs/Sub-Topics/WIs applies to all selected items"]
         if cleaned_tdocs:
             if self._open_tdoc_callback:
                 td_anchors = ", ".join(
@@ -174,12 +204,11 @@ class InboxDetailRenderingMixin:
         self._populate_status_and_note_bars(selected)
 
         self.btn_mark_next.setEnabled(False)
-        self.btn_reply.setEnabled(False)
-        self.btn_reply.setVisible(False)
-        self.btn_open_outlook.setEnabled(False)
-        self.btn_open_outlook.setVisible(False)
-        self.btn_open_context.setEnabled(False)
-        self.btn_open_context.setVisible(False)
+        for bname in ("btn_reply", "btn_copy_start_template", "btn_open_outlook", "btn_open_context", "btn_jump_tdoc_table", "btn_llm_export"):
+            b = getattr(self, bname, None)
+            if b is not None:
+                b.setEnabled(False)
+                b.setVisible(False)
         self.btn_toggle_read.setEnabled(True)
         self.btn_toggle_read.setText(
             f"✓ Read ({unread_cnt})" if unread_cnt > 0 else f"🔵 Unread ({len(selected)})"
@@ -198,7 +227,7 @@ class InboxDetailRenderingMixin:
             self.btn_merge_selected.setText(f"🔗 Merge ({len(merge_targets)})")
 
         md_lines = [f"### Batch Triage ({len(selected)} selected {noun.lower()})", ""]
-        md_lines.append("Use the **AIs**, **Sub-Topics**, **WIs**, **Auto-Assign**, **Pin**, **Merge**, **Mark Read**, or **Flag** controls above to update all selected items together.\n")
+        md_lines.append("Use the **AIs**, **Sub-Topics**, **WIs**, **Auto-Assign**, **Pin**, **Merge**, **Mark Read**, **Flag**, or **Objected** controls above to update all selected items together.\n")
         for idx, it in enumerate(selected, 1):
             subj = str(it.get("subject") or "(No Subject)")
             comp = str(it.get("company") or "Unknown")
@@ -209,17 +238,33 @@ class InboxDetailRenderingMixin:
         self.preview_browser.setMarkdown("\n".join(md_lines))
 
     def _render_detail(self, it: dict):
+        is_tdoc_bucket = it.get("_group_kind") == "TDOC" and bool(it.get("_primary_tdoc"))
+        primary_tdoc = str(it.get("_primary_tdoc") or "").strip().upper()
+        if not primary_tdoc and it.get("linked_tdocs"):
+            primary_tdoc = extract_base_tdoc_id(it["linked_tdocs"][0])
+        sig = it.get("_signals") or {}
+
         subject_text = str(it.get("subject") or "(No Subject)")
-        self.detail_subject_lbl.setText(subject_text)
+        if is_tdoc_bucket:
+            type_badge = f" [{it['_tdoc_type']}]" if it.get("_tdoc_type") else ""
+            self.detail_subject_lbl.setText(f"📄 {primary_tdoc}{type_badge} — {subject_text}")
+        else:
+            self.detail_subject_lbl.setText(subject_text)
+
         if it.get("_is_group"):
             raw_comps = [str(c).strip() for c in (it.get("_companies") or []) if str(c).strip()]
             comp_disp = ", ".join(raw_comps[:5]) + (f" (+{len(raw_comps) - 5})" if len(raw_comps) > 5 else "")
             if not comp_disp:
                 comp_disp = it.get("company") or "Unknown"
-            self.detail_meta_lbl.setText(
-                f"{it.get('_total_count', 1)} msgs ({it.get('_unread_count', 0)} unread) · "
-                f"{format_compact_timestamp(it.get('date_str'))} · {comp_disp}"
-            )
+            meta_parts = []
+            if is_tdoc_bucket and it.get("_tdoc_source"):
+                meta_parts.append(f"Author: {it['_tdoc_source']}")
+            if is_tdoc_bucket and it.get("_tdoc_status"):
+                meta_parts.append(f"Status: {it['_tdoc_status']}")
+            meta_parts.append(f"{it.get('_total_count', 1)} msgs ({it.get('_unread_count', 0)} unread)")
+            meta_parts.append(format_compact_timestamp(it.get("date_str")))
+            meta_parts.append(f"Contributors: {comp_disp}")
+            self.detail_meta_lbl.setText(" · ".join(meta_parts))
             self.detail_meta_lbl.setToolTip(", ".join(raw_comps) if raw_comps else comp_disp)
         else:
             sender_disp = format_sender_display(
@@ -238,14 +283,15 @@ class InboxDetailRenderingMixin:
             self.detail_meta_lbl.setToolTip("")
 
         links_html = []
-        if it.get("in_tracked_db") and it.get("thread_title"):
+        if it.get("in_tracked_db") and it.get("thread_title") and not is_tdoc_bucket:
             tt = str(it["thread_title"]).strip()
             if tt.lower() == subject_text.strip().lower():
                 links_html.append("🧵 Tracked")
             else:
                 links_html.append(f"🧵 {html.escape(tt)}")
-        else:
+        elif not is_tdoc_bucket:
             links_html.append("📄 Unpinned")
+
         cleaned_tdocs = list(dict.fromkeys(
             self._clean_tdoc_id(td) for td in (it.get("linked_tdocs") or []) if self._clean_tdoc_id(td)
         ))
@@ -262,8 +308,47 @@ class InboxDetailRenderingMixin:
             if len(cleaned_tdocs) > 6:
                 td_anchors += f" (+{len(cleaned_tdocs) - 6})"
             links_html.append(f"TDocs: {td_anchors}")
+
+        rev_tokens = sig.get("rev_tokens") or []
+        if rev_tokens:
+            if self._open_tdoc_callback:
+                rev_anchors = ", ".join(
+                    f'<a href="tdoc:{html.escape(rt.upper())}" '
+                    f'style="color: {C.SUCCESS_DARK}; font-weight: bold; text-decoration: underline;">'
+                    f'🆕 {html.escape(rt)}</a>'
+                    for rt in rev_tokens[:5]
+                )
+            else:
+                rev_anchors = ", ".join(f"🆕 {html.escape(rt)}" for rt in rev_tokens[:5])
+            links_html.append(f"Revs: {rev_anchors}")
+
+        if sig.get("is_objected"):
+            if sig.get("unparked_by_new_rev"):
+                links_html.append(
+                    f'<span style="color:{C.WARNING_DARK}; font-weight:bold;">'
+                    f'🛑→🆕 Unparked ({html.escape(str(sig.get("max_rev_tag") or ""))} after objection)</span>'
+                )
+            else:
+                rev_at = f" at {sig['objected_at_rev']}" if sig.get("objected_at_rev") else ""
+                links_html.append(
+                    f'<span style="color:{C.DANGER}; font-weight:bold;">🛑 Objected / Parked{html.escape(rev_at)}</span>'
+                )
+
         self.detail_links_lbl.setText(" · ".join(links_html))
         self.detail_links_lbl.setVisible(bool(links_html))
+
+        if hasattr(self, "detail_jump_strip_lbl"):
+            if it.get("_is_group"):
+                jump_html = build_message_jump_strip_html(
+                    it.get("_group_messages") or [],
+                    primary_tdoc=primary_tdoc,
+                    newest_first=True,
+                )
+                self.detail_jump_strip_lbl.setText(jump_html)
+                self.detail_jump_strip_lbl.setVisible(bool(jump_html))
+            else:
+                self.detail_jump_strip_lbl.setText("")
+                self.detail_jump_strip_lbl.setVisible(False)
 
         self._populate_assign_bar(it)
         self._populate_status_and_note_bars([it])
@@ -271,7 +356,7 @@ class InboxDetailRenderingMixin:
         can_outlook = not str(it.get("id") or "").startswith("MSG-") and not it.get("_is_group")
         has_context = bool(
             (it.get("thread_id") and self._open_thread_callback)
-            or (it.get("linked_tdocs") and self._open_tdoc_callback)
+            or (cleaned_tdocs and self._open_tdoc_callback)
         )
         self.btn_mark_next.setEnabled(True)
         self.btn_toggle_read.setEnabled(True)
@@ -282,14 +367,33 @@ class InboxDetailRenderingMixin:
         self.btn_reply.setVisible(can_outlook)
         self.btn_open_outlook.setEnabled(can_outlook)
         self.btn_open_outlook.setVisible(can_outlook)
+        if hasattr(self, "btn_copy_start_template"):
+            self.btn_copy_start_template.setEnabled(True)
+            self.btn_copy_start_template.setVisible(True)
+        if hasattr(self, "btn_llm_export"):
+            self.btn_llm_export.setEnabled(True)
+            self.btn_llm_export.setVisible(True)
+
         self.btn_open_context.setEnabled(has_context)
         self.btn_open_context.setVisible(has_context)
-        if it.get("thread_id") and self._open_thread_callback:
+        if is_tdoc_bucket and cleaned_tdocs and self._open_tdoc_callback:
+            latest_rev_tok = next(
+                (rt for rt in reversed(rev_tokens) if rt.upper().startswith(primary_tdoc)),
+                primary_tdoc,
+            )
+            self.btn_open_context.setText(f"📄 Open {latest_rev_tok}")
+        elif it.get("thread_id") and self._open_thread_callback:
             self.btn_open_context.setText("📂 Thread")
-        elif it.get("linked_tdocs") and self._open_tdoc_callback:
-            self.btn_open_context.setText(f"📄 {it['linked_tdocs'][0]}")
+        elif cleaned_tdocs and self._open_tdoc_callback:
+            self.btn_open_context.setText(f"📄 {cleaned_tdocs[0]}")
         else:
             self.btn_open_context.setText("📂 Context")
+
+        if hasattr(self, "btn_jump_tdoc_table"):
+            can_jump = bool(primary_tdoc and getattr(self, "_jump_tdoc_callback", None))
+            self.btn_jump_tdoc_table.setVisible(can_jump)
+            self.btn_jump_tdoc_table.setEnabled(can_jump)
+
         self.btn_merge_selected.setVisible(False)
         self.btn_merge_selected.setEnabled(False)
         self._update_selected_sync_controls(1)
@@ -314,6 +418,7 @@ class InboxDetailRenderingMixin:
                     "is_read": 1 if m["is_read"] else 0,
                     "flag_status": 2 if m["is_flagged"] else 0,
                     "attachments": m.get("attachments") or [],
+                    "_signals": m.get("_signals"),
                 }
                 for m in (it.get("_group_messages") or [])
             ]
@@ -347,13 +452,15 @@ class InboxDetailRenderingMixin:
                 att_line += f" *(+{len(inline_imgs)} inline)*"
             lines.append(att_line + "\n")
 
-        body = str(it.get("body_text") or "")
+        raw_body = str(it.get("body_text") or "")
         if it.get("html_body"):
-            body = inject_html_tables_into_body(body, str(it["html_body"]))
-        body = _format_trailing_quoted_history(body.strip())
-        body = linkify_markdown_urls(body, shorten_long_urls=True)
-        if self._open_tdoc_callback:
-            body = linkify_tdoc_tokens(body)
-        body = escape_non_html_angles(body)
+            raw_body = inject_html_tables_into_body(raw_body, str(it["html_body"]))
+        body = format_emeeting_body_with_callouts(
+            raw_body,
+            primary_tdoc=primary_tdoc,
+            interactive_links=True,
+            enable_tdoc_links=bool(self._open_tdoc_callback),
+            deduplicate_quotes=False,
+        )
         lines.append(body if body else "*(Empty message body)*")
         self.preview_browser.setMarkdown("\n\n".join(lines))

@@ -233,7 +233,8 @@ def _table_cell_to_plain_and_md(cell: Any) -> tuple:
             href = unwrap_outlook_safelinks(str(el.get("href") or "").strip())
             label = " ".join(el.get_text(" ", strip=True).replace("\xa0", " ").split()) or href
             if href.lower().startswith(("http://", "https://")) and label:
-                parts.append(f"[{label.replace('|', '\\|')}]({href})")
+                safe_label = label.replace("|", "\\|")
+                parts.append(f"[{safe_label}]({href})")
                 return
         if name.lower() == "br":
             parts.append(" ")
@@ -573,6 +574,82 @@ def find_unread_heading_blocks(browser: Any) -> List[Any]:
     return blocks
 
 
+def find_heading_block_for_message_index(browser: Any, msg_index: int) -> Any:
+    """Finds the QTextBlock heading for message `msg_index` (1-based) in a QTextBrowser."""
+    if browser is None or not hasattr(browser, "document"):
+        return None
+    prefix = f"{int(msg_index)}."
+    doc = browser.document()
+    block = doc.firstBlock()
+    while block.isValid():
+        if block.blockFormat().headingLevel() == 3 and block.text().lstrip().startswith(prefix):
+            return block
+        block = block.next()
+    return None
+
+
+def format_emeeting_body_with_callouts(
+    raw_body: str,
+    *,
+    primary_tdoc: str = "",
+    interactive_links: bool = False,
+    enable_tdoc_links: bool = False,
+    deduplicate_quotes: bool = True,
+) -> str:
+    """
+    Formats an email body, extracting any `<<START>> ... <<END>>` e-Meeting formal comment blocks
+    into a distinct Option A amber callout box (or structured Markdown blockquote for LLM export)
+    and linkifying TDoc tokens + shorthand revisions (`r01`).
+    """
+    from modules.emails.core.emeeting_signals import (
+        extract_start_end_blocks,
+        linkify_shorthand_revisions,
+    )
+
+    formal_blocks, remaining_body = extract_start_end_blocks(raw_body or "")
+
+    def _transform_chunk(chunk: str, is_formal: bool = False) -> str:
+        txt = strip_trailing_quotes(chunk) if (deduplicate_quotes and not is_formal) else chunk
+        txt = _normalize_outlook_list_spacing(txt.strip())
+        if interactive_links and not deduplicate_quotes and not is_formal:
+            txt = _format_trailing_quoted_history(txt)
+        txt = linkify_markdown_urls(txt, shorten_long_urls=interactive_links)
+        if interactive_links and enable_tdoc_links:
+            txt = linkify_tdoc_tokens(txt)
+            if is_formal and primary_tdoc:
+                txt = linkify_shorthand_revisions(txt, primary_tdoc=primary_tdoc)
+        if interactive_links:
+            txt = escape_non_html_angles(txt)
+        return txt
+
+    out_parts: List[str] = []
+    for blk in formal_blocks:
+        formatted_blk = _transform_chunk(blk, is_formal=True)
+        if not formatted_blk:
+            continue
+        if interactive_links:
+            blk_lines = "<br>".join(ln for ln in formatted_blk.splitlines())
+            out_parts.append(
+                f'<table width="100%" cellspacing="0" cellpadding="6" '
+                f'style="background-color:{C.WARNING_SOFT}; border:1px solid {C.WARNING_BORDER}; '
+                f'margin-top:4px; margin-bottom:6px;">'
+                f'<tr>'
+                f'<td width="4" style="background-color:{C.WARNING_ACCENT};"></td>'
+                f'<td><b style="color:{C.WARNING_DARK};">📋 e-Meeting Formal Comment (&lt;&lt;START&gt;&gt;…&lt;&lt;END&gt;&gt;)</b><br>'
+                f'{blk_lines}</td>'
+                f'</tr></table>'
+            )
+        else:
+            q_lines = "\n".join(f"> {ln}" if ln.strip() else ">" for ln in formatted_blk.splitlines())
+            out_parts.append(f"> **[e-Meeting Formal Comment `<<START>>...<<END>>`]:**\n{q_lines}")
+
+    free_formatted = _transform_chunk(remaining_body, is_formal=False)
+    if free_formatted:
+        out_parts.append(free_formatted)
+
+    return "\n\n".join(out_parts).strip()
+
+
 def _wrap_hover_url(url: str, width: int = 84) -> str:
     """Wraps long URLs across multiple lines so hover tooltips fit comfortably on screen."""
     u = str(url or "").strip()
@@ -704,6 +781,9 @@ def export_thread_to_markdown(
     base_subject_norm = _normalize_subject_for_comparison(
         thread.get("normalized_subject") or thread.get("title") or ""
     )
+    linked_tdocs_list = [clean_tdoc_id(t) for t in (thread.get("linked_tdocs") or []) if clean_tdoc_id(t)]
+    primary_tdoc = linked_tdocs_list[0] if linked_tdocs_list else ""
+    from modules.emails.core.emeeting_signals import analyze_message_signals
     indexed_msgs = list(enumerate(messages, 1))
     if newest_first:
         indexed_msgs.reverse()
@@ -721,6 +801,7 @@ def export_thread_to_markdown(
         is_flagged = int(msg.get("flag_status", 0) or 0) == 2
         is_ignored = int(msg.get("is_ignored", 0) or 0) == 1
         can_open_outlook = interactive_links and msg_id and not msg_id.startswith("MSG-")
+        msg_sig = msg.get("_signals") or analyze_message_signals(msg, primary_tdoc=primary_tdoc)
 
         if interactive_links:
             anchors = f'<a name="msg-{idx}"></a>'
@@ -746,6 +827,13 @@ def export_thread_to_markdown(
                 badge_parts.append(f'<span style="color:{C.INFO}; font-weight:bold;">🔵 NEW</span>')
             if is_flagged:
                 badge_parts.append(f'<span style="color:{C.WARNING}; font-weight:bold;">🚩 FLAGGED</span>')
+            if msg_sig.get("max_rev_tag"):
+                rev_t = str(msg_sig["max_rev_tag"])
+                badge_parts.append(f'<span style="color:{C.SUCCESS_DARK}; font-weight:bold;">🆕 {html.escape(rev_t)}</span>')
+            if msg_sig.get("has_template"):
+                badge_parts.append(f'<span style="color:{C.WARNING_DARK}; font-weight:bold;">📋 e-Comment</span>')
+            if msg_sig.get("has_objection"):
+                badge_parts.append(f'<span style="color:{C.DANGER}; font-weight:bold;">⚠️ Objection?</span>')
             if is_ignored:
                 badge_parts.append(f'<span style="color:{C.TEXT_MUTED}; font-weight:bold;">🚫 IGNORED</span>')
             badges_html = (" · " + " · ".join(badge_parts)) if badge_parts else ""
@@ -834,17 +922,15 @@ def export_thread_to_markdown(
                 lines.append(att_line + "  ")
         lines.append("")
 
-        body = (msg.get("clean_body") if deduplicate_quotes and msg.get("clean_body") else msg.get("body_text")) or ""
-        if deduplicate_quotes:
-            body = strip_trailing_quotes(body)
-        body = _normalize_outlook_list_spacing(body.strip())
-        if interactive_links and not deduplicate_quotes:
-            body = _format_trailing_quoted_history(body)
-        body = linkify_markdown_urls(body, shorten_long_urls=interactive_links)
-        if interactive_links and enable_tdoc_links:
-            body = linkify_tdoc_tokens(body)
-        if interactive_links:
-            body = escape_non_html_angles(body)
+        raw_body = (msg.get("clean_body") if deduplicate_quotes and msg.get("clean_body") else msg.get("body_text")) or ""
+        msg_primary_tdoc = matched_tdoc or primary_tdoc
+        body = format_emeeting_body_with_callouts(
+            raw_body,
+            primary_tdoc=msg_primary_tdoc,
+            interactive_links=interactive_links,
+            enable_tdoc_links=enable_tdoc_links,
+            deduplicate_quotes=deduplicate_quotes,
+        )
         if body:
             lines.append(body)
         else:

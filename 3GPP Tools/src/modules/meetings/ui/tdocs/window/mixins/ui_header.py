@@ -313,12 +313,11 @@ class HeaderMixin:
         act = email_menu.addAction("✔️ Mark All Emails as Read", self._on_mark_all_emails_read)
         act.setToolTip("Mark all locally indexed meeting emails as read.")
         email_menu.addSeparator()
+        act = email_menu.addAction("📊 Generate Email Statistics Report...", self._on_generate_meeting_email_statistics)
+        act.setToolTip("Generate an interactive HTML Email Analytics Dashboard across all indexed meeting emails and threads.")
+        email_menu.addSeparator()
         act = email_menu.addAction("🗑️ Wipe Generic Emails Database...", self._on_wipe_generic_emails)
         act.setToolTip("Delete locally indexed generic meeting emails. They can be rebuilt by syncing Outlook again.")
-        if self.is_sa2_electronic:
-            email_menu.addSeparator()
-            act = email_menu.addAction("📊 Open eMeeting Email Manager (Dashboard)", self._open_email_manager)
-            act.setToolTip("Open the electronic-meeting email dashboard for detailed email/TDoc inspection.")
         self.email_btn.setMenu(email_menu)
 
         self.count_lbl = QLabel(f"Showing {count} of {count} TDocs")

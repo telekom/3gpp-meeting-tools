@@ -145,13 +145,49 @@ class EmailMixin:
         )
 
     def _open_email_manager(self):
-        self.email_window = EmailManagerWindow(self.meeting_dir, {
-            str(r.get("TDoc", "")).strip().upper(): str(r.get("Agenda Item", "N/A")).strip() for r in self.model._data
-            if r.get("TDoc")}, self.mtg_info.get("start_date", ""), self.mtg_info.get("end_date", ""))
+        """Legacy entry point redirected to the unified Meeting Email Inbox cockpit."""
+        self._open_meeting_email_inbox()
 
-        self.email_window.tdoc_open_requested.connect(self._open_tdoc_from_signal)
-        self.email_window.tdoc_jump_requested.connect(self._jump_to_tdoc_from_signal)
-        self.email_window.show()
+    def _on_generate_meeting_email_statistics(self):
+        """Generates the generic HTML Email Analytics Dashboard from the unified email databases."""
+        from modules.emails.core.stats.dataset_builder import build_unified_email_stats_dataset
+        from modules.emails.core.stats.statistics_threads import EmailStatsExporterThread
+        from modules.meetings.ui.tdocs_dialogs import StatisticsSettingsDialog
+
+        tdoc_ai_lookup = {
+            str(r.get("TDoc", "")).strip().upper(): str(r.get("Agenda Item", "")).strip()
+            for r in (getattr(self.model, "_data", None) or [])
+            if r.get("TDoc") and not r.get("_is_tracked_thread")
+        }
+        dataset = build_unified_email_stats_dataset(
+            general_email_db=getattr(self, "general_email_db", None),
+            tracked_db=getattr(self, "tracked_threads_db", None),
+            meeting_id=self._get_meeting_id_label(),
+            tdoc_ai_lookup=tdoc_ai_lookup,
+            tdoc_meta_map=self._build_tdoc_meta_map(),
+        )
+        if not dataset:
+            QMessageBox.information(
+                self,
+                "No Emails Indexed",
+                "There are no synced emails or tracked threads for this meeting yet.\n\n"
+                "Sync Outlook folders or pin threads first.",
+            )
+            return
+        cfg = StatisticsSettingsDialog().load_config()
+        meeting_name = self._get_meeting_id_label() or self.meeting_dir.name
+        self._email_stats_thread = EmailStatsExporterThread(self.meeting_dir, dataset, meeting_name, cfg)
+        self._email_stats_thread.finished.connect(self._on_email_stats_export_finished)
+        self._email_stats_thread.start()
+
+    def _on_email_stats_export_finished(self, success: bool, msg: str):
+        if success:
+            if hasattr(os, "startfile"):
+                os.startfile(msg)
+            else:
+                webbrowser.open(f"file:///{msg}")
+        else:
+            QMessageBox.warning(self, "Email Statistics Failed", f"Could not generate email statistics:\n{msg}")
 
     def _refresh_email_counts(self):
         try:

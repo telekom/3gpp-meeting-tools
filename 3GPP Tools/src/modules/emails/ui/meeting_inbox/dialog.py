@@ -52,15 +52,22 @@ class MeetingEmailInboxDialog(
         settings: Optional[QSettings] = None,
         meeting_start: str = "",
         meeting_end: str = "",
+        tdocs_db: Optional[Any] = None,
+        user_data_callback: Optional[Callable[[str, str, str], None]] = None,
+        jump_tdoc_callback: Optional[Callable[[str], None]] = None,
     ):
         super().__init__(parent)
         self.tracked_db = tracked_db
         self.general_email_db = general_email_db
+        self.tdocs_db = tdocs_db
+        self._user_data_callback = user_data_callback
+        self._jump_tdoc_callback = jump_tdoc_callback
         self.meeting_id = str(meeting_id or "").strip()
         self.wg = str(wg or "SA2").strip().upper()
         self._meeting_start = str(meeting_start or "").strip()
         self._meeting_end = str(meeting_end or "").strip()
         self._sync_worker = None
+        self._stats_thread = None
         self.tdoc_ai_lookup = {str(k).upper(): str(v) for k, v in (tdoc_ai_lookup or {}).items()}
         self._tdoc_meta_map = tdoc_meta_map or {}
         self._agenda_map = agenda_map
@@ -83,6 +90,7 @@ class MeetingEmailInboxDialog(
 
         self._all_items: List[dict] = []
         self._grouped_items: List[dict] = []
+        self._tdoc_grouped_items: List[dict] = []
         self._visible_items: List[dict] = []
         self._items_by_id: Dict[str, dict] = {}
         self._selected_items: List[dict] = []
@@ -92,6 +100,10 @@ class MeetingEmailInboxDialog(
         self._restoring_filters = True
         self._active_mode = "UNREAD"
         self._view_mode = "MESSAGES"
+        self._hide_objected = False
+        self._followed_ais: set = set()
+        self._inherited_followed_ais: set = set()
+        self._followed_ais_customized = False
         self._saved_source_filter = ""
         self._saved_search_text = ""
         self._pending_company_filter: Optional[List[str]] = None

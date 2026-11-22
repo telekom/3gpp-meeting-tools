@@ -72,6 +72,8 @@ class GeneralEmailDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_gen_ignored ON general_emails(is_ignored)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_gen_flagged ON general_emails(flag_status)")
             conn.commit()
+            from modules.emails.core.legacy_email_migrator import migrate_legacy_emeeting_emails
+            migrate_legacy_emeeting_emails(conn)
 
     def get_cached_email_states(self) -> Dict[str, Dict[str, Any]]:
         """Returns {email_id: {'is_read': int, 'flag_status': int, 'has_body': bool}} for cached emails."""
@@ -149,7 +151,7 @@ class GeneralEmailDatabase:
                     sender_email = excluded.sender_email,
                     company = excluded.company,
                     date_received = excluded.date_received,
-                    body_text = excluded.body_text,
+                    body_text = CASE WHEN excluded.body_text != '' THEN excluded.body_text ELSE general_emails.body_text END,
                     clean_body = CASE WHEN excluded.clean_body != '' THEN excluded.clean_body ELSE general_emails.clean_body END,
                     attachments = CASE WHEN excluded.attachments != '[]' THEN excluded.attachments ELSE general_emails.attachments END,
                     is_read = {read_expr},

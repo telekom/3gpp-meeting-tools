@@ -38,12 +38,15 @@ class InboxLayoutAndSettingsMixin:
     def _load_filter_settings(self):
         prefix = self._meeting_settings_prefix()
         mode = str(self._settings.value(f"{prefix}/active_mode", "UNREAD") or "UNREAD").strip().upper()
-        self._active_mode = mode if mode in ("UNREAD", "FLAGGED", "RECENT", "ALL") else "UNREAD"
+        self._active_mode = mode if mode in ("PRIORITY", "UNREAD", "FLAGGED", "RECENT", "ALL") else "UNREAD"
 
         raw_vm = self._settings.value(f"{prefix}/view_mode", None)
         if raw_vm is None:
             raw_vm = self._settings.value("view_mode", "MESSAGES")
-        self._view_mode = "THREADS" if str(raw_vm or "").strip().upper() == "THREADS" else "MESSAGES"
+        vm_up = str(raw_vm or "").strip().upper()
+        self._view_mode = vm_up if vm_up in ("MESSAGES", "THREADS", "TDOCS") else "MESSAGES"
+
+        self._hide_objected = bool(self._settings.value(f"{prefix}/hide_objected", False, type=bool))
 
         src = str(self._settings.value(f"{prefix}/source_filter", "") or "").strip().upper()
         self._saved_source_filter = src if src in ("", "NEEDS_TRIAGE", "THREAD", "UNPINNED") else ""
@@ -68,6 +71,7 @@ class InboxLayoutAndSettingsMixin:
             prefix = self._meeting_settings_prefix()
             self._settings.setValue(f"{prefix}/active_mode", self._active_mode)
             self._settings.setValue(f"{prefix}/view_mode", self._view_mode)
+            self._settings.setValue(f"{prefix}/hide_objected", bool(getattr(self, "_hide_objected", False)))
             if hasattr(self, "source_combo"):
                 self._settings.setValue(f"{prefix}/source_filter", str(self.source_combo.currentData() or ""))
             if hasattr(self, "search_edit"):
@@ -231,12 +235,46 @@ class InboxLayoutAndSettingsMixin:
         except Exception:
             pass
 
+    def _update_table_headers_for_view_mode(self):
+        if not hasattr(self, "table"):
+            return
+        if self._view_mode == "TDOCS":
+            self.table.setHorizontalHeaderLabels([
+                "State / Signals",
+                "TDoc & Author",
+                "AI / WI",
+                "TDoc Title & Context",
+                "Email Contributors",
+                "Latest",
+            ])
+        elif self._view_mode == "THREADS":
+            self.table.setHorizontalHeaderLabels([
+                "State / Signals",
+                "Thread / TDocs",
+                "AI",
+                "Subject",
+                "Participants",
+                "Latest",
+            ])
+        else:
+            self.table.setHorizontalHeaderLabels([
+                "State / Signals",
+                "Source / Context",
+                "AI",
+                "Subject",
+                "Sender",
+                "Date",
+            ])
+
     def closeEvent(self, event):
         try:
             self._flush_pending_note_save(reload_view=False)
             if getattr(self, "_sync_worker", None) and self._sync_worker.isRunning():
                 self._sync_worker.request_cancel()
                 self._sync_worker.wait(1500)
+            if getattr(self, "_stats_thread", None) and self._stats_thread.isRunning():
+                self._stats_thread.requestInterruption()
+                self._stats_thread.wait(500)
             self._settings.setValue("geometry", self.saveGeometry())
             self._settings.setValue("layout_orientation", self._layout_orientation)
             if hasattr(self, "splitter"):
