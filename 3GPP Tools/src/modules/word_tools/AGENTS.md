@@ -15,7 +15,8 @@ src/modules/word_tools/
 │   ├── styles/                                  # Modular 3GPP styles registry & packager (see styles/README.md)
 │   ├── styles_3gpp.py                           # Re-export shim -> core/styles/ package
 │   ├── document_opener.py / word_comparator.py  # Safe Word COM opening, snapshotting & Track Changes diff
-│   ├── document_sanitizer.py / author_renamer.py # F-07 proofing language, rev purge & author hub
+│   ├── sanitizer/                               # Modular OpenXML hygiene & sanitizer package (see sanitizer/README.md)
+│   ├── document_sanitizer.py / author_renamer.py # F-07 proofing language, rev purge (shim -> core/sanitizer/) & author hub
 │   ├── docx_splitter.py / word_excerpt_extractor.py / word_excerpt_fragment_worker.py / word_excerpt_naming.py
 │   ├── md_to_docx/                              # Modular Markdown -> Word package (see md_to_docx/README.md)
 │   ├── markdown_to_docx.py                      # Re-export shim -> core/md_to_docx/ package

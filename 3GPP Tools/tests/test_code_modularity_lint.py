@@ -37,7 +37,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/modules/spec_search/ui/quick_search_panel.py": 658,
     "src/modules/specifications/core/spec_history_extractor.py": 620,
     "src/modules/specifications/ui/dialogs.py": 619,
-    "src/modules/word_tools/core/document_sanitizer.py": 674,
     "src/modules/word_tools/core/word_excerpt_extractor.py": 668,
     "src/modules/word_tools/ui/cards/excerpt_card.py": 609,
     "src/modules/word_tools/ui/cards/markdown_card.py": 653,
