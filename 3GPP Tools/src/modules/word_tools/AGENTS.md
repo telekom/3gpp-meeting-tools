@@ -17,7 +17,8 @@ src/modules/word_tools/
 │   ├── document_opener.py / word_comparator.py  # Safe Word COM opening, snapshotting & Track Changes diff
 │   ├── sanitizer/                               # Modular OpenXML hygiene & sanitizer package (see sanitizer/README.md)
 │   ├── document_sanitizer.py / author_renamer.py # F-07 proofing language, rev purge (shim -> core/sanitizer/) & author hub
-│   ├── docx_splitter.py / word_excerpt_extractor.py / word_excerpt_fragment_worker.py / word_excerpt_naming.py
+│   ├── word_excerpt/                            # Modular Word heading scanner & excerpt engine package (see word_excerpt/README.md)
+│   ├── docx_splitter.py / word_excerpt_extractor.py (shim -> core/word_excerpt/) / word_excerpt_fragment_worker.py / word_excerpt_naming.py
 │   ├── md_to_docx/                              # Modular Markdown -> Word package (see md_to_docx/README.md)
 │   ├── markdown_to_docx.py                      # Re-export shim -> core/md_to_docx/ package
 │   ├── converter/                               # Modular Word format converter package (see converter/README.md)
