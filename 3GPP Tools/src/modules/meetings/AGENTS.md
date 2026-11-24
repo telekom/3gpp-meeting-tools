@@ -39,7 +39,8 @@ src/modules/meetings/
 │   │   ├── session_plan_diff.py       # Slot-by-slot snapshot diff engine
 │   │   ├── session_plan_exporter.py   # Re-export shim -> session_plan/exporter/ package (see exporter/README.md)
 │   │   ├── session_plan_models.py     # Domain models & boundary-aware delegate resolvers
-│   │   ├── session_plan_parser.py     # Fault-tolerant Word (.docx) & Markdown parser
+│   │   ├── parser/                    # Modular SessionPlanParser package (see parser/README.md)
+│   │   ├── session_plan_parser.py     # Re-export shim -> session_plan/parser/ package
 │   │   └── session_plan_timezone.py   # Venue vs Vienna UTC timezone resolution
 │   ├── tdocs/                         # TDoc & Chairman's Notes parsing and importer threads
 │   │   ├── chair_notes/               # Modular RAN1/2/3 & SA2 agreements/WA parser (see chair_notes/README.md)
