@@ -26,7 +26,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/modules/nas/core/parsing/asn1_base_parser.py": 616,
     "src/modules/puml2visio/core/visio_converter.py": 615,
     "src/modules/puml2visio/templates/builtin_presets.py": 925,
-    "src/modules/specifications/ui/dialogs.py": 619,
     "src/modules/word_tools/ui/cards/excerpt_card.py": 609,
 }
 

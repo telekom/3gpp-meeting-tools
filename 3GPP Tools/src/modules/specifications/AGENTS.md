@@ -22,7 +22,8 @@ src/modules/specifications/
     ├── menu/                                  # Modular context menu & citation copy package (see menu/README.md)
     ├── ui_tabs.py / components.py / spec_action_controller.py / threads.py
     ├── spec_menu.py                           # Re-export shim -> ui/menu/ package
-    ├── dialogs.py / spec_info_dialog.py / spec_annotations_dialog.py
+    ├── spec_dialogs/                          # Modular SpecsConfig/Sync/Filter/AddSpec dialogs (see spec_dialogs/README.md)
+    ├── dialogs.py / spec_info_dialog.py / spec_annotations_dialog.py   # dialogs.py (shim -> spec_dialogs/ & aliases)
     ├── spec_clause/                           # Modular SpecClauseExcerptDialog package (see spec_clause/README.md)
     ├── spec_clause_dialog.py                  # Re-export shim -> spec_clause/ package
     ├── spec_history/                          # Modular SpecVersionHistoryDialog package (see spec_history/README.md)
