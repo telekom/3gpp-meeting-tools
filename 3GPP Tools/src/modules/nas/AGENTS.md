@@ -10,7 +10,8 @@ Developer and AI agent guide for multi-protocol parsing, evolution matrix diffin
 src/modules/nas/
 ├── AGENTS.md
 ├── core/
-│   ├── nas_db.py / nas_exporter.py / nas_threads.py
+│   ├── db/                            # Modular NASDatabase package (see db/README.md)
+│   ├── nas_db.py (shim) / nas_exporter.py / nas_threads.py
 │   └── parsing/                       # ProtocolDocxDispatcher + specialized parsers (see parsing/AGENTS.md)
 │       ├── nas_parser.py / rrc_asn1_parser.py / ran3_asn1_parser.py / xnap_asn1_parser.py
 │       ├── asn1_base_parser.py / asn1_parser.py / gtpu_parser.py / pdu_session_up_parser.py / pfcp_parser.py

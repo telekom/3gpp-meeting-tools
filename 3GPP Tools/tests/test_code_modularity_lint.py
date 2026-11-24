@@ -55,7 +55,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/modules/meetings/ui/tdocs_help_dialog.py": 642,
     "src/modules/meetings/ui/tdocs_menus.py": 815,
     "src/modules/meetings/ui/topic_pills.py": 812,
-    "src/modules/nas/core/nas_db.py": 929,
     "src/modules/nas/core/parsing/asn1_base_parser.py": 616,
     "src/modules/nas/core/parsing/nas_parser.py": 781,
     "src/modules/puml2visio/core/visio_converter.py": 615,
