@@ -12,7 +12,8 @@ src/modules/puml2visio/
 ├── core/
 │   ├── ascii_converter.py / live_preview.py / prompt_manager.py / callflow_thread.py
 │   ├── powerpoint_converter.py        # Native Office vector PPTX & open-deck append
-│   ├── visio_converter.py             # PlantUML -> Visio (.vsdx)
+│   ├── visio/                         # Modular PlantUML -> Visio (.vsdx) package (see visio/README.md)
+│   ├── visio_converter.py             # Re-export shim -> core/visio/ package
 │   └── pptx2visio_converter.py / visio2pptx_converter.py  # Bidirectional EMF bridge
 ├── templates/                         # builtin_presets.py, plantuml_snippets.py, snippet_model.py
 └── ui/
