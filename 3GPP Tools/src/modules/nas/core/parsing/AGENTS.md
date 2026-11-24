@@ -36,7 +36,7 @@ progress callback.
   (TS 29.281).
 - `pdu_session_up_parser.py` — PDU Session User Plane frame tables and field
   definitions (TS 38.415).
-- `asn1_base_parser.py` — shared ASN.1 DOCX scanning, extraction of type
+- `asn1_base/` + `asn1_base_parser.py` (shim) — shared ASN.1 DOCX scanning, extraction of type
   definitions and field descriptions, ASN.1 token/field parsing, trailing comma
   sanitization, pre-`-- ASN1START` prose preservation when `<Name> field descriptions`
   tables follow `-- ASN1STOP`, `<Name> information element`/`message` caption
