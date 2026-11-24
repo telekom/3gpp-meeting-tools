@@ -22,7 +22,8 @@ src/modules/word_tools/
 │   ├── converter/                               # Modular Word format converter package (see converter/README.md)
 │   ├── presentation/                            # Modular PPTX/PPT/PDF -> Markdown package (see presentation/README.md)
 │   ├── presentation_to_markdown.py (shim) / word_converter.py (shim) / libreoffice_converter.py
-│   ├── sensitivity_label.py                     # F-06 Microsoft Purview/MIP policy discovery & labeling
+│   ├── sensitivity/                             # Modular Purview/MIP policy & labeling package (see sensitivity/README.md)
+│   ├── sensitivity_label.py                     # Re-export shim -> core/sensitivity/ package
 │   ├── word_config.py / word_extractor.py / word_media_repair.py
 └── ui/
     ├── word_tabs.py                             # WordExtractorTab (2-tier ribbon + segmented workbenches)
