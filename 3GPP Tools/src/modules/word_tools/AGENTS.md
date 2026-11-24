@@ -28,7 +28,8 @@ src/modules/word_tools/
 │   ├── sensitivity_label.py                     # Re-export shim -> core/sensitivity/ package
 │   ├── word_config.py / word_extractor.py / word_media_repair.py
 └── ui/
-    ├── word_tabs.py                             # WordExtractorTab (2-tier ribbon + segmented workbenches)
+    ├── workbench/                               # Modular WordExtractorTab package (see workbench/README.md)
+    ├── word_tabs.py                             # Re-export shim -> ui/workbench/ (WordExtractorTab, get_active_word_document)
     ├── document_selector_pane.py                # DocumentSelectorPane 2.0 & ModernDropZone
     ├── cr_pcr/                                  # Modular CrPcrDialog package (see cr_pcr/README.md)
     ├── cr_pcr_dialog.py / batch_label_dialog.py / word_settings_dialog.py   # (shims -> cr_pcr/ & word_settings/)
