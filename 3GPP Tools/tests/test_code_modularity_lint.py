@@ -65,7 +65,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/modules/specifications/ui/spec_clause_dialog.py": 679,
     "src/modules/specifications/ui/spec_tdoc_report_dialog.py": 677,
     "src/modules/word_tools/core/document_sanitizer.py": 674,
-    "src/modules/word_tools/core/presentation_to_markdown.py": 868,
     "src/modules/word_tools/core/sensitivity_label.py": 686,
     "src/modules/word_tools/core/word_excerpt_extractor.py": 668,
     "src/modules/word_tools/ui/cards/excerpt_card.py": 609,

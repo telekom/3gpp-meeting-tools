@@ -20,7 +20,8 @@ src/modules/word_tools/
 │   ├── md_to_docx/                              # Modular Markdown -> Word package (see md_to_docx/README.md)
 │   ├── markdown_to_docx.py                      # Re-export shim -> core/md_to_docx/ package
 │   ├── converter/                               # Modular Word format converter package (see converter/README.md)
-│   ├── presentation_to_markdown.py / word_converter.py (shim) / libreoffice_converter.py
+│   ├── presentation/                            # Modular PPTX/PPT/PDF -> Markdown package (see presentation/README.md)
+│   ├── presentation_to_markdown.py (shim) / word_converter.py (shim) / libreoffice_converter.py
 │   ├── sensitivity_label.py                     # F-06 Microsoft Purview/MIP policy discovery & labeling
 │   ├── word_config.py / word_extractor.py / word_media_repair.py
 └── ui/
@@ -61,7 +62,7 @@ src/modules/word_tools/
 ## 5. Bidirectional Markdown ⇄ Word, Decks, Sanitizer & MIP Labeling
 
 - **Word → Markdown:** Headless extraction with revision mode (`Inline Markup`, `Accept All Changes`, `Reject All Changes`), `{doc_name}_media/` figure export, EMF/WMF PNG rasterization, and embedded `.vsdx` linking.
-- **PowerPoint / PDF Deck → Markdown (`presentation_to_markdown.py`):** 4-tier engine: (1) Windows PowerPoint COM (1080p `slide_NN.png` + titles, bullets, `HasTable`, `NotesPage`); (2) Headless OpenXML `.pptx` parser (`xml.etree.ElementTree`); (3) PDF slide engine (`pypdfium2` + `pypdf`); (4) Headless LibreOffice fallback for `.ppt`. Outputs `## Slide N`, image embeds, GFM tables, and `> [!NOTE] Speaker Notes`.
+- **PowerPoint / PDF Deck → Markdown (`presentation/` package & `presentation_to_markdown.py` shim):** 4-tier engine: (1) Windows PowerPoint COM (1080p `slide_NN.png` + titles, bullets, `HasTable`, `NotesPage`); (2) Headless OpenXML `.pptx` parser (`xml.etree.ElementTree`); (3) PDF slide engine (`pypdfium2` + `pypdf`); (4) Headless LibreOffice fallback for `.ppt`. Outputs `## Slide N`, image embeds, GFM tables, and `> [!NOTE] Speaker Notes`.
 - **Markdown → Word (`md_to_docx/` package & `markdown_to_docx.py` shim):** Headless OpenXML synthesis resolving relative/`{doc_stem}_media/` images (auto-scaled to printable margins), SVG $\to$ PNG via QtSvg, ````plantuml```` blocks via `plantuml.jar`, `3gpp_70.dotx` + `TableGrid` styling, GFM callouts, and MIP sensitivity labels.
 - **Meeting Export Completeness & Recovery (`export_manifest.py`, `presentation_to_markdown.py`):** `is_export_complete()` checks non-zero size, `>=120` bytes (unless converter-stamped), absence of `"Document conversion was not available"` / `"__-________"` corrupt prefixes, `"## Slide "` presence for decks, and on-disk slide PNGs. `plan_incremental_session()` queues incomplete exports into `tdocs_to_update`. `_clean_tdoc_prefix` uses `re.sub(r'[^\w\-]', '_', ...)` and purges old corrupted images; `_clean_for_json` serializes `set`/`tuple`/`Path` in `row_data`; `_find_word_doc` prioritizes `.docx`, `.docm`, `.pptx`, `.doc`, `.ppt` over `.pdf`.
 - **Sanitizer & Author Hub (F-07, `document_sanitizer.py`, `author_renamer.py`):** Pure Python OpenXML ZIP engine normalizing proofing language across all stories/styles, purging trivial `<w:rPrChange>` language-only balloons while preserving technical revisions, consolidating reviewer names (`'Deutsche Telekom'`, `'Editor'`, `'Rapporteur'`, `'Anonymous'`) + initials + `dc:creator`/`cp:lastModifiedBy`, auditing in `<150ms`, and creating `.bak` backups.
