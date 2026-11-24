@@ -8,7 +8,7 @@ import shutil
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -270,7 +270,11 @@ class TestWorldClockAndTimezones(unittest.TestCase):
         self.assertIn("⏭️", service.format_status_bar_text(snap_off))
 
     def test_status_bar_and_world_clock_dialog_smoke(self) -> None:
-        self._seed_meeting("SA2", "178", "Calgary", "2026-11-16", "2026-11-20")
+        # Anchor dates to current UTC date so live snapshots without ref_utc remain deterministic
+        today_utc = datetime.now(timezone.utc).date()
+        start_d = (today_utc - timedelta(days=1)).isoformat()
+        end_d = (today_utc + timedelta(days=3)).isoformat()
+        self._seed_meeting("SA2", "178", "Calgary", start_d, end_d)
         service = WorldClockService(db_path=self.db_path, settings=self.settings)
 
         bar = SystemStatusBar()
