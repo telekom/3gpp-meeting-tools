@@ -68,7 +68,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/modules/specifications/ui/spec_tdoc_report_dialog.py": 677,
     "src/modules/word_tools/core/cr_pcr_generator.py": 899,
     "src/modules/word_tools/core/document_sanitizer.py": 674,
-    "src/modules/word_tools/core/markdown_to_docx.py": 901,
     "src/modules/word_tools/core/presentation_to_markdown.py": 868,
     "src/modules/word_tools/core/sensitivity_label.py": 686,
     "src/modules/word_tools/core/styles_3gpp.py": 876,
