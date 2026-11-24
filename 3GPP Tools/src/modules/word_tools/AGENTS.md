@@ -33,7 +33,7 @@ src/modules/word_tools/
     ├── cr_pcr/                                  # Modular CrPcrDialog package (see cr_pcr/README.md)
     ├── cr_pcr_dialog.py / batch_label_dialog.py / word_settings_dialog.py   # (shims -> cr_pcr/ & word_settings/)
     ├── word_settings/                           # Modular WordSettingsDialog package (see word_settings/README.md)
-    └── cards/                                   # compare_card, markdown/ (markdown_card shim), cr_pcr_card, sanitizer_card, excerpt_card, converter_card
+    └── cards/                                   # compare_card, markdown/, sanitizer/ (shims), cr_pcr_card, excerpt_card, converter_card
 ```
 
 ---
