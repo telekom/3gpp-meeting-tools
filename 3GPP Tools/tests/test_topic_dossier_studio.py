@@ -2654,6 +2654,63 @@ class TestOpenEndedTimeframeAndFreshness(unittest.TestCase):
         dlg.close()
         dlg2.close()
 
+    def test_download_tdocs_excel_uses_portal_mtg_id_and_rejects_html(self):
+        from unittest.mock import MagicMock, patch
+        from modules.meetings.core.exporters.topic_dossier_exporter import TopicDossierExporterThread
+        from modules.meetings.core.tdocs.tdocs_downloader import TDocsDownloaderThread
+
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            topic = MetaTopicDefinition(id="t_portal", name="Portal ID Test", target_wgs=["SA5"])
+            exporter = TopicDossierExporterThread(
+                meetings_db=MagicMock(),
+                topic=topic,
+                selected_cohorts=[],
+                allow_network_download=True,
+            )
+
+            seen_ids = []
+
+            class _FakeDownloader:
+                def __init__(self, mtg_id, local_path, cancel_check=None):
+                    seen_ids.append(mtg_id)
+
+                def run(self):
+                    pass
+
+            with patch("modules.meetings.core.tdocs.tdocs_downloader.TDocsDownloaderThread", _FakeDownloader):
+                exporter._download_and_parse_tdocs_excel(
+                    {"id": 86192, "mtg_id": "60785", "meeting_number": "170", "folder_name": "TSGS5_170"},
+                    tmp_dir / "TSGS5_170",
+                )
+                # Missing portal mtg_id must skip download rather than falling back to SQLite `id`
+                exporter._download_and_parse_tdocs_excel(
+                    {"id": 98458, "mtg_id": None, "meeting_number": "178AHE", "folder_name": "TSGS2_178-AH-e_Electronic_2027-01"},
+                    tmp_dir / "TSGS2_178-AH-e_Electronic_2027-01",
+                )
+            self.assertEqual(seen_ids, ["60785"])
+
+            # TDocsDownloaderThread must reject HTML error pages and not persist bogus .xlsx files
+            fake_resp = MagicMock()
+            fake_resp.headers = {}
+            fake_resp.iter_content.return_value = [b"\r\n<!DOCTYPE html><html>Error</html>"]
+            fake_session = MagicMock()
+            fake_session.get.return_value = fake_resp
+
+            results = []
+            mtg_dir = tmp_dir / "TSGS5_HTML_ERR"
+            with patch("modules.meetings.core.tdocs.tdocs_downloader.NetworkSession.get_instance", return_value=fake_session), \
+                 patch("modules.meetings.core.tdocs.tdocs_downloader.NetworkSession.apply_humanness"):
+                dl = TDocsDownloaderThread("99999", mtg_dir)
+                dl.finished.connect(lambda ok, msg, mid: results.append((ok, msg, mid)))
+                dl.run()
+
+            self.assertEqual(len(results), 1)
+            self.assertFalse(results[0][0])
+            self.assertFalse((mtg_dir / "Agenda" / "TDocs_List_99999.xlsx").exists())
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()

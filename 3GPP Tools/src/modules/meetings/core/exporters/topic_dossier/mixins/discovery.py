@@ -218,12 +218,14 @@ class TopicDossierDiscoveryMixin:
 
     def _download_and_parse_tdocs_excel(self, mtg: Dict[str, Any], mtg_dir: Path) -> List[Dict[str, Any]]:
         """Downloads `TDocs_by_Agenda.xlsx` via `TDocsDownloaderThread` and parses the newest Excel."""
-        mtg_id = mtg.get("id") or mtg.get("meeting_number")
+        # Must use the 3GPP portal `mtg_id` (NOT SQLite row `id` or `meeting_number`).
+        mtg_id = str(mtg.get("mtg_id") or "").strip()
         if not mtg_id:
+            logger.debug(f"[TDocsDownloader] Skipping auto-download for {mtg_dir.name}: missing 3GPP portal mtg_id")
             return []
         try:
             from modules.meetings.core.tdocs.tdocs_downloader import TDocsDownloaderThread
-            dl = TDocsDownloaderThread(str(mtg_id), mtg_dir, cancel_check=lambda: self.is_cancelled)
+            dl = TDocsDownloaderThread(mtg_id, mtg_dir, cancel_check=lambda: self.is_cancelled)
             dl.run()
             agenda_dir = mtg_dir / "Agenda"
             if agenda_dir.is_dir():

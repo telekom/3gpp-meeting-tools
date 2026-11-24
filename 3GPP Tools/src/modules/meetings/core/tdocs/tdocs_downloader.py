@@ -82,6 +82,19 @@ class TDocsDownloaderThread(QThread):
                 self.finished.emit(False, "Download cancelled.", self.mtg_id)
                 return
 
+            # Validate Excel ZIP magic header so portal HTML error pages are never saved as .xlsx
+            with open(filepath, 'rb') as f_chk:
+                magic = f_chk.read(4)
+            if magic != b"PK\x03\x04":
+                try:
+                    filepath.unlink()
+                except Exception:
+                    pass
+                msg = f"3GPP portal returned non-Excel response for MtgId={self.mtg_id}"
+                logger.warning(f"⚠️ [TDocs List] {msg}")
+                self.finished.emit(False, msg, self.mtg_id)
+                return
+
             logger.info(f"✅ [TDocs List] Saved: {filepath}")
             self.finished.emit(True, str(filepath), self.mtg_id)
 
