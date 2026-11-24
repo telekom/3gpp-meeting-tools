@@ -68,7 +68,8 @@ src/modules/meetings/
 └── ui/
     ├── agreement_tracker/             # Modular AgreementTrackerDialog package (see agreement_tracker/README.md)
     ├── agreement_tracker_dialog.py    # Re-export shim -> agreement_tracker/ package
-    ├── contribution_dialog.py         # Multi-meeting company contribution audit dialog
+    ├── contributions/dialog/          # Modular ContributionReportDialog package (see dialog/README.md)
+    ├── contributions/contribution_dialog.py # Re-export shim -> contributions/dialog/ package
     ├── delegate_owner_picker.py       # Multi-delegate checkbox dropdown picker
     ├── dialogs.py                     # MeetingInfoDialog, AddMeetingDialog, MeetingsConfigDialog
     ├── meeting_agreements/            # Modular MeetingAgreementsDialog package (see meeting_agreements/README.md)

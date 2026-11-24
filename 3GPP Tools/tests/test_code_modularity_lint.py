@@ -33,7 +33,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/modules/meetings/core/exporters/topic_dossier/mixins/export_pipeline.py": 607,
     "src/modules/meetings/core/scraper.py": 689,
     "src/modules/meetings/core/session_plan/session_plan_timezone.py": 707,
-    "src/modules/meetings/ui/contributions/contribution_dialog.py": 710,
     "src/modules/meetings/ui/tdocs/window/mixins/filter_setup.py": 624,
     "src/modules/meetings/ui/tdocs/window/mixins/ui_header.py": 653,
     "src/modules/meetings/ui/tdocs_agenda_controller.py": 601,
