@@ -91,7 +91,8 @@ src/modules/meetings/
     ├── tdocs/components/              # Modular CheckableComboBox & ComparisonCartWidget (see components/README.md)
     ├── tdocs_components.py            # Re-export shim -> tdocs/components/ package
     ├── tdocs_dialogs.py               # Statistics & export configuration dialogs
-    ├── tdocs_menus.py                 # Right-click context menus & centralized Quick Copy
+    ├── tdocs/menus/                   # Modular TDocs context menus & Quick Copy package (see tdocs/menus/README.md)
+    ├── tdocs_menus.py                 # Re-export shim -> tdocs/menus/ package
     ├── tdocs/models/                  # Modular TDocsTableModel & TDocsFilterProxyModel package (see tdocs/models/README.md)
     ├── tdocs_models.py                # Re-export shim -> tdocs/models/ package
     ├── tdocs_window.py                # Re-export shim -> tdocs/window/ mixins
