@@ -84,20 +84,20 @@ class ContributionResultsTableModel(QAbstractTableModel):
                 if "agreed" in status or "approved" in status:
                     return QBrush(QColor(C.SUCCESS_SOFT_MINT))
                 if "noted" in status or "postponed" in status:
-                    return QBrush(QColor("#FEF7E0"))
+                    return QBrush(QColor(C.WARNING_SOFT_ALT))
                 if any(term in status for term in ("withdrawn", "rejected", "not agreed", "not-agreed")):
-                    return QBrush(QColor("#FCE8E6"))
+                    return QBrush(QColor(C.DANGER_SOFT_HOVER))
                 if status:
-                    return QBrush(QColor("#F1F3F4"))
+                    return QBrush(QColor(C.BG_CANVAS))
             if role == Qt.ForegroundRole:
                 if "agreed" in status or "approved" in status:
                     return QBrush(QColor(C.SUCCESS_ALT))
                 if "noted" in status or "postponed" in status:
-                    return QBrush(QColor("#B06000"))
+                    return QBrush(QColor(C.WARNING))
                 if any(term in status for term in ("withdrawn", "rejected", "not agreed", "not-agreed")):
-                    return QBrush(QColor("#C5221F"))
+                    return QBrush(QColor(C.DANGER))
                 if status:
-                    return QBrush(QColor("#3C4043"))
+                    return QBrush(QColor(C.TEXT_BODY))
             if role == Qt.FontRole and status:
                 font = QFont()
                 font.setBold(True)

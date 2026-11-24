@@ -57,7 +57,7 @@ class TDocActionsMixin:
                 }}
                 QPushButton:hover {{
                     background-color: {C.SUCCESS_SOFT_ALT};
-                    border-color: #22C55E;
+                    border-color: {C.GREEN_ACCENT};
                 }}
             """)
         else:

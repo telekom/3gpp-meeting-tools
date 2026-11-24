@@ -26,6 +26,7 @@ from PyQt5.QtWidgets import (
 
 
 from core.ui.font_scale import register_scaled_row_height
+from core.ui.theme import C
 
 
 class DatabaseInspectorDialog(QDialog):
@@ -52,7 +53,7 @@ class DatabaseInspectorDialog(QDialog):
             except Exception:
                 pass
         self.resize(1050, 700)
-        self.setStyleSheet("background-color: #FAFAFA;")
+        self.setStyleSheet(f"background-color: {C.BG_ALT_LIGHT};")
 
         self._setup_ui()
         self._reload_metadata()
@@ -83,18 +84,18 @@ class DatabaseInspectorDialog(QDialog):
         layout.setContentsMargins(12, 12, 12, 12)
 
         title = QLabel(f"🗄️ {self.display_name}")
-        title.setStyleSheet("font-size: 13px; font-weight: bold; color: #1E293B;")
+        title.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {C.TEXT_STRONG};")
         layout.addWidget(title)
 
         path_label = QLabel(str(self.db_path))
         path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        path_label.setStyleSheet("color: #64748B; font-size: 10px; margin-bottom: 4px;")
+        path_label.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 10px; margin-bottom: 4px;")
         layout.addWidget(path_label)
 
         notice = QLabel(
             "Read-only inspector. Browsing and diagnostics never modify database contents."
         )
-        notice.setStyleSheet("color: #166534; font-size: 10px; margin-bottom: 4px;")
+        notice.setStyleSheet(f"color: {C.SUCCESS_DARK}; font-size: 10px; margin-bottom: 4px;")
         layout.addWidget(notice)
 
         self.tabs = QTabWidget()
@@ -323,7 +324,7 @@ class DatabaseInspectorDialog(QDialog):
             self.data_table.setHorizontalHeaderLabels(columns)
             self.data_table.setRowCount(len(rows))
 
-            null_brush = QBrush(QColor("#94A3B8"))
+            null_brush = QBrush(QColor(C.TEXT_FAINT))
             for row_index, row in enumerate(rows):
                 for column_index, value in enumerate(row):
                     if value is None:
@@ -337,7 +338,7 @@ class DatabaseInspectorDialog(QDialog):
                         item.setToolTip("Binary value")
                     elif value == "":
                         item = QTableWidgetItem('""')
-                        item.setForeground(QBrush(QColor("#B45309")))
+                        item.setForeground(QBrush(QColor(C.WARNING)))
                         item.setToolTip("Empty string")
                     else:
                         item = QTableWidgetItem(str(value))

@@ -73,7 +73,7 @@ class SpecInfoDialog(QDialog):
 
         # Rely on shared card styling and standard Qt dialog background
         self.setStyleSheet(f"""
-            QDialog {{ background-color: #F8F9FA; }}
+            QDialog {{ background-color: {C.BG_SURFACE}; }}
             {CARD_FRAME_STYLE}
         """)
 
@@ -93,7 +93,7 @@ class SpecInfoDialog(QDialog):
         type_badge.setStyleSheet(BADGE_STYLE_INFO)
 
         number_label = QLabel(f"<b>{spec_num}</b>")
-        number_label.setStyleSheet("font-size: 17px; color: #1A202C; font-weight: bold;")
+        number_label.setStyleSheet(f"font-size: 17px; color: {C.TEXT_PRIMARY}; font-weight: bold;")
         number_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
         title_row.addWidget(type_badge)
@@ -103,7 +103,7 @@ class SpecInfoDialog(QDialog):
 
         desc_label = QLabel(title)
         desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("color: #4A5568; font-size: 13px; line-height: 1.4;")
+        desc_label.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 13px; line-height: 1.4;")
         desc_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         header_layout.addWidget(desc_label)
 
@@ -248,7 +248,7 @@ class SpecInfoDialog(QDialog):
 
         header_row = QHBoxLayout()
         title_lbl = QLabel("<b>🏷️ Personal Tags & Notes</b>")
-        title_lbl.setStyleSheet("font-size: 13px; color: #2D3748;")
+        title_lbl.setStyleSheet(f"font-size: 13px; color: {C.TEXT_STRONG};")
         header_row.addWidget(title_lbl)
         header_row.addStretch()
 
@@ -266,7 +266,7 @@ class SpecInfoDialog(QDialog):
         self.notes_display_lbl = QLabel()
         self.notes_display_lbl.setWordWrap(True)
         self.notes_display_lbl.setStyleSheet(
-            f"color: #4A5568; font-size: 12px; background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px; padding: 6px;"
+            f"color: {C.TEXT_SECONDARY}; font-size: 12px; background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px; padding: 6px;"
         )
         layout.addWidget(self.notes_display_lbl)
 
@@ -283,19 +283,19 @@ class SpecInfoDialog(QDialog):
         tags = ann.get("tags", [])
         if tags:
             tag_badges = " ".join([
-                f"<span style='background-color: {C.ACCENT_SOFT}; color: {C.ACCENT_PRIMARY}; border: 1px solid #BDD7EE; border-radius: 8px; padding: 2px 6px; font-size: 11px; font-weight: bold;'>🏷️ {t}</span>"
+                f"<span style='background-color: {C.ACCENT_SOFT}; color: {C.ACCENT_PRIMARY}; border: 1px solid {C.ACCENT_RING}; border-radius: 8px; padding: 2px 6px; font-size: 11px; font-weight: bold;'>🏷️ {t}</span>"
                 for t in tags
             ])
             self.tags_display_lbl.setText(f"<b>Tags:</b> {tag_badges}")
         else:
-            self.tags_display_lbl.setText("<span style='color: #A0AEC0;'><i>No tags assigned.</i></span>")
+            self.tags_display_lbl.setText(f"<span style='color: {C.TEXT_FAINT};'><i>No tags assigned.</i></span>")
 
         comments = ann.get("comments", "").strip()
         if comments:
             self.notes_display_lbl.setText(comments.replace("\n", "<br>"))
             self.notes_display_lbl.setVisible(True)
         else:
-            self.notes_display_lbl.setText("<span style='color: #A0AEC0;'><i>No personal notes recorded yet.</i></span>")
+            self.notes_display_lbl.setText(f"<span style='color: {C.TEXT_FAINT};'><i>No personal notes recorded yet.</i></span>")
 
     def _edit_annotations(self):
         spec_num = self.details.get("number", "")
@@ -321,7 +321,7 @@ class SpecInfoDialog(QDialog):
         header_bar.setSpacing(8)
 
         title_lbl = QLabel("<b>Related Work Items</b>")
-        title_lbl.setStyleSheet("font-size: 13px; color: #2D3748;")
+        title_lbl.setStyleSheet(f"font-size: 13px; color: {C.TEXT_STRONG};")
         header_bar.addWidget(title_lbl)
 
         self.wi_count_badge = QLabel(f"{len(self.related_wis)} WIs")
@@ -514,7 +514,7 @@ class SpecInfoDialog(QDialog):
 
     def _make_key_label(self, text: str) -> QLabel:
         lbl = QLabel(f"<b>{text}</b>")
-        lbl.setStyleSheet("color: #718096; font-size: 12px;")
+        lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 12px;")
         return lbl
 
     def _add_row(self, form: QFormLayout, label_text: str, value_text: str):

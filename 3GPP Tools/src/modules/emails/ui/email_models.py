@@ -2,6 +2,7 @@
 import os
 import re
 from PyQt5.QtCore import Qt, QAbstractTableModel, QSortFilterProxyModel, QModelIndex
+from core.ui.theme import C
 
 
 class EmailTableModel(QAbstractTableModel):
@@ -58,7 +59,7 @@ class EmailTableModel(QAbstractTableModel):
         elif role == Qt.ForegroundRole:
             if col_name in ["Sender", "Rev"]:
                 from PyQt5.QtGui import QColor
-                return QColor("#005A9E")
+                return QColor(C.OFFICE_BLUE)
         elif role == Qt.FontRole:
             if col_name in ["Sender", "Rev"]:
                 from PyQt5.QtGui import QFont

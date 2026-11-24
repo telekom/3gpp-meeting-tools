@@ -210,7 +210,7 @@ class NowCardsMixin:
         if is_all:
             p_lbl = QLabel("👥 ALL")
             p_lbl.setStyleSheet(
-                f"background: {C.WG_SA_BG}; color: {C.INDIGO_DARK}; border: 1px solid #6366F1; "
+                f"background: {C.WG_SA_BG}; color: {C.INDIGO_DARK}; border: 1px solid {C.INDIGO_ACCENT}; "
                 f"border-radius: 7px; padding: 1px 6px; font-weight: 700; font-size: 9.5px;"
             )
             top_row.addWidget(p_lbl)
@@ -353,7 +353,7 @@ class NowCardsMixin:
         btn_grid_jump.setStyleSheet(
             f"QPushButton {{ padding: 2px 8px; font-size: 10.5px; font-weight: 600; border-radius: 4px; "
             f"background: {C.INFO_SOFT}; color: {C.INFO}; border: 1px solid {C.INFO_BORDER}; }}"
-            f"QPushButton:hover {{ background: #DBEAFE; }}"
+            f"QPushButton:hover {{ background: {C.INFO_SOFT_STRONG}; }}"
         )
         btn_grid_jump.clicked.connect(lambda _, sl=slot: self._jump_to_slot_in_grid(sl.day_index, sl.quarter, sl.stream_number, sl.sub_slot))
         foot_row.addWidget(btn_grid_jump)

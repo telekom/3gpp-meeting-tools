@@ -23,6 +23,7 @@ from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_WARNING,
     TREE_STYLE_CLEAN,
 )
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +64,14 @@ class ProcessManagerDialog(QDialog):
         layout.setSpacing(8)
 
         title = QLabel("Active Office Documents")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #1E293B;")
+        title.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {C.TEXT_STRONG};")
         layout.addWidget(title)
 
         desc = QLabel(
             "Checked documents will be closed. Uncheck anything you want to keep open. "
             "Process termination is available under Emergency."
         )
-        desc.setStyleSheet("color: #64748B; font-size: 11px;")
+        desc.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         layout.addWidget(desc)
 
         self.tree = QTreeWidget()
@@ -88,7 +89,7 @@ class ProcessManagerDialog(QDialog):
         selection_bar = QHBoxLayout()
         selection_bar.setSpacing(6)
         selection_label = QLabel("Documents:")
-        selection_label.setStyleSheet("color: #64748B; font-size: 11px;")
+        selection_label.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         selection_bar.addWidget(selection_label)
 
         select_all_btn = QPushButton("Select all")
@@ -107,7 +108,7 @@ class ProcessManagerDialog(QDialog):
         footer.setSpacing(8)
 
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: #64748B; font-size: 11px;")
+        self.status_label.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         footer.addWidget(self.status_label)
         footer.addStretch()
 
@@ -176,7 +177,7 @@ class ProcessManagerDialog(QDialog):
             app_item = QTreeWidgetItem(self.tree)
             app_item.setData(0, Qt.UserRole, exe_name)
             app_item.setText(0, display_name)
-            app_item.setForeground(0, QBrush(QColor("#1E293B")))
+            app_item.setForeground(0, QBrush(QColor(C.TEXT_STRONG)))
             font = app_item.font(0)
             font.setBold(True)
             app_item.setFont(0, font)
@@ -198,7 +199,7 @@ class ProcessManagerDialog(QDialog):
                     name = doc.get("name", "Untitled Document")
                     if doc.get("modified") is True:
                         name += "  • modified"
-                        child.setForeground(0, QBrush(QColor("#B45309")))
+                        child.setForeground(0, QBrush(QColor(C.WARNING)))
                     child.setText(0, name)
                     child.setText(1, doc.get("full_name") or "Unsaved document")
                     child.setToolTip(0, "Checked = close this document; unchecked = keep it open")
@@ -210,13 +211,13 @@ class ProcessManagerDialog(QDialog):
                 # Background-only applications stay compact. Process details remain available
                 # by expanding the application row, but no action buttons clutter the tree.
                 app_item.setText(1, f"{total} background process{'es' if total != 1 else ''}")
-                app_item.setForeground(1, QBrush(QColor("#64748B")))
+                app_item.setForeground(1, QBrush(QColor(C.TEXT_MUTED)))
                 for proc in app_procs:
                     child = QTreeWidgetItem(app_item)
                     title = proc.get("Title", "").strip()
                     child.setText(0, title or "Background instance")
                     child.setText(1, f"PID {proc['Id']}" + (" · headless" if proc["IsGhost"] else ""))
-                    child.setForeground(0, QBrush(QColor("#64748B")))
+                    child.setForeground(0, QBrush(QColor(C.TEXT_MUTED)))
 
             # Document-bearing apps are useful expanded; background-only apps default collapsed.
             default_expanded = bool(documents)

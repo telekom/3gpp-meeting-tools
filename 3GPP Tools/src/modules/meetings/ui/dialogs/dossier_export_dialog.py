@@ -64,7 +64,7 @@ STYLE_PRIMARY_BTN = f"""
         background-color: {C.OFFICE_BLUE_DARK};
     }}
     QPushButton:pressed {{
-        background-color: #00335A;
+        background-color: {C.ACCENT_HOVER};
     }}
 """
 

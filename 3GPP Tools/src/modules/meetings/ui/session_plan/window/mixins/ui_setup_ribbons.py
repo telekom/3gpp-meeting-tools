@@ -377,7 +377,7 @@ class RibbonSetupMixin:
             "• <b>🕒 Pill</b> = Sub-slot or custom time override (blue = half-quarter, amber = custom)<br>"
             "• <b>Solid pill</b> = Topic owner<br>"
             "• <b>Dashed pill</b> = Ad-hoc session cover<br>"
-            "• <b style='color:#DC2626;'>Red ring / ⚠</b> = Parallel-stream clash<br>"
+            f"• <b style='color:{C.DANGER_ALT};'>Red ring / ⚠</b> = Parallel-stream clash<br>"
             "• <b>❓</b> = Unassigned Agenda Item<br>"
             "• <b>⛔</b> = Explicitly Not Followed (Out of scope)"
         )

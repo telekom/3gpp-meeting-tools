@@ -5,6 +5,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QLineEdit, QPushButton, QTreeView, QMessageBox, QSpinBox, QFrame)
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
+from core.ui.theme import C
 
 
 class OutlookFolderPickerDialog(QDialog):
@@ -12,7 +13,7 @@ class OutlookFolderPickerDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Select Outlook Folder")
         self.resize(450, 500)
-        self.setStyleSheet("QDialog { background-color: #FAFAFA; }")
+        self.setStyleSheet(f"QDialog {{ background-color: {C.BG_ALT_LIGHT}; }}")
 
         layout = QVBoxLayout(self)
 
@@ -22,13 +23,13 @@ class OutlookFolderPickerDialog(QDialog):
         self.tree.setModel(self.model)
         self.tree.setHeaderHidden(True)
         self.tree.setEditTriggers(QTreeView.NoEditTriggers)
-        self.tree.setStyleSheet("QTreeView { background-color: #FFFFFF; border: 1px solid #CCC; }")
+        self.tree.setStyleSheet(f"QTreeView {{ background-color: {C.BG_CARD}; border: 1px solid #CCC; }}")
         layout.addWidget(self.tree)
 
         btn_layout = QHBoxLayout()
         self.btn_ok = QPushButton("Select Folder")
         self.btn_ok.setStyleSheet(
-            "font-weight: bold; background-color: #0078D7; color: white; padding: 5px 15px; border-radius: 4px;")
+            f"font-weight: bold; background-color: {C.ACCENT_BRIGHT}; color: white; padding: 5px 15px; border-radius: 4px;")
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.setStyleSheet("padding: 5px 15px;")
 
@@ -132,7 +133,7 @@ class EmailConfigDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("⚙️ Email Manager Configuration")
         self.resize(600, 450)
-        self.setStyleSheet("QDialog { background-color: #FAFAFA; }")
+        self.setStyleSheet(f"QDialog {{ background-color: {C.BG_ALT_LIGHT}; }}")
 
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
@@ -197,7 +198,7 @@ class EmailConfigDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_save = QPushButton("Save Configuration")
         btn_save.setStyleSheet(
-            "font-weight: bold; background-color: #0078D7; color: white; padding: 6px 15px; border-radius: 4px;")
+            f"font-weight: bold; background-color: {C.ACCENT_BRIGHT}; color: white; padding: 6px 15px; border-radius: 4px;")
         btn_cancel = QPushButton("Cancel")
 
         btn_save.clicked.connect(self.accept)

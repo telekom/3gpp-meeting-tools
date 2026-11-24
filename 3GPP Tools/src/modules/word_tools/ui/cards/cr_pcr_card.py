@@ -25,6 +25,7 @@ from core.ui.ui_components import (
 )
 from modules.word_tools.ui.cr_pcr_dialog import CrPcrDialog
 from modules.word_tools.ui.document_selector_pane import DocumentSelectorPane
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ class WordCrPcrCard(QWidget):
 
         title_row = QHBoxLayout()
         bf_title = QLabel("<b>📝 3GPP Contribution Builder (CR &amp; Pseudo-CR Generator)</b>")
-        bf_title.setStyleSheet("font-size: 14px; color: #1E293B;")
+        bf_title.setStyleSheet(f"font-size: 14px; color: {C.TEXT_STRONG};")
         title_row.addWidget(bf_title)
         title_row.addStretch()
 
@@ -69,7 +70,7 @@ class WordCrPcrCard(QWidget):
             "authoritative 3GPP Word style enforcement, and corporate sensitivity labeling."
         )
         desc_lbl.setWordWrap(True)
-        desc_lbl.setStyleSheet("color: #475569; font-size: 12px;")
+        desc_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 12px;")
         bf_layout.addWidget(desc_lbl)
 
         # Document Selector Pane specifically for CR drafting
@@ -97,7 +98,7 @@ class WordCrPcrCard(QWidget):
         tf_layout.setSpacing(8)
 
         tf_title = QLabel("<b>🏛️ Official 3GPP Contribution Templates &amp; Specification Forms</b>")
-        tf_title.setStyleSheet("font-size: 14px; color: #1E293B;")
+        tf_title.setStyleSheet(f"font-size: 14px; color: {C.TEXT_STRONG};")
         tf_layout.addWidget(tf_title)
 
         tf_desc = QLabel(
@@ -105,17 +106,17 @@ class WordCrPcrCard(QWidget):
             "Click any template below to download the authoritative release form."
         )
         tf_desc.setWordWrap(True)
-        tf_desc.setStyleSheet("color: #475569; font-size: 12px;")
+        tf_desc.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 12px;")
         tf_layout.addWidget(tf_desc)
 
         # Macro Ribbon & Templates Row
         macro_row = QHBoxLayout()
         macro_lbl = QLabel("<b>3GPP Macro Ribbon (3gpp_70.dotx):</b>")
-        macro_lbl.setStyleSheet("font-size: 12px; color: #1E293B;")
+        macro_lbl.setStyleSheet(f"font-size: 12px; color: {C.TEXT_STRONG};")
         macro_row.addWidget(macro_lbl)
 
         self.cr_card_dotx_lbl = QLabel("⚪ Not installed in Word templates")
-        self.cr_card_dotx_lbl.setStyleSheet("color: #64748B; font-size: 12px;")
+        self.cr_card_dotx_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 12px;")
         macro_row.addWidget(self.cr_card_dotx_lbl)
 
         self.btn_cr_install_dotx = QPushButton("📥 Install")

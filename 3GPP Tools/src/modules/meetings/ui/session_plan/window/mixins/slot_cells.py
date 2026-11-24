@@ -127,7 +127,7 @@ class SlotCellsMixin:
 
         del_names, is_cov, is_all = self._get_slot_effective_delegates(slot)
         if is_all:
-            cov_lbl = " <span style='color:#6366F1; font-weight:normal;'>(Ad-Hoc Coverage)</span>" if is_cov else " <span style='color:#6366F1; font-weight:normal;'>(General / All Team Topic)</span>"
+            cov_lbl = f" <span style='color:{C.INDIGO_ACCENT}; font-weight:normal;'>(Ad-Hoc Coverage)</span>" if is_cov else f" <span style='color:{C.INDIGO_ACCENT}; font-weight:normal;'>(General / All Team Topic)</span>"
             tt += f"<div style='margin-top:6px; padding:4px 8px; background:{C.WG_SA_BG}; border:1px solid {C.WG_SA_BORDER}; color:{C.WG_SA_TEXT}; border-radius:4px; font-size:11.5px;'>👥 <b>Delegation:</b> <b>All Team</b>{cov_lbl}</div>"
         elif del_names:
             role_lbl = f" <span style='color:{C.TEXT_MUTED}; font-weight:normal;'>(Ad-Hoc Coverage)</span>" if is_cov else f" <span style='color:{C.TEXT_MUTED}; font-weight:normal;'>(Topic Owner)</span>"
@@ -376,7 +376,7 @@ class SlotCellsMixin:
             border_style = "dashed" if is_cov else "solid"
             all_pill.setStyleSheet(
                 f"QLabel {{ background: {C.WG_SA_BG}; color: {C.INDIGO_DARK}; font-weight: 700; font-size: 8.5px; "
-                f"border: 1px {border_style} #6366F1; border-radius: 7px; padding: 1px 4px; }}"
+                f"border: 1px {border_style} {C.INDIGO_ACCENT}; border-radius: 7px; padding: 1px 4px; }}"
             )
             pill_widgets.append(all_pill)
         elif assigned_members:
@@ -415,8 +415,8 @@ class SlotCellsMixin:
             un_lbl = ", ".join(unassigned_ais)
             un_pill.setToolTip(f"Unassigned Agenda Item(s): {un_lbl} — right-click to assign")
             un_pill.setStyleSheet(
-                "QLabel { background: #FEF3C7; color: #B45309; font-weight: 700; font-size: 9px; "
-                "border: 1px dashed #F59E0B; border-radius: 7px; padding: 0px 4px; }"
+                f"QLabel {{ background: {C.WARNING_SOFT_ALT}; color: {C.WARNING}; font-weight: 700; font-size: 9px; "
+                f"border: 1px dashed {C.WARNING_ACCENT}; border-radius: 7px; padding: 0px 4px; }}"
             )
             pill_widgets.append(un_pill)
 

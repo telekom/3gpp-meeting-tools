@@ -31,6 +31,7 @@ from modules.word_tools.core.document_opener import (
     get_active_word_document,
     list_open_word_documents,
 )
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ class DocumentSelectorPane(QWidget):
 
         header_row = QHBoxLayout()
         self.lbl_title = QLabel(f"<b>{self.title}</b>")
-        self.lbl_title.setStyleSheet("color: #1E293B; margin-bottom: 2px;")
+        self.lbl_title.setStyleSheet(f"color: {C.TEXT_STRONG}; margin-bottom: 2px;")
         header_row.addWidget(self.lbl_title)
         header_row.addStretch()
 
@@ -109,7 +110,7 @@ class DocumentSelectorPane(QWidget):
         local_bar.addWidget(self.btn_clear)
 
         self.lbl_meta = QLabel()
-        self.lbl_meta.setStyleSheet("font-size: 12px; color: #475569;")
+        self.lbl_meta.setStyleSheet(f"font-size: 12px; color: {C.TEXT_SECONDARY};")
         local_bar.addWidget(self.lbl_meta, 1)
 
         drop_layout.addLayout(local_bar)

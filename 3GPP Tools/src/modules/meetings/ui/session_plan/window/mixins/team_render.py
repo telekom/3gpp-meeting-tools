@@ -321,7 +321,7 @@ class TeamRenderMixin:
             else:
                 self.btn_conflicts_quick.setStyleSheet(
                     f"QPushButton {{ padding: 5px 10px; font-size: 12px; font-weight: 600; border: 1px solid {C.WG_RAN_BORDER}; background: {C.WG_RAN_BG}; color: {C.WG_RAN_TEXT}; border-radius: 6px; }}"
-                    "QPushButton:hover { background: #D1FAE5; }"
+                    f"QPushButton:hover {{ background: {C.EMERALD_SOFT}; }}"
                 )
 
         if clash_count == 0:

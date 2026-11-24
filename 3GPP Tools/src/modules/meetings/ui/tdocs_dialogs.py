@@ -91,7 +91,7 @@ class InteractiveNotesDialog(QDialog):
         sec_remarks.setPlainText(row_data.get("Secretary Remarks", "") or row_data.get("Title", ""))
         sec_remarks.setReadOnly(True)
         sec_remarks.setMaximumHeight(90)
-        sec_remarks.setStyleSheet("background-color: #F5F5F5; border: 1px solid #CCC;")
+        sec_remarks.setStyleSheet(f"background-color: {C.BG_SURFACE}; border: 1px solid #CCC;")
         layout.addWidget(sec_remarks)
 
         status_layout = QHBoxLayout()
@@ -139,7 +139,7 @@ class InteractiveNotesDialog(QDialog):
         save_btn = QPushButton("💾 Save Annotations")
         save_btn.setToolTip('Save My Status, My Tags, and My Notes.')
         save_btn.setStyleSheet(
-            "padding: 6px 15px; font-weight: bold; background-color: #0C6B0C; color: white; border-radius: 4px;"
+            f"padding: 6px 15px; font-weight: bold; background-color: {C.SUCCESS}; color: white; border-radius: 4px;"
         )
         save_btn.clicked.connect(self._on_save_clicked)
 
@@ -275,7 +275,7 @@ class StatisticsSettingsDialog(QDialog):
         self.export_html_chk = QCheckBox("Export standalone HTML plots (Warning: Creates hundreds of MBs of files)")
         self.export_html_chk.setToolTip('Also export standalone interactive HTML plots. This can create very large output files.')
         self.export_html_chk.setChecked(self.config.get("export_html_plots", False))
-        self.export_html_chk.setStyleSheet("font-weight: bold; color: #D83B01; margin-top: 5px;")
+        self.export_html_chk.setStyleSheet(f"font-weight: bold; color: {C.PPT_ORANGE_PRIMARY}; margin-top: 5px;")
         layout.addWidget(self.export_html_chk)
 
         layout.addStretch()

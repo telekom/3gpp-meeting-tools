@@ -23,31 +23,7 @@ from core.ui.theme import HEX_TO_TOKEN, C
 # tab-by-tab migration proceeds. New UI files and migrated files (`ui_components.py`)
 # are NOT in this allowlist and must have 0 raw hex literals.
 # Decrement or remove entries as each Phase 1/2 file is migrated.
-LEGACY_UI_HEX_ALLOWLIST: Dict[str, int] = {
-    "src/core/ui/database_inspector.py": 6,
-    "src/core/ui/process_manager_dialog.py": 8,
-    "src/modules/emails/ui/config_dialog.py": 5,
-    "src/modules/emails/ui/email_dialogs.py": 3,
-    "src/modules/emails/ui/email_models.py": 1,
-    "src/modules/emails/ui/general_email_dialog.py": 10,
-    "src/modules/meetings/ui/chair_notes_picker_dialog.py": 1,
-    "src/modules/meetings/ui/contributions/contribution_models.py": 6,
-    "src/modules/meetings/ui/dialogs/dossier_export_dialog.py": 1,
-    "src/modules/meetings/ui/dialogs/excel_export_dialog.py": 4,
-    "src/modules/meetings/ui/session_plan/window/mixins/now_cards.py": 2,
-    "src/modules/meetings/ui/session_plan/window/mixins/slot_cells.py": 6,
-    "src/modules/meetings/ui/session_plan/window/mixins/team_render.py": 1,
-    "src/modules/meetings/ui/session_plan/window/mixins/ui_setup_ribbons.py": 1,
-    "src/modules/meetings/ui/tdoc_triage_dialog.py": 2,
-    "src/modules/meetings/ui/tdocs_dialogs.py": 3,
-    "src/modules/meetings/ui/tdocs/window/mixins/filter_tracked_wis.py": 6,
-    "src/modules/meetings/ui/tdocs/window/mixins/tdoc_actions.py": 1,
-    "src/modules/specifications/ui/spec_annotations_dialog.py": 11,
-    "src/modules/specifications/ui/spec_info_dialog.py": 10,
-    "src/modules/word_tools/ui/cards/compare_card.py": 2,
-    "src/modules/word_tools/ui/cards/cr_pcr_card.py": 6,
-    "src/modules/word_tools/ui/document_selector_pane.py": 2,
-}
+LEGACY_UI_HEX_ALLOWLIST: Dict[str, int] = {}
 
 
 class TestUiHexLintRatchet(unittest.TestCase):

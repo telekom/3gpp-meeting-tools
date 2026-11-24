@@ -38,17 +38,17 @@ PRIMARY_BUTTON_STYLE = f"""
 QPushButton {{
     background-color: {C.ACCENT_PRIMARY};
     color: {C.BG_CARD};
-    border: 1px solid #164877;
+    border: 1px solid {C.ACCENT_HOVER};
     border-radius: 4px;
     padding: 6px 16px;
     font-size: 12px;
     font-weight: bold;
 }}
 QPushButton:hover {{
-    background-color: #184D80;
+    background-color: {C.ACCENT_HOVER};
 }}
 QPushButton:pressed {{
-    background-color: #123A61;
+    background-color: {C.INFO_NAVY};
 }}
 """
 
@@ -60,7 +60,7 @@ QFrame#tagChip {{
 }}
 QFrame#tagChip:hover {{
     background-color: {C.INFO_SOFT_STRONG};
-    border-color: #60A5FA;
+    border-color: {C.INFO_ACCENT};
 }}
 QLabel#tagText {{
     color: {C.INFO_DARK};
@@ -149,7 +149,7 @@ class EditSpecAnnotationsDialog(QDialog):
         self.setMinimumWidth(540)
         self.setMinimumHeight(440)
         self.setStyleSheet(f"""
-            QDialog {{ background-color: #F8F9FA; }}
+            QDialog {{ background-color: {C.BG_SURFACE}; }}
             {CARD_FRAME_STYLE}
         """)
 
@@ -178,7 +178,7 @@ class EditSpecAnnotationsDialog(QDialog):
         if self.spec_title:
             title_lbl = QLabel(self.spec_title)
             title_lbl.setWordWrap(True)
-            title_lbl.setStyleSheet("color: #4A5568; font-size: 12px;")
+            title_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 12px;")
             header_layout.addWidget(title_lbl)
 
         main_layout.addWidget(header_card)
@@ -192,7 +192,7 @@ class EditSpecAnnotationsDialog(QDialog):
 
         tags_header_row = QHBoxLayout()
         tags_header = QLabel("<b>Tags</b> (e.g., <i>data framework, analytics, charging</i>)")
-        tags_header.setStyleSheet("color: #2D3748; font-size: 12px;")
+        tags_header.setStyleSheet(f"color: {C.TEXT_STRONG}; font-size: 12px;")
         tags_header_row.addWidget(tags_header)
         tags_header_row.addStretch()
 
@@ -259,7 +259,7 @@ class EditSpecAnnotationsDialog(QDialog):
         notes_layout.setSpacing(6)
 
         notes_header = QLabel("<b>Personal Notes & Comments</b> (Searchable across application)")
-        notes_header.setStyleSheet("color: #2D3748; font-size: 12px;")
+        notes_header.setStyleSheet(f"color: {C.TEXT_STRONG}; font-size: 12px;")
         notes_layout.addWidget(notes_header)
 
         self.comments_edit = QPlainTextEdit()
@@ -283,7 +283,7 @@ class EditSpecAnnotationsDialog(QDialog):
         notes_layout.addWidget(self.comments_edit, stretch=1)
 
         self.updated_lbl = QLabel("")
-        self.updated_lbl.setStyleSheet("color: #718096; font-size: 11px; font-style: italic;")
+        self.updated_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px; font-style: italic;")
         notes_layout.addWidget(self.updated_lbl)
 
         main_layout.addWidget(notes_card, stretch=1)
@@ -451,7 +451,7 @@ class BatchTagDialog(QDialog):
         self.resize(500, 290)
         self.setMinimumWidth(460)
         self.setStyleSheet(f"""
-            QDialog {{ background-color: #F8F9FA; }}
+            QDialog {{ background-color: {C.BG_SURFACE}; }}
             {CARD_FRAME_STYLE}
         """)
 
@@ -476,7 +476,7 @@ class BatchTagDialog(QDialog):
 
         info_lbl = QLabel(
             f"Apply a tag to <b>{count} specifications</b>:<br>"
-            f"<span style='color: #4A5568;'>{specs_preview}</span>"
+            f"<span style='color: {C.TEXT_SECONDARY};'>{specs_preview}</span>"
         )
         info_lbl.setWordWrap(True)
         info_lbl.setStyleSheet("font-size: 12px;")

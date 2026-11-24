@@ -124,7 +124,7 @@ class ChairNotesPickerDialog(QDialog):
             "💡 <b>Pre-selection:</b> The newest file for each chair / track is pre-selected. "
             "Older versions remain unchecked by default. You can customize your selection below."
         )
-        tip_lbl.setStyleSheet(f"font-size: 11px; color: {C.ACCENT_SKY_DARK}; background: #E0F2FE; border-radius: 4px; padding: 4px 8px;")
+        tip_lbl.setStyleSheet(f"font-size: 11px; color: {C.ACCENT_SKY_DARK}; background: {C.SKY_SOFT}; border-radius: 4px; padding: 4px 8px;")
         tip_lbl.setTextFormat(Qt.RichText)
         h_layout.addWidget(tip_lbl)
 

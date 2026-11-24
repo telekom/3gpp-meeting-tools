@@ -113,12 +113,12 @@ class ExcelExportDialog(QDialog):
         self.col_list.setDragDropMode(QAbstractItemView.InternalMove)
         self.col_list.setDefaultDropAction(Qt.MoveAction)
         self.col_list.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.col_list.setStyleSheet("""
-            QListWidget { 
+        self.col_list.setStyleSheet(f"""
+            QListWidget {{ 
                 background: white; border: 1px solid #CCC; border-radius: 4px; padding: 4px; font-size: 12px; 
-            }
-            QListWidget::item { padding: 4px; }
-            QListWidget::item:hover { background-color: #F0F4F8; }
+            }}
+            QListWidget::item {{ padding: 4px; }}
+            QListWidget::item:hover {{ background-color: {C.BG_HOVER}; }}
         """)
         self._populate_column_list()
         col_main_layout.addWidget(self.col_list)
@@ -127,8 +127,8 @@ class ExcelExportDialog(QDialog):
         btn_box = QVBoxLayout()
         btn_box.setSpacing(6)
 
-        btn_style = "QPushButton { padding: 5px 10px; font-size: 11px; background: white; border: 1px solid #CCC; border-radius: 4px; } QPushButton:hover { background: #EAEAEA; }"
-        btn_preset_style = f"QPushButton {{ padding: 5px 8px; font-size: 11px; font-weight: bold; background: #FDF5F8; color: {C.ACCENT_BRAND_PINK}; border: 1px solid {C.ACCENT_BRAND_PINK}; border-radius: 4px; }} QPushButton:hover {{ background: #FCE8F0; }}"
+        btn_style = f"QPushButton {{ padding: 5px 10px; font-size: 11px; background: white; border: 1px solid #CCC; border-radius: 4px; }} QPushButton:hover {{ background: {C.BG_MUTED}; }}"
+        btn_preset_style = f"QPushButton {{ padding: 5px 8px; font-size: 11px; font-weight: bold; background: {C.ACCENT_BRAND_PINK_SOFT}; color: {C.ACCENT_BRAND_PINK}; border: 1px solid {C.ACCENT_BRAND_PINK}; border-radius: 4px; }} QPushButton:hover {{ background: {C.ACCENT_BRAND_PINK_HOVER}; }}"
 
         btn_up = QPushButton("▲ Move Up")
         btn_up.setToolTip('Move the selected export column one position upward.')

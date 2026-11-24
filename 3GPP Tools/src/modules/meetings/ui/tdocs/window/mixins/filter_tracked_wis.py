@@ -150,7 +150,7 @@ class TrackedWIFilterMixin:
                     QPushButton {{
                         background-color: {C.SUCCESS_SOFT_ALT};
                         color: {C.SUCCESS_DARK};
-                        border: 1.5px solid #22C55E;
+                        border: 1.5px solid {C.GREEN_ACCENT};
                         border-radius: 4px;
                         padding: 2px;
                         font-size: 13px;
@@ -214,17 +214,17 @@ class TrackedWIFilterMixin:
             if self.btn_flagged_emails.isChecked():
                 self.btn_flagged_emails.setStyleSheet(f"""
                     QPushButton {{
-                        background-color: #FEE2E2;
-                        color: #B91C1C;
-                        border: 1.5px solid #DC2626;
+                        background-color: {C.DANGER_SOFT_HOVER};
+                        color: {C.DANGER};
+                        border: 1.5px solid {C.DANGER_ALT};
                         border-radius: 4px;
                         padding: 2px;
                         font-size: 13px;
                         font-weight: bold;
                     }}
                     QPushButton:hover {{
-                        background-color: #FECACA;
-                        border-color: #B91C1C;
+                        background-color: {C.DANGER_BORDER};
+                        border-color: {C.DANGER};
                     }}
                 """)
             else:

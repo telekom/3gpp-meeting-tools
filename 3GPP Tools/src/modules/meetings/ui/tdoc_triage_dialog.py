@@ -244,10 +244,10 @@ class TDocTriageDialog(QDialog):
         self.save_notes_btn.setEnabled(False)
         self.save_notes_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: #0C6B0C; color: white; font-weight: bold;
+                background-color: {C.SUCCESS}; color: white; font-weight: bold;
                 border-radius: 4px; padding: 6px 14px;
             }}
-            QPushButton:hover {{ background-color: #095209; }}
+            QPushButton:hover {{ background-color: {C.SUCCESS_DARK}; }}
             QPushButton:disabled {{ background-color: {C.BORDER_SUBTLE}; color: {C.TEXT_FAINT}; }}
         """)
         self.save_notes_btn.clicked.connect(self._save_to_notes)

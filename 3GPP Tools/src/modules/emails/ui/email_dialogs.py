@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
 )
+from core.ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ class EditEmailDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("✏️ Edit Email Metadata")
         self.resize(500, 400)
-        self.setStyleSheet("QDialog { background-color: #FAFAFA; color: #333; }")
+        self.setStyleSheet(f"QDialog {{ background-color: {C.BG_ALT_LIGHT}; color: #333; }}")
 
         layout = QVBoxLayout(self)
         form_layout = QFormLayout()
@@ -34,7 +35,7 @@ class EditEmailDialog(QDialog):
 
         for widget in [self.txt_tdoc, self.txt_ai, self.txt_company, self.txt_sender_name, self.txt_sender_email,
                        self.txt_subject, self.txt_short_text]:
-            widget.setStyleSheet("background-color: #FFFFFF; border: 1px solid #CCC; color: #333;")
+            widget.setStyleSheet(f"background-color: {C.BG_CARD}; border: 1px solid #CCC; color: #333;")
 
         form_layout.addRow("TDoc ID:", self.txt_tdoc)
         form_layout.addRow("Agenda Item:", self.txt_ai)
@@ -49,7 +50,7 @@ class EditEmailDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_save = QPushButton("💾 Save Changes")
         btn_save.setStyleSheet(
-            "font-weight: bold; background-color: #0078D7; color: white; padding: 6px 15px; border-radius: 4px;")
+            f"font-weight: bold; background-color: {C.ACCENT_BRIGHT}; color: white; padding: 6px 15px; border-radius: 4px;")
         btn_cancel = QPushButton("Cancel")
         btn_cancel.setStyleSheet("color: #333;")
 
