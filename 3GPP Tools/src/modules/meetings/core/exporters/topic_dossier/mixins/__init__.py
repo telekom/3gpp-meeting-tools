@@ -6,10 +6,12 @@ from .artifacts import TopicDossierArtifactsMixin
 from .cache_and_conversion import TopicDossierCacheAndConversionMixin
 from .discovery import TopicDossierDiscoveryMixin
 from .export_pipeline import TopicDossierExportPipelineMixin
+from .meeting_processor import TopicDossierMeetingProcessorMixin
 
 __all__ = [
     "TopicDossierArtifactsMixin",
     "TopicDossierCacheAndConversionMixin",
     "TopicDossierDiscoveryMixin",
     "TopicDossierExportPipelineMixin",
+    "TopicDossierMeetingProcessorMixin",
 ]
