@@ -16,7 +16,9 @@ src/modules/specifications/
 │   └── spec_history_db.py / spec_history_extractor.py / spec_clause_attribution.py (shim) / spec_tdoc_opener.py / spec_tdoc_report.py
 └── ui/
     ├── specs_tab/                             # Modular SpecificationsTab package (see specs_tab/README.md)
-    ├── ui_tabs.py / components.py / spec_menu.py / spec_action_controller.py / threads.py
+    ├── menu/                                  # Modular context menu & citation copy package (see menu/README.md)
+    ├── ui_tabs.py / components.py / spec_action_controller.py / threads.py
+    ├── spec_menu.py                           # Re-export shim -> ui/menu/ package
     ├── dialogs.py / spec_info_dialog.py / spec_annotations_dialog.py / spec_clause_dialog.py
     ├── spec_history/                          # Modular SpecVersionHistoryDialog package (see spec_history/README.md)
     ├── spec_history_dialog.py                 # Re-export shim -> spec_history/ package
