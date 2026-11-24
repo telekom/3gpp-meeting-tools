@@ -86,7 +86,8 @@ src/modules/meetings/
     ├── session_plan/dialogs/          # Modular Timezone, Roster, Dispatch, Import & Diff dialogs (see dialogs/README.md)
     ├── session_plan_dialogs.py        # Re-export shim (ui/session_plan/session_plan_dialogs.py -> dialogs/)
     ├── session_plan_window.py         # Re-export shim -> session_plan/window/ mixins
-    ├── tdocs_components.py            # CheckableComboBox and styled UI widgets
+    ├── tdocs/components/              # Modular CheckableComboBox & ComparisonCartWidget (see components/README.md)
+    ├── tdocs_components.py            # Re-export shim -> tdocs/components/ package
     ├── tdocs_dialogs.py               # Statistics & export configuration dialogs
     ├── tdocs_menus.py                 # Right-click context menus & centralized Quick Copy
     ├── tdocs/models/                  # Modular TDocsTableModel & TDocsFilterProxyModel package (see tdocs/models/README.md)

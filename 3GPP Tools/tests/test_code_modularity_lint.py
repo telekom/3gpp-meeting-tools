@@ -52,7 +52,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/modules/meetings/ui/tdocs/window/mixins/filter_setup.py": 624,
     "src/modules/meetings/ui/tdocs/window/mixins/ui_header.py": 653,
     "src/modules/meetings/ui/tdocs_agenda_controller.py": 601,
-    "src/modules/meetings/ui/tdocs_components.py": 930,
     "src/modules/meetings/ui/tdocs_help_dialog.py": 642,
     "src/modules/meetings/ui/tdocs_menus.py": 815,
     "src/modules/meetings/ui/topic_pills.py": 812,
