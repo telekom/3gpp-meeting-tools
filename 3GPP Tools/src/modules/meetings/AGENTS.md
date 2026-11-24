@@ -96,6 +96,8 @@ src/modules/meetings/
     ├── tdocs/models/                  # Modular TDocsTableModel & TDocsFilterProxyModel package (see tdocs/models/README.md)
     ├── tdocs_models.py                # Re-export shim -> tdocs/models/ package
     ├── tdocs_window.py                # Re-export shim -> tdocs/window/ mixins
+    ├── pills/                         # Modular WG, tag cloud & AI pills package (see pills/README.md)
+    ├── topic_pills.py                 # Re-export shim -> pills/ package
     ├── meetings_tab/                  # Modular MeetingsTab package (see meetings_tab/README.md)
     └── ui_tabs.py                     # Re-export shim -> meetings_tab/ package
 ```
