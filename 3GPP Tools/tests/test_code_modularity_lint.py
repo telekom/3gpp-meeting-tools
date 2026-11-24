@@ -23,7 +23,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/core/ai/mcp_activity.py": 654,
     "src/core/ai/ollama_client.py": 681,
     "src/core/ai/ollama_dialog.py": 621,
-    "src/core/ui/font_scale.py": 756,
     "src/core/ui/window_session.py": 632,
     "src/modules/emails/core/tracked_threads/collection_and_pinning.py": 642,
     "src/modules/emails/ui/meeting_inbox/mixins/data_and_filtering.py": 707,

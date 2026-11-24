@@ -25,7 +25,7 @@ Detailed architecture reference for the responsive desktop shell (`src/main_wind
 
 ---
 
-## 2. Typography Scaling & Accessibility (`src/core/ui/font_scale.py`, `display_settings_dialog.py`)
+## 2. Typography Scaling & Accessibility (`src/core/ui/font_scaling/` package & `font_scale.py` shim, `display_settings_dialog.py`)
 
 Per-machine typography scaling (`0.85`–`1.60`) is persisted in `QSettings` and applied globally across the QSS theme, inline rich-text HTML (`QLabel`, `QTextEdit`, `QTextBrowser`, `QTextDocument` via `scale_html_fonts()`), and registered widgets:
 
