@@ -38,7 +38,8 @@ src/modules/meetings/
 │   │   ├── session_plan_db.py         # Re-export shim -> session_plan/db/ package
 │   │   ├── session_plan_diff.py       # Slot-by-slot snapshot diff engine
 │   │   ├── session_plan_exporter.py   # Re-export shim -> session_plan/exporter/ package (see exporter/README.md)
-│   │   ├── session_plan_models.py     # Domain models & boundary-aware delegate resolvers
+│   │   ├── models/                    # Modular domain dataclasses & resolvers (see models/README.md)
+│   │   ├── session_plan_models.py     # Re-export shim -> session_plan/models/ package
 │   │   ├── parser/                    # Modular SessionPlanParser package (see parser/README.md)
 │   │   ├── session_plan_parser.py     # Re-export shim -> session_plan/parser/ package
 │   │   └── session_plan_timezone.py   # Venue vs Vienna UTC timezone resolution
