@@ -11,7 +11,8 @@ src/modules/specifications/
 ├── AGENTS.md
 ├── core/
 │   ├── attribution/                           # Modular Clause-to-TDoc Attribution package (see attribution/README.md)
-│   ├── database.py / scraper.py               # 3gpp_data.db catalogue + 3GPP FTP sync
+│   ├── db/                                    # Modular SpecsDatabase package (see db/README.md)
+│   ├── database.py / scraper.py               # Re-export shim -> core/db/ + 3GPP FTP sync
 │   ├── spec_markdown_converter.py             # Mode 1 (unified) & Mode 2 (clause-split) Markdown export
 │   └── spec_history_db.py / spec_history_extractor.py / spec_clause_attribution.py (shim) / spec_tdoc_opener.py / spec_tdoc_report.py
 └── ui/
