@@ -1,0 +1,371 @@
+"""Centralized, thread-safe HTTP session manager, proxy pooling, and file downloader."""
+
+from __future__ import annotations
+
+import logging
+import os
+import random
+import threading
+import time
+import urllib.parse
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional, Tuple, Union
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+from core.network.client.ai_session import _make_proxy_uri, is_local_address
+from core.network.client.errors import (
+    DownloadCancelledError,
+    HttpError,
+    NetworkError,
+    NetworkTimeoutError,
+)
+from core.network.client.proxy_and_config import (
+    DEFAULT_UAS,
+    HumannessConfig,
+    ProxyProfileManager,
+)
+from core.utils.dpapi import redact_sensitive_urls
+from core.utils.paths import to_extended_path
+from core.utils.utils import get_proxies
+
+
+class NetworkSession:
+    """
+    Centralized, thread-safe network manager for all HTTP operations,
+    connection pooling, proxy management, and streaming downloads.
+    """
+
+    _instance: Optional[requests.Session] = None
+    _lock = threading.RLock()
+
+    @classmethod
+    def get_instance(cls) -> requests.Session:
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls._create_session()
+        return cls._instance
+
+    @classmethod
+    def get_request_headers(cls) -> Dict[str, str]:
+        """Generates thread-isolated request headers without mutating the global session."""
+        cfg = HumannessConfig.load()
+        user_agent = (
+            random.choice(DEFAULT_UAS)
+            if cfg.get("randomize_ua", True)
+            else cfg.get("custom_ua", DEFAULT_UAS[0])
+        )
+        return {"User-Agent": user_agent}
+
+    @classmethod
+    def apply_delay(cls, url: Optional[str] = None) -> None:
+        """Applies configured sleep delays safely on the calling thread, bypassing RFC 1918 LAN targets."""
+        if url and is_local_address(url):
+            return
+        cfg = HumannessConfig.load()
+        min_d = cfg.get("min_delay", 0.0)
+        max_d = cfg.get("max_delay", 0.0)
+        if max_d > 0:
+            delay = random.uniform(min_d, max(min_d, max_d))
+            if delay > 0:
+                time.sleep(delay)
+
+    @classmethod
+    def apply_humanness(cls, session: Optional[requests.Session] = None, url: Optional[str] = None) -> None:
+        """Applies delay and configures randomized headers for scraper compatibility."""
+        cls.apply_delay(url=url)
+        if session is not None:
+            headers = cls.get_request_headers()
+            with cls._lock:
+                session.headers.update(headers)
+
+    @staticmethod
+    def _sanitize_proxy_url(url: str) -> str:
+        """Removes user credentials from a proxy URL for safe logging."""
+        if not url:
+            return ""
+        try:
+            parsed = urllib.parse.urlsplit(url)
+            if parsed.username or parsed.password:
+                netloc = parsed.hostname or ""
+                if parsed.port:
+                    netloc += f":{parsed.port}"
+                return urllib.parse.urlunsplit(
+                    (parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment)
+                )
+            return url
+        except Exception:
+            return "<sanitized-proxy>"
+
+    @classmethod
+    def update_proxies(cls, proxies: Dict[str, str]) -> None:
+        """
+        Atomically updates proxies for the global session with sanitized logging.
+        Retrieves session instance before acquiring the lock to avoid re-entrant deadlocks.
+        """
+        session = cls.get_instance()
+        with cls._lock:
+            session.proxies = dict(proxies)
+
+        safe_proxies = {proto: cls._sanitize_proxy_url(url) for proto, url in proxies.items()}
+        logging.info(f"🌐 Global Network Session proxies updated: {safe_proxies}")
+
+    @staticmethod
+    def test_connection(
+        proxies: Dict[str, str], test_url: str = "https://www.3gpp.org"
+    ) -> Tuple[bool, str]:
+        """
+        Tests a proxy configuration using a temporary throwaway session.
+        Returns: (success: bool, sanitized_message: str)
+        """
+        try:
+            with requests.Session() as test_session:
+                test_session.trust_env = False
+                test_session.proxies = dict(proxies)
+                response = test_session.get(test_url, timeout=10)
+                if response.status_code == 200:
+                    return True, "Connection to 3GPP server verified successfully!"
+                return False, f"Server returned HTTP status code {response.status_code}."
+        except Exception as e:
+            clean_error = redact_sensitive_urls(str(e))
+            logging.warning(f"Proxy test failed: {clean_error}")
+            return False, clean_error
+
+    @classmethod
+    def get_html(
+        cls,
+        url: str,
+        timeout: int = 20,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> str:
+        session = cls.get_instance()
+        cls.apply_delay(url=url)
+
+        req_headers = cls.get_request_headers()
+        if headers:
+            req_headers.update(headers)
+
+        try:
+            with session.get(url, headers=req_headers, timeout=timeout) as response:
+                response.raise_for_status()
+                return response.text
+        except requests.exceptions.Timeout as e:
+            raise NetworkTimeoutError(f"Request timed out after {timeout}s: {url}") from e
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            raise HttpError(f"HTTP {status} for {url}: {e}", status_code=status, url=url) from e
+        except requests.exceptions.RequestException as e:
+            raise NetworkError(f"Network error fetching {url}: {e}") from e
+
+    @classmethod
+    def get_bytes(
+        cls,
+        url: str,
+        timeout: int = 20,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> bytes:
+        session = cls.get_instance()
+        cls.apply_delay(url=url)
+
+        req_headers = cls.get_request_headers()
+        if headers:
+            req_headers.update(headers)
+
+        try:
+            with session.get(url, headers=req_headers, timeout=timeout) as response:
+                response.raise_for_status()
+                return response.content
+        except requests.exceptions.Timeout as e:
+            raise NetworkTimeoutError(f"Request timed out after {timeout}s: {url}") from e
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            raise HttpError(f"HTTP {status} for {url}: {e}", status_code=status, url=url) from e
+        except requests.exceptions.RequestException as e:
+            raise NetworkError(f"Network error fetching {url}: {e}") from e
+
+    @classmethod
+    def get_json(
+        cls,
+        url: str,
+        timeout: int = 20,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Any:
+        session = cls.get_instance()
+        cls.apply_delay(url=url)
+
+        req_headers = cls.get_request_headers()
+        if headers:
+            req_headers.update(headers)
+
+        try:
+            with session.get(url, headers=req_headers, timeout=timeout) as response:
+                response.raise_for_status()
+                return response.json()
+        except requests.exceptions.Timeout as e:
+            raise NetworkTimeoutError(f"Request timed out after {timeout}s: {url}") from e
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            raise HttpError(f"HTTP {status} for {url}: {e}", status_code=status, url=url) from e
+        except requests.exceptions.RequestException as e:
+            raise NetworkError(f"Network error fetching {url}: {e}") from e
+
+    @classmethod
+    def head(
+        cls,
+        url: str,
+        timeout: int = 10,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, str]:
+        session = cls.get_instance()
+        req_headers = cls.get_request_headers()
+        if headers:
+            req_headers.update(headers)
+
+        try:
+            with session.head(url, headers=req_headers, timeout=timeout) as response:
+                response.raise_for_status()
+                return dict(response.headers)
+        except requests.exceptions.Timeout as e:
+            raise NetworkTimeoutError(f"HEAD request timed out after {timeout}s: {url}") from e
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            raise HttpError(f"HTTP {status} for {url}: {e}", status_code=status, url=url) from e
+        except requests.exceptions.RequestException as e:
+            raise NetworkError(f"Network error on HEAD {url}: {e}") from e
+
+    @classmethod
+    def download_file(
+        cls,
+        url: str,
+        dest_path: Union[str, Path],
+        timeout: int = 30,
+        progress_cb: Optional[Callable[[int], None]] = None,
+        cancel_cb: Optional[Callable[[], bool]] = None,
+        chunk_size: int = 16384,
+        atomic: bool = True,
+    ) -> int:
+        dest = Path(dest_path)
+        part_path = dest.with_suffix(dest.suffix + ".part") if atomic else dest
+        ext_dest_parent = to_extended_path(dest.parent)
+        ext_dest_path = to_extended_path(dest)
+        ext_part_path = to_extended_path(part_path)
+        os.makedirs(ext_dest_parent, exist_ok=True)
+
+        if cancel_cb and cancel_cb():
+            raise DownloadCancelledError(f"Download cancelled for {dest.name}")
+
+        session = cls.get_instance()
+        cls.apply_delay(url=url)
+        headers = cls.get_request_headers()
+
+        downloaded_bytes = 0
+
+        try:
+            with session.get(url, headers=headers, stream=True, timeout=timeout) as response:
+                response.raise_for_status()
+
+                total_length = response.headers.get("content-length")
+                total_bytes = int(total_length) if total_length and total_length.isdigit() else 0
+
+                with open(ext_part_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=chunk_size):
+                        if cancel_cb and cancel_cb():
+                            f.close()
+                            if atomic and os.path.exists(ext_part_path):
+                                try:
+                                    os.remove(ext_part_path)
+                                except OSError:
+                                    pass
+                            raise DownloadCancelledError(f"Download cancelled: {dest.name}")
+
+                        if chunk:
+                            f.write(chunk)
+                            downloaded_bytes += len(chunk)
+                            if progress_cb and total_bytes > 0:
+                                percent = int((downloaded_bytes / total_bytes) * 100)
+                                progress_cb(percent)
+
+            if atomic and os.path.exists(ext_part_path):
+                os.replace(ext_part_path, ext_dest_path)
+
+            return downloaded_bytes
+
+        except DownloadCancelledError:
+            raise
+        except requests.exceptions.Timeout as e:
+            cls._cleanup_part_file(atomic, ext_part_path)
+            raise NetworkTimeoutError(f"Download timed out after {timeout}s: {url}") from e
+        except requests.exceptions.HTTPError as e:
+            cls._cleanup_part_file(atomic, ext_part_path)
+            status = e.response.status_code if e.response is not None else None
+            raise HttpError(f"HTTP {status} downloading {dest.name}: {e}", status_code=status, url=url) from e
+        except requests.exceptions.RequestException as e:
+            cls._cleanup_part_file(atomic, ext_part_path)
+            raise NetworkError(f"Network error downloading {dest.name}: {e}") from e
+        except Exception as e:
+            cls._cleanup_part_file(atomic, ext_part_path)
+            raise NetworkError(f"Unexpected error downloading {dest.name}: {e}") from e
+
+    @staticmethod
+    def _cleanup_part_file(atomic: bool, ext_part_path: str) -> None:
+        if atomic and os.path.exists(ext_part_path):
+            try:
+                os.remove(ext_part_path)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _create_session() -> requests.Session:
+        session = requests.Session()
+        session.trust_env = False
+
+        profile = ProxyProfileManager.load_profile()
+        if profile.get("enabled"):
+            http_host = profile.get("http_host", "").strip()
+            https_host = profile.get("https_host", "").strip()
+            user = profile.get("username", "").strip()
+            password = profile.get("password", "")
+
+            active_proxies = {}
+            if http_host:
+                active_proxies["http"] = _make_proxy_uri(http_host, user, password)
+            if https_host:
+                active_proxies["https"] = _make_proxy_uri(https_host, user, password)
+            if active_proxies:
+                active_proxies["no_proxy"] = "localhost,127.0.0.1,::1,10.10.10.10"
+
+            session.proxies = active_proxies
+        else:
+            proxies = dict(get_proxies())
+            if any(proxies.values()):
+                proxies.setdefault("no_proxy", "localhost,127.0.0.1,::1,10.10.10.10")
+            session.proxies = proxies
+
+        session.headers.update(
+            {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+            }
+        )
+
+        retry_strategy = Retry(
+            total=2,
+            backoff_factor=0.5,
+            status_forcelist=[429, 500, 502, 504],
+            allowed_methods=["GET", "HEAD"],
+        )
+
+        adapter = HTTPAdapter(
+            pool_connections=50,
+            pool_maxsize=100,
+            pool_block=False,
+            max_retries=retry_strategy,
+        )
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        return session
