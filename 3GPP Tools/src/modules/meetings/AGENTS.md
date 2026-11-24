@@ -71,6 +71,8 @@ src/modules/meetings/
     ├── contribution_dialog.py         # Multi-meeting company contribution audit dialog
     ├── delegate_owner_picker.py       # Multi-delegate checkbox dropdown picker
     ├── dialogs.py                     # MeetingInfoDialog, AddMeetingDialog, MeetingsConfigDialog
+    ├── meeting_agreements/            # Modular MeetingAgreementsDialog package (see meeting_agreements/README.md)
+    ├── meeting_agreements_dialog.py   # Re-export shim -> ui/meeting_agreements/ package
     ├── meetings_actions.py            # Async download, caching, and export actions
     ├── meetings_delegates.py          # DynamicHoverMenuDelegate, TDocsButtonDelegate, WGTagDelegate
     ├── meetings_menu.py               # Context menu & shared add_meeting_portal_actions()
