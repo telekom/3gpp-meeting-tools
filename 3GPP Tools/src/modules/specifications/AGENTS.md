@@ -10,9 +10,10 @@ Developer and AI agent guide for the 3GPP Specifications Catalogue, inline filte
 src/modules/specifications/
 ├── AGENTS.md
 ├── core/
+│   ├── attribution/                           # Modular Clause-to-TDoc Attribution package (see attribution/README.md)
 │   ├── database.py / scraper.py               # 3gpp_data.db catalogue + 3GPP FTP sync
 │   ├── spec_markdown_converter.py             # Mode 1 (unified) & Mode 2 (clause-split) Markdown export
-│   └── spec_history_db.py / spec_history_extractor.py / spec_clause_attribution.py / spec_tdoc_opener.py / spec_tdoc_report.py
+│   └── spec_history_db.py / spec_history_extractor.py / spec_clause_attribution.py (shim) / spec_tdoc_opener.py / spec_tdoc_report.py
 └── ui/
     ├── specs_tab/                             # Modular SpecificationsTab package (see specs_tab/README.md)
     ├── ui_tabs.py / components.py / spec_menu.py / spec_action_controller.py / threads.py
