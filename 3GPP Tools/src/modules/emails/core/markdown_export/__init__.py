@@ -1,0 +1,80 @@
+# --- File: src/modules/emails/core/markdown_export/__init__.py ---
+"""Modular Email Thread Markdown & Option A Interactive Card Exporter package."""
+
+from .exporter import export_thread_to_markdown
+from .formatting_helpers import (
+    _format_trailing_quoted_history,
+    _normalize_subject_for_comparison,
+    clean_tdoc_id,
+    find_trailing_quote_line_index,
+    format_compact_timestamp,
+    format_sender_display,
+    partition_email_attachments,
+    split_direct_and_quoted_body,
+    split_sender_company,
+    strip_trailing_quotes,
+)
+from .html_and_tables import (
+    _normalize_outlook_list_spacing,
+    _table_cell_to_plain_and_md,
+    escape_non_html_angles,
+    inject_html_tables_into_body,
+)
+from .reader_ui import (
+    _wrap_hover_url,
+    apply_email_reader_document_style,
+    find_heading_block_for_message_index,
+    find_unread_heading_blocks,
+    format_emeeting_body_with_callouts,
+    handle_reader_link_hover,
+    scroll_browser_to_block,
+)
+from .url_and_links import (
+    _decode_query_param_url,
+    _extract_matching_document_urls,
+    _format_short_url_label,
+    _normalize_doc_url_spaces,
+    extract_drafts_document_urls,
+    extract_thread_document_urls,
+    is_cacheable_document_url,
+    is_drafts_document_url,
+    linkify_markdown_urls,
+    linkify_tdoc_tokens,
+    unwrap_outlook_safelinks,
+)
+
+__all__ = [
+    "clean_tdoc_id",
+    "split_sender_company",
+    "format_sender_display",
+    "format_compact_timestamp",
+    "_normalize_subject_for_comparison",
+    "partition_email_attachments",
+    "find_trailing_quote_line_index",
+    "split_direct_and_quoted_body",
+    "strip_trailing_quotes",
+    "_format_trailing_quoted_history",
+    "_normalize_doc_url_spaces",
+    "_decode_query_param_url",
+    "unwrap_outlook_safelinks",
+    "is_cacheable_document_url",
+    "is_drafts_document_url",
+    "_format_short_url_label",
+    "_extract_matching_document_urls",
+    "extract_thread_document_urls",
+    "extract_drafts_document_urls",
+    "linkify_markdown_urls",
+    "linkify_tdoc_tokens",
+    "escape_non_html_angles",
+    "_table_cell_to_plain_and_md",
+    "inject_html_tables_into_body",
+    "_normalize_outlook_list_spacing",
+    "find_unread_heading_blocks",
+    "find_heading_block_for_message_index",
+    "format_emeeting_body_with_callouts",
+    "_wrap_hover_url",
+    "handle_reader_link_hover",
+    "apply_email_reader_document_style",
+    "scroll_browser_to_block",
+    "export_thread_to_markdown",
+]

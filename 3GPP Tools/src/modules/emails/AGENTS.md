@@ -19,7 +19,8 @@ src/modules/emails/
 │   ├── general_email_db.py / general_email_sync.py    # Unpinned WG folder + Sent Items sync (`sync_metadata` + Table.Restrict cache)
 │   ├── tracked_threads/               # Modular MAPI sync, scoped_sync, discovery & Drafts package (see tracked_threads/README.md)
 │   ├── tracked_threads_db.py / tracked_threads_service.py (shim) / tracked_threads_workers.py
-│   ├── thread_markdown_exporter.py    # Option A cards, <<START>>..<<END>> callouts, Safelinks, quote stripping, Drafts caching
+│   ├── markdown_export/               # Modular Option A cards, Safelinks, HTML tables & quote stripping package (see markdown_export/README.md)
+│   ├── thread_markdown_exporter.py    # Re-export shim -> core/markdown_export/ package
 │   └── stats/                         # Unified email analytics (dataset_builder, plot_agenda, plot_companies, plot_delegates, plot_timeline)
 └── ui/
     ├── email_window.py / general_email_dialog.py / email_dialogs.py / email_summary_dialog.py
