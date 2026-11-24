@@ -104,19 +104,35 @@ class TestBottomDrawerAndStatusBadges(unittest.TestCase):
 
         bar = SystemStatusBar()
         try:
-            actions = [act.text() for act in bar.system_menu.actions()]
-            self.assertEqual(len(actions), 6)
+            menu_actions = bar.system_menu.actions()
+            visible_actions = [act for act in menu_actions if not act.isSeparator()]
+            self.assertEqual(len(menu_actions), 8)
+            self.assertEqual(len(visible_actions), 7)
+            self.assertEqual(
+                [act.text() for act in visible_actions],
+                [
+                    "🖥️ Task Manager...",
+                    "🗄️ Database...",
+                    "📡 Proxy...",
+                    "⚙️ Network...",
+                    "☕ Java...",
+                    "🤖 MCP...",
+                    "🔁 Restart Application",
+                ],
+            )
             fired = []
             bar.task_manager_requested.connect(lambda: fired.append("task"))
             bar.db_maintenance_requested.connect(lambda: fired.append("db"))
             bar.network_config_requested.connect(lambda: fired.append("net"))
             bar.java_info_requested.connect(lambda: fired.append("java"))
+            bar.restart_requested.connect(lambda: fired.append("restart"))
 
-            bar.system_menu.actions()[0].trigger()
-            bar.system_menu.actions()[1].trigger()
-            bar.system_menu.actions()[3].trigger()
-            bar.system_menu.actions()[4].trigger()
-            self.assertEqual(fired, ["task", "db", "net", "java"])
+            visible_actions[0].trigger()
+            visible_actions[1].trigger()
+            visible_actions[3].trigger()
+            visible_actions[4].trigger()
+            visible_actions[6].trigger()
+            self.assertEqual(fired, ["task", "db", "net", "java", "restart"])
         finally:
             bar.stop_monitors()
             bar.mcp_timer.stop()
