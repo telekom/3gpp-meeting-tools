@@ -18,7 +18,8 @@ src/modules/word_tools/
 │   ├── docx_splitter.py / word_excerpt_extractor.py / word_excerpt_fragment_worker.py / word_excerpt_naming.py
 │   ├── md_to_docx/                              # Modular Markdown -> Word package (see md_to_docx/README.md)
 │   ├── markdown_to_docx.py                      # Re-export shim -> core/md_to_docx/ package
-│   ├── presentation_to_markdown.py / word_converter.py / libreoffice_converter.py
+│   ├── converter/                               # Modular Word format converter package (see converter/README.md)
+│   ├── presentation_to_markdown.py / word_converter.py (shim) / libreoffice_converter.py
 │   ├── sensitivity_label.py                     # F-06 Microsoft Purview/MIP policy discovery & labeling
 │   ├── word_config.py / word_extractor.py / word_media_repair.py
 └── ui/

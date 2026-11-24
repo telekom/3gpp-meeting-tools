@@ -68,7 +68,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/modules/word_tools/core/presentation_to_markdown.py": 868,
     "src/modules/word_tools/core/sensitivity_label.py": 686,
     "src/modules/word_tools/core/styles_3gpp.py": 876,
-    "src/modules/word_tools/core/word_converter.py": 876,
     "src/modules/word_tools/core/word_excerpt_extractor.py": 668,
     "src/modules/word_tools/ui/cards/excerpt_card.py": 609,
     "src/modules/word_tools/ui/cards/markdown_card.py": 653,
