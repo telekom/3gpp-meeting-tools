@@ -37,9 +37,10 @@ src/modules/assistant/
 │       ├── protocol_tools.py          # Protocol inspection tools
 │       ├── spec_search_tools.py       # FTS5 search & clause retrieval tools
 │       └── specification_tools.py     # Catalogue lookup tools
+├── ui_components/                     # Modular prompt editor, markdown & cockpit widgets (see ui_components/README.md)
 └── ui/
     ├── tab/                           # Modular AssistantTab package (see tab/README.md)
-    ├── assistant_components.py        # Reusable UI components, prompt editor, and style presets
+    ├── assistant_components.py        # Re-export shim -> ui_components/ package
     ├── assistant_tab.py               # Re-export shim -> ui/tab/ package
     └── assistant_worker.py            # AgentResearchWorker (background QThread)
 ```
