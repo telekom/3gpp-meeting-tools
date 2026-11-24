@@ -19,7 +19,6 @@ PROTECTED_FILES = {
 # Shrink-only allowlist of existing `src/**/*.py` files currently above 600 lines.
 # Never increase a value here or add new entries; refactor into a package instead.
 LEGACY_LARGE_FILE_ALLOWLIST = {
-    "src/modules/emails/ui/meeting_inbox/mixins/ui_setup.py": 632,
     "src/modules/puml2visio/templates/builtin_presets.py": 925,
 }
 
