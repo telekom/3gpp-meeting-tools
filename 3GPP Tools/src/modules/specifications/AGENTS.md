@@ -26,7 +26,8 @@ src/modules/specifications/
     ├── spec_clause_dialog.py                  # Re-export shim -> spec_clause/ package
     ├── spec_history/                          # Modular SpecVersionHistoryDialog package (see spec_history/README.md)
     ├── spec_history_dialog.py                 # Re-export shim -> spec_history/ package
-    └── spec_tdoc_report_dialog.py
+    ├── spec_tdoc_report/                      # Modular SpecTDocReportDialog package (see spec_tdoc_report/README.md)
+    └── spec_tdoc_report_dialog.py             # Re-export shim -> spec_tdoc_report/ package
 ```
 
 ---
