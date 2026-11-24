@@ -74,8 +74,11 @@ class InputsCollectorThread(QThread):
                     folder_name = str(mtg.get("folder_name", "")).strip()
                     mtg_date = str(mtg.get("start_date", "")).strip()
 
+                    mtg_dir = helper_thread._get_meeting_dir(folder_name)
+                    should_refresh = helper_thread.is_meeting_cache_stale_for_preview(mtg, mtg_dir)
+
                     # 1. Parse Chairman's Notes text agreements
-                    chair_agreements = helper_thread._load_meeting_agreements(mtg)
+                    chair_agreements = helper_thread._load_meeting_agreements(mtg, force_refresh=should_refresh)
                     for ca in chair_agreements:
                         wi_str = str(ca.get("wi", "") or ca.get("study_item", "")).strip()
                         ai_str = str(ca.get("ai", "") or ca.get("agenda_item", "")).strip()
@@ -100,7 +103,7 @@ class InputsCollectorThread(QThread):
                             ))
 
                     # 2. Parse Meeting TDocs
-                    tdocs_rows = helper_thread._load_meeting_tdocs(mtg)
+                    tdocs_rows = helper_thread._load_meeting_tdocs(mtg, force_refresh=should_refresh)
                     for row in tdocs_rows:
                         tid = str(row.get("TDoc", "") or row.get("tdoc_id", "") or row.get("TD#", "")).strip().upper()
                         if not tid:
@@ -111,9 +114,10 @@ class InputsCollectorThread(QThread):
                         t_type = str(row.get("Type", "") or row.get("type", "") or "").strip()
                         status = str(row.get("TDoc Status", "") or row.get("Status", "") or "").strip()
                         source = str(row.get("Source", "") or row.get("source", "") or "").strip()
+                        abstract = str(row.get("Abstract", "") or row.get("abstract", "") or row.get("Secretary Remarks", "")).strip()
                         ai_desc = str(row.get("Agenda item description", "") or row.get("AI Description", "") or "").strip()
 
-                        if not self.topic.matches_tdoc(tid, wg_name, ai=ai_val, title=title, related_wis=wi_val, ai_description=ai_desc):
+                        if not self.topic.matches_tdoc(tid, wg_name, ai=ai_val, title=title, related_wis=wi_val, abstract=abstract, ai_description=ai_desc):
                             continue
 
                         # Check decision classification

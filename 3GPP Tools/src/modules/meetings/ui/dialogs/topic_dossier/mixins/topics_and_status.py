@@ -1,14 +1,19 @@
 """Topic selection, cohort preview, CRUD dialogs, and incremental status mixin."""
 
+import datetime
 import os
 from pathlib import Path
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional, Set
 
+from PyQt5.QtCore import QDate
 from PyQt5.QtWidgets import QDialog, QFileDialog, QListWidgetItem, QMessageBox
 
 from core.ui.theme import C
 from core.utils.paths import to_extended_path
-from modules.meetings.core.cohort_resolver import MeetingCohortResolver
+from modules.meetings.core.cohort_resolver import (
+    DEFAULT_UPCOMING_LOOKAHEAD_DAYS,
+    MeetingCohortResolver,
+)
 from modules.meetings.core.exporters.export_manifest import load_manifest
 from modules.meetings.core.exporters.topic_digest_builder import STAGE2_SYNTHESIS_FILENAME
 from modules.meetings.core.exporters.topic_dossier_exporter import (
@@ -19,6 +24,20 @@ from modules.meetings.core.exporters.topic_dossier_exporter import (
 )
 from modules.meetings.core.topic_manager import MetaTopicDefinition
 from modules.meetings.ui.dialogs.topic_dossier.editor_dialog import TopicEditorDialog
+
+
+def _format_meeting_num(mtg: Dict[str, object]) -> str:
+    num = str(mtg.get("meeting_number") or "").strip()
+    folder = str(mtg.get("folder_name") or "").strip().lower()
+    if "bis" in folder and "bis" not in num.lower():
+        return f"{num}-bis" if num else "bis"
+    return num
+
+
+def _format_meeting_label(mtg: Dict[str, object]) -> str:
+    wg = str(mtg.get("wg_name") or "").strip().upper()
+    num = _format_meeting_num(mtg)
+    return f"{wg} #{num}" if num else wg
 
 
 class TopicDossierTopicsStatusMixin:
@@ -76,8 +95,10 @@ class TopicDossierTopicsStatusMixin:
             # Update default destination in user meeting cache
             base_dir = get_default_topic_export_base()
             default_name = f"Topic_{sanitize_folder_name(self.active_topic.name)}"
-            self.edit_dest_folder.setText(str(base_dir / default_name))
+            dest_folder = str(base_dir / default_name)
+            self.edit_dest_folder.setText(dest_folder)
 
+            self._apply_topic_default_timeframe(dest_folder)
             self._update_cohorts_preview()
             self._check_incremental_status()
             self.btn_edit.setEnabled(True)
@@ -95,65 +116,187 @@ class TopicDossierTopicsStatusMixin:
             if hasattr(self, "btn_view_inputs"):
                 self.btn_view_inputs.setEnabled(False)
 
-    def _on_timeframe_preset_changed(self, idx: int):
-        is_custom = (idx == 6)  # "📅 Custom Date Range..."
-        self.date_range_widget.setVisible(is_custom)
+    def _current_timeframe_key(self) -> str:
+        data = self.combo_cycle_window.currentData()
+        return str(data) if data else "since_date"
+
+    def _select_timeframe_key(self, key: str) -> None:
+        idx = self.combo_cycle_window.findData(key)
+        if idx >= 0:
+            self.combo_cycle_window.setCurrentIndex(idx)
+
+    def _sync_date_range_controls(self) -> None:
+        key = self._current_timeframe_key()
+        is_since = key == "since_date"
+        is_custom = key == "custom_range"
+        self.date_range_widget.setVisible(is_since or is_custom)
+        self.lbl_date_to.setVisible(is_custom)
+        self.edit_date_to.setVisible(is_custom)
+        self.lbl_open_ended_hint.setVisible(is_since)
+        self.chk_include_future.setVisible(is_since)
+
+    @staticmethod
+    def _detect_corpus_start_date(folder_str: str) -> str:
+        if not folder_str:
+            return ""
+        manifest = load_manifest(Path(folder_str))
+        if not manifest or not manifest.exported_meetings:
+            return ""
+        dates = [
+            str(m.get("start_date") or "").strip()[:10]
+            for m in manifest.exported_meetings.values()
+            if isinstance(m, dict) and str(m.get("start_date") or "").strip()
+        ]
+        valid = [d for d in dates if len(d) == 10 and d[4] == "-" and d[7] == "-"]
+        return min(valid) if valid else ""
+
+    def _apply_topic_default_timeframe(self, dest_folder: str) -> None:
+        if not self.active_topic:
+            return
+        widgets = (
+            self.combo_cycle_window,
+            self.edit_date_from,
+            self.edit_date_to,
+            self.chk_include_future,
+        )
+        for w in widgets:
+            w.blockSignals(True)
+        try:
+            self._anchored_corpus_date = ""
+            d_from_str = str(self.active_topic.date_from or "").strip()[:10]
+            d_to_str = str(self.active_topic.date_to or "").strip()[:10]
+            q_from = QDate.fromString(d_from_str, "yyyy-MM-dd")
+            q_to = QDate.fromString(d_to_str, "yyyy-MM-dd")
+
+            if self.active_topic.cycle_mode == "since_date" and q_from.isValid():
+                self._select_timeframe_key("since_date")
+                self.edit_date_from.setDate(q_from)
+                self.chk_include_future.setChecked(False)
+            elif self.active_topic.cycle_mode == "date_range" and q_from.isValid() and q_to.isValid():
+                self._select_timeframe_key("custom_range")
+                self.edit_date_from.setDate(q_from)
+                self.edit_date_to.setDate(q_to)
+            else:
+                earliest = self._detect_corpus_start_date(dest_folder)
+                q_earliest = QDate.fromString(earliest, "yyyy-MM-dd") if earliest else QDate()
+                self._select_timeframe_key("since_date")
+                self.chk_include_future.setChecked(False)
+                if q_earliest.isValid():
+                    self.edit_date_from.setDate(q_earliest)
+                    self._anchored_corpus_date = earliest
+                else:
+                    self.edit_date_from.setDate(QDate.currentDate().addYears(-1))
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
+        self._sync_date_range_controls()
+
+    def _on_timeframe_preset_changed(self, _idx: int):
+        self._sync_date_range_controls()
         self._update_cohorts_preview()
 
     def _update_cohorts_preview(self):
         if not self.active_topic:
             return
 
-        idx = self.combo_cycle_window.currentIndex()
+        key = self._current_timeframe_key()
         topic_copy = MetaTopicDefinition.from_dict(self.active_topic.to_dict())
+        upcoming_days: Optional[int] = DEFAULT_UPCOMING_LOOKAHEAD_DAYS
 
-        if idx == 0:  # Past 4 Meeting Rounds (~1 Year)
+        if key == "since_date":
+            topic_copy.cycle_mode = "since_date"
+            topic_copy.date_from = self.edit_date_from.date().toString("yyyy-MM-dd")
+            topic_copy.date_to = ""
+            if self.chk_include_future.isChecked():
+                upcoming_days = None
+        elif key == "past_4":
             topic_copy.cycle_mode = "past_n_cycles"
             topic_copy.past_n_cycles = 4
-        elif idx == 1:  # Past 6 Meeting Rounds (~1.5 Years)
+        elif key == "past_6":
             topic_copy.cycle_mode = "past_n_cycles"
             topic_copy.past_n_cycles = 6
-        elif idx == 2:  # Past 8 Meeting Rounds (~2 Years)
+        elif key == "past_8":
             topic_copy.cycle_mode = "past_n_cycles"
             topic_copy.past_n_cycles = 8
-        elif idx == 3:  # Release 20 Timeframe (2025–2027)
+        elif key == "rel20":
             topic_copy.cycle_mode = "date_range"
             topic_copy.date_from = "2025-01-01"
             topic_copy.date_to = "2027-12-31"
-        elif idx == 4:  # Release 19 Timeframe (2023–2025)
+        elif key == "rel19":
             topic_copy.cycle_mode = "date_range"
             topic_copy.date_from = "2023-01-01"
             topic_copy.date_to = "2025-12-31"
-        elif idx == 5:  # Release 18 Timeframe (2021–2023)
-            topic_copy.cycle_mode = "date_range"
-            topic_copy.date_from = "2021-01-01"
-            topic_copy.date_to = "2023-12-31"
-        elif idx == 6:  # 📅 Custom Date Range...
+        elif key == "custom_range":
             topic_copy.cycle_mode = "date_range"
             topic_copy.date_from = self.edit_date_from.date().toString("yyyy-MM-dd")
             topic_copy.date_to = self.edit_date_to.date().toString("yyyy-MM-dd")
-        else:  # All Available Meetings
+        elif key == "rel18":
+            topic_copy.cycle_mode = "date_range"
+            topic_copy.date_from = "2021-01-01"
+            topic_copy.date_to = "2023-12-31"
+        else:
             topic_copy.cycle_mode = "cycle_range"
             topic_copy.from_cycle = "2018-Q1"
             topic_copy.to_cycle = "2035-Q4"
 
-        self.selected_cohorts = MeetingCohortResolver.resolve_cohorts_for_topic(self.meetings_db, topic_copy)
+        self.selected_cohorts = MeetingCohortResolver.resolve_cohorts_for_topic(
+            self.meetings_db,
+            topic_copy,
+            upcoming_days=upcoming_days,
+        )
         if self.selected_cohorts:
             first_c = self.selected_cohorts[0].label
             last_c = self.selected_cohorts[-1].label
             total_mtgs = sum(len(c.meetings) for c in self.selected_cohorts)
-            mtg_names = []
-            for c in self.selected_cohorts[-2:]:
+            today_iso = datetime.date.today().strftime("%Y-%m-%d")
+            by_wg: Dict[str, List[Dict[str, object]]] = {}
+            for c in self.selected_cohorts:
                 for m in c.meetings:
-                    mtg_names.append(f"{m.get('wg_name')} #{m.get('meeting_number')}")
-            preview_str = ", ".join(mtg_names[:6])
-            if len(mtg_names) > 6:
-                preview_str += "..."
+                    wg = str(m.get("wg_name") or "").strip().upper()
+                    if wg:
+                        by_wg.setdefault(wg, []).append(m)
+
+            ordered_wgs = [w.upper() for w in self.active_topic.target_wgs if w.strip()]
+            for wg in sorted(by_wg.keys()):
+                if wg not in ordered_wgs:
+                    ordered_wgs.append(wg)
+
+            latest_parts: List[str] = []
+            for wg in ordered_wgs:
+                mtgs = by_wg.get(wg)
+                if not mtgs:
+                    continue
+                mtgs_sorted = sorted(
+                    mtgs,
+                    key=lambda x: (str(x.get("start_date") or ""), str(x.get("folder_name") or "")),
+                )
+                past_or_cur = [m for m in mtgs_sorted if str(m.get("start_date") or "")[:10] <= today_iso]
+                future = [m for m in mtgs_sorted if str(m.get("start_date") or "")[:10] > today_iso]
+                if past_or_cur:
+                    lbl = _format_meeting_label(past_or_cur[-1])
+                    if future:
+                        lbl += f" → #{_format_meeting_num(future[-1])}"
+                    latest_parts.append(lbl)
+                elif future:
+                    latest_parts.append(_format_meeting_label(future[-1]))
+
+            anchored_date = getattr(self, "_anchored_corpus_date", "")
+            anchor_note = ""
+            if key == "since_date" and anchored_date and self.edit_date_from.date().toString("yyyy-MM-dd") == anchored_date:
+                anchor_note = f" (anchored to existing corpus start {anchored_date})"
+
+            tooltip_lines = [
+                f"{c.label} ({c.key}): " + ", ".join(_format_meeting_label(m) for m in c.meetings)
+                for c in self.selected_cohorts
+            ]
+            self.lbl_cohorts_summary.setToolTip("\n".join(tooltip_lines))
             self.lbl_cohorts_summary.setText(
-                f"Resolved: <b>{len(self.selected_cohorts)} Synchronized Meeting Round(s)</b> ({first_c} → {last_c}) with <b>{total_mtgs} meetings</b> across {', '.join(sorted(self.active_topic.target_wgs))}.<br/>"
-                f"<span style='color: {C.TEXT_MUTED};'>Recent meetings: {preview_str}</span>"
+                f"Resolved: <b>{len(self.selected_cohorts)} Synchronized Meeting Round(s)</b> ({first_c} → {last_c}) "
+                f"with <b>{total_mtgs} meetings</b> across {', '.join(sorted(self.active_topic.target_wgs))}{anchor_note}.<br/>"
+                f"<span style='color: {C.TEXT_MUTED};'>Latest per WG: {', '.join(latest_parts)}</span>"
             )
         else:
+            self.lbl_cohorts_summary.setToolTip("")
             self.lbl_cohorts_summary.setText("No meetings found matching this timeframe and target WGs.")
 
     def _check_incremental_status(self):

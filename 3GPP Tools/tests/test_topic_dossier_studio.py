@@ -2405,5 +2405,255 @@ class TestTopicDialogsVisualRegression(unittest.TestCase):
         dlg.close()
 
 
+class TestOpenEndedTimeframeAndFreshness(unittest.TestCase):
+    """Tests folder-name date fallback, open-ended since_date mode, per-WG preview, and cache freshness."""
+
+    _qapp = None
+
+    @classmethod
+    def _ensure_qapp(cls):
+        from PyQt5.QtWidgets import QApplication
+        app = QApplication.instance() or QApplication([])
+        cls._qapp = app
+        return app
+
+    def test_folder_name_date_fallback_in_clustering_and_ranges(self):
+        from unittest.mock import MagicMock
+        from modules.meetings.core.cohort_resolver import (
+            get_effective_meeting_dates,
+            infer_meeting_date_from_folder,
+        )
+
+        self.assertEqual(
+            infer_meeting_date_from_folder("TSGS2_178-AH-e_Electronic_2027-01"),
+            ("2027-01-01", "2027-01-31"),
+        )
+        self.assertEqual(
+            infer_meeting_date_from_folder("TSGS2_180_Stockholm_2027-04"),
+            ("2027-04-01", "2027-04-30"),
+        )
+
+        raw_meetings = [
+            {"wg_name": "SA2", "meeting_number": "178", "start_date": "2026-11-16", "end_date": "2026-11-20", "folder_name": "TSGS2_178_Calgary_2026-11"},
+            {"wg_name": "SA2", "meeting_number": "178AHE", "start_date": None, "end_date": None, "folder_name": "TSGS2_178-AH-e_Electronic_2027-01"},
+            {"wg_name": "SA2", "meeting_number": "180", "start_date": "", "end_date": None, "folder_name": "TSGS2_180_Stockholm_2027-04"},
+        ]
+        cohorts = MeetingCohortResolver.cluster_meetings_into_cohorts(raw_meetings)
+        self.assertEqual([c.key for c in cohorts], ["2026-Q4", "2027-Q1", "2027-Q2"])
+        self.assertIsNone(raw_meetings[1]["start_date"])  # Input dict not mutated
+        self.assertTrue(cohorts[1].meetings[0].get("date_inferred"))
+        self.assertEqual(get_effective_meeting_dates(raw_meetings[1]), ("2027-01-01", "2027-01-31"))
+
+        mock_db = MagicMock()
+        mock_db.search_meetings.return_value = raw_meetings
+        topic = MetaTopicDefinition(
+            id="t_rel20",
+            name="Rel20",
+            target_wgs=["SA2"],
+            cycle_mode="date_range",
+            date_from="2026-01-01",
+            date_to="2027-12-31",
+        )
+        resolved = MeetingCohortResolver.resolve_cohorts_for_topic(mock_db, topic)
+        self.assertEqual([c.key for c in resolved], ["2026-Q4", "2027-Q1", "2027-Q2"])
+
+    def test_since_date_advances_with_time_and_upcoming_lookahead(self):
+        import datetime
+        from unittest.mock import MagicMock
+
+        mock_db = MagicMock()
+        mock_db.search_meetings.return_value = [
+            {"wg_name": "SA2", "meeting_number": "172", "start_date": "2025-11-17", "end_date": "2025-11-21", "folder_name": "TSGS2_172"},
+            {"wg_name": "SA2", "meeting_number": "173", "start_date": "2026-02-09", "end_date": "2026-02-13", "folder_name": "TSGS2_173"},
+            {"wg_name": "SA2", "meeting_number": "178", "start_date": "2026-11-16", "end_date": "2026-11-20", "folder_name": "TSGS2_178_Calgary_2026-11"},
+            {"wg_name": "SA2", "meeting_number": "178AHE", "start_date": None, "end_date": None, "folder_name": "TSGS2_178-AH-e_Electronic_2027-01"},
+            {"wg_name": "SA2", "meeting_number": "179", "start_date": "2027-02-22", "end_date": "2027-02-26", "folder_name": "TSGS2_179_Incheon_2027-02"},
+            {"wg_name": "SA2", "meeting_number": "180", "start_date": None, "end_date": None, "folder_name": "TSGS2_180_Stockholm_2027-04"},
+        ]
+        topic = MetaTopicDefinition(
+            id="t_since",
+            name="Since Test",
+            target_wgs=["SA2"],
+            cycle_mode="since_date",
+            date_from="2026-02-01",
+        )
+
+        # At 2026-11-24 with 45-day lookahead (cutoff 2027-01-08): 173, 178, 178AHE included; 179/180 excluded
+        c_nov = MeetingCohortResolver.resolve_cohorts_for_topic(
+            mock_db, topic, reference_date=datetime.date(2026, 11, 24), upcoming_days=45
+        )
+        nums_nov = [m["meeting_number"] for c in c_nov for m in c.meetings]
+        self.assertEqual(nums_nov, ["173", "178", "178AHE"])
+
+        # As time advances to 2027-02-01 (cutoff 2027-03-18): 173 stays anchored, 179 rolls in automatically
+        c_feb = MeetingCohortResolver.resolve_cohorts_for_topic(
+            mock_db, topic, reference_date=datetime.date(2027, 2, 1), upcoming_days=45
+        )
+        nums_feb = [m["meeting_number"] for c in c_feb for m in c.meetings]
+        self.assertEqual(nums_feb, ["173", "178", "178AHE", "179"])
+
+        # With upcoming_days=None ("Include all future"): 180 is also included
+        c_all = MeetingCohortResolver.resolve_cohorts_for_topic(
+            mock_db, topic, reference_date=datetime.date(2026, 11, 24), upcoming_days=None
+        )
+        nums_all = [m["meeting_number"] for c in c_all for m in c.meetings]
+        self.assertEqual(nums_all, ["173", "178", "178AHE", "179", "180"])
+
+    def test_topic_dossier_per_wg_preview_tooltip_and_corpus_auto_anchor(self):
+        from unittest.mock import MagicMock, patch
+        from modules.meetings.core.exporters.export_manifest import save_manifest
+        from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
+
+        self._ensure_qapp()
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            topic_dir = tmp_dir / "Topic_Data Framework & Data Transfer (Rel-20)"
+            topic_dir.mkdir(parents=True, exist_ok=True)
+            manifest = ExportManifest(meeting="Data Framework & Data Transfer (Rel-20)", export_type="topic_full_dossier")
+            manifest.exported_meetings["SA2/SA2_173"] = {
+                "wg": "SA2",
+                "meeting_number": "173",
+                "start_date": "2026-02-09",
+                "lifecycle": "concluded",
+            }
+            save_manifest(topic_dir, manifest)
+
+            mock_db = MagicMock()
+            mock_db.search_meetings.return_value = [
+                {"wg_name": "SA2", "meeting_number": "173", "start_date": "2026-02-09", "end_date": "2026-02-13", "folder_name": "TSGS2_173"},
+                {"wg_name": "CT4", "meeting_number": "138", "start_date": "2026-11-16", "end_date": "2026-11-20", "folder_name": "CT4_138_Calgary-2026-11"},
+                {"wg_name": "RAN2", "meeting_number": "136", "start_date": "2026-11-16", "end_date": "2026-11-20", "folder_name": "TSGR2_136"},
+                {"wg_name": "RAN3", "meeting_number": "133", "start_date": "2026-10-12", "end_date": "2026-10-16", "folder_name": "TSGR3_133-bis"},
+                {"wg_name": "RAN3", "meeting_number": "134", "start_date": "2026-11-16", "end_date": "2026-11-20", "folder_name": "TSGR3_134"},
+                {"wg_name": "SA2", "meeting_number": "178", "start_date": "2026-11-16", "end_date": "2026-11-20", "folder_name": "TSGS2_178_Calgary_2026-11"},
+                {"wg_name": "SA5", "meeting_number": "170", "start_date": "2026-11-16", "end_date": "2026-11-20", "folder_name": "TSGS5_170"},
+            ]
+
+            isolated_tm = MetaTopicManager(config_path=tmp_dir / "meta_topics.json")
+            with patch(
+                "modules.meetings.ui.dialogs.topic_dossier.mixins.topics_and_status.get_default_topic_export_base",
+                return_value=tmp_dir,
+            ), patch(
+                "modules.meetings.ui.dialogs.topic_dossier.dialog.MetaTopicManager",
+                return_value=isolated_tm,
+            ):
+                dlg = TopicDossierDialog(meetings_db=mock_db, parent=None)
+                # Select Data Framework topic
+                idx = next(
+                    i for i in range(dlg.list_topics.count())
+                    if "Data Framework" in dlg.list_topics.item(i).text()
+                )
+                dlg.list_topics.setCurrentRow(idx)
+
+            self.assertEqual(dlg.combo_cycle_window.itemData(6), "custom_range")
+            self.assertEqual(dlg.combo_cycle_window.currentData(), "since_date")
+            self.assertEqual(dlg.edit_date_from.date().toString("yyyy-MM-dd"), "2026-02-09")
+
+            summary_html = dlg.lbl_cohorts_summary.text()
+            for expected in ("SA2 #178", "RAN2 #136", "RAN3 #134", "CT4 #138", "SA5 #170"):
+                self.assertIn(expected, summary_html)
+            self.assertIn("RAN3 #133-bis", dlg.lbl_cohorts_summary.toolTip())
+            dlg.close()
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_load_meeting_tdocs_newer_xlsx_beats_stale_json_and_preview_staleness(self):
+        import datetime
+        import openpyxl
+        from unittest.mock import MagicMock, patch
+        from modules.meetings.core.exporters.topic_dossier.mixins.discovery import TopicDossierDiscoveryMixin
+        from modules.meetings.core.exporters.topic_dossier_exporter import TopicDossierExporterThread
+
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            mtg_dir = tmp_dir / "TSGS2_178_Calgary_2026-11"
+            agenda_dir = mtg_dir / "Agenda"
+            agenda_dir.mkdir(parents=True, exist_ok=True)
+
+            # Write older JSON cache
+            stale_json = agenda_dir / "TDoc_List_Meeting_SA2#178.xlsx.json"
+            stale_json.write_text(json.dumps([{"TDoc": "S2-OLD", "Title": "Stale"}]), encoding="utf-8")
+            old_ts = datetime.datetime(2026, 11, 15, 10, 0).timestamp()
+            os.utime(stale_json, (old_ts, old_ts))
+
+            # Write newer valid Excel workbook
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "TDoc_List"
+            ws.append(["TDoc", "Title", "Source", "Type", "Agenda Item", "TDoc Status"])
+            ws.append(["S2-NEW", "Fresh Contribution", "Nokia", "pCR", "20.6.21", "Approved"])
+            xlsx_path = agenda_dir / "TDoc_List_Meeting_SA2#178.xlsx"
+            wb.save(xlsx_path)
+            new_ts = datetime.datetime(2026, 11, 24, 15, 30).timestamp()
+            os.utime(xlsx_path, (new_ts, new_ts))
+
+            topic = MetaTopicDefinition(id="t_fresh", name="Fresh", target_wgs=["SA2"])
+            exporter = TopicDossierExporterThread(
+                meetings_db=MagicMock(),
+                topic=topic,
+                selected_cohorts=[],
+                allow_network_download=False,
+            )
+            with patch.object(exporter, "_get_meeting_dir", return_value=mtg_dir):
+                rows = exporter._load_meeting_tdocs({"folder_name": mtg_dir.name})
+            self.assertEqual([r.get("TDoc") for r in rows], ["S2-NEW"])
+
+            # Preview staleness check
+            mtg_nov = {"start_date": "2026-11-16", "end_date": "2026-11-20", "folder_name": mtg_dir.name}
+            # Refresh json mtime to pre-meeting (2026-11-17) -> stale on 2026-11-24
+            pre_ts = datetime.datetime(2026, 11, 17, 12, 0).timestamp()
+            os.utime(stale_json, (pre_ts, pre_ts))
+            self.assertTrue(
+                TopicDossierDiscoveryMixin.is_meeting_cache_stale_for_preview(
+                    mtg_nov, mtg_dir, reference_date=datetime.date(2026, 11, 24)
+                )
+            )
+            # Refresh json mtime to post-meeting (2026-11-24 15:30) -> fresh on 2026-11-24
+            os.utime(stale_json, (new_ts, new_ts))
+            self.assertFalse(
+                TopicDossierDiscoveryMixin.is_meeting_cache_stale_for_preview(
+                    mtg_nov, mtg_dir, reference_date=datetime.date(2026, 11, 24), max_cache_age_hours=24.0
+                )
+            )
+            # Old & far-future meetings skip network refresh
+            self.assertFalse(
+                TopicDossierDiscoveryMixin.is_meeting_cache_stale_for_preview(
+                    {"start_date": "2025-02-17", "end_date": "2025-02-21"},
+                    mtg_dir,
+                    reference_date=datetime.date(2026, 11, 24),
+                )
+            )
+            self.assertFalse(
+                TopicDossierDiscoveryMixin.is_meeting_cache_stale_for_preview(
+                    {"folder_name": "TSGS2_180_Stockholm_2027-04"},
+                    mtg_dir,
+                    reference_date=datetime.date(2026, 11, 24),
+                )
+            )
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_topic_editor_open_start_date_save_and_load(self):
+        from PyQt5.QtCore import QDate
+        from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicEditorDialog
+
+        self._ensure_qapp()
+        dlg = TopicEditorDialog(parent=None)
+        dlg.edit_name.setText("Open Ended Topic")
+        dlg.chk_open_start.setChecked(True)
+        dlg.edit_start_date.setDate(QDate(2026, 2, 1))
+        dlg._on_save()
+
+        self.assertEqual(dlg.result_topic.cycle_mode, "since_date")
+        self.assertEqual(dlg.result_topic.date_from, "2026-02-01")
+        self.assertEqual(dlg.result_topic.date_to, "")
+
+        dlg2 = TopicEditorDialog(topic=dlg.result_topic, parent=None)
+        self.assertTrue(dlg2.chk_open_start.isChecked())
+        self.assertEqual(dlg2.edit_start_date.date(), QDate(2026, 2, 1))
+        dlg.close()
+        dlg2.close()
+
+
 if __name__ == "__main__":
     unittest.main()

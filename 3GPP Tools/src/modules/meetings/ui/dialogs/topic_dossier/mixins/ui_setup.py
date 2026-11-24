@@ -28,6 +28,18 @@ from modules.meetings.ui.dialogs.topic_dossier.styles import (
     STYLE_SECONDARY_BTN,
 )
 
+TIMEFRAME_PRESETS = [
+    ("📅 Since Start Date → Present (+ Upcoming)", "since_date"),
+    ("Past 4 Meeting Rounds (~1 Year)", "past_4"),
+    ("Past 6 Meeting Rounds (~1.5 Years)", "past_6"),
+    ("Past 8 Meeting Rounds (~2 Years)", "past_8"),
+    ("Release 20 Timeframe (2025–2027)", "rel20"),
+    ("Release 19 Timeframe (2023–2025)", "rel19"),
+    ("📅 Custom Date Range...", "custom_range"),
+    ("Release 18 Timeframe (2021–2023)", "rel18"),
+    ("All Available Meetings", "all"),
+]
+
 
 class TopicDossierUiSetupMixin:
     """Builds the 2-column Meta-Topics navigation list, scope picker, and action bar."""
@@ -139,20 +151,12 @@ class TopicDossierUiSetupMixin:
 
         cycle_layout.addWidget(QLabel("<b>Meeting Timeframe:</b>"), 0, 0)
         self.combo_cycle_window = QComboBox()
-        self.combo_cycle_window.addItems([
-            "Past 4 Meeting Rounds (~1 Year)",
-            "Past 6 Meeting Rounds (~1.5 Years)",
-            "Past 8 Meeting Rounds (~2 Years)",
-            "Release 20 Timeframe (2025–2027)",
-            "Release 19 Timeframe (2023–2025)",
-            "Release 18 Timeframe (2021–2023)",
-            "📅 Custom Date Range...",
-            "All Available Meetings",
-        ])
+        for label, key in TIMEFRAME_PRESETS:
+            self.combo_cycle_window.addItem(label, key)
         self.combo_cycle_window.currentIndexChanged.connect(self._on_timeframe_preset_changed)
         cycle_layout.addWidget(self.combo_cycle_window, 0, 1)
 
-        # Date range picker container (shown when "📅 Custom Date Range..." is selected)
+        # Date range picker container (shown for "Since Start Date" and "Custom Date Range")
         self.date_range_widget = QWidget()
         dr_layout = QHBoxLayout(self.date_range_widget)
         dr_layout.setContentsMargins(0, 2, 0, 2)
@@ -166,16 +170,32 @@ class TopicDossierUiSetupMixin:
         self.edit_date_from.dateChanged.connect(self._update_cohorts_preview)
         dr_layout.addWidget(self.edit_date_from)
 
-        dr_layout.addWidget(QLabel("To:"))
+        self.lbl_date_to = QLabel("To:")
+        dr_layout.addWidget(self.lbl_date_to)
         self.edit_date_to = QDateEdit()
         self.edit_date_to.setCalendarPopup(True)
         self.edit_date_to.setDisplayFormat("yyyy-MM-dd")
         self.edit_date_to.setDate(QDate.currentDate().addYears(1))
         self.edit_date_to.dateChanged.connect(self._update_cohorts_preview)
         dr_layout.addWidget(self.edit_date_to)
+
+        self.lbl_open_ended_hint = QLabel("→ Present (+ upcoming ≤ 45d)")
+        self.lbl_open_ended_hint.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
+        dr_layout.addWidget(self.lbl_open_ended_hint)
+
+        self.chk_include_future = QCheckBox("Include all future")
+        self.chk_include_future.setChecked(False)
+        self.chk_include_future.setToolTip(
+            "When unchecked, includes meetings starting up to 45 days ahead. "
+            "Check to include all future scheduled meetings in the database."
+        )
+        self.chk_include_future.toggled.connect(self._update_cohorts_preview)
+        dr_layout.addWidget(self.chk_include_future)
         dr_layout.addStretch()
 
-        self.date_range_widget.setVisible(False)
+        self.lbl_date_to.setVisible(False)
+        self.edit_date_to.setVisible(False)
+        self.date_range_widget.setVisible(True)
         cycle_layout.addWidget(self.date_range_widget, 1, 1)
 
         self.lbl_cohorts_summary = QLabel("Covering: SA2, RAN2, CT1 across 4 meeting rounds")

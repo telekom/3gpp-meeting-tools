@@ -30,7 +30,9 @@ Deep architectural reference for the **Cross-WG, Multi-Meeting Topic Dossier & B
 ## 3. Meeting Scope & Timeframe Resolution (`cohort_resolver.py`)
 
 - Uses natural 3GPP standards terminology (**"Meeting Scope && Timeframe"**, **"Synchronized Meeting Rounds"**, **"Meeting Cycles"**, **"Custom Date Range"**) via `MeetingRoundResolver` (`MeetingCohortResolver`), clustering staggered multi-WG dates into unified cross-group rounds.
-- Presets: `Past 4/6/8 Meeting Rounds`, `Release 20/19/18 Timeframe`, `📅 Custom Date Range...` (`From:`/`To:` `QDateEdit`), and `All Available Meetings`.
+- **Folder-Name Date Fallback (`infer_meeting_date_from_folder` / `get_effective_meeting_dates`):** Meetings missing DB `start_date`/`end_date` (e.g. `TSGS2_178-AH-e_Electronic_2027-01`, `TSGS2_180_Stockholm_2027-04`) infer month bounds from `YYYY-MM` / `YYYY-MM-DD` folder tokens instead of being dropped.
+- **Open-Ended `"since_date"` Mode & Corpus Auto-Anchoring:** Presets start with **`📅 Since Start Date → Present (+ Upcoming)`** (`since_date`, default 45-day upcoming lookahead with `Include all future` override), followed by `Past 4/6/8 Meeting Rounds`, `Release 20/19/18 Timeframe`, `📅 Custom Date Range...` (index 6), and `All Available Meetings`. When a topic has no explicit `since_date` rule yet and an existing `.export_manifest.json` is present, `TopicDossierDialog` auto-anchors `From:` to the earliest exported meeting `start_date`; `TopicEditorDialog` can also persist an explicit `Default Start Date` (`cycle_mode="since_date"`).
+- **Per-WG Latest Summary & Full Tooltip:** `lbl_cohorts_summary` displays the latest resolved meeting per target WG (plus any upcoming meeting `→ #<num>`) and exposes the full round-by-round meeting list in its tooltip.
 
 ---
 
@@ -38,6 +40,7 @@ Deep architectural reference for the **Cross-WG, Multi-Meeting Topic Dossier & B
 (`TopicInputsViewerDialog` in `topic_inputs_dialog.py`)
 
 - **Modeless & Non-Blocking:** `super().__init__(None)`, `Qt.Window`, `Qt.NonModal`, backed by `InputsCollectorThread` (`QThread`).
+- **Smart Live-Refresh Parity (`is_meeting_cache_stale_for_preview`):** Recent/concluded meetings within 45 days whose `.xlsx.json` cache predates meeting end (or is missing/stale within 14 days) trigger live refresh in `InputsCollectorThread`, and `_load_meeting_tdocs` never lets a stale `.xlsx.json` shadow a newer valid `.xlsx`. Matches use the same `abstract` + `ai_description` inputs as `TopicDossierExporterThread`.
 - **Executive KPI Strip & 2-Row Wrapping Quick-Filter Pill Bar (`FilterPillButton`):** Row 1 (Working Groups) + Row 2 (Categories: Decisions, Agreements, Approved pCRs, Approved CRs, Liaisons, Discussions) inside `FlowLayout` containers (`Preferred` height-for-width sizing for 12+ WGs) with live counts, instant text search, and `↺ Reset`.
 - **4 Specialized Tabs:** `⚖️ Technical Decisions && Agreements`, `📄 All Considered Contributions`, `📬 Inter-WG Liaison Statements`, `📊 WG && Round Distribution` (native `QFont` bold totals).
 - **Decision Provenance Badges:** Differentiates `🟢 Text Agreement (Notes)` (RAN verbatim consensus; background paper Noted) from `🟢 Approved pCR (Doc)` / `🟢 Approved CR (Doc)` (full document approved).

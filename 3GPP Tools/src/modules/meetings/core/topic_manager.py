@@ -110,7 +110,7 @@ class MetaTopicDefinition:
     description: str = ""
     color: str = "#10B981"
     target_wgs: List[str] = field(default_factory=lambda: ["SA2", "RAN2", "RAN3", "CT1"])
-    cycle_mode: str = "past_n_cycles"  # "past_n_cycles", "cycle_range", "date_range"
+    cycle_mode: str = "past_n_cycles"  # "since_date", "past_n_cycles", "cycle_range", "date_range"
     past_n_cycles: int = 4
     from_cycle: str = "2025-Q1"
     to_cycle: str = "2026-Q1"

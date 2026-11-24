@@ -56,6 +56,8 @@ class TopicDossierDialog(
         return {
             "topic_id": self.active_topic.id if self.active_topic is not None else "",
             "cycle_idx": self.combo_cycle_window.currentIndex() if hasattr(self, "combo_cycle_window") else 0,
+            "cycle_preset": self._current_timeframe_key() if hasattr(self, "_current_timeframe_key") else "since_date",
+            "include_future": bool(self.chk_include_future.isChecked()) if hasattr(self, "chk_include_future") else False,
             "date_from": self.edit_date_from.date().toString("yyyy-MM-dd") if hasattr(self, "edit_date_from") else "",
             "date_to": self.edit_date_to.date().toString("yyyy-MM-dd") if hasattr(self, "edit_date_to") else "",
             "dest_folder": self.edit_dest_folder.text() if hasattr(self, "edit_dest_folder") else "",
@@ -73,10 +75,17 @@ class TopicDossierDialog(
         if topic_id and hasattr(self, "_load_topics_list"):
             self._load_topics_list(preferred_id=topic_id)
 
+        cycle_preset = str(state.get("cycle_preset") or "").strip()
         cycle_idx = state.get("cycle_idx")
-        if isinstance(cycle_idx, int) and hasattr(self, "combo_cycle_window"):
-            if 0 <= cycle_idx < self.combo_cycle_window.count():
+        if hasattr(self, "combo_cycle_window"):
+            idx = self.combo_cycle_window.findData(cycle_preset) if cycle_preset else -1
+            if idx >= 0:
+                self.combo_cycle_window.setCurrentIndex(idx)
+            elif isinstance(cycle_idx, int) and 0 <= cycle_idx < self.combo_cycle_window.count():
                 self.combo_cycle_window.setCurrentIndex(cycle_idx)
+
+        if "include_future" in state and hasattr(self, "chk_include_future"):
+            self.chk_include_future.setChecked(bool(state["include_future"]))
 
         d_from = QDate.fromString(str(state.get("date_from") or ""), "yyyy-MM-dd")
         if d_from.isValid() and hasattr(self, "edit_date_from"):
@@ -97,3 +106,8 @@ class TopicDossierDialog(
         ):
             if key in state and hasattr(self, attr):
                 getattr(self, attr).setChecked(bool(state[key]))
+
+        if hasattr(self, "_sync_date_range_controls"):
+            self._sync_date_range_controls()
+        if hasattr(self, "_update_cohorts_preview"):
+            self._update_cohorts_preview()

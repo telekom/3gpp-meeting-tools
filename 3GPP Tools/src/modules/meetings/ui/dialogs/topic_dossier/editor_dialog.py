@@ -3,8 +3,10 @@
 import re
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QDate, Qt
 from PyQt5.QtWidgets import (
+    QCheckBox,
+    QDateEdit,
     QDialog,
     QFrame,
     QGridLayout,
@@ -82,6 +84,25 @@ class TopicEditorDialog(QDialog):
         self.edit_desc = QLineEdit(self.topic.description if self.topic else "")
         self.edit_desc.setPlaceholderText("Brief purpose or architectural scope...")
         grid.addWidget(self.edit_desc, 1, 1)
+
+        grid.addWidget(QLabel("<b>Default Start Date:</b>"), 2, 0)
+        start_row = QHBoxLayout()
+        start_row.setContentsMargins(0, 0, 0, 0)
+        start_row.setSpacing(8)
+        self.chk_open_start = QCheckBox("Anchor start date (Since Start Date → Present)")
+        is_since = bool(self.topic and self.topic.cycle_mode == "since_date")
+        self.chk_open_start.setChecked(is_since)
+        self.edit_start_date = QDateEdit()
+        self.edit_start_date.setCalendarPopup(True)
+        self.edit_start_date.setDisplayFormat("yyyy-MM-dd")
+        q_df = QDate.fromString(str(self.topic.date_from or "")[:10], "yyyy-MM-dd") if self.topic else QDate()
+        self.edit_start_date.setDate(q_df if q_df.isValid() else QDate.currentDate().addYears(-1))
+        self.edit_start_date.setEnabled(is_since)
+        self.chk_open_start.toggled.connect(self.edit_start_date.setEnabled)
+        start_row.addWidget(self.chk_open_start)
+        start_row.addWidget(self.edit_start_date)
+        start_row.addStretch()
+        grid.addLayout(start_row, 2, 1)
         layout.addLayout(grid)
 
         # Target WGs (Toggle Pills)
@@ -309,6 +330,16 @@ class TopicEditorDialog(QDialog):
             excluded_tdocs=self.topic.rules.excluded_tdocs if self.topic else [],
         )
 
+        if self.chk_open_start.isChecked():
+            cycle_mode = "since_date"
+            date_from = self.edit_start_date.date().toString("yyyy-MM-dd")
+            date_to = ""
+        else:
+            prev_mode = self.topic.cycle_mode if self.topic else "past_n_cycles"
+            cycle_mode = "past_n_cycles" if prev_mode == "since_date" else prev_mode
+            date_from = self.topic.date_from if self.topic and prev_mode != "since_date" else ""
+            date_to = self.topic.date_to if self.topic and prev_mode != "since_date" else ""
+
         topic_id = self.topic.id if self.topic else re.sub(r'[^a-zA-Z0-9_-]+', '_', name.lower()).strip('_')
         self.result_topic = MetaTopicDefinition(
             id=topic_id,
@@ -316,12 +347,12 @@ class TopicEditorDialog(QDialog):
             description=self.edit_desc.text().strip(),
             color=self.topic.color if self.topic else C.EMERALD_ACCENT,
             target_wgs=wgs,
-            cycle_mode=self.topic.cycle_mode if self.topic else "past_n_cycles",
+            cycle_mode=cycle_mode,
             past_n_cycles=self.topic.past_n_cycles if self.topic else 4,
             from_cycle=self.topic.from_cycle if self.topic else "2025-Q1",
             to_cycle=self.topic.to_cycle if self.topic else "2026-Q1",
-            date_from=self.topic.date_from if self.topic else "",
-            date_to=self.topic.date_to if self.topic else "",
+            date_from=date_from,
+            date_to=date_to,
             rules=rules,
         )
         self.accept()

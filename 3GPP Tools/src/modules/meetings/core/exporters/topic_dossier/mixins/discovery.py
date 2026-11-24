@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import datetime
+import json as _json
 import logging
 import os
 import re
 import shutil
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from core.utils.paths import get_project_root, to_extended_path
+from modules.meetings.core.cohort_resolver import get_effective_meeting_dates
 from modules.meetings.core.exporters.export_manifest import ExportManifest
 from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
 from modules.meetings.core.tdocs.tdocs_parser import TDocsParser
@@ -97,6 +100,83 @@ class TopicDossierDiscoveryMixin:
         return False
 
     @staticmethod
+    def is_meeting_cache_stale_for_preview(
+        mtg: Dict[str, Any],
+        mtg_dir: Optional[Path],
+        reference_date: Optional[datetime.date] = None,
+        recent_days: int = 45,
+        max_cache_age_hours: float = 6.0,
+    ) -> bool:
+        """
+        Determines whether a meeting's local TDoc/ChairNotes cache should be live-refreshed
+        for `View Considered Inputs...` (e.g. concluded meeting still holding a pre-meeting cache).
+        """
+        ref_date = reference_date or datetime.date.today()
+        eff_start, eff_end = get_effective_meeting_dates(mtg)
+        m_start: Optional[datetime.date] = None
+        m_end: Optional[datetime.date] = None
+        try:
+            if eff_start:
+                m_start = datetime.date.fromisoformat(eff_start[:10])
+        except ValueError:
+            pass
+        try:
+            if eff_end:
+                m_end = datetime.date.fromisoformat(eff_end[:10])
+        except ValueError:
+            pass
+
+        if m_start is None and m_end is None:
+            return False
+        if m_start is None:
+            m_start = m_end
+        if m_end is None:
+            m_end = m_start
+
+        if (ref_date - m_end).days > recent_days or (m_start - ref_date).days > recent_days:
+            return False
+
+        if not mtg_dir:
+            return True
+
+        newest_cache_mtime: Optional[float] = None
+        agenda_dir = mtg_dir / "Agenda"
+        if agenda_dir.is_dir():
+            json_files = sorted(
+                [jf for jf in agenda_dir.glob("*.xlsx.json") if jf.is_file()],
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            for jf in json_files:
+                try:
+                    if jf.stat().st_size <= 2:
+                        continue
+                    with open(jf, "r", encoding="utf-8") as f:
+                        if _json.load(f):
+                            newest_cache_mtime = jf.stat().st_mtime
+                            break
+                except Exception:
+                    continue
+
+        if newest_cache_mtime is None:
+            return True
+
+        cache_date = datetime.datetime.fromtimestamp(newest_cache_mtime).date()
+        if ref_date > m_end and cache_date <= m_end:
+            return True
+
+        if m_start <= ref_date and (ref_date - m_end).days <= 14:
+            now_ts = (
+                time.time()
+                if reference_date is None or ref_date == datetime.date.today()
+                else datetime.datetime.combine(ref_date, datetime.time(12, 0)).timestamp()
+            )
+            if (now_ts - newest_cache_mtime) > max_cache_age_hours * 3600.0:
+                return True
+
+        return False
+
+    @staticmethod
     def _prune_superseded_topic_docs(
         target_dir: Path,
         manifest: ExportManifest,
@@ -178,7 +258,18 @@ class TopicDossierDiscoveryMixin:
 
         agenda_dir = mtg_dir / "Agenda"
 
-        import json as _json
+        newest_valid_xlsx_mtime = 0.0
+        if agenda_dir.is_dir():
+            for ef in agenda_dir.glob("*.xlsx"):
+                if not ef.is_file() or ef.name.startswith("~$"):
+                    continue
+                try:
+                    with open(ef, "rb") as xf:
+                        if xf.read(4) == b"PK\x03\x04":
+                            newest_valid_xlsx_mtime = max(newest_valid_xlsx_mtime, ef.stat().st_mtime)
+                except OSError:
+                    pass
+
         if agenda_dir.is_dir():
             json_caches = sorted(
                 [jf for jf in agenda_dir.glob("*.xlsx.json") if jf.is_file()],
@@ -187,8 +278,12 @@ class TopicDossierDiscoveryMixin:
             )
             for jf in json_caches:
                 try:
+                    if newest_valid_xlsx_mtime > 0.0 and jf.stat().st_mtime < newest_valid_xlsx_mtime:
+                        continue
                     with open(jf, "r", encoding="utf-8") as f:
-                        return _json.load(f)
+                        cached_rows = _json.load(f)
+                    if cached_rows:
+                        return cached_rows
                 except Exception:
                     pass
 

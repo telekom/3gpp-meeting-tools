@@ -40,9 +40,17 @@ class TopicDossierExportCliMixin:
 
         from modules.meetings.ui.dialogs.topic_inputs_dialog import TopicInputsViewerDialog
 
-        tf_label = self.combo_cycle_window.currentText()
-        if "Custom" in tf_label:
+        tf_key = self._current_timeframe_key() if hasattr(self, "_current_timeframe_key") else ""
+        if tf_key == "since_date":
+            d_from = self.edit_date_from.date().toString("yyyy-MM-dd")
+            if hasattr(self, "chk_include_future") and self.chk_include_future.isChecked():
+                tf_label = f"Since {d_from} → All Future"
+            else:
+                tf_label = f"Since {d_from} → Present (+ upcoming)"
+        elif tf_key == "custom_range" or "Custom" in self.combo_cycle_window.currentText():
             tf_label = f"{self.edit_date_from.date().toString('yyyy-MM-dd')} to {self.edit_date_to.date().toString('yyyy-MM-dd')}"
+        else:
+            tf_label = self.combo_cycle_window.currentText()
 
         dlg = TopicInputsViewerDialog(
             meetings_db=self.meetings_db,
