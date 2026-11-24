@@ -15,7 +15,7 @@ SRC_DIR = Path(__file__).resolve().parent.parent / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from PyQt5.QtCore import Qt, QRect
+from PyQt5.QtCore import Qt, QRect, QSettings
 from PyQt5.QtGui import QColor, QImage, QPainter, QPixmap
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QStyle, QStyleOptionViewItem, QWidget
 
@@ -117,10 +117,12 @@ class TestTDocsWindowLayoutAndChecklist(unittest.TestCase):
                     "Secretary Remarks": "",
                 },
             ]
+            test_settings = QSettings(str(Path(tmp) / "tdocs_filters.ini"), QSettings.IniFormat)
             win = TDocsWindow(
                 {"wg_name": "SA2", "meeting_number": "178", "location": "Calgary"},
                 rows,
                 str(dummy_xls),
+                filter_settings=test_settings,
             )
             win.sub_item_combo.setVisible(True)
             self.app.processEvents()

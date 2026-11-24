@@ -174,8 +174,6 @@ class TableLayoutMixin:
         self._refresh_email_counts()
         self._schedule_row_height_adjustment()
 
-        from PyQt5.QtWidgets import QShortcut
-        from PyQt5.QtGui import QKeySequence
         self.copy_shortcut = QShortcut(QKeySequence.Copy, self.table)
         self.copy_shortcut.activated.connect(self._copy_table_selection)
 
@@ -266,19 +264,19 @@ class TableLayoutMixin:
         """
         sc = scale_fn or scale_px
         base_widths = {
-            0: sc(92),
+            0: sc(90),
             1: sc(86),
-            2: sc(200),
-            3: sc(112),
-            4: sc(64),
-            5: sc(70),
+            2: sc(196),
+            3: sc(110),
+            4: sc(62),
+            5: sc(68),
             6: sc(26),
-            7: sc(220),
-            8: sc(70),
+            7: sc(225),
+            8: sc(68),
             9: sc(26),
             10: sc(114),
             11: sc(86),
-            12: sc(110),
+            12: sc(108),
         }
         if col_count > 13:
             base_widths[13] = sc(100)
@@ -315,12 +313,18 @@ class TableLayoutMixin:
                 widths[3] += source_extra
         elif 0 < viewport_width < total_base:
             deficit = total_base - viewport_width
-            shrinkable = {
-                c: max(0, widths[c] - min_widths.get(c, widths[c]))
-                for c in widths
-            }
-            total_shrinkable = sum(shrinkable.values())
-            if total_shrinkable > 0:
+            # Shrink non-Remarks columns first to preserve the Secretary Remarks floor;
+            # only shrink column 7 toward min_widths[7] if deficit remains on very narrow viewports.
+            for group in ([c for c in widths if c != 7], [7] if 7 in widths else []):
+                if deficit <= 0:
+                    break
+                shrinkable = {
+                    c: max(0, widths[c] - min_widths.get(c, widths[c]))
+                    for c in group
+                }
+                total_shrinkable = sum(shrinkable.values())
+                if total_shrinkable <= 0:
+                    continue
                 target_cut = min(deficit, total_shrinkable)
                 removed = 0
                 for c, avail in shrinkable.items():
@@ -338,6 +342,7 @@ class TableLayoutMixin:
                         take = min(room, leftover)
                         widths[c] -= take
                         leftover -= take
+                deficit -= target_cut
         return widths
 
     def _schedule_column_fit(self):
