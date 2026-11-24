@@ -38,8 +38,9 @@ src/modules/assistant/
 │       ├── spec_search_tools.py       # FTS5 search & clause retrieval tools
 │       └── specification_tools.py     # Catalogue lookup tools
 └── ui/
+    ├── tab/                           # Modular AssistantTab package (see tab/README.md)
     ├── assistant_components.py        # Reusable UI components, prompt editor, and style presets
-    ├── assistant_tab.py               # Assistant chat interface, evidence drawer, status view
+    ├── assistant_tab.py               # Re-export shim -> ui/tab/ package
     └── assistant_worker.py            # AgentResearchWorker (background QThread)
 ```
 
