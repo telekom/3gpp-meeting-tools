@@ -23,7 +23,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/modules/meetings/core/exporters/topic_dossier/mixins/export_pipeline.py": 607,
     "src/modules/meetings/ui/tdocs_agenda_controller.py": 601,
     "src/modules/puml2visio/templates/builtin_presets.py": 925,
-    "src/modules/word_tools/ui/cards/excerpt_card.py": 609,
 }
 
 
