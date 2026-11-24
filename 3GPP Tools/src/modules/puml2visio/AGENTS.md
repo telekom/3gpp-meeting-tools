@@ -16,6 +16,8 @@ src/modules/puml2visio/
 │   └── pptx2visio_converter.py / visio2pptx_converter.py  # Bidirectional EMF bridge
 ├── templates/                         # builtin_presets.py, plantuml_snippets.py, snippet_model.py
 └── ui/
+    ├── editor/                        # Modular CodeDropTextEdit, LineNumberArea & FindReplaceBar (see editor/README.md)
+    ├── ui_components.py               # Re-export shim -> ui/editor/ package
     ├── ui_tabs.py                     # PlantUML IDE tab (CodeDropTextEdit)
     ├── batch_convert_tab.py           # Visio & Office Conversion Studio (+ legacy aliases)
     ├── callflow_dialog.py / java_dialog.py / preset_dialog.py / select_presentation_dialog.py

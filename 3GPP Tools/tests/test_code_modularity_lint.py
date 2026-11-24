@@ -45,7 +45,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/modules/puml2visio/core/visio_converter.py": 615,
     "src/modules/puml2visio/templates/builtin_presets.py": 925,
     "src/modules/puml2visio/ui/callflow_dialog.py": 736,
-    "src/modules/puml2visio/ui/ui_components.py": 765,
     "src/modules/spec_search/ui/quick_search_panel.py": 658,
     "src/modules/specifications/core/spec_history_db.py": 713,
     "src/modules/specifications/core/spec_history_extractor.py": 620,
