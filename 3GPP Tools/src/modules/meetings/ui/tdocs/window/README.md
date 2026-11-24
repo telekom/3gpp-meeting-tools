@@ -14,7 +14,7 @@
 |---|---|
 | Constructor, shared state, `show/resize/close`, cache setup, `_save_user_data`, count label, context-menu entry, help | `main_window.py` |
 | Header/toolbar widgets, resources menu, instant fetch / compare with Word, routing indicator, venue clock | `mixins/ui_header.py` -> `mixins/header_widgets.py`, `mixins/header_menus_and_clock.py` |
-| Filter bar widgets, filter-change handlers, filter toggle buttons (agreements, emails, followed WIs) | `mixins/filter_setup.py` |
+| Filter bar widgets, filter-change handlers, filter toggle buttons (agreements, emails, followed WIs) | `mixins/filter_setup.py` -> `mixins/filter_persistence.py`, `mixins/filter_controls.py` |
 | Tracked / starred Work Item filter buttons and their context menus | `mixins/filter_tracked_wis.py` |
 | Facet counts, combobox population, AI tooltips, clear all filters | `mixins/filter_facets.py` |
 | Table construction, row heights, column width fitting / font scaling, header sorting, copy selection | `mixins/table_layout.py` |
