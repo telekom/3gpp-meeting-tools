@@ -27,7 +27,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/modules/emails/core/tracked_threads/collection_and_pinning.py": 642,
     "src/modules/emails/ui/meeting_inbox/mixins/triage_actions.py": 683,
     "src/modules/emails/ui/meeting_inbox/mixins/ui_setup.py": 632,
-    "src/modules/meetings/core/agreement_tracker_worker.py": 704,
     "src/modules/meetings/core/chair_notes_downloader.py": 617,
     "src/modules/meetings/core/exporters/topic_dossier/mixins/export_pipeline.py": 607,
     "src/modules/meetings/core/scraper.py": 689,

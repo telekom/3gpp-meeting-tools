@@ -49,7 +49,8 @@ src/modules/meetings/
 │   │   ├── chair_notes_agreements_parser.py # Re-export shim -> tdocs/chair_notes/ package
 │   │   ├── tdocs_parser.py            # Excel/HTML/Word TDoc list & agenda parser
 │   │   └── tdocs_threads.py           # Background threads for TDoc & Word agenda loading
-│   ├── agreement_tracker_worker.py    # Cross-WG Study Item & Topic agreement tracker
+│   ├── agreement_tracker/             # Modular AgreementTrackerWorker package (see agreement_tracker/README.md)
+│   ├── agreement_tracker_worker.py    # Re-export shim -> core/agreement_tracker/ package
 │   ├── chair_notes_downloader.py      # Smart FTP downloader & ZIP extractor for Chair's Notes
 │   ├── cohort_resolver.py             # Multi-WG meeting round & timeframe clustering
 │   ├── cross_wg_ls_tracker.py         # Inter-group Liaison Statement dialogue tracker
