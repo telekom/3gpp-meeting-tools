@@ -27,7 +27,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/core/network/session.py": 812,
     "src/core/ui/command_palette.py": 910,
     "src/core/ui/font_scale.py": 756,
-    "src/core/ui/system_status_bar.py": 933,
     "src/core/ui/update_dialog.py": 787,
     "src/core/ui/window_session.py": 632,
     "src/core/ui/world_clock_dialog.py": 858,
