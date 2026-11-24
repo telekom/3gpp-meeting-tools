@@ -19,7 +19,6 @@ PROTECTED_FILES = {
 # Shrink-only allowlist of existing `src/**/*.py` files currently above 600 lines.
 # Never increase a value here or add new entries; refactor into a package instead.
 LEGACY_LARGE_FILE_ALLOWLIST = {
-    "src/core/ai/cli_detector.py": 638,
     "src/core/ai/ollama_dialog.py": 621,
     "src/core/ui/window_session.py": 632,
     "src/modules/emails/ui/meeting_inbox/mixins/ui_setup.py": 632,
