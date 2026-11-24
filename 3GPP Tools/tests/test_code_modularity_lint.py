@@ -28,7 +28,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/core/ui/update_dialog.py": 787,
     "src/core/ui/window_session.py": 632,
     "src/modules/emails/core/tracked_threads/collection_and_pinning.py": 642,
-    "src/modules/emails/ui/email_window.py": 799,
     "src/modules/emails/ui/meeting_inbox/mixins/data_and_filtering.py": 707,
     "src/modules/emails/ui/meeting_inbox/mixins/triage_actions.py": 683,
     "src/modules/emails/ui/meeting_inbox/mixins/ui_setup.py": 632,

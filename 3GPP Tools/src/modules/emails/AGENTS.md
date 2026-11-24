@@ -23,7 +23,9 @@ src/modules/emails/
 │   ├── thread_markdown_exporter.py    # Re-export shim -> core/markdown_export/ package
 │   └── stats/                         # Unified email analytics (dataset_builder, plot_agenda, plot_companies, plot_delegates, plot_timeline)
 └── ui/
-    ├── email_window.py / general_email_dialog.py / email_dialogs.py / email_summary_dialog.py
+    ├── manager_window/                # Modular EmailManagerWindow package (see manager_window/README.md)
+    ├── email_window.py                # Re-export shim -> manager_window/ package
+    ├── general_email_dialog.py / email_dialogs.py / email_summary_dialog.py
     ├── meeting_inbox/                 # Modular MeetingEmailInboxDialog package (see meeting_inbox/README.md)
     ├── meeting_email_inbox_dialog.py  # Re-export shim for MeetingEmailInboxDialog & shared QSS/widgets
     ├── merge_threads_dialog.py        # Searchable, similarity-ranked split-thread merge dialog
