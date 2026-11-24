@@ -10,7 +10,9 @@ Developer and AI agent guide for the Word Studio, Document Comparison, CR/pCR Wo
 src/modules/word_tools/
 ├── AGENTS.md
 ├── core/
-│   ├── cr_pcr_generator.py / styles_3gpp.py     # Official MCC CR/pCR generator & TableGrid patching
+│   ├── cr_pcr/                                  # Modular CR/pCR generator package (see cr_pcr/README.md)
+│   ├── cr_pcr_generator.py                      # Re-export shim -> core/cr_pcr/ package
+│   ├── styles_3gpp.py                           # Official MCC styles & TableGrid patching
 │   ├── document_opener.py / word_comparator.py  # Safe Word COM opening, snapshotting & Track Changes diff
 │   ├── document_sanitizer.py / author_renamer.py # F-07 proofing language, rev purge & author hub
 │   ├── docx_splitter.py / word_excerpt_extractor.py / word_excerpt_fragment_worker.py / word_excerpt_naming.py
