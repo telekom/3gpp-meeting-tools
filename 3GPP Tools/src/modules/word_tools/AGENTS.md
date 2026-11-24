@@ -28,7 +28,8 @@ src/modules/word_tools/
     ├── word_tabs.py                             # WordExtractorTab (2-tier ribbon + segmented workbenches)
     ├── document_selector_pane.py                # DocumentSelectorPane 2.0 & ModernDropZone
     ├── cr_pcr/                                  # Modular CrPcrDialog package (see cr_pcr/README.md)
-    ├── cr_pcr_dialog.py / batch_label_dialog.py / word_settings_dialog.py   # (cr_pcr_dialog.py is shim -> cr_pcr/)
+    ├── cr_pcr_dialog.py / batch_label_dialog.py / word_settings_dialog.py   # (shims -> cr_pcr/ & word_settings/)
+    ├── word_settings/                           # Modular WordSettingsDialog package (see word_settings/README.md)
     └── cards/                                   # compare_card, markdown_card, cr_pcr_card, sanitizer_card, excerpt_card, converter_card
 ```
 

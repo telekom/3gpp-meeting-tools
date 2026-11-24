@@ -53,7 +53,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/modules/word_tools/ui/cards/excerpt_card.py": 609,
     "src/modules/word_tools/ui/cards/markdown_card.py": 653,
     "src/modules/word_tools/ui/cards/sanitizer_card.py": 650,
-    "src/modules/word_tools/ui/word_settings_dialog.py": 726,
     "src/modules/word_tools/ui/word_tabs.py": 641,
 }
 
