@@ -20,7 +20,6 @@ PROTECTED_FILES = {
 # Never increase a value here or add new entries; refactor into a package instead.
 LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/modules/emails/ui/meeting_inbox/mixins/ui_setup.py": 632,
-    "src/modules/meetings/core/chair_notes_downloader.py": 617,
     "src/modules/meetings/core/exporters/topic_dossier/mixins/export_pipeline.py": 607,
     "src/modules/meetings/ui/tdocs_agenda_controller.py": 601,
     "src/modules/nas/core/parsing/asn1_base_parser.py": 616,

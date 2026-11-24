@@ -51,7 +51,7 @@ src/modules/meetings/
 │   │   └── tdocs_threads.py           # Background threads for TDoc & Word agenda loading
 │   ├── agreement_tracker/             # Modular AgreementTrackerWorker package (see agreement_tracker/README.md)
 │   ├── agreement_tracker_worker.py    # Re-export shim -> core/agreement_tracker/ package
-│   ├── chair_notes_downloader.py      # Smart FTP downloader & ZIP extractor for Chair's Notes
+│   ├── chair_notes/ + chair_notes_downloader.py  # Modular Chair's Notes FTP downloader & ZIP extractor (see chair_notes/README.md)
 │   ├── cohort_resolver.py             # Multi-WG meeting round & timeframe clustering
 │   ├── cross_wg_ls_tracker.py         # Inter-group Liaison Statement dialogue tracker
 │   ├── meeting_wi_enricher.py         # Async Work Item discovery & enrichment
