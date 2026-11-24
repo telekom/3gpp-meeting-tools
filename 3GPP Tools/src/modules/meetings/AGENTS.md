@@ -104,6 +104,8 @@ src/modules/meetings/
     ├── tdocs_menus.py                 # Re-export shim -> tdocs/menus/ package
     ├── tdocs/models/                  # Modular TDocsTableModel & TDocsFilterProxyModel package (see tdocs/models/README.md)
     ├── tdocs_models.py                # Re-export shim -> tdocs/models/ package
+    ├── tdocs_help/                    # Modular TDocsHelpDialog package (see tdocs_help/README.md)
+    ├── tdocs_help_dialog.py           # Re-export shim -> tdocs_help/ package
     ├── tdocs_window.py                # Re-export shim -> tdocs/window/ mixins
     ├── pills/                         # Modular WG, tag cloud & AI pills package (see pills/README.md)
     ├── topic_pills.py                 # Re-export shim -> pills/ package

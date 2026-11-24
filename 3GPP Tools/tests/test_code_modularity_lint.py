@@ -28,7 +28,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/modules/meetings/ui/tdocs/window/mixins/filter_setup.py": 624,
     "src/modules/meetings/ui/tdocs/window/mixins/ui_header.py": 653,
     "src/modules/meetings/ui/tdocs_agenda_controller.py": 601,
-    "src/modules/meetings/ui/tdocs_help_dialog.py": 642,
     "src/modules/nas/core/parsing/asn1_base_parser.py": 616,
     "src/modules/puml2visio/core/visio_converter.py": 615,
     "src/modules/puml2visio/templates/builtin_presets.py": 925,
