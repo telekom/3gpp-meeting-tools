@@ -40,7 +40,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/modules/meetings/core/meetings_db.py": 749,
     "src/modules/meetings/core/scraper.py": 689,
     "src/modules/meetings/core/session_plan/session_plan_timezone.py": 707,
-    "src/modules/meetings/core/stats/exporter_thread.py": 833,
     "src/modules/meetings/ui/contributions/contribution_dialog.py": 710,
     "src/modules/meetings/ui/meeting_agreements_dialog.py": 741,
     "src/modules/meetings/ui/tdocs/window/mixins/filter_setup.py": 624,

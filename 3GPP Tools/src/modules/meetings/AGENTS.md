@@ -62,7 +62,7 @@ src/modules/meetings/
 │   ├── tdocs_db.py                    # SQLite interface for user_tdocs.db
 │   ├── topic_decision.py              # Unified technical decision model
 │   ├── topic_manager.py               # Persistent Meta-Topic manager & rule evaluation
-│   └── stats/                         # Meeting statistics & HTML dashboard compilation
+│   └── stats/                         # Meeting statistics, exporter/ package & exporter_thread.py shim
 └── ui/
     ├── agreement_tracker/             # Modular AgreementTrackerDialog package (see agreement_tracker/README.md)
     ├── agreement_tracker_dialog.py    # Re-export shim -> agreement_tracker/ package
