@@ -77,7 +77,8 @@ src/modules/meetings/
     │   ├── post_meeting_export_dialog.py # Re-export shim -> dialogs/post_meeting_export/ package
     │   ├── pre_meeting_export/        # Modular PreMeetingExportDialog package (see pre_meeting_export/README.md)
     │   ├── pre_meeting_export_dialog.py # Re-export shim -> dialogs/pre_meeting_export/ package
-    │   ├── tdocs_export_controller.py
+    │   ├── export_controller/         # Modular TDocs export & CLI session controller (see export_controller/README.md)
+    │   ├── tdocs_export_controller.py # Re-export shim -> dialogs/export_controller/ package
     │   ├── topic_dossier/             # Modular TopicDossierDialog & TopicEditorDialog package (see topic_dossier/README.md)
     │   ├── topic_dossier_dialog.py    # Re-export shim -> dialogs/topic_dossier/ package
     │   ├── topic_inputs/              # Modular TopicInputsViewerDialog package (see topic_inputs/README.md)
