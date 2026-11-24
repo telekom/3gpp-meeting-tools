@@ -32,7 +32,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/core/ui/window_session.py": 632,
     "src/core/ui/world_clock_dialog.py": 858,
     "src/core/ui/world_clock_service.py": 835,
-    "src/core/utils/company_sanitizer.py": 942,
     "src/modules/assistant/ui/assistant_components.py": 807,
     "src/modules/assistant/ui/assistant_tab.py": 923,
     "src/modules/emails/core/tracked_threads/collection_and_pinning.py": 642,
