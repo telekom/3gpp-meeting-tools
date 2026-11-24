@@ -18,7 +18,8 @@ progress callback.
 
 ## Files
 
-- `nas_parser.py` — NAS & UE Policy message definitions and IE coding tables
+- `nas/` — Modular NAS & UE Policy parser package (`catalogs.py`, `container_unroller.py`, `parser.py`; see `nas/README.md`).
+- `nas_parser.py` — Backward-compatible re-export shim -> `nas/` package for NAS & UE Policy message definitions and IE coding tables
   (TS 24.501, TS 24.301, TS 24.526, TS 24.588, TS 24.555, TS 24.514, TS 24.578, TS 24.008);
   the dispatcher's fallback parser. Supports Clause 8 / Annex D.5 message content tables,
   Clause 9 / Annex D.6 IE coding definitions, container unrolling (`Payload container`,

@@ -1,0 +1,57 @@
+"""Modular 3GPP NAS & UE Policy DOCX parser package."""
+
+from modules.nas.core.parsing.nas.catalogs import (
+    ATTR_VAL,
+    EPCO_SUB_IES,
+    PAYLOAD_CONTAINER_SUB_IES,
+    RE_CAPTION,
+    RE_IE_HEADING_NAS,
+    RE_IE_HEADING_POLICY,
+    RE_MAJOR_BOUNDARY_NAS,
+    RE_MAJOR_BOUNDARY_POLICY,
+    RE_MSG_HEADING_NAS,
+    RE_PARENT_SECTION_POLICY,
+    RE_TRAILING_PAGE_NUM,
+    SERVICE_LEVEL_AA_SUB_IES,
+    STRUCTURAL_SECTION_CLAUSES,
+    TAG_INSTR,
+    TAG_PSTYLE,
+    TS24514_POLICY_MESSAGES,
+    TS24526_POLICY_MESSAGES,
+    TS24555_POLICY_MESSAGES,
+    TS24578_POLICY_MESSAGES,
+    TS24588_POLICY_MESSAGES,
+    UE_POLICY_PART_SUB_IES,
+)
+from modules.nas.core.parsing.nas.container_unroller import (
+    finalize_ie_definition,
+    unroll_container_sub_ies,
+)
+from modules.nas.core.parsing.nas.parser import NASDocxParser
+
+__all__ = [
+    "ATTR_VAL",
+    "EPCO_SUB_IES",
+    "NASDocxParser",
+    "PAYLOAD_CONTAINER_SUB_IES",
+    "RE_CAPTION",
+    "RE_IE_HEADING_NAS",
+    "RE_IE_HEADING_POLICY",
+    "RE_MAJOR_BOUNDARY_NAS",
+    "RE_MAJOR_BOUNDARY_POLICY",
+    "RE_MSG_HEADING_NAS",
+    "RE_PARENT_SECTION_POLICY",
+    "RE_TRAILING_PAGE_NUM",
+    "SERVICE_LEVEL_AA_SUB_IES",
+    "STRUCTURAL_SECTION_CLAUSES",
+    "TAG_INSTR",
+    "TAG_PSTYLE",
+    "TS24514_POLICY_MESSAGES",
+    "TS24526_POLICY_MESSAGES",
+    "TS24555_POLICY_MESSAGES",
+    "TS24578_POLICY_MESSAGES",
+    "TS24588_POLICY_MESSAGES",
+    "UE_POLICY_PART_SUB_IES",
+    "finalize_ie_definition",
+    "unroll_container_sub_ies",
+]
