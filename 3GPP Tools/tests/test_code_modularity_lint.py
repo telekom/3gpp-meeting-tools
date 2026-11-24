@@ -20,7 +20,6 @@ PROTECTED_FILES = {
 # Never increase a value here or add new entries; refactor into a package instead.
 LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/core/ai/cli_detector.py": 638,
-    "src/core/ai/cli_launcher.py": 768,
     "src/core/ai/mcp_activity.py": 654,
     "src/core/ai/ollama_client.py": 681,
     "src/core/ai/ollama_dialog.py": 621,
