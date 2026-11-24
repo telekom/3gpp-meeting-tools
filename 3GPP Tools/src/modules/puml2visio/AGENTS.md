@@ -20,7 +20,9 @@ src/modules/puml2visio/
     ├── ui_components.py               # Re-export shim -> ui/editor/ package
     ├── ui_tabs.py                     # PlantUML IDE tab (CodeDropTextEdit)
     ├── batch_convert_tab.py           # Visio & Office Conversion Studio (+ legacy aliases)
-    ├── callflow_dialog.py / java_dialog.py / preset_dialog.py / select_presentation_dialog.py
+    ├── callflow/                      # Modular CallFlowDialog package (see callflow/README.md)
+    ├── callflow_dialog.py             # Re-export shim -> ui/callflow/ package
+    ├── java_dialog.py / preset_dialog.py / select_presentation_dialog.py
     ├── elements_palette.py / svg_preview_widget.py / syntax_highlighter.py
     └── cards/                         # puml_batch_card, office_bridge_card, vsdx_extractor_card, stencils_card, recent_exports_strip
 ```
