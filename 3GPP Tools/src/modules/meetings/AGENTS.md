@@ -53,7 +53,9 @@ src/modules/meetings/
 │   ├── cohort_resolver.py             # Multi-WG meeting round & timeframe clustering
 │   ├── cross_wg_ls_tracker.py         # Inter-group Liaison Statement dialogue tracker
 │   ├── meeting_wi_enricher.py         # Async Work Item discovery & enrichment
+│   ├── db/                            # Modular MeetingsDatabase SQLite package (see db/README.md)
 │   ├── meetings_data_loader.py        # 3gpp_data.db queries and meeting list loaders
+│   ├── meetings_db.py                 # Re-export shim -> core/db/ package
 │   ├── meetings_network_sync.py       # FTP sync for meetings and TDoc lists
 │   ├── tdoc_file_handler.py           # Downloading and caching TDoc ZIP/Word documents
 │   ├── tdoc_url_resolver.py           # Official 3GPP server HTTPS download URL resolution
