@@ -12,9 +12,10 @@ src/modules/specifications/
 ├── core/
 │   ├── attribution/                           # Modular Clause-to-TDoc Attribution package (see attribution/README.md)
 │   ├── db/                                    # Modular SpecsDatabase package (see db/README.md)
+│   ├── history_db/                            # Modular SpecHistoryDatabase package (see history_db/README.md)
 │   ├── database.py / scraper.py               # Re-export shim -> core/db/ + 3GPP FTP sync
 │   ├── spec_markdown_converter.py             # Mode 1 (unified) & Mode 2 (clause-split) Markdown export
-│   └── spec_history_db.py / spec_history_extractor.py / spec_clause_attribution.py (shim) / spec_tdoc_opener.py / spec_tdoc_report.py
+│   └── spec_history_db.py (shim) / spec_history_extractor.py / spec_clause_attribution.py (shim) / spec_tdoc_opener.py / spec_tdoc_report.py
 └── ui/
     ├── specs_tab/                             # Modular SpecificationsTab package (see specs_tab/README.md)
     ├── menu/                                  # Modular context menu & citation copy package (see menu/README.md)
