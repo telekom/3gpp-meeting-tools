@@ -25,7 +25,6 @@ LEGACY_LARGE_FILE_ALLOWLIST = {
     "src/core/ai/ollama_client.py": 681,
     "src/core/ai/ollama_dialog.py": 621,
     "src/core/network/session.py": 812,
-    "src/core/ui/command_palette.py": 910,
     "src/core/ui/font_scale.py": 756,
     "src/core/ui/update_dialog.py": 787,
     "src/core/ui/window_session.py": 632,
