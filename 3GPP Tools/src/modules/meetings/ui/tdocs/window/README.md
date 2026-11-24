@@ -13,7 +13,7 @@
 | Concern | File |
 |---|---|
 | Constructor, shared state, `show/resize/close`, cache setup, `_save_user_data`, count label, context-menu entry, help | `main_window.py` |
-| Header/toolbar widgets, resources menu, instant fetch / compare with Word, routing indicator, venue clock | `mixins/ui_header.py` |
+| Header/toolbar widgets, resources menu, instant fetch / compare with Word, routing indicator, venue clock | `mixins/ui_header.py` -> `mixins/header_widgets.py`, `mixins/header_menus_and_clock.py` |
 | Filter bar widgets, filter-change handlers, filter toggle buttons (agreements, emails, followed WIs) | `mixins/filter_setup.py` |
 | Tracked / starred Work Item filter buttons and their context menus | `mixins/filter_tracked_wis.py` |
 | Facet counts, combobox population, AI tooltips, clear all filters | `mixins/filter_facets.py` |
@@ -27,8 +27,7 @@
 | Drag & drop of files / Outlook items | `mixins/drag_drop.py` |
 
 ## Rules
-- New methods go into the mixin that owns the concern; keep files below ~600 lines
-  (`ui_header.py` is slightly above because `_setup_header` is one 350-line method — split it first if it grows).
+- New methods go into the mixin that owns the concern; keep files below ~500 lines (`header_widgets.py` and `header_menus_and_clock.py` hold the split header implementation behind `HeaderMixin` in `ui_header.py`).
 - Method names must stay unique across mixins (no overriding between mixins).
 - **Tests:** patch module globals in the mixin module that uses them
   (e.g. `modules.meetings.ui.tdocs.window.mixins.exports._open_folder`), not in `tdocs_window`.
