@@ -38,6 +38,9 @@ class QueueManager(QObject):
     processing_state_changed = pyqtSignal(bool, str)
     conversion_success = pyqtSignal(str)
     conversion_failed = pyqtSignal(str)
+    task_started = pyqtSignal(str, str)
+    task_progress = pyqtSignal(str, str, int, int)
+    task_finished = pyqtSignal(str, dict)
 
     def __init__(self, app_context: dict = None):
         super().__init__()
@@ -46,6 +49,8 @@ class QueueManager(QObject):
         self.file_queue = []
         self.is_processing = False
         self.conv_thread = None
+        self._current_target_format = None
+        self._current_task_summary = None
 
     def _get_display_name(self, file_path: Path):
         name = file_path.name
@@ -124,13 +129,26 @@ class QueueManager(QObject):
         else:
             self._update_status()
 
+    def _on_thread_summary(self, summary: dict):
+        self._current_task_summary = dict(summary) if isinstance(summary, dict) else {}
+
+    def _on_thread_finished(self):
+        finished_fmt = self._current_target_format
+        summary = self._current_task_summary or {}
+        self._current_target_format = None
+        self._current_task_summary = None
+        if finished_fmt:
+            self.task_finished.emit(finished_fmt, summary)
+        self.process_next()
+
     def abort_current_task(self):
         """Cooperatively stops the currently running QThread."""
         if hasattr(self, 'conv_thread') and self.conv_thread and self.conv_thread.isRunning():
             logger.log(logging.WARNING, "🛑 Aborting current task...")
+            aborted_fmt = self._current_target_format
 
             try:
-                self.conv_thread.finished.disconnect(self.process_next)
+                self.conv_thread.finished.disconnect(self._on_thread_finished)
             except Exception:
                 pass
 
@@ -142,6 +160,8 @@ class QueueManager(QObject):
 
             self.conv_thread.wait(3000)
             self.conv_thread = None
+            self._current_target_format = None
+            self._current_task_summary = None
 
             self.is_processing = False
             self._update_status("Task Aborted.")
@@ -150,6 +170,21 @@ class QueueManager(QObject):
 
             # Broadcast the updated state so the UI catches up
             self._broadcast_queue_update()
+            if aborted_fmt:
+                self.task_finished.emit(aborted_fmt, {"cancelled": True})
+
+    def abort_task_format(self, target_format: str):
+        """Remove queued tasks matching `target_format` and abort if currently running."""
+        before = len(self.file_queue)
+        self.file_queue = [item for item in self.file_queue if item[1] != target_format]
+        if len(self.file_queue) != before:
+            self._broadcast_queue_update()
+            self._update_status()
+
+        if self._current_target_format == target_format and self.conv_thread and self.conv_thread.isRunning():
+            self.abort_current_task()
+            if self.file_queue and not self.is_processing:
+                self.process_next()
 
     def remove_items(self, rows: list):
         for row in sorted(rows, reverse=True):
@@ -188,6 +223,8 @@ class QueueManager(QObject):
             # --- THE MAGIC HANDOFF ---
             # We call the registered factory function, blindly passing the data.
             # The plugin module decides which thread class to create and how to map these parameters.
+            self._current_target_format = target_format
+            self._current_task_summary = None
             self.conv_thread = registry_entry["factory"](next_file, params, self.app_context)
 
             # Duck-Typing: Connect standard signals if the thread implements them
@@ -200,10 +237,24 @@ class QueueManager(QObject):
             if hasattr(self.conv_thread, 'conversion_failed'):
                 self.conv_thread.conversion_failed.connect(self.conversion_failed.emit)
 
-            self.conv_thread.finished.connect(self.process_next)
+            if hasattr(self.conv_thread, 'progress_updated'):
+                self.conv_thread.progress_updated.connect(
+                    lambda msg, cur, tot, fmt=target_format: self.task_progress.emit(fmt, msg, cur, tot)
+                )
+
+            if hasattr(self.conv_thread, 'task_summary'):
+                self.conv_thread.task_summary.connect(self._on_thread_summary)
+
+            self.conv_thread.finished.connect(self._on_thread_finished)
+            self.task_started.emit(target_format, f"{display_name} ({fmt_display})")
             self.conv_thread.start()
 
         except Exception as e:
             logger.log(logging.ERROR, f"❌ Failed to execute task '{target_format}': {str(e)}")
+            failed_fmt = self._current_target_format
+            self._current_target_format = None
+            self._current_task_summary = None
+            if failed_fmt:
+                self.task_finished.emit(failed_fmt, {"error": str(e)})
             self.conversion_failed.emit(str(e))
             self.process_next()

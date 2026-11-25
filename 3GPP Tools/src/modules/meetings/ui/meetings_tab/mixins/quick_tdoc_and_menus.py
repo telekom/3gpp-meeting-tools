@@ -172,8 +172,7 @@ class MeetingsTabQuickTdocMenusMixin:
                     "meeting": self.table_model.data(r, Qt.UserRole).get("meeting_number")} for r in selected_rows if
                    self.table_model.data(r, Qt.UserRole)]
         if targets:
-            self.update_specific_requested.emit(targets, self.chk_wg.isChecked(), self.chk_docs.isChecked(),
-                                                self.chk_dyna.isChecked())
+            self.update_specific_requested.emit(targets, True, True, True)
 
     def show_right_click_menu(self, pos: QPoint):
         index = self.table.indexAt(pos)

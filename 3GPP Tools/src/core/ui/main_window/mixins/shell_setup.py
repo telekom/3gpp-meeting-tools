@@ -162,7 +162,13 @@ class ShellSetupMixin:
             lambda wg, docs, dyna: self.queue_manager.add_item(
                 Path("3GPP_Meetings"),
                 "update_meetings_db",
-                {"db_path": db_path, "sync_wg": wg, "sync_docs": docs, "sync_dyna": dyna}
+                {
+                    "db_path": db_path,
+                    "sync_wg": wg,
+                    "sync_docs": docs,
+                    "sync_dyna": dyna,
+                    "docs_mode": "smart" if docs else "none",
+                }
             )
         )
         self.meetings_tab.update_specific_requested.connect(
@@ -174,9 +180,27 @@ class ShellSetupMixin:
                     "target_meetings": target_list,
                     "sync_wg": wg,
                     "sync_docs": docs,
-                    "sync_dyna": dyna
+                    "sync_dyna": dyna,
+                    "docs_mode": "all" if docs else "none",
                 }
             )
+        )
+        self.meetings_tab.update_meetings_requested.connect(
+            lambda opts: self.queue_manager.add_item(
+                Path(opts.get("label") or "3GPP_Meetings"),
+                "update_meetings_db",
+                {
+                    "db_path": db_path,
+                    "sync_wg": opts.get("sync_wg", True),
+                    "sync_dyna": opts.get("sync_dyna", True),
+                    "sync_docs": opts.get("docs_mode", "smart") != "none",
+                    "docs_mode": opts.get("docs_mode", "smart"),
+                    "target_wgs": opts.get("target_wgs") or [],
+                },
+            )
+        )
+        self.meetings_tab.abort_sync_requested.connect(
+            lambda: self.queue_manager.abort_task_format("update_meetings_db")
         )
 
         nas_db_path = get_project_root() / "db" / "3gpp_protocol_data.db"

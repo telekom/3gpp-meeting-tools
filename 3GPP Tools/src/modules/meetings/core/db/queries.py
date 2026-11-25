@@ -20,6 +20,67 @@ class MeetingsQueriesMixin:
         "TBD",
     )
 
+    def _build_meeting_filter_clause(
+        self,
+        wg_name=None,
+        search_term=None,
+        location=None,
+        date_from=None,
+        date_to=None,
+        adhoc_filter=None,
+        type_filter=None,
+        date_mode: str = "all",
+    ):
+        """Build parameterized WHERE conditions for meeting search and count queries."""
+        clauses = ["1=1"]
+        params = []
+
+        if wg_name is not None:
+            if isinstance(wg_name, str):
+                wg_name = [wg_name]
+            if len(wg_name) == 0:
+                return None, []
+            valid_wgs = [wg for wg in wg_name if wg != "All WGs"]
+            if valid_wgs:
+                placeholders = ",".join("?" * len(valid_wgs))
+                clauses.append(f"w.name IN ({placeholders})")
+                params.extend(valid_wgs)
+
+        if search_term:
+            clauses.append("(m.meeting_number LIKE ? OR m.name LIKE ? OR m.location LIKE ? OR m.folder_name LIKE ?)")
+            like_val = f"%{search_term}%"
+            params.extend([like_val, like_val, like_val, like_val])
+        if location:
+            clauses.append("m.location LIKE ?")
+            params.append(f"%{location}%")
+
+        if date_mode == "unknown":
+            clauses.append("COALESCE(TRIM(m.start_date), '') = ''")
+        else:
+            if date_mode == "dated":
+                clauses.append("COALESCE(TRIM(m.start_date), '') != ''")
+            if date_from:
+                clauses.append(
+                    "COALESCE(TRIM(m.start_date), '') != '' "
+                    "AND COALESCE(NULLIF(TRIM(m.end_date), ''), m.start_date) >= ?"
+                )
+                params.append(date_from)
+            if date_to:
+                clauses.append("COALESCE(TRIM(m.start_date), '') != '' AND m.start_date <= ?")
+                params.append(date_to)
+
+        if adhoc_filter == "Ad-Hoc / BIS":
+            clauses.append("m.is_ad_hoc = 1")
+        elif adhoc_filter == "Regular":
+            clauses.append("m.is_ad_hoc = 0")
+
+        if type_filter == "Electronic":
+            clauses.append("m.is_electronic = 1")
+        elif type_filter == "In-Person":
+            clauses.append("m.is_electronic = 0")
+
+        return " AND ".join(clauses), params
+
     def search_meetings(
         self,
         wg_name=None,
@@ -29,56 +90,132 @@ class MeetingsQueriesMixin:
         date_to=None,
         adhoc_filter=None,
         type_filter=None,
+        date_mode: str = "all",
     ):
-        query = '''
+        where_sql, params = self._build_meeting_filter_clause(
+            wg_name=wg_name,
+            search_term=search_term,
+            location=location,
+            date_from=date_from,
+            date_to=date_to,
+            adhoc_filter=adhoc_filter,
+            type_filter=type_filter,
+            date_mode=date_mode,
+        )
+        if where_sql is None:
+            return []
+
+        order_sql = (
+            "w.name ASC, m.sort_number DESC, m.folder_name ASC"
+            if date_mode == "unknown"
+            else "m.start_date DESC, w.name ASC, m.sort_number DESC"
+        )
+        query = f'''
             SELECT m.*, w.name as wg_name
             FROM meetings m
             JOIN working_groups w ON m.wg_id = w.id
-            WHERE 1=1
+            WHERE {where_sql}
+            ORDER BY {order_sql}
         '''
-        params = []
-
-        if wg_name is not None:
-            if isinstance(wg_name, str):
-                wg_name = [wg_name]
-            if len(wg_name) == 0:
-                return []
-            valid_wgs = [wg for wg in wg_name if wg != "All WGs"]
-            if valid_wgs:
-                placeholders = ",".join("?" * len(valid_wgs))
-                query += f" AND w.name IN ({placeholders})"
-                params.extend(valid_wgs)
-
-        if search_term:
-            query += " AND (m.meeting_number LIKE ? OR m.name LIKE ?)"
-            params.extend([f"%{search_term}%", f"%{search_term}%"])
-        if location:
-            query += " AND m.location LIKE ?"
-            params.append(f"%{location}%")
-        if date_from:
-            query += " AND m.start_date >= ?"
-            params.append(date_from)
-        if date_to:
-            query += " AND m.end_date <= ?"
-            params.append(date_to)
-
-        if adhoc_filter == "Ad-Hoc / BIS":
-            query += " AND m.is_ad_hoc = 1"
-        elif adhoc_filter == "Regular":
-            query += " AND m.is_ad_hoc = 0"
-
-        if type_filter == "Electronic":
-            query += " AND m.is_electronic = 1"
-        elif type_filter == "In-Person":
-            query += " AND m.is_electronic = 0"
-
-        query += " ORDER BY m.start_date DESC, w.name ASC"
 
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
+
+    def count_unknown_date_meetings(
+        self,
+        wg_name=None,
+        search_term=None,
+        adhoc_filter=None,
+        type_filter=None,
+    ) -> int:
+        """Count undated meetings matching the active WG/search/nature/format filters."""
+        where_sql, params = self._build_meeting_filter_clause(
+            wg_name=wg_name,
+            search_term=search_term,
+            adhoc_filter=adhoc_filter,
+            type_filter=type_filter,
+            date_mode="unknown",
+        )
+        if where_sql is None:
+            return 0
+        query = f'''
+            SELECT COUNT(*)
+            FROM meetings m
+            JOIN working_groups w ON m.wg_id = w.id
+            WHERE {where_sql}
+        '''
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            row = cursor.fetchone()
+            return int(row[0]) if row else 0
+
+    def get_smart_docs_candidates(
+        self,
+        wg_names: Optional[list] = None,
+        recent_days: int = 365,
+        missing_lookback_days: int = 730,
+        force_url_keys: Optional[set] = None,
+    ) -> list:
+        """Return FTP Docs/ scan tasks for recent, upcoming, newly added, or incomplete meetings."""
+        today = datetime.date.today()
+        recent_cutoff = (today - datetime.timedelta(days=max(0, int(recent_days)))).isoformat()
+        missing_cutoff = (today - datetime.timedelta(days=max(0, int(missing_lookback_days)))).isoformat()
+
+        clauses = ["COALESCE(TRIM(m.url_key), '') != ''"]
+        params: list = []
+
+        if wg_names:
+            clean_wgs = [str(w).strip().upper() for w in wg_names if str(w).strip()]
+            if not clean_wgs:
+                return []
+            placeholders = ",".join("?" * len(clean_wgs))
+            clauses.append(f"UPPER(w.name) IN ({placeholders})")
+            params.extend(clean_wgs)
+
+        scope_or = [
+            "m.start_date >= ?",
+            "(m.start_date >= ? AND (COALESCE(m.first_tdoc_num, 0) <= 0 OR COALESCE(m.last_tdoc_num, 0) <= 0))",
+        ]
+        params.extend([recent_cutoff, missing_cutoff])
+
+        norm_force = [str(k).strip().strip("/").lower() for k in (force_url_keys or []) if str(k).strip()]
+        if norm_force:
+            placeholders = ",".join("?" * len(norm_force))
+            scope_or.append(f"LOWER(RTRIM(m.url_key, '/')) IN ({placeholders})")
+            params.extend(norm_force)
+
+        clauses.append("(" + " OR ".join(scope_or) + ")")
+
+        query = f'''
+            SELECT m.folder_name, m.meeting_number, m.url_key, w.name as wg_name
+            FROM meetings m
+            JOIN working_groups w ON m.wg_id = w.id
+            WHERE {' AND '.join(clauses)}
+            ORDER BY m.start_date DESC, m.sort_number DESC, m.id DESC
+        '''
+        with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            tasks = []
+            for row in cursor.fetchall():
+                url_key = str(row["url_key"]).strip("/")
+                absolute_url = f"https://www.3gpp.org/ftp/{url_key}"
+                tasks.append(
+                    {
+                        "wg_name": row["wg_name"],
+                        "folder_name": row["folder_name"] or row["meeting_number"],
+                        "meeting_num": row["meeting_number"],
+                        "url_key": url_key,
+                        "absolute_url": absolute_url,
+                        "docs_url": absolute_url.rstrip("/") + "/Docs/",
+                    }
+                )
+            return tasks
 
     def get_working_groups(self):
         with self._get_connection() as conn:

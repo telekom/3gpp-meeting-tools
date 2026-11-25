@@ -108,41 +108,117 @@ class MeetingsSchemaAndWritesMixin:
             ''', (wg_id, folder_name, meeting_number, sort_num, is_ad_hoc, is_electronic, url_key))
             conn.commit()
 
-    def insert_meetings_bulk(self, meetings_data: list):
+    def insert_meetings_bulk(self, meetings_data: list) -> dict:
+        """Bulk upsert FTP-discovered meeting folders and link any DynaReport placeholders."""
+        stats = {"inserted": 0, "updated": 0, "linked": 0, "inserted_url_keys": []}
         if not meetings_data:
-            return
+            return stats
         wg_map = {}
         for task in meetings_data:
             wg = task["wg_name"]
             if wg not in wg_map:
                 wg_map[wg] = self.get_or_create_wg(wg)
 
-        insert_data = []
-        for task in meetings_data:
-            m_num = task["meeting_num"]
-            is_ah, is_e = self._get_meeting_flags(m_num)
-            final_ah = 1 if (is_ah or task.get("is_ad_hoc")) else 0
-
-            insert_data.append((
-                wg_map[task["wg_name"]], task["folder_name"], m_num,
-                self._extract_sort_num(m_num), final_ah, is_e,
-                task["url_key"], task.get("docs_url", ""),
-            ))
-
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.executemany('''
-                INSERT INTO meetings (wg_id, folder_name, meeting_number, sort_number, is_ad_hoc, is_electronic, url_key, docs_folder_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(url_key) DO UPDATE SET
-                    folder_name=excluded.folder_name,
-                    meeting_number=excluded.meeting_number,
-                    sort_number=excluded.sort_number,
-                    is_ad_hoc=excluded.is_ad_hoc,
-                    is_electronic=excluded.is_electronic,
-                    docs_folder_url=excluded.docs_folder_url
-            ''', insert_data)
+            for task in meetings_data:
+                wg_id = wg_map[task["wg_name"]]
+                m_num = task["meeting_num"]
+                folder_name = task["folder_name"]
+                url_key = (task.get("url_key") or "").strip().strip("/")
+                docs_url = task.get("docs_url", "")
+                fallback_start = (task.get("fallback_start_date") or "").strip()
+                sort_num = self._extract_sort_num(m_num)
+                is_ah, is_e = self._get_meeting_flags(m_num)
+                final_ah = 1 if (is_ah or task.get("is_ad_hoc")) else 0
+
+                # 1. Exact url_key match
+                cursor.execute(
+                    "SELECT id FROM meetings WHERE LOWER(RTRIM(url_key, '/')) = LOWER(RTRIM(?, '/'))",
+                    (url_key,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    cursor.execute(
+                        '''
+                        UPDATE meetings
+                        SET folder_name = ?,
+                            meeting_number = ?,
+                            sort_number = ?,
+                            is_ad_hoc = ?,
+                            is_electronic = ?,
+                            docs_folder_url = ?,
+                            start_date = CASE
+                                WHEN COALESCE(TRIM(start_date), '') = '' AND ? != '' THEN ?
+                                ELSE start_date
+                            END
+                        WHERE id = ?
+                        ''',
+                        (
+                            folder_name, m_num, sort_num, final_ah, is_e, docs_url,
+                            fallback_start, fallback_start, row[0],
+                        ),
+                    )
+                    stats["updated"] += 1
+                    continue
+
+                # 2. Link an existing DynaReport-only placeholder row (no url_key yet)
+                cursor.execute(
+                    '''
+                    SELECT id FROM meetings
+                    WHERE wg_id = ? AND UPPER(meeting_number) = UPPER(?)
+                      AND COALESCE(TRIM(url_key), '') = ''
+                    LIMIT 1
+                    ''',
+                    (wg_id, m_num),
+                )
+                placeholder = cursor.fetchone()
+                if placeholder:
+                    cursor.execute(
+                        '''
+                        UPDATE meetings
+                        SET folder_name = ?,
+                            meeting_number = ?,
+                            sort_number = ?,
+                            is_ad_hoc = CASE WHEN ? = 1 THEN 1 ELSE is_ad_hoc END,
+                            is_electronic = CASE WHEN ? = 1 THEN 1 ELSE is_electronic END,
+                            url_key = ?,
+                            docs_folder_url = ?,
+                            start_date = CASE
+                                WHEN COALESCE(TRIM(start_date), '') = '' AND ? != '' THEN ?
+                                ELSE start_date
+                            END
+                        WHERE id = ?
+                        ''',
+                        (
+                            folder_name, m_num, sort_num, final_ah, is_e,
+                            url_key, docs_url, fallback_start, fallback_start, placeholder[0],
+                        ),
+                    )
+                    stats["linked"] += 1
+                    if url_key:
+                        stats["inserted_url_keys"].append(url_key)
+                    continue
+
+                # 3. Insert brand-new FTP meeting folder
+                cursor.execute(
+                    '''
+                    INSERT INTO meetings (
+                        wg_id, folder_name, meeting_number, sort_number,
+                        is_ad_hoc, is_electronic, url_key, docs_folder_url, start_date
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''',
+                    (
+                        wg_id, folder_name, m_num, sort_num,
+                        final_ah, is_e, url_key, docs_url, fallback_start or None,
+                    ),
+                )
+                stats["inserted"] += 1
+                if url_key:
+                    stats["inserted_url_keys"].append(url_key)
+
             conn.commit()
+        return stats
 
     def update_meeting_docs_bulk(self, docs_data: list):
         if not docs_data:
@@ -166,9 +242,11 @@ class MeetingsSchemaAndWritesMixin:
             ''', formatted_data)
             conn.commit()
 
-    def update_meeting_metadata_bulk(self, metadata_data: list):
+    def update_meeting_metadata_bulk(self, metadata_data: list) -> dict:
+        """Upsert DynaReport metadata and insert scheduled future meetings lacking FTP folders."""
+        stats = {"inserted": 0, "updated": 0}
         if not metadata_data:
-            return
+            return stats
         wg_map = {}
         for item in metadata_data:
             wg = item[0]
@@ -181,20 +259,22 @@ class MeetingsSchemaAndWritesMixin:
                 wg_name, m_num, url_key, mtg_id, m_name, town, start_d, end_d, new_m_num = item
                 wg_id = wg_map[wg_name]
 
-                mtg_id = mtg_id or ""
-                m_name = m_name or ""
-                town = town or ""
-                start_d = start_d or ""
-                end_d = end_d or ""
-                m_num = m_num or ""
-                new_m_num = new_m_num or ""
+                mtg_id = (mtg_id or "").strip()
+                m_name = (m_name or "").strip()
+                town = (town or "").strip()
+                start_d = (start_d or "").strip()
+                end_d = (end_d or "").strip()
+                m_num = (m_num or "").strip()
+                new_m_num = (new_m_num or "").strip()
 
                 # Safe SQLite Null Handling
-                db_url_key = url_key.strip() if url_key and url_key.strip() else None
+                db_url_key = url_key.strip().strip("/") if url_key and url_key.strip() else None
 
                 final_m_num = new_m_num if new_m_num else m_num
                 sort_n = self._extract_sort_num(final_m_num)
                 is_ah, is_e = self._get_meeting_flags(final_m_num)
+                if "online" in town.lower() or "electronic" in town.lower() or "electronic" in m_name.lower():
+                    is_e = 1
 
                 if wg_name.startswith("RAN") and (
                     re.search(r"AH|Ad\s*Hoc", final_m_num, re.IGNORECASE)
@@ -214,7 +294,14 @@ class MeetingsSchemaAndWritesMixin:
                     if res:
                         row_id = res[0]
 
-                # 2. Attempt aggressive fallback match via the calculated Meeting Number
+                # 2. Strict match via official 3GPP MtgId
+                if not row_id and mtg_id:
+                    cursor.execute("SELECT id FROM meetings WHERE mtg_id = ?", (mtg_id,))
+                    res = cursor.fetchone()
+                    if res:
+                        row_id = res[0]
+
+                # 3. Fallback match via calculated Meeting Number within the WG
                 if not row_id and m_num:
                     cursor.execute('''
                         SELECT id FROM meetings
@@ -229,7 +316,7 @@ class MeetingsSchemaAndWritesMixin:
                     if res:
                         row_id = res[0]
 
-                # 3. Safe UPSERT
+                # 4. Safe UPSERT
                 if row_id:
                     try:
                         cursor.execute(
@@ -273,8 +360,44 @@ class MeetingsSchemaAndWritesMixin:
                                 new_m_num, new_m_num, sort_n, sort_n, is_ah, is_e, row_id,
                             ),
                         )
+                    stats["updated"] += 1
+                elif (final_m_num or m_name) and (mtg_id or start_d):
+                    folder_name = db_url_key.split("/")[-1] if db_url_key else f"{wg_name}_{final_m_num or m_name}"
+                    docs_url = f"https://www.3gpp.org/ftp/{db_url_key}/Docs/" if db_url_key else ""
+                    cursor.execute(
+                        '''
+                        INSERT INTO meetings (
+                            wg_id, folder_name, meeting_number, name, location,
+                            start_date, end_date, url_key, docs_folder_url,
+                            sort_number, is_ad_hoc, is_electronic, mtg_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''',
+                        (
+                            wg_id, folder_name, final_m_num or m_name, m_name, town,
+                            start_d, end_d, db_url_key, docs_url,
+                            sort_n, is_ah, is_e, mtg_id,
+                        ),
+                    )
+                    stats["inserted"] += 1
 
             conn.commit()
+        return stats
+
+    def cleanup_container_rows(self) -> int:
+        """Remove known non-meeting AH container folders mistakenly ingested earlier."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                DELETE FROM meetings
+                WHERE LOWER(folder_name) IN ('tsgr_ahs', 'tsgr1_ah', 'tsgr2_ahs', 'tsgr3_ahgs', 'tsgr4_ahs')
+                  AND COALESCE(TRIM(mtg_id), '') = ''
+                  AND COALESCE(TRIM(start_date), '') = ''
+                '''
+            )
+            deleted = cursor.rowcount
+            conn.commit()
+            return deleted
 
     def upsert_single_meeting(self, data: dict) -> bool:
         """Inserts or completely updates a single meeting entry in the database."""

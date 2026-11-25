@@ -14,6 +14,7 @@ from modules.meetings.ui.search_controller import GlobalSearchController
 from .mixins import (
     MeetingsTabFiltersDataMixin,
     MeetingsTabQuickTdocMenusMixin,
+    MeetingsTabSyncMixin,
     MeetingsTabUiSetupMixin,
     MeetingsTabWindowsActionsMixin,
 )
@@ -21,6 +22,7 @@ from .mixins import (
 
 class MeetingsTab(
     MeetingsTabUiSetupMixin,
+    MeetingsTabSyncMixin,
     MeetingsTabFiltersDataMixin,
     MeetingsTabQuickTdocMenusMixin,
     MeetingsTabWindowsActionsMixin,
@@ -28,6 +30,8 @@ class MeetingsTab(
 ):
     update_db_requested = pyqtSignal(bool, bool, bool)
     update_specific_requested = pyqtSignal(list, bool, bool, bool)
+    update_meetings_requested = pyqtSignal(dict)
+    abort_sync_requested = pyqtSignal()
 
     def __init__(self, db_path: Path, config_file: Optional[Path] = None):
         super().__init__()

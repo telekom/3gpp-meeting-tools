@@ -30,9 +30,11 @@ logger = logging.getLogger(__name__)
 
 
 class MeetingsCrawlerThread(QThread):
-    """Background 3-phase crawler syncing WG folders, Docs/ ranges, and DynaReports."""
+    """Background 3-phase crawler syncing WG folders, DynaReports, and Docs/ ranges."""
 
     ui_log_msg = pyqtSignal(str, int)
+    progress_updated = pyqtSignal(str, int, int)
+    task_summary = pyqtSignal(dict)
     finished = pyqtSignal()
     finished_path = pyqtSignal(str)
 
@@ -40,9 +42,11 @@ class MeetingsCrawlerThread(QThread):
         self,
         db_path: Path,
         target_meetings: list = None,
-        sync_wg=True,
-        sync_docs=True,
-        sync_dyna=True,
+        sync_wg: bool = True,
+        sync_docs: bool = True,
+        sync_dyna: bool = True,
+        target_wgs: list = None,
+        docs_mode: str = "smart",
     ):
         super().__init__()
         self.db = MeetingsDatabase(db_path)
@@ -50,6 +54,15 @@ class MeetingsCrawlerThread(QThread):
         self.sync_wg = sync_wg
         self.sync_docs = sync_docs
         self.sync_dyna = sync_dyna
+        self.target_wgs = [w for w in (target_wgs or []) if w in MEETING_SOURCES]
+        if not sync_docs:
+            self.docs_mode = "none"
+        elif self.target_meetings:
+            self.docs_mode = "all"
+        elif docs_mode in ("smart", "all", "none"):
+            self.docs_mode = docs_mode
+        else:
+            self.docs_mode = "smart"
 
         self.meeting_pattern = MEETING_NAME_PATTERN
         self.num_pattern = MEETING_NUM_PATTERN
@@ -92,142 +105,157 @@ class MeetingsCrawlerThread(QThread):
             wg_name, dyna_url, target_meetings=self.target_meetings
         )
 
+    def _load_db_docs_tasks(self, wgs_to_sync: list) -> list:
+        """Build Docs/ scan task descriptors from meetings stored in SQLite."""
+        tasks = []
+        for m in self.db.search_meetings(wg_name=wgs_to_sync):
+            if self.target_meetings and not any(
+                t["wg"] == m["wg_name"]
+                and str(t["meeting"]).upper() == str(m["meeting_number"]).upper()
+                for t in self.target_meetings
+            ):
+                continue
+            if m.get("url_key"):
+                url_key = str(m["url_key"]).strip("/")
+                absolute_url = f"https://www.3gpp.org/ftp/{url_key}"
+                tasks.append(
+                    {
+                        "wg_name": m["wg_name"],
+                        "folder_name": m.get("folder_name") or m["meeting_number"],
+                        "meeting_num": m["meeting_number"],
+                        "url_key": url_key,
+                        "absolute_url": absolute_url,
+                        "docs_url": absolute_url.rstrip("/") + "/Docs/",
+                    }
+                )
+        return tasks
+
     def run(self):
         start_time = time.time()
+        new_meetings = 0
+        updated_meetings = 0
+        docs_scanned = 0
+        tdocs_found = 0
+        cancelled = False
+
+        if self.target_meetings:
+            wgs_to_sync = list(
+                dict.fromkeys(
+                    t["wg"] for t in self.target_meetings if t.get("wg") in MEETING_SOURCES
+                )
+            )
+        elif self.target_wgs:
+            wgs_to_sync = list(dict.fromkeys(self.target_wgs))
+        else:
+            wgs_to_sync = list(MEETING_SOURCES.keys())
+
         try:
             all_tasks = []
+            p1_inserted_keys = set()
 
-            if self.sync_wg:
-                logger.info("⏳ [Phase 1/3] Mapping WG directories...")
+            # --- STEP 1/3: FTP Directory Discovery ---
+            if self.sync_wg and wgs_to_sync:
+                logger.info(f"⏳ [Step 1/3] Mapping FTP directories for {len(wgs_to_sync)} WG(s)...")
                 mapped = set()
+                url_jobs = []
+                for wg_name in wgs_to_sync:
+                    source_info = MEETING_SOURCES[wg_name]
+                    urls = (
+                        source_info["ftp"]
+                        if isinstance(source_info["ftp"], list)
+                        else [source_info["ftp"]]
+                    )
+                    for url in urls:
+                        url_jobs.append((wg_name, url, "AH" in url))
+
+                self.progress_updated.emit("Step 1/3: Scanning FTP folders...", 0, len(url_jobs))
+                done_urls = 0
 
                 with ThreadPoolExecutor(max_workers=15) as executor:
-                    futures = {}
-                    for wg_name, source_info in MEETING_SOURCES.items():
-                        urls = (
-                            source_info["ftp"]
-                            if isinstance(source_info["ftp"], list)
-                            else [source_info["ftp"]]
-                        )
-                        for url in urls:
-                            is_ah = "AH" in url
-                            future = executor.submit(self.fetch_wg_directories, wg_name, url, is_ah)
-                            futures[future] = wg_name
-
+                    futures = {
+                        executor.submit(self.fetch_wg_directories, wg, url, is_ah): wg
+                        for wg, url, is_ah in url_jobs
+                    }
                     for future in as_completed(futures):
+                        if self.isInterruptionRequested():
+                            cancelled = True
+                            for pending in futures:
+                                pending.cancel()
+                            break
+                        done_urls += 1
                         if res := future.result():
                             all_tasks.extend(res)
                             for t in res:
                                 mapped.add(f"{t['wg_name']}:{t['meeting_num']}")
+                        self.progress_updated.emit(
+                            f"Step 1/3: Scanning FTP folders ({done_urls}/{len(url_jobs)})...",
+                            done_urls,
+                            len(url_jobs),
+                        )
+
+                if hasattr(self.db, "cleanup_container_rows"):
+                    self.db.cleanup_container_rows()
 
                 if all_tasks:
                     logger.info(
-                        f"⏳ Bulk-saving {len(all_tasks)} folders to local Database... (This is fast)"
+                        f"⏳ Bulk-saving {len(all_tasks)} folders to local Database..."
                     )
-                    self.db.insert_meetings_bulk(all_tasks)
+                    p1_stats = self.db.insert_meetings_bulk(all_tasks) or {}
+                    new_meetings += int(p1_stats.get("inserted", 0))
+                    updated_meetings += int(p1_stats.get("updated", 0)) + int(
+                        p1_stats.get("linked", 0)
+                    )
+                    p1_inserted_keys = set(p1_stats.get("inserted_url_keys", []))
                     logger.info(
-                        f"✅ [Phase 1/3] Successfully mapped & saved {len(all_tasks)} meeting folders."
+                        f"✅ [Step 1/3] Mapped {len(all_tasks)} folders "
+                        f"({p1_stats.get('inserted', 0)} new, {p1_stats.get('linked', 0)} linked)."
                     )
 
-                if self.target_meetings:
+                if self.target_meetings and not cancelled:
                     for t in self.target_meetings:
                         if f"{t['wg']}:{t['meeting']}" not in mapped:
                             logger.warning(
                                 f"⚠️ Target {t['wg']}:{t['meeting']} not found on FTP!"
                             )
+
+                self.finished_path.emit("MEETINGS_DB_PHASE_1")
             else:
-                logger.info("⏭️ [Phase 1/3] Skipping Directory Mapping (loading DB)...")
-                for m in self.db.search_meetings():
-                    if self.target_meetings and not any(
-                        t["wg"] == m["wg_name"] and t["meeting"] == m["meeting_number"]
-                        for t in self.target_meetings
-                    ):
-                        continue
-                    if m.get("url_key"):
-                        url_key = str(m["url_key"]).strip("/")
-                        absolute_url = f"https://www.3gpp.org/ftp/{url_key}"
-                        all_tasks.append(
-                            {
-                                "wg_name": m["wg_name"],
-                                "folder_name": m.get("folder_name") or m["meeting_number"],
-                                "meeting_num": m["meeting_number"],
-                                "url_key": url_key,
-                                "absolute_url": absolute_url,
-                                "docs_url": absolute_url.rstrip("/") + "/Docs/",
-                            }
-                        )
+                logger.info("⏭️ [Step 1/3] Skipping FTP Directory Mapping...")
+                self.finished_path.emit("MEETINGS_DB_PHASE_1")
 
-            self.finished_path.emit("MEETINGS_DB_PHASE_1")
-
-            if self.sync_docs:
-                if not all_tasks:
-                    logger.warning("⚠️ No meetings available to scan for Docs.")
-                else:
-                    logger.info(
-                        f"⏳ [Phase 2/3] Deep scraping Docs for {len(all_tasks)} meetings..."
-                    )
-                    completed, tdocs_found = 0, 0
-                    p2_start = time.time()
-
-                    all_docs_data = []
-
-                    with ThreadPoolExecutor(max_workers=10) as executor:
-                        future_to_task = {}
-                        for task in all_tasks:
-                            future = executor.submit(self.process_individual_meeting, task)
-                            future_to_task[future] = task
-
-                        for future in as_completed(future_to_task):
-                            task = future_to_task[future]
-                            completed += 1
-                            try:
-                                docs_tuple, count = future.result()
-                                tdocs_found += count
-                                all_docs_data.append(docs_tuple)
-                            except Exception as e:
-                                logger.error(f"❌ Error scraping {task['folder_name']}: {e}")
-
-                            if completed % 10 == 0 or completed == len(all_tasks):
-                                elapsed = time.time() - p2_start
-                                rate = completed / elapsed if elapsed > 0 else 0
-                                logger.info(
-                                    f"⏳ Scanned {completed}/{len(all_tasks)} Docs folders "
-                                    f"| TDocs: {tdocs_found} | Speed: {rate:.1f} mtg/sec"
-                                )
-
-                    if all_docs_data:
-                        self.db.update_meeting_docs_bulk(all_docs_data)
-
-                    logger.info(f"✅ Pass 2 Complete. Indexed {tdocs_found} total TDocs.")
-            else:
-                logger.info("⏭️ [Phase 2/3] Skipping Docs folder deep scrape...")
-
-            self.finished_path.emit("MEETINGS_DB_PHASE_2")
-
-            if self.sync_dyna:
-                logger.info("⏳ [Phase 3/3] Updating metadata from DynaReports...")
-                wgs_to_fetch = (
-                    {t["wg"] for t in self.target_meetings}
-                    if self.target_meetings
-                    else MEETING_SOURCES.keys()
+            # --- STEP 2/3: DynaReport Metadata (Dates, Locations, Portal MtgIds) ---
+            if self.sync_dyna and wgs_to_sync and not cancelled and not self.isInterruptionRequested():
+                logger.info(f"⏳ [Step 2/3] Updating metadata from DynaReports for {len(wgs_to_sync)} WG(s)...")
+                completed_dyna = 0
+                total_dyna = len(wgs_to_sync)
+                all_metadata = []
+                self.progress_updated.emit(
+                    f"Step 2/3: Updating dates & Portal IDs (0/{total_dyna})...",
+                    0,
+                    total_dyna,
                 )
 
-                completed_dyna = 0
-                total_dyna = len(wgs_to_fetch)
-
-                all_metadata = []
-
                 with ThreadPoolExecutor(max_workers=5) as executor:
-                    dyna_futures = []
-                    for wg_name in wgs_to_fetch:
-                        dyna_url = MEETING_SOURCES[wg_name]["dyna"]
-                        future = executor.submit(self.process_dynareport, wg_name, dyna_url)
-                        dyna_futures.append(future)
-
+                    dyna_futures = [
+                        executor.submit(
+                            self.process_dynareport, wg_name, MEETING_SOURCES[wg_name]["dyna"]
+                        )
+                        for wg_name in wgs_to_sync
+                    ]
                     for future in as_completed(dyna_futures):
+                        if self.isInterruptionRequested():
+                            cancelled = True
+                            for pending in dyna_futures:
+                                pending.cancel()
+                            break
                         if res := future.result():
                             all_metadata.extend(res)
                         completed_dyna += 1
+                        self.progress_updated.emit(
+                            f"Step 2/3: Updating dates & Portal IDs ({completed_dyna}/{total_dyna})...",
+                            completed_dyna,
+                            total_dyna,
+                        )
                         logger.info(
                             f"⏳ DynaReports: {completed_dyna}/{total_dyna} pages processed..."
                         )
@@ -236,16 +264,110 @@ class MeetingsCrawlerThread(QThread):
                     logger.info(
                         f"⏳ Bulk-saving metadata for {len(all_metadata)} meetings..."
                     )
-                    self.db.update_meeting_metadata_bulk(all_metadata)
+                    p2_stats = self.db.update_meeting_metadata_bulk(all_metadata) or {}
+                    new_meetings += int(p2_stats.get("inserted", 0))
+                    updated_meetings += int(p2_stats.get("updated", 0))
 
-                logger.info("✅ Pass 3 Complete.")
+                logger.info("✅ Step 2/3 (DynaReport) Complete.")
+                self.finished_path.emit("MEETINGS_DB_PHASE_2")
             else:
-                logger.info("⏭️ [Phase 3/3] Skipping DynaReports metadata update...")
+                if self.isInterruptionRequested():
+                    cancelled = True
+                else:
+                    logger.info("⏭️ [Step 2/3] Skipping DynaReports metadata update...")
+                self.finished_path.emit("MEETINGS_DB_PHASE_2")
 
-            logger.info(f"✅ 3GPP Sync Fully Complete in {time.time() - start_time:.1f}s!")
+            # --- STEP 3/3: Docs/ TDoc Range Scan ---
+            if self.docs_mode != "none" and wgs_to_sync and not cancelled and not self.isInterruptionRequested():
+                if self.target_meetings:
+                    docs_tasks = all_tasks or self._load_db_docs_tasks(wgs_to_sync)
+                elif self.docs_mode == "smart":
+                    docs_tasks = self.db.get_smart_docs_candidates(
+                        wg_names=wgs_to_sync,
+                        force_url_keys=p1_inserted_keys,
+                    )
+                else:
+                    docs_tasks = self._load_db_docs_tasks(wgs_to_sync)
+
+                if not docs_tasks:
+                    logger.info("ℹ️ [Step 3/3] No meetings required a Docs/ TDoc-range scan.")
+                else:
+                    logger.info(
+                        f"⏳ [Step 3/3] Scraping Docs/ ({self.docs_mode}) for {len(docs_tasks)} meeting(s)..."
+                    )
+                    total_docs = len(docs_tasks)
+                    p3_start = time.time()
+                    all_docs_data = []
+                    self.progress_updated.emit(
+                        f"Step 3/3: Scanning Docs/ (0/{total_docs})...",
+                        0,
+                        total_docs,
+                    )
+
+                    with ThreadPoolExecutor(max_workers=10) as executor:
+                        future_to_task = {
+                            executor.submit(self.process_individual_meeting, task): task
+                            for task in docs_tasks
+                        }
+                        for future in as_completed(future_to_task):
+                            if self.isInterruptionRequested():
+                                cancelled = True
+                                for pending in future_to_task:
+                                    pending.cancel()
+                                break
+                            task = future_to_task[future]
+                            docs_scanned += 1
+                            try:
+                                docs_tuple, count = future.result()
+                                tdocs_found += count
+                                all_docs_data.append(docs_tuple)
+                            except Exception as e:
+                                logger.error(f"❌ Error scraping {task['folder_name']}: {e}")
+
+                            self.progress_updated.emit(
+                                f"Step 3/3: Scanning Docs/ ({docs_scanned}/{total_docs})...",
+                                docs_scanned,
+                                total_docs,
+                            )
+
+                            if docs_scanned % 10 == 0 or docs_scanned == total_docs:
+                                elapsed = time.time() - p3_start
+                                rate = docs_scanned / elapsed if elapsed > 0 else 0
+                                logger.info(
+                                    f"⏳ Scanned {docs_scanned}/{total_docs} Docs folders "
+                                    f"| TDocs: {tdocs_found} | Speed: {rate:.1f} mtg/sec"
+                                )
+
+                    if all_docs_data:
+                        self.db.update_meeting_docs_bulk(all_docs_data)
+
+                    logger.info(f"✅ Step 3/3 Complete. Indexed {tdocs_found} total TDocs.")
+            else:
+                if self.isInterruptionRequested():
+                    cancelled = True
+                else:
+                    logger.info("⏭️ [Step 3/3] Skipping Docs/ deep scrape...")
+
             self.finished_path.emit("MEETINGS_DB_PHASE_3")
+            elapsed_total = time.time() - start_time
+            if cancelled:
+                logger.warning(f"🛑 3GPP Meetings Sync stopped by user after {elapsed_total:.1f}s.")
+            else:
+                logger.info(f"✅ 3GPP Sync Fully Complete in {elapsed_total:.1f}s!")
 
         except Exception as e:
             logger.error(f"❌ Critical Failure: {str(e)}")
         finally:
+            self.task_summary.emit(
+                {
+                    "new_meetings": new_meetings,
+                    "updated_meetings": updated_meetings,
+                    "docs_scanned": docs_scanned,
+                    "tdocs_found": tdocs_found,
+                    "wgs_count": len(wgs_to_sync),
+                    "elapsed_s": round(time.time() - start_time, 1),
+                    "cancelled": cancelled or self.isInterruptionRequested(),
+                    "docs_mode": self.docs_mode,
+                }
+            )
             self.finished.emit()

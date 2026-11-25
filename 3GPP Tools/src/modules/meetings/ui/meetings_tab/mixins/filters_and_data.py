@@ -82,8 +82,12 @@ class MeetingsTabFiltersDataMixin:
                 self.date_to.setVisible(is_custom)
 
         if "enable_dates" in filters:
-            self.enable_dates_cb.setChecked(filters["enable_dates"])
-            self._toggle_date_inputs(filters["enable_dates"])
+            use_dates = filters["enable_dates"] and self.date_preset_combo.currentText() not in (
+                "All Dates",
+                "Unknown Dates",
+            )
+            self.enable_dates_cb.setChecked(use_dates)
+            self._toggle_date_inputs(use_dates)
 
         if "date_from" in filters:
             d = QDate.fromString(filters["date_from"], "yyyy-MM-dd")
@@ -178,6 +182,10 @@ class MeetingsTabFiltersDataMixin:
                 self.enable_dates_cb.setChecked(True)
                 self.date_from.setEnabled(True)
                 self.date_to.setEnabled(True)
+            elif preset == "Unknown Dates":
+                self.enable_dates_cb.setChecked(False)
+                self.date_from.setEnabled(False)
+                self.date_to.setEnabled(False)
         finally:
             self.enable_dates_cb.blockSignals(False)
             self.date_from.blockSignals(False)
@@ -247,6 +255,13 @@ class MeetingsTabFiltersDataMixin:
             self.search_input.blockSignals(False)
             self.refresh_table()
 
+        if self.table_model.rowCount() == 0:
+            unk_idx = self.date_preset_combo.findText("Unknown Dates")
+            if unk_idx >= 0:
+                self.date_preset_combo.setCurrentIndex(unk_idx)
+                if self.table_model.rowCount() == 0:
+                    self.date_preset_combo.setCurrentIndex(0)
+
         if self.table_model.rowCount() > 0:
             self.table.selectRow(0)
             self.table.scrollTo(self.table_model.index(0, 0))
@@ -274,15 +289,19 @@ class MeetingsTabFiltersDataMixin:
         self.save_filters_timer.start()
 
         selected_wgs = self.wg_filter.getCheckedItems()
+        preset = self.date_preset_combo.currentText() if hasattr(self, "date_preset_combo") else "All Dates"
+        date_mode = "unknown" if preset == "Unknown Dates" else "dated"
         date_from = self.date_from.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
         date_to = self.date_to.date().toString("yyyy-MM-dd") if self.enable_dates_cb.isChecked() else None
         adhoc_val = self.adhoc_filter.currentText()
         type_val = self.type_filter.currentText()
+        search_val = self.search_input.text().strip()
 
         data = self.db.search_meetings(
-            wg_name=selected_wgs, search_term=self.search_input.text().strip(),
+            wg_name=selected_wgs, search_term=search_val,
             location=None, date_from=date_from, date_to=date_to,
-            adhoc_filter=adhoc_val, type_filter=type_val
+            adhoc_filter=adhoc_val, type_filter=type_val,
+            date_mode=date_mode,
         )
 
         current_cache = self.dl_dir_input.text().strip() if hasattr(self, 'dl_dir_input') else self.settings.cache_dir
@@ -339,5 +358,16 @@ class MeetingsTabFiltersDataMixin:
             summary_parts.append(f"<b>{cached_count}</b> cached")
         if live_count > 0:
             summary_parts.append(f"<span style='color:{C.EMERALD_PRIMARY}; font-weight:bold;'>🟢 {live_count} live</span>")
+        if date_mode != "unknown" and hasattr(self.db, "count_unknown_date_meetings"):
+            unknown_count = self.db.count_unknown_date_meetings(
+                wg_name=selected_wgs,
+                search_term=search_val,
+                adhoc_filter=adhoc_val,
+                type_filter=type_val,
+            )
+            if unknown_count > 0:
+                summary_parts.append(
+                    f"<span style='color:{C.TEXT_MUTED};'>{unknown_count} undated (Unknown Dates)</span>"
+                )
 
         self.status_lbl.setText(" · ".join(summary_parts))

@@ -12,6 +12,8 @@ def register_meetings_plugin():
             target_meetings=params.get("target_meetings", []),
             sync_wg=params.get("sync_wg", True),
             sync_docs=params.get("sync_docs", True),
-            sync_dyna=params.get("sync_dyna", True)
+            sync_dyna=params.get("sync_dyna", True),
+            target_wgs=params.get("target_wgs"),
+            docs_mode=params.get("docs_mode", "smart"),
         )
     )

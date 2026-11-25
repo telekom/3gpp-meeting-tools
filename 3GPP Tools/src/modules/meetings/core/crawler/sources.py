@@ -100,11 +100,19 @@ MEETING_SOURCES = {
 
 MEETING_NAME_PATTERN = re.compile(r"^[A-Z0-9]+_(?:\d+|AH)", re.IGNORECASE)
 MEETING_NUM_PATTERN = re.compile(
-    r"(?:^|_)(AH\d*|\d+(?:[a-z]+)?(?:-?AH)?(?:-?e)?)(?:_|-|$)", re.IGNORECASE
+    r"(?:^|_)(AH\d*|\d+(?:[a-z]+)?(?:[-_]?(?:bis|AH|Ad[-_]?Hoc|e))*)(?:_|-|$)",
+    re.IGNORECASE,
 )
 HREF_PATTERN = re.compile(r'href=["\']([^"\'>]+)["\']', re.IGNORECASE)
 TDOC_LINK_PATTERN = re.compile(r">\s*([^<]+\.(?:zip|doc|docx|pdf))\s*</a>", re.IGNORECASE)
 FILE_EXTENSION_PATTERN = re.compile(r"\.[a-z0-9]{2,4}$", re.IGNORECASE)
+_FOLDER_DATE_PATTERN = re.compile(
+    r"(?<!\d)((?:19|20)\d{2})[-_](0[1-9]|1[0-2])(?:[-_](0[1-9]|[12]\d|3[01]))?(?!\d)"
+)
+_MEETING_SUBFOLDER_TAIL_PATTERN = re.compile(
+    r"/(?:Invitation|Agenda|Report|Docs|Inbox(?:/Revisions)?|Contribution|Contributions|Liaison|LS)$",
+    re.IGNORECASE,
+)
 
 MEETING_DENY_LIST = {
     "cr_implementation",
@@ -117,6 +125,11 @@ MEETING_DENY_LIST = {
     "approved_reports",
     "docs",
     "latest_sa2_specs",
+    "tsgr_ahs",
+    "tsgr1_ah",
+    "tsgr2_ahs",
+    "tsgr3_ahgs",
+    "tsgr4_ahs",
 }
 
 
@@ -137,6 +150,27 @@ def extract_meeting_number(folder_name: str, pattern=MEETING_NUM_PATTERN) -> str
     """Normalize a 3GPP meeting number (or AH tag) from a directory name."""
     match = pattern.search(folder_name)
     if match:
-        raw = match.group(1).replace("-", "").upper()
+        raw = re.sub(r"ad[-_]?hoc", "AH", match.group(1), flags=re.IGNORECASE)
+        raw = raw.replace("-", "").replace("_", "").upper()
         return re.sub(r"(?<!\d)0+(\d)", r"\1", raw)
     return folder_name
+
+
+def extract_fallback_date_from_folder(folder_name: str) -> str:
+    """Extract an approximate ``YYYY-MM-DD`` start date from folder suffixes like ``_2027-01``."""
+    match = _FOLDER_DATE_PATTERN.search(folder_name or "")
+    if not match:
+        return ""
+    year, month, day = match.group(1), match.group(2), match.group(3)
+    return f"{year}-{month}-{day or '01'}"
+
+
+def normalize_meeting_ftp_path(path_after_ftp: str) -> str:
+    """Normalize a path below ``/ftp/`` to the meeting root directory."""
+    cleaned = re.sub(r"/+", "/", (path_after_ftp or "").replace("\\", "/")).strip("/")
+    for _ in range(2):
+        updated = _MEETING_SUBFOLDER_TAIL_PATTERN.sub("", cleaned).strip("/")
+        if updated == cleaned:
+            break
+        cleaned = updated
+    return cleaned

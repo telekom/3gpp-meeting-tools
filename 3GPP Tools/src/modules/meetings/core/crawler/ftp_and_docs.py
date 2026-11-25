@@ -15,6 +15,7 @@ from .sources import (
     HREF_PATTERN,
     MEETING_DENY_LIST,
     TDOC_LINK_PATTERN,
+    extract_fallback_date_from_folder,
     extract_meeting_number,
     is_meeting_name,
 )
@@ -78,6 +79,7 @@ def fetch_wg_directories(
                     "absolute_url": absolute_url,
                     "is_ad_hoc": is_ah_folder,
                     "docs_url": docs_url,
+                    "fallback_start_date": extract_fallback_date_from_folder(folder_name),
                 }
             )
 

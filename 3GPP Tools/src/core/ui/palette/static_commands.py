@@ -124,8 +124,10 @@ def build_static_command_items(window: object) -> List[CommandItem]:
     def _sync_meetings() -> None:
         _switch_tab(6)
         mt = getattr(window, "meetings_tab", None)
-        if mt is not None and hasattr(mt, "update_db_requested"):
-            mt.update_db_requested.emit(True, True, False)
+        if mt is not None and hasattr(mt, "request_quick_sync"):
+            mt.request_quick_sync()
+        elif mt is not None and hasattr(mt, "update_db_requested"):
+            mt.update_db_requested.emit(True, True, True)
 
     def _sync_work_items() -> None:
         _switch_tab(7)

@@ -414,27 +414,33 @@ class MeetingsConfigDialog(QDialog):
         cache_layout.addLayout(path_row)
         layout.addWidget(cache_group)
 
-        # 2. Scrape Depth Configuration
-        scrape_group = QGroupBox("🕷️ 3GPP FTP Scraper Passes")
+        # 2. Scrape Depth Configuration (kept for compatibility; Sync ▾ menu drives execution directly)
+        scrape_group = QGroupBox("🕷️ Default Sync Passes")
         scrape_layout = QVBoxLayout(scrape_group)
 
-        scrape_desc = QLabel("Select operations performed during 'Sync All Meetings' or individual syncs:")
+        scrape_desc = QLabel(
+            "Use 'Sync ▾ → Custom / Deep Sync...' for scoped or full historical runs. "
+            "Quick Sync always discovers FTP folders, updates DynaReport dates, and scans recent/missing Docs/."
+        )
+        scrape_desc.setWordWrap(True)
         scrape_desc.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         scrape_layout.addWidget(scrape_desc)
 
-        self.chk_wg = QCheckBox("Check for New Folders (Phase 1: FTP Directory Discovery)")
+        self.chk_wg = QCheckBox("Step 1: Discover FTP Meeting Folders")
         self.chk_wg.setChecked(True)
-        self.chk_wg.setToolTip("Phase 1: Scrapes 3GPP FTP directories to discover newly created meeting folders.")
+        self.chk_wg.setToolTip("Step 1: Scrapes 3GPP FTP directories to discover newly created meeting folders.")
 
-        self.chk_dyna = QCheckBox("Update Metadata (Phase 3: Dates && Locations via DynaReport)")
+        self.chk_dyna = QCheckBox("Step 2: Fetch Dates, Locations && Portal IDs (DynaReport)")
         self.chk_dyna.setChecked(True)
         self.chk_dyna.setToolTip(
-            "Phase 3: Fetches official start/end dates, host cities, and eMeeting flags from 3GPP DynaReport.")
+            "Step 2: Fetches official start/end dates, host cities, future meetings, and eMeeting flags from 3GPP DynaReport."
+        )
 
-        self.chk_docs = QCheckBox("Deep Scrape 'Docs/' (Phase 2: Identify First && Last TDocs)")
+        self.chk_docs = QCheckBox("Step 3: Scan 'Docs/' for First && Last TDocs (Smart Recent/Missing)")
         self.chk_docs.setChecked(True)
         self.chk_docs.setToolTip(
-            "Phase 2: Crawls the Docs/ folder of each meeting to determine the first and last allocated TDoc numbers.")
+            "Step 3: Crawls Docs/ folders for recent, upcoming, or unindexed meetings to determine TDoc ranges."
+        )
 
         scrape_layout.addWidget(self.chk_wg)
         scrape_layout.addWidget(self.chk_dyna)

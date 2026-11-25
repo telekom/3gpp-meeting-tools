@@ -72,9 +72,9 @@ def populate_meeting_context_menu(tab: Any, menu: QMenu, row_data: Dict[str, Any
     menu.addAction("🔄 Sync this Meeting").triggered.connect(
         lambda: tab.update_specific_requested.emit(
             [{"wg": row_data.get("wg_name"), "meeting": row_data.get("meeting_number")}],
-            tab.chk_wg.isChecked(),
-            tab.chk_docs.isChecked(),
-            tab.chk_dyna.isChecked(),
+            True,
+            True,
+            True,
         )
     )
     menu.addSeparator()

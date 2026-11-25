@@ -77,6 +77,13 @@ class MeetingsTabUiSetupMixin:
             f"color: {C.WARNING_DARK}; font-size: {scale_px(T.SIZE_CAPTION)}px; "
             f"font-weight: 600; background: transparent; border: none;"
         )
+        if hasattr(self, "sync_status_label"):
+            self.sync_status_label.setStyleSheet(
+                f"color: {C.INFO_DARK}; font-size: {scale_px(T.SIZE_CAPTION)}px; "
+                f"font-weight: 600; background: transparent; border: none;"
+            )
+        if hasattr(self, "btn_stop_sync"):
+            self.btn_stop_sync.setMinimumHeight(scale_px(26))
 
         for widget in (
             self.wg_filter,
@@ -226,31 +233,8 @@ class MeetingsTabUiSetupMixin:
 
         self.ribbon_card.add_banner_widget(self.tdoc_metadata_banner)
 
-        # 3. Network Sync Menu (Utility bar)
-        self.sync_menu_btn = QPushButton("Sync ▾")
-        self.sync_menu_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.sync_menu_btn.setMinimumHeight(scale_px(30))
-        self.sync_menu_btn.setCursor(Qt.PointingHandCursor)
-        apply_lucide_icon(self.sync_menu_btn, "refresh-cw", size=14)
-        self.sync_menu_btn.setToolTip("Synchronization and FTP scraping options...")
-
-        sync_menu = QMenu(self)
-        sync_act_all = sync_menu.addAction("🔄 Sync All Meetings", lambda: self.update_db_requested.emit(
-            self.chk_wg.isChecked(), self.chk_docs.isChecked(), self.chk_dyna.isChecked()
-        ))
-        sync_act_all.setToolTip("Run multi-phase FTP scrape according to configured scraper options.")
-
-        sync_act_add = sync_menu.addAction("➕ Add / Fetch Specific Meeting...", self._open_add_meeting_dialog)
-        sync_act_add.setToolTip("Manually query, preview, and import a specific meeting via Portal ID or FTP URL.")
-
-        sync_menu.addSeparator()
-        sync_act_cfg = sync_menu.addAction("⚙️ Scraper && Cache Preferences...", self.config_dialog.exec_)
-        sync_act_cfg.setToolTip("Configure local cache directory and FTP scraper phase toggles.")
-
-        self.sync_menu_btn.setMenu(sync_menu)
-        self.ribbon_card.add_utility_widget(self.sync_menu_btn)
-        self.update_btn = self.sync_menu_btn  # Compatibility alias
-        self.btn_add_meeting = self.sync_menu_btn  # Compatibility alias
+        # 3. Network Sync Menu & Inline Progress Banner
+        self._setup_sync_controls()
 
         # 4. Reports & Analytics Menu
         self.reports_menu_btn = QPushButton("Reports ▾")
@@ -397,9 +381,13 @@ class MeetingsTabUiSetupMixin:
         self.date_preset_combo = QComboBox()
         self.date_preset_combo.setStyleSheet(SPEC_FILTER_COMBO_STYLE)
         self.date_preset_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-        self.date_preset_combo.addItems(["All Dates", "Upcoming", "This Year", "Past 12 Months", "Custom Range..."])
+        self.date_preset_combo.addItems(
+            ["All Dates", "Upcoming", "This Year", "Past 12 Months", "Custom Range...", "Unknown Dates"]
+        )
         self.date_preset_combo.setMinimumHeight(scale_px(28))
-        self.date_preset_combo.setToolTip("Quickly scope meetings by date presets or select a custom range.")
+        self.date_preset_combo.setToolTip(
+            "Scope meetings by date presets, custom range, or view undated folders under Unknown Dates."
+        )
         self.date_preset_combo.currentIndexChanged.connect(self._on_date_preset_changed)
         dates_layout.addWidget(self.date_preset_combo)
 

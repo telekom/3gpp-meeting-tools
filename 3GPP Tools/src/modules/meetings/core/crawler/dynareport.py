@@ -10,6 +10,7 @@ from urllib.parse import unquote
 from bs4 import BeautifulSoup
 
 from core.network.session import NetworkSession
+from .sources import normalize_meeting_ftp_path
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,8 @@ def process_dynareport(
                 if "/ftp/" in href.lower() and "tsg_" in href.lower():
                     parts = re.split(r"/ftp/", href, flags=re.IGNORECASE)
                     if len(parts) > 1:
-                        path_after_ftp = unquote(parts[1].split("?")[0].strip("/"))
+                        raw_after_ftp = unquote(parts[1].split("?")[0].strip("/"))
+                        path_after_ftp = normalize_meeting_ftp_path(raw_after_ftp)
                         # Prefer a meeting-specific FTP path over a WG-root link.
                         # Some DynaReport rows expose more than one FTP link; the
                         # meeting folder is the deeper path and is what Phase 2 needs.
@@ -87,10 +89,11 @@ def process_dynareport(
 
             full_num = ""
             search_text = m_name + " " + (col_texts[1] if len(col_texts) > 1 else "")
-            match_explicit = re.search(r"#(\d+[a-z0-9\-]*)", search_text, re.IGNORECASE)
+            normalized_search_text = re.sub(r"ad\s*[-_]?\s*hoc", "AH", search_text, flags=re.IGNORECASE)
+            match_explicit = re.search(r"#(\d+[a-z0-9\-_]*)", normalized_search_text, re.IGNORECASE)
 
             if match_explicit:
-                full_num = match_explicit.group(1).replace("-", "").strip().upper()
+                full_num = match_explicit.group(1).replace("-", "").replace("_", "").strip().upper()
             else:
                 tokens = m_name.split()
                 found_token = ""
@@ -119,7 +122,13 @@ def process_dynareport(
                         ):
                             suffix = potential_suffix
 
-                    full_num = f"{clean_token}{suffix}".replace("-", "").strip().upper()
+                    full_num = (
+                        re.sub(r"ad\s*[-_]?\s*hoc", "AH", f"{clean_token}{suffix}", flags=re.IGNORECASE)
+                        .replace("-", "")
+                        .replace("_", "")
+                        .strip()
+                        .upper()
+                    )
 
             full_num = re.sub(r"(?<!\d)0+(\d)", r"\1", full_num)
 

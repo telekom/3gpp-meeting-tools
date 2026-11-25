@@ -341,19 +341,21 @@ class PumlConversionMixin:
         elif out_path and out_path.startswith("MEETINGS_DB"):
             self.log_message("🔄 Reloading meetings table...", logging.INFO)
             if hasattr(self, 'meetings_tab'):
-                # Only Phase 1 can discover/add meeting folders and therefore
-                # potentially change the available WG choices. Phases 2 and 3
-                # update Docs/DynaReport metadata only.
-                if out_path == "MEETINGS_DB_PHASE_1":
+                # Phase 1 (FTP folders) and Phase 2 (DynaReport scheduled meetings)
+                # can both add new meetings and therefore affect available WG choices.
+                if out_path in ("MEETINGS_DB_PHASE_1", "MEETINGS_DB_PHASE_2"):
                     self.meetings_tab._populate_filters()
                 self.meetings_tab.refresh_table()
 
-                # Phase 2 updates the Docs-derived first/last TDoc ranges.
-                # Re-evaluate an unchanged Quick TDoc Jump immediately so a
-                # newly resolved meeting appears without requiring retyping.
-                if out_path == "MEETINGS_DB_PHASE_2":
+                # Phase 2 (DynaReport dates) and Phase 3 (Docs/ TDoc bounds)
+                # can both unblock Quick TDoc Jump lookups.
+                if out_path in ("MEETINGS_DB_PHASE_2", "MEETINGS_DB_PHASE_3"):
                     self.meetings_tab.refresh_quick_tdoc_lookup()
-            if hasattr(self, "status_bar") and hasattr(self.status_bar, "refresh_world_clock"):
+            if (
+                out_path in ("MEETINGS_DB_PHASE_2", "MEETINGS_DB_PHASE_3")
+                and hasattr(self, "status_bar")
+                and hasattr(self.status_bar, "refresh_world_clock")
+            ):
                 self.status_bar.refresh_world_clock()
 
         elif out_path:

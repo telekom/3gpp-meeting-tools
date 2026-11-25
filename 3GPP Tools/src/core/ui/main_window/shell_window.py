@@ -105,6 +105,21 @@ class DragDropUI(
         self.queue_manager.processing_state_changed.connect(self._update_system_status)
         self.queue_manager.conversion_success.connect(self.on_conversion_success)
         self.queue_manager.conversion_failed.connect(self.on_conversion_failed)
+        self.queue_manager.task_started.connect(
+            lambda fmt, title: self.meetings_tab.on_sync_started(title)
+            if fmt == "update_meetings_db" and hasattr(self.meetings_tab, "on_sync_started")
+            else None
+        )
+        self.queue_manager.task_progress.connect(
+            lambda fmt, msg, cur, tot: self.meetings_tab.on_sync_progress(msg, cur, tot)
+            if fmt == "update_meetings_db" and hasattr(self.meetings_tab, "on_sync_progress")
+            else None
+        )
+        self.queue_manager.task_finished.connect(
+            lambda fmt, summary: self.meetings_tab.on_sync_finished(summary)
+            if fmt == "update_meetings_db" and hasattr(self.meetings_tab, "on_sync_finished")
+            else None
+        )
 
         self.queue_panel.remove_requested.connect(self.queue_manager.remove_items)
         self.queue_panel.clear_requested.connect(self.queue_manager.clear_queue)
