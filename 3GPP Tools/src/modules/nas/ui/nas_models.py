@@ -110,6 +110,8 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         agg_dict = {"order_index": "min"}
         if "applicability" in df.columns:
             agg_dict["applicability"] = "first"
+        if "field_description" in df.columns:
+            agg_dict["field_description"] = "first"
 
         order_map = (
             df.groupby(["iei", "ie_name", "field_path", "type_reference", "depth"], as_index=False)
@@ -130,6 +132,8 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         )
         merged = merged.sort_values(by="order_index", ascending=True).reset_index(drop=True)
         self._pivot_df = merged.drop(columns=["order_index"])
+        if "field_description" in self._pivot_df.columns:
+            self._pivot_df["field_description"] = self._pivot_df["field_description"].fillna("").astype(str)
 
         # 4. Filter by Interface Applicability with word boundary (e.g. N4 vs N4mb)
         if self._interface_filter and "applicability" in self._pivot_df.columns:
@@ -212,7 +216,11 @@ class NASEvolutionMatrixModel(QAbstractTableModel):
         self._build_fast_caches()
 
     def _build_fast_caches(self):
-        self._visible_columns = [c for c in self._pivot_df.columns if c not in ("field_path", "depth", "applicability")]
+        self._visible_columns = [
+            c
+            for c in self._pivot_df.columns
+            if c not in ("field_path", "depth", "applicability", "field_description")
+        ]
         num_rows = len(self._pivot_df)
         num_cols = len(self._visible_columns)
 

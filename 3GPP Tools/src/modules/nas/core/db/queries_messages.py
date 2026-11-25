@@ -230,6 +230,7 @@ class NasDbMessageQueriesMixin:
                     i.length,
                     i.order_index,
                     i.applicability,
+                    i.field_description,
                     COALESCE(NULLIF(i.field_description, ''), d1.raw_description, d2.raw_description, d3.raw_description) AS ie_description
                 FROM message_ies i
                 JOIN nas_messages m ON i.message_id = m.id
@@ -255,7 +256,8 @@ class NasDbMessageQueriesMixin:
                     i.format,
                     i.length,
                     i.order_index,
-                    i.applicability
+                    i.applicability,
+                    i.field_description
                 FROM message_ies i
                 JOIN nas_messages m ON i.message_id = m.id
                 JOIN spec_versions sv ON m.version_id = sv.id

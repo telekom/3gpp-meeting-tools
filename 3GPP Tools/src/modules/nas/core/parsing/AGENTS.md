@@ -32,8 +32,16 @@ progress callback.
   - **TS 24.578 (A2XP):** Clause 5.2 (A2XP policy part), Clause 5.3 (PC5), Clause 5.4 (Broadcast Remote ID), Clause 5.5 (DDAA), Clause 5.6 (C2), and Clause 5.7 (Uu).
 - `pfcp_parser.py` — PFCP message tables, type registry, grouped IEs, and field
   expansion (TS 29.244).
-- `gtpu_parser.py` — GTP-U message tables and type/extension-header registries
-  (TS 29.281).
+- `gtpu/` + `gtpu_parser.py` (shim) — Modular GTPv1-U parser package (`catalogs.py`,
+  `parser.py`; see `gtpu/README.md`) for TS 29.281: skips TOC via `1 Scope`,
+  extracts Clauses 5.1/5.2.1 (`Figure 5.1-1` & live caption-below `Figure 5.2.1-3`
+  extension header registry with current/legacy codepoints), 5.2.2.x, 7.2/7.3, and
+  8.x (terminating cleanly before Clause 9/Annex, with HTML diagram fallbacks for
+  WMF/EMF Figures `8.2-1`, `8.4-1`, `8.5-1`, `8.6-1`), synthesizes `GTP-U Header
+  (Common)` and hierarchical `G-PDU`, attaches signalling extension headers (`UDP
+  Port` on `Error Indication`, `PDU Session Container` on `End Marker`), and
+  unrolls `PDU Session Container` / `PDU Set Information Container` into TS 38.415
+  (`5.5.2.1`, `5.5.2.2`, `6.5.2.1`).
 - `pdu_session_up_parser.py` — PDU Session User Plane frame tables and field
   definitions (TS 38.415).
 - `asn1_base/` + `asn1_base_parser.py` (shim) — shared ASN.1 DOCX scanning, extraction of type
