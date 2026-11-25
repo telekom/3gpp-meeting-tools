@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import re
 import webbrowser
-from typing import Any, Optional, Union
+from typing import Union
 
 logger = logging.getLogger(__name__)
 

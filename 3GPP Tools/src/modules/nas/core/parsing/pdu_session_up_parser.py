@@ -6,7 +6,12 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from modules.nas.core.parsing.protocol_parser_constants import (
-    RE_PART_INDEX, extract_part_index, TAG_BODY, TAG_P, TAG_TBL, TAG_TC, TAG_TR
+    extract_part_index,
+    TAG_BODY,
+    TAG_P,
+    TAG_TBL,
+    TAG_TC,
+    TAG_TR,
 )
 from modules.nas.core.parsing.protocol_parser_utils import (
     extract_document_root, _extract_p_text, _extract_tc_text, _convert_table_to_html

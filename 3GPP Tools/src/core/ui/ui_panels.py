@@ -1,43 +1,21 @@
 # --- File: src/core/ui/ui_panels.py ---
 import html
 import logging
-import os
-from pathlib import Path
-import sqlite3
-from typing import Any, Dict, List, Optional, Tuple
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QTextEdit, QListWidget, QDialog, QTreeWidget, QTreeWidgetItem,
-    QHeaderView, QTableWidget, QTableWidgetItem, QMessageBox, QApplication, QCheckBox, QMenu
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QLabel,
+    QTextEdit,
+    QListWidget,
+    QApplication,
 )
 from PyQt5.QtCore import pyqtSignal, Qt, QObject
-from PyQt5.QtGui import QColor, QBrush, QFont
 
-from core.process_manager import ProcessManager
 from core.ui.database_inspector import DatabaseInspectorDialog
 from core.ui.theme import C, R, T
-from core.ui.ui_components import (
-    TREE_STYLE_CLEAN,
-    BUTTON_STYLE_TOOLBAR_SECONDARY,
-    BUTTON_STYLE_TOOLBAR_WARNING,
-    BUTTON_STYLE_TOOLBAR_DANGER,
-)
-from core.utils.paths import get_project_root
-
-
-# ==========================================
-# --- HELPER: FILE SIZE FORMATTER ---
-# ==========================================
-def format_file_size(size_bytes: int) -> str:
-    """Formats raw byte count into a human-readable string (KB, MB, GB)."""
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    for unit in ["KB", "MB", "GB"]:
-        size_bytes /= 1024.0
-        if size_bytes < 1024.0:
-            return f"{size_bytes:.2f} {unit}"
-    return f"{size_bytes:.2f} TB"
 
 
 # ==========================================
@@ -291,3 +269,14 @@ class QueuePanel(QWidget):
             return
         rows_to_remove = [self.queue_list.row(item) for item in selected_items]
         self.remove_requested.emit(rows_to_remove)
+
+__all__ = [
+    "format_file_size",
+    "GuiLogHandler",
+    "ConsolePanel",
+    "QueuePanel",
+    "DatabaseInspectorDialog",
+    "DatabaseMaintenanceDialog",
+    "ProcessManagerDialog",
+    "McpMonitorDialog",
+]

@@ -1,6 +1,5 @@
 # --- File: modules/emails/core/outlook_client.py ---
 import platform
-import traceback
 import logging
 import os
 from pathlib import Path
@@ -188,7 +187,7 @@ class OutlookClient:
             # 1. Fetch the exact email
             try:
                 mail_item = namespace.GetItemFromID(entry_id)
-            except Exception as e:
+            except Exception:
                 # ---> CHANGED: Made this a friendly INFO log instead of a WARNING
                 # Also truncated the massive 150-character EntryID so it doesn't spam your console
                 short_id = entry_id[-10:] if entry_id else "Unknown"

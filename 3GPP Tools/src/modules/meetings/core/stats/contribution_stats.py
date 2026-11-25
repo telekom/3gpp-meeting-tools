@@ -1,5 +1,4 @@
 # --- File: src/modules/meetings/core/stats/contribution_stats.py ---
-import os
 import re
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
@@ -7,7 +6,6 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from core.config.plot_styles import (
-    THEME_COLOR,
     STATUS_COLORS,
     STATUS_ORDER,
     WG_COLORS,

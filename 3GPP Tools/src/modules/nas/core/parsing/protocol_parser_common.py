@@ -3,7 +3,9 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any, Union, Callable, Tuple
 
 from modules.nas.core.parsing.protocol_parser_constants import (
-    RE_PART_INDEX, RE_SPEC_NUMBER, RE_VERSION_STEM, extract_part_index
+    RE_SPEC_NUMBER,
+    RE_VERSION_STEM,
+    extract_part_index,
 )
 from modules.specifications.utils.utils import file_version_to_version
 from modules.nas.core.parsing.rrc_asn1_parser import RRCAsn1Parser

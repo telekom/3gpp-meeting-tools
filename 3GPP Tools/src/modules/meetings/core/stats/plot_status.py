@@ -1,9 +1,7 @@
 # --- File: src/modules/meetings/core/stats/plot_status.py ---
-import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 
-from core.config.plot_styles import STATUS_COLORS, STATUS_ORDER, DOC_TYPE_COLORS, normalize_status
+from core.config.plot_styles import STATUS_COLORS, STATUS_ORDER, normalize_status
 from .stats_html import dataframe_to_html_table
 
 

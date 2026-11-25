@@ -4,7 +4,6 @@ import zipfile
 from core.utils.paths import to_extended_path
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from xml.etree import ElementTree as ET
 
 from lxml import etree as ET
 

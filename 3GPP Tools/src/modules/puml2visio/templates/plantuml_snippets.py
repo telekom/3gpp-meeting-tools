@@ -6,12 +6,11 @@ JSON configuration persistence (`src/config/plantuml_presets.json`), and git-ign
 user-defined presets (`src/config/plantuml_presets_user.json`).
 """
 
-from dataclasses import dataclass, field
 import json
 import logging
 from pathlib import Path
 import re
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Tuple
 
 import core.utils.paths
 
@@ -338,3 +337,12 @@ PLANTUML_SNIPPETS: List[PlantUMLSnippet] = []
 
 # Populate immediately on module load
 reload_snippets()
+
+__all__ = [
+    "PlantUMLSnippet", "PLANTUML_SNIPPETS", "SAMPLE_3GPP_PROCEDURES",
+    "extract_participants", "resolve_snippet_text", "get_default_presets_path",
+    "get_user_presets_path", "get_app_data_presets_path",
+    "register_snippets_reloaded_callback", "unregister_snippets_reloaded_callback",
+    "save_snippets_to_file", "load_snippets_from_file", "load_user_snippets_from_file",
+    "save_user_snippets_to_file", "reload_snippets", "add_user_snippet", "delete_user_snippet",
+]

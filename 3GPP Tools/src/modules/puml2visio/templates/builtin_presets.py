@@ -1,6 +1,6 @@
 """Canonical built-in PlantUML snippets and sample 3GPP procedure texts."""
 
-from typing import Dict, List
+from typing import List
 from modules.puml2visio.templates.snippet_model import PlantUMLSnippet
 
 __all__ = ["BUILTIN_SNIPPETS", "SAMPLE_3GPP_PROCEDURES"]

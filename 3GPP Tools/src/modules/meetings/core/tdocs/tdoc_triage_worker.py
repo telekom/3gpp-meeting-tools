@@ -411,7 +411,7 @@ class TDocTriageWorker(QThread):
 
                 if all_new_trigger.search(text):
                     in_new_block = True
-                    md_lines.append(f"\n> **Note to LLM:** Entering 'All Text New' block.\n")
+                    md_lines.append("\n> **Note to LLM:** Entering 'All Text New' block.\n")
                     continue
 
                 if "Heading" in style_name and words and placeholder_clause_trigger.match(words[0]):

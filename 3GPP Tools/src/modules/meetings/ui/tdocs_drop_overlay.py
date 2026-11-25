@@ -7,7 +7,7 @@ Aligned with ModernDropZone Fluent design tokens.
 from typing import List, Optional
 
 from PyQt5.QtCore import QRectF, Qt
-from PyQt5.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
+from PyQt5.QtGui import QBrush, QColor, QPainter, QPen
 from PyQt5.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from core.ui.theme import C
 

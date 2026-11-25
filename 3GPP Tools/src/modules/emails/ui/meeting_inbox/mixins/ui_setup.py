@@ -3,23 +3,17 @@
 from __future__ import annotations
 
 from PyQt5.QtCore import Qt, QTimer, QUrl
-from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QAbstractItemView,
-    QButtonGroup,
     QComboBox,
     QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLineEdit,
-    QMenu,
     QPushButton,
-    QShortcut,
     QSizePolicy,
     QSplitter,
     QTextBrowser,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )

@@ -6,7 +6,7 @@ Preserves direct SQLite clause primary keys (clause_pk) per cell for accurate in
 from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 from PyQt5.QtCore import QAbstractTableModel, QModelIndex, Qt
-from PyQt5.QtGui import QBrush, QColor, QFont
+from PyQt5.QtGui import QFont
 
 from modules.spec_search.core.spec_search_db import parse_version_tuple
 

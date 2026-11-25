@@ -1,6 +1,6 @@
 # --- File: src/modules/nas/ui/nas_matrix_controller.py ---
 import re
-from typing import Any, List, Optional
+from typing import Any
 
 from PyQt5.QtCore import QModelIndex, QPoint, Qt
 from PyQt5.QtWidgets import QAction, QMenu

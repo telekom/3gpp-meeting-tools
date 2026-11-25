@@ -57,7 +57,6 @@ def classify_chair_track(filename: str) -> Tuple[str, str]:
         return "Consolidated / Main", "main"
 
     stem = Path(filename).stem
-    low = stem.lower()
 
     # 1. Breakout / Session / Track: sessionA, breakout_1, track_2
     m_sess = re.search(r'(?:session|breakout|track)[_\-\s]*([a-zA-Z0-9]+)', stem, re.IGNORECASE)

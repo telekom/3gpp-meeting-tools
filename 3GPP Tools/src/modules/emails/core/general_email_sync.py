@@ -3,7 +3,7 @@ import re
 import logging
 import datetime
 from pathlib import Path
-from typing import List, Dict, Optional, Set
+from typing import List, Optional, Set
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from modules.emails.core.outlook_client import (

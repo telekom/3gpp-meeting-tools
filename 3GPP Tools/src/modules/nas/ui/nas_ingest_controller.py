@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PyQt5.QtCore import Qt, QThread
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QFileDialog, QMessageBox
 
 from modules.nas.core.nas_db import parse_version_tuple

@@ -189,6 +189,7 @@ class InteractiveNotesDialog(QDialog):
         self.accept()
 
 
+
 class StatisticsSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -346,5 +347,17 @@ class StatisticsSettingsDialog(QDialog):
             logging.error(f"[StatisticsSettings] Failed to save configuration: {e}", exc_info=True)
 
         self.accept()
+
+
+__all__ = [
+    "TDocInfoDialog",
+    "ALL_AVAILABLE_COLUMNS",
+    "DEFAULT_SELECTED_COLUMNS",
+    "ExcelExportDialog",
+    "ReadOnlyViewerDialog",
+    "MY_STATUS_OPTIONS",
+    "InteractiveNotesDialog",
+    "StatisticsSettingsDialog",
+]
 
 

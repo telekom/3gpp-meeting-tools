@@ -18,7 +18,6 @@ from PyQt5.QtWidgets import (
     QToolTip,
     QDialog,
 )
-from modules.emails.ui.email_window import EmailManagerWindow
 from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
 from modules.emails.core.general_email_sync import GeneralEmailSyncThread
 from modules.emails.core.outlook_client import OutlookClient

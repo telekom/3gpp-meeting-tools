@@ -7,7 +7,7 @@ Agenda Items across 3GPP Working Groups (SA, RAN, CT) based on topic keywords,
 known WG Agenda Items, and Work Item correlations.
 """
 
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,

@@ -6,9 +6,7 @@ and automates Microsoft Word COM CompareDocuments to generate visual tracked cha
 """
 
 import logging
-import os
 import re
-import shutil
 import tempfile
 from pathlib import Path
 from typing import Any, List, Optional

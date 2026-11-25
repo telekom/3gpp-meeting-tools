@@ -15,7 +15,6 @@ from PyQt5.QtWidgets import (
     QAction,
     QComboBox,
     QHBoxLayout,
-    QLabel,
     QMenu,
     QPushButton,
     QSplitter,
@@ -24,15 +23,11 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon, make_filter_label
-from core.ui.ui_components import (
-    BUTTON_STYLE_TOOLBAR_SECONDARY,
-    InteractiveDropLabel,
-)
+from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 from modules.puml2visio.templates.plantuml_snippets import (
     register_snippets_reloaded_callback,
     reload_snippets,
     PLANTUML_SNIPPETS,
-    PlantUMLSnippet,
 )
 from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
 from modules.puml2visio.ui.preset_dialog import (
@@ -505,3 +500,5 @@ class CodeEditorTab(QWidget):
 
 # Re-export modernized BatchConvertTab for backward compatibility
 from modules.puml2visio.ui.batch_convert_tab import BatchConvertTab
+
+__all__ = ["CodeEditorTab", "BatchConvertTab"]

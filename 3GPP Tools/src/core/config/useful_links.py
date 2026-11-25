@@ -1,12 +1,10 @@
 # --- File: src/core/config/useful_links.py ---
 import json
 import logging
-import os
-import webbrowser
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Optional
 
-from PyQt5.QtWidgets import QAction, QMenu
+from PyQt5.QtWidgets import QMenu
 
 from core.ui.ui_components import escape_qt_mnemonic
 from core.utils.paths import get_project_root

@@ -2,7 +2,7 @@
 
 import logging
 from PyQt5.QtCore import Qt, QRect, QEvent, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QPen, QPalette, QBrush
+from PyQt5.QtGui import QColor, QPen, QPalette
 from PyQt5.QtWidgets import (
     QApplication,
     QStyle,
@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ui.font_scale import scaled_font, scale_px
-from core.ui.ui_components import WG_DESCRIPTIONS, get_wg_colors
+from core.ui.ui_components import get_wg_colors
 from core.ui.theme import C, T
 
 logger = logging.getLogger(__name__)

@@ -6,7 +6,6 @@ import openpyxl
 import logging
 import json
 import os
-from pathlib import Path
 import docx
 
 logger = logging.getLogger(__name__)

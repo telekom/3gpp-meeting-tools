@@ -1,6 +1,5 @@
 # --- File: src/modules/emails/ui/email_summary_dialog.py ---
 import datetime
-from pathlib import Path
 from typing import List, Dict
 
 from PyQt5.QtCore import Qt, pyqtSignal

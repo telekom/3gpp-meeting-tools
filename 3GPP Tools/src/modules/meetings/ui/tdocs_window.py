@@ -15,4 +15,4 @@ from PyQt5.QtWidgets import QMessageBox  # noqa: F401  (kept for patch("...tdocs
 from modules.emails.core.outlook_client import OutlookClient  # noqa: F401
 from modules.meetings.ui.tdocs.window import TDocsWindow  # noqa: F401
 
-__all__ = ["TDocsWindow"]
+__all__ = ["TDocsWindow", "QMessageBox", "OutlookClient"]

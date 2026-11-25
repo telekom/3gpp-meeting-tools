@@ -302,7 +302,6 @@ def is_file_open_in_word(file_path: Union[str, Path]) -> bool:
     target_name = target.name.casefold()
     target_full = str(target).casefold()
 
-    import gc
     import pythoncom
     import win32com.client
 
@@ -341,7 +340,6 @@ def close_word_document_for_update(file_path: Union[str, Path], save_changes: bo
     target_name = target.name.casefold()
     target_full = str(target).casefold()
 
-    import gc
     import pythoncom
     import win32com.client
 

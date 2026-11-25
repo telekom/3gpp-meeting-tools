@@ -6,15 +6,13 @@ Provides a visual, searchable catalog of PlantUML syntax elements, logic blocks,
 and one-click insertion.
 """
 
-from typing import List, Optional
+from typing import Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QAction,
     QCheckBox,
     QFrame,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QLineEdit,
     QMenu,

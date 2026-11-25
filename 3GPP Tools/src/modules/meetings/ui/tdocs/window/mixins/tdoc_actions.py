@@ -415,12 +415,10 @@ class TDocActionsMixin:
         self._scroll_to_tdoc(tdoc_id)
 
     def _open_doc_in_word(self, doc_path):
-        import os
         try:
             if hasattr(os, "startfile"):
                 os.startfile(str(doc_path))
             else:
-                import webbrowser
                 webbrowser.open(f"file:///{doc_path}")
         except Exception as e:
             QMessageBox.warning(self, "Open Failed", f"Could not open document:\n{e}")

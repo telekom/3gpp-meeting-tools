@@ -9,7 +9,7 @@ Working Groups (SA2, RAN2, RAN3, CT1, SA3, etc.) across meeting cycles.
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 

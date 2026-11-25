@@ -43,7 +43,6 @@ check_dependencies_or_exit(allow_gui=False, interactive=False, stream=sys.stderr
 
 from core.utils.paths import ensure_app_data_dirs, get_project_root
 from core.ai.mcp_activity import (
-    heartbeat_mcp_session,
     record_mcp_event,
     register_mcp_session,
     unregister_mcp_session,

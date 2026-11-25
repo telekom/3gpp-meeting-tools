@@ -14,7 +14,6 @@ import json
 import logging
 import os
 import re
-import sys
 from typing import Any, Dict, Optional, Tuple
 
 from core.utils.paths import get_project_root

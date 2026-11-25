@@ -8,7 +8,6 @@ import pythoncom
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.network.session import NetworkSession
-from core.utils.utils import get_proxies
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +205,6 @@ class WordComparatorThread(QThread):
             logger.info("✅ Comparison generated successfully!")
 
         except Exception as e:
-            import traceback
             err_trace = traceback.format_exc()
             logger.error(f"❌ Comparison Error: {str(e)}\n\nTraceback:\n{err_trace}")
 

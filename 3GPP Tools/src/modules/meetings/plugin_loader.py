@@ -1,5 +1,4 @@
 # --- File: modules/meetings/plugin_loader.py ---
-from pathlib import Path
 from core.queue_manager import register_task
 from modules.meetings.core.scraper import MeetingsCrawlerThread
 

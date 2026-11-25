@@ -1,5 +1,4 @@
 # --- File: src/modules/meetings/core/stats/plot_agenda.py ---
-import pandas as pd
 import plotly.express as px
 
 from core.config.plot_styles import STATUS_COLORS, STATUS_ORDER, normalize_status

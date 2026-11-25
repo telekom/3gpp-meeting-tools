@@ -23,7 +23,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, NamedTuple, Optional, TextIO, Tuple, Union
+from typing import Dict, List, NamedTuple, Optional, TextIO, Tuple
 
 logger = logging.getLogger(__name__)
 

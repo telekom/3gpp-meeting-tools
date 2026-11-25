@@ -170,7 +170,6 @@ class MeetingDataMixin:
         """Fetches the target TDoc, stages it to Agenda/SessionPlans, and launches SessionPlanWindow."""
         from modules.meetings.core.session_plan.session_plan_parser import SessionPlanParser
         from modules.meetings.core.session_plan.session_plan_db import SessionPlanDatabase
-        from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
         from modules.meetings.core.url_router import URLRouter
         from core.network.network_state import NetworkState
 

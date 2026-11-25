@@ -3,10 +3,9 @@ for Word/Markdown clause excerpts, slicing, and specifications.
 """
 
 import datetime
-import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
 # Supported naming schemes
 SCHEME_SOURCE_CLAUSES_TIMESTAMP = "source_clauses_timestamp"

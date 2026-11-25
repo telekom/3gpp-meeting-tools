@@ -5,7 +5,7 @@ hierarchical context prompts optimized for LLM standards analysis.
 """
 
 import difflib
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 
 FOCUS_PROMPTS = {

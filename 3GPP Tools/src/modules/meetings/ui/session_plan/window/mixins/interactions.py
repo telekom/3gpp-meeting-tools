@@ -103,7 +103,6 @@ class InteractionsMixin:
 
         d_name = d_item.text().strip()
         q_name = q_item.text().strip()
-        raw_text = topic_item.text().strip()
 
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
@@ -146,7 +145,6 @@ class InteractionsMixin:
             for i in range(self.tracked_table.columnCount())
             if self.tracked_table.item(row, i)
         ]
-        from PyQt5.QtWidgets import QApplication
         QApplication.clipboard().setText(" | ".join(parts))
 
     def _on_grid_context_menu(self, pos: QPoint):
@@ -266,7 +264,6 @@ class InteractionsMixin:
         menu.exec_(self.grid_table.viewport().mapToGlobal(pos))
 
     def _copy_slot_text(self, text: str):
-        from PyQt5.QtWidgets import QApplication
         QApplication.clipboard().setText(text)
 
     def _set_topic_owner_direct(self, ai_number: str, owner_name: str):
@@ -277,7 +274,6 @@ class InteractionsMixin:
 
     def _open_multi_delegate_dialog(self, ai_number: str, current_owner: str):
         """Opens MultiDelegateSelectDialog for compound multi-delegate ownership from grid."""
-        from modules.meetings.ui.session_plan.session_plan_dialogs import MultiDelegateSelectDialog
         ai_desc = ""
         if self.agenda_map and ai_number in self.agenda_map:
             ai_desc = getattr(self.agenda_map[ai_number], "description", "")

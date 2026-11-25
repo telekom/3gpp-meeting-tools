@@ -11,12 +11,12 @@ import shutil
 import tempfile
 from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from PyQt5.QtCore import QMimeData, QThread, pyqtSignal
 from PyQt5.QtWidgets import QApplication
 
-from core.utils.paths import get_project_root, get_specs_root, to_extended_path
+from core.utils.paths import get_specs_root, to_extended_path
 from modules.spec_search.core.spec_doc_resolver import (
     SpecDocResolver,
     match_multipart_document_for_clause,

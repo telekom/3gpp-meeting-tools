@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from PyQt5.QtCore import QTimer, pyqtSignal
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QButtonGroup,
     QFileDialog,

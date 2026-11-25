@@ -3,8 +3,8 @@
 import logging
 from typing import Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QCursor, QFont
+from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtGui import QColor, QCursor
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -21,8 +21,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from core.ui.font_scale import scaled_font
-from core.ui.theme import T
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
     TABLE_STYLE_CLEAN,

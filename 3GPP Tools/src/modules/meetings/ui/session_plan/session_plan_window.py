@@ -26,4 +26,5 @@ __all__ = [
     "SessionPlanHorizontalHeader",
     "SessionPlanVerticalHeader",
     "SessionPlanWindow",
+    "_format_compact_snapshot_label",
 ]

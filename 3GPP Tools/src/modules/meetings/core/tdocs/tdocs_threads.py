@@ -243,7 +243,7 @@ class TdocsByAgendaThread(QThread):
                     break
                 else:
                     logging.info(
-                        f"   ↳ ⚠️ Directory accessible but no TdocsByAgenda.htm link found."
+                        "   ↳ ⚠️ Directory accessible but no TdocsByAgenda.htm link found."
                     )
 
             except Exception as e:

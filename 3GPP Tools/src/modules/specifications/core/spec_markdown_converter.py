@@ -8,16 +8,13 @@ from __future__ import annotations
 import logging
 import os
 import re
-import shutil
 import zipfile
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple
 
 from core.utils.paths import to_extended_path
 from modules.meetings.core.tdocs.tdoc_markdown_converter import (
     convert_document_to_markdown,
-    convert_docx_file,
-    convert_metafiles,
     sanitize_filename,
 )
 

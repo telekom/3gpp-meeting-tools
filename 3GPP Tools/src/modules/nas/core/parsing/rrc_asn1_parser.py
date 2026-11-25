@@ -1,7 +1,5 @@
 import json
-import logging
 import re
-from pathlib import Path
 from typing import List, Optional, Callable, Tuple, Dict, Any, Set
 
 from modules.nas.core.parsing.asn1_base_parser import BaseAsn1DocxParser

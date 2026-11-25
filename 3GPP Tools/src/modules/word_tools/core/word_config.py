@@ -1,7 +1,7 @@
 # --- File: src/modules/word_tools/core/word_config.py ---
 import json
 import logging
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import core.utils.paths
 

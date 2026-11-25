@@ -7,7 +7,6 @@ from typing import List, Optional
 
 from PyQt5.QtWidgets import QDialog, QMenu
 
-from core.ui.theme import C
 from core.ui.toast import notify_info, notify_success, notify_toast
 from modules.emails.core.sync_watermark import (
     LAST_SYNC_META_KEY,

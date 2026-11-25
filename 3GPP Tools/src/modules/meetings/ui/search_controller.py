@@ -4,7 +4,7 @@ import re
 import logging
 from pathlib import Path
 from PyQt5.QtCore import QPoint
-from PyQt5.QtWidgets import QApplication, QMessageBox, QPushButton
+from PyQt5.QtWidgets import QApplication, QMessageBox
 from modules.meetings.core.tdocs.tdocs_threads import TDocActionThread
 
 logger = logging.getLogger(__name__)

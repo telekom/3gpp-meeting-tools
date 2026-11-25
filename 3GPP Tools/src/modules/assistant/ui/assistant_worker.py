@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Dict, List, Mapping, Optional, Sequence
 
 from PyQt5.QtCore import QThread, pyqtSignal
 

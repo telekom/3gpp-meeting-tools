@@ -200,7 +200,6 @@ class DropImportMixin:
         try:
             if mode == "file":
                 p = Path(payload)
-                ext = p.suffix.lower()
 
                 # Check if dropped file is an agenda.csv
                 if p.name.lower() in ("agenda.csv", "agenda.txt"):
@@ -263,7 +262,7 @@ class DropImportMixin:
 
                     snap = self._import_local_session_plan_path(extracted[0], tdoc_hint=tdoc_candidate)
 
-            snap_id = self.db.save_snapshot(snap)
+            self.db.save_snapshot(snap)
             self._load_data()
             QMessageBox.information(self, "Import Successful", f"Successfully loaded session plan:\n{snap.snapshot_label}")
 

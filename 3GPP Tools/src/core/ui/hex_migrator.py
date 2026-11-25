@@ -17,7 +17,6 @@ import ast
 import difflib
 import io
 import re
-import sys
 import tokenize
 from dataclasses import dataclass, field
 from pathlib import Path

@@ -8,8 +8,8 @@ PyQt5.QtSvg, supporting smooth wheel zoom, drag-to-pan, 1:1 reset, and fit-to-wi
 from pathlib import Path
 from typing import Optional
 
-from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QPainter, QWheelEvent
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QPainter, QWheelEvent
 from PyQt5.QtSvg import QGraphicsSvgItem, QSvgRenderer
 from PyQt5.QtWidgets import (
     QFrame,
@@ -19,7 +19,6 @@ from PyQt5.QtWidgets import (
     QLabel,
     QPushButton,
     QVBoxLayout,
-    QWidget,
 )
 
 from core.ui.ui_components import (

@@ -7,7 +7,7 @@ from typing import List, Dict, Optional
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from core.ai.ollama_client import OllamaClient
-from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES, COMMON_STYLE
+from modules.puml2visio.templates.plantuml_templates import COMMON_STYLE
 
 logger = logging.getLogger(__name__)
 

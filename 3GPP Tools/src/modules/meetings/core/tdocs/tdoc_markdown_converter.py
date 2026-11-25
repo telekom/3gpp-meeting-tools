@@ -524,3 +524,20 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+__all__ = [
+    "DEFAULT_CORPUS_PROMPT", "MARKUP_LEGEND", "DOC_EXTENSIONS",
+    "DocResult", "ExportedDoc", "ParaRender", "Styles", "Numbering",
+    "sanitize_filename", "safe_media_name", "guess_tdoc_id", "base_tdoc_id",
+    "to_extended_path", "strip_extended_path", "to_tool_path",
+    "build_header", "category_for", "write_bulk_corpus",
+    "read_xlsx_records", "load_tdoc_metadata", "discover_documents", "extract_docs_from_zip",
+    "_convert_with_powershell", "_convert_with_pillow",
+    "CONVERTER_VERSION", "convert_metafiles", "DocxConverter",
+    "is_plain_document_type", "resolve_revision_mode_for_type",
+    "convert_docx_file", "convert_document_to_markdown",
+    "is_conversion_stale", "resolve_canonical_tdoc_paths",
+    "find_tdoc_source_doc", "is_canonical_tdoc_markdown_ready",
+    "write_index", "export_corpus", "main",
+]

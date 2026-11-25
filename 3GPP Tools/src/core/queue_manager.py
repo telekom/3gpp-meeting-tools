@@ -1,7 +1,7 @@
 import logging
 import re
 from pathlib import Path
-from PyQt5.QtCore import QObject, pyqtSignal, QThread
+from PyQt5.QtCore import QObject, pyqtSignal
 
 logger = logging.getLogger(__name__)
 

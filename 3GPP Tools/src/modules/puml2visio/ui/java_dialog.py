@@ -1,10 +1,8 @@
-import logging
 import os
 from pathlib import Path
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QFont
+from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QFileDialog, QRadioButton, QButtonGroup, QFrame,
@@ -15,7 +13,7 @@ from core.utils.utils import (
     get_detailed_java_info, load_java_config, save_java_config,
     reset_java_cache, get_best_java
 )
-from modules.puml2visio.utils.utils import get_plantuml_version, InitializationThread
+from modules.puml2visio.utils.utils import get_plantuml_version
 from core.ui.toast import notify_success
 from core.ui.theme import C
 

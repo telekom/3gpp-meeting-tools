@@ -6,7 +6,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, Optional, Set
+from typing import Callable, Dict, Optional
 
 import openpyxl
 from PyQt5.QtCore import QThread, pyqtSignal

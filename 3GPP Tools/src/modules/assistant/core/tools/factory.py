@@ -12,3 +12,6 @@ def build_read_only_tool_registry(*, specs_db_path: Path, spec_search_db_path: P
     for d in (*build_specification_tools(services[0]),*build_spec_search_tools(services[1]),*build_protocol_tools(services[2])):
         registry.register(d)
     return registry
+
+
+__all__ = ["PROFILE_TOOLS", "build_external_agent_tool_registry", "build_read_only_tool_registry"]

@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 import sqlite3
 from pathlib import Path
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, List, Sequence, Tuple
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QBrush, QColor, QFont
@@ -15,7 +15,6 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QSpinBox,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,

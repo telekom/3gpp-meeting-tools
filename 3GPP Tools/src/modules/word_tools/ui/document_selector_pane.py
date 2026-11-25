@@ -1,6 +1,5 @@
 # --- File: src/modules/word_tools/ui/document_selector_pane.py ---
 import logging
-import os
 from pathlib import Path
 from typing import List, Optional
 
@@ -8,7 +7,6 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QFileDialog,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -21,10 +19,7 @@ from PyQt5.QtWidgets import (
 
 from core.ui.ui_components import (
     BUTTON_STYLE_TOOLBAR_SECONDARY,
-    CARD_FRAME_STYLE,
     SEARCH_INPUT_STYLE,
-    InteractiveDropLabel,
-    ClickableDropLabel,
     ModernDropZone,
 )
 from modules.word_tools.core.document_opener import (

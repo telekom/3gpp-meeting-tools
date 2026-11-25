@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, Optional, Set, Tuple
 
 from modules.emails.core.legacy_email_migrator import read_legacy_followed_ais_and_starred_tdocs
 

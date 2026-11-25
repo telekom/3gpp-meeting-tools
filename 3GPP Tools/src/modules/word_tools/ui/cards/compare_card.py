@@ -1,7 +1,6 @@
 """Card: Document Comparison (Native Word Diff)."""
 
 import logging
-from pathlib import Path
 from typing import Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal

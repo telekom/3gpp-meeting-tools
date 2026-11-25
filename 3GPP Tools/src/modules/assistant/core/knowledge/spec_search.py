@@ -5,9 +5,8 @@ from __future__ import annotations
 import re
 import threading
 import uuid
-from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from modules.assistant.core.agent_models import ToolResult, ToolStatus
 from modules.spec_search.core.spec_search_db import SpecSearchDatabase, parse_version_tuple

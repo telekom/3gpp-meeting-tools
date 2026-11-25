@@ -1,8 +1,6 @@
 # --- File: src/modules/emails/core/email_summary_worker.py ---
-import html
 import logging
 import re
-from pathlib import Path
 from typing import List, Dict, Tuple
 
 from PyQt5.QtCore import QThread, pyqtSignal

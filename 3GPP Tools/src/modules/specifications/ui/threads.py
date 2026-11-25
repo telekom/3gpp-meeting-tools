@@ -1,10 +1,9 @@
 # --- File: src/modules/specifications/ui/threads.py ---
 import logging
 import os
-import re
 import zipfile
 from pathlib import Path
-from typing import List, Sequence, Union
+from typing import List, Union
 
 from PyQt5.QtCore import QThread, pyqtSignal
 

@@ -2,7 +2,6 @@
 import datetime
 import logging
 import json
-import re
 from pathlib import Path
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QCursor, QTextCursor

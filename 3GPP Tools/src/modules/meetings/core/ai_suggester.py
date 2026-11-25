@@ -7,13 +7,12 @@ Scans cached meeting workbooks and database records across 3GPP Working Groups
 topic keywords, Work Item tokens, and title correlations.
 """
 
-from collections import Counter
 from dataclasses import dataclass, field
 import json
 import logging
 from pathlib import Path
 import re
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.settings import MeetingsSettings

@@ -11,7 +11,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QMessageBox, QProgressDialog, QWidget
 
 from core.network.session import NetworkSession
@@ -380,7 +380,6 @@ class SpecDocResolver:
 
         if target_doc and target_doc.exists():
             # Clipboard search assistance for delegates
-            clip_text = f"Clause {clause_number}" if clause_number else f"TS {spec_number}"
             clipboard = QApplication.clipboard()
             if clipboard and clause_number:
                 clipboard.setText(clause_number.strip())

@@ -10,7 +10,7 @@ Provides high-contrast, theme-consistent syntax highlighting for PlantUML diagra
 - Quoted strings and hex color codes
 """
 
-from PyQt5.QtCore import QRegularExpression, Qt
+from PyQt5.QtCore import QRegularExpression
 from PyQt5.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
 from core.ui.theme import C
 

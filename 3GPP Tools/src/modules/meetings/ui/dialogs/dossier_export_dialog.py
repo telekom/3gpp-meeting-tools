@@ -8,12 +8,9 @@ and target directories.
 from __future__ import annotations
 
 import datetime
-import os
 import re
 from pathlib import Path
-from typing import List, Optional
 
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog,
     QVBoxLayout,

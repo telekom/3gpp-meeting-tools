@@ -1,5 +1,4 @@
 # --- File: src/modules/emails/ui/general_email_dialog.py ---
-import logging
 
 from PyQt5.QtCore import QDate, Qt
 from PyQt5.QtGui import QColor

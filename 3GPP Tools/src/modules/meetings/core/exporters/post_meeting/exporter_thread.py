@@ -137,10 +137,6 @@ class PostMeetingExporterThread(
                 load_or_reconstruct_manifest,
                 plan_incremental_session,
                 merge_manifest_into_tree,
-                save_manifest,
-                format_master_changelog_markdown,
-                format_local_wi_changelog_markdown,
-                ExportManifest,
             )
 
             self.manifest = load_or_reconstruct_manifest(

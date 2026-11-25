@@ -8,12 +8,11 @@ network functions, architectures, and signaling blocks without touching python c
 
 import logging
 import os
-from pathlib import Path
 import re
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QUrl, pyqtSignal
-from PyQt5.QtGui import QDesktopServices, QFont
+from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -29,10 +28,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
 )
 
-from core.ui.ui_components import (
-    BUTTON_STYLE_TOOLBAR_SECONDARY,
-    CARD_FRAME_STYLE,
-)
+from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 from core.ui.theme import C
 
 BUTTON_STYLE_PRIMARY = f"""
@@ -58,7 +54,6 @@ from modules.puml2visio.templates.plantuml_snippets import (
     delete_user_snippet,
     get_default_presets_path,
     get_user_presets_path,
-    reload_snippets,
 )
 
 

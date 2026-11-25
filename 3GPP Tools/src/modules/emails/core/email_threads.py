@@ -131,7 +131,6 @@ class EmailMoveThread(QThread):
 
     def run(self):
         import pythoncom
-        import sqlite3  # <--- Ensure sqlite3 is imported for the cleanup query
         pythoncom.CoInitialize()
         try:
             total = len(self.items_to_move)

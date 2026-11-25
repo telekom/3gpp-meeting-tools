@@ -13,14 +13,13 @@ import re
 import webbrowser
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
-from PyQt5.QtCore import QObject, QThread, pyqtSignal
-from PyQt5.QtGui import QCursor
-from PyQt5.QtWidgets import QApplication, QMessageBox, QProgressDialog, QToolTip, QWidget
+from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtWidgets import QApplication, QMessageBox, QProgressDialog, QWidget
 
 from core.network.session import NetworkSession
-from core.utils.paths import get_app_data_root, get_cache_root, get_project_root, to_extended_path
+from core.utils.paths import get_cache_root, get_project_root, to_extended_path
 from core.utils.portal_utils import get_portal_tdoc_url, open_portal_tdoc
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.meetings.core.tdocs.tdoc_url_resolver import normalize_3gpp_url, resolve_tdoc_download_url
@@ -237,7 +236,6 @@ class SpecTDocOpener:
                 QMessageBox.Yes
             )
             if reply == QMessageBox.Yes:
-                base_id = clean_tdoc.split("r")[0].split("R")[0]
                 open_portal_tdoc(clean_tdoc)
 
         worker.progress.connect(_on_progress)
@@ -255,7 +253,6 @@ class SpecTDocOpener:
     def open_tdoc_in_portal(tdoc_id: str) -> bool:
         """Opens the official 3GU web portal view for a TDoc in default browser."""
         clean_tdoc = tdoc_id.strip()
-        base_id = clean_tdoc.split("r")[0].split("R")[0]
         portal_url = get_portal_tdoc_url(clean_tdoc)
         logger.info(f"🌐 [TDoc Opener] Opening 3GU portal: {portal_url}")
         return webbrowser.open(portal_url)
@@ -306,7 +303,6 @@ class SpecTDocOpener:
     ) -> Tuple[str, str]:
         """Generates (plain_text, rich_html) citation strings for a TDoc and specification version."""
         clean_tdoc = tdoc_id.strip()
-        base_id = clean_tdoc.split("r")[0].split("R")[0]
         portal_url = get_portal_tdoc_url(clean_tdoc)
 
         details = []
