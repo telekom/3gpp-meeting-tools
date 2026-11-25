@@ -66,8 +66,22 @@ class TopicDossierExportCliMixin:
         dlg.activateWindow()
         self._inputs_dlg = dlg
 
-    def _on_start_export(self):
+    def _on_cancel_active_operation(self):
         if self._worker and self._worker.isRunning():
+            self._worker.cancel()
+            self.lbl_status.setText("Cancelling export...")
+            if hasattr(self, "btn_cancel_op"):
+                self.btn_cancel_op.setEnabled(False)
+        elif getattr(self, "_checkup_worker", None) and self._checkup_worker.isRunning():
+            self._checkup_worker.cancel()
+            self.lbl_status.setText("Cancelling checkup...")
+            if hasattr(self, "btn_cancel_op"):
+                self.btn_cancel_op.setEnabled(False)
+
+    def _on_start_export(self):
+        if (self._worker and self._worker.isRunning()) or (
+            getattr(self, "_checkup_worker", None) and self._checkup_worker.isRunning()
+        ):
             self.raise_()
             self.activateWindow()
             return
@@ -89,10 +103,7 @@ class TopicDossierExportCliMixin:
         parent_dir = dest_path.parent
         target_name = dest_path.name
 
-        self.btn_export.setEnabled(False)
-        self.prog_bar.setVisible(True)
-        self.prog_bar.setValue(0)
-        self.lbl_status.setText("Starting export...")
+        self._set_operation_busy(True, "Starting export...")
         self.raise_()
         self.activateWindow()
 
@@ -114,8 +125,7 @@ class TopicDossierExportCliMixin:
         self._worker.start()
 
     def _on_export_finished(self, success: bool, target_dir: str, msg: str):
-        self.btn_export.setEnabled(True)
-        self.prog_bar.setVisible(False)
+        self._set_operation_busy(False)
         if success:
             self.lbl_status.setText("Export completed successfully!")
             self.last_target_dir = target_dir
@@ -125,6 +135,7 @@ class TopicDossierExportCliMixin:
                 self.btn_launch_cli.setEnabled(True)
             QMessageBox.information(self, "Export Complete", msg)
         else:
+            self._check_incremental_status()
             self.lbl_status.setText("Export failed.")
             QMessageBox.critical(self, "Export Error", msg)
 

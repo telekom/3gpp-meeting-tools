@@ -291,6 +291,13 @@ def _evaluate_stage2_synthesis_state(target_dir: Path, manifest: ExportManifest)
         if snap.get("fingerprint"):
             active_fps[m_key] = str(snap["fingerprint"])
 
+        fp_unchanged = bool(
+            same_baseline_tracked
+            and active_fps.get(m_key)
+            and prev_cov.get(m_key)
+            and active_fps.get(m_key) == prev_cov.get(m_key)
+        )
+
         if m_state.get("analysis_status") == "stale":
             changed_meetings.add(m_key)
 
@@ -299,12 +306,13 @@ def _evaluate_stage2_synthesis_state(target_dir: Path, manifest: ExportManifest)
         if a_path.is_file() and float(os.path.getmtime(a_path)) > syn_mtime + 0.5:
             changed_meetings.add(m_key)
 
-        pkt_mtime = float(snap.get("packet_mtime", 0.0) or 0.0)
-        if ext_mdir.is_dir():
-            for pkt_file in ext_mdir.glob("_company_positions_input*.md"):
-                pkt_mtime = max(pkt_mtime, float(os.path.getmtime(pkt_file)))
-        if pkt_mtime > syn_mtime + 0.5:
-            changed_meetings.add(m_key)
+        if not fp_unchanged:
+            pkt_mtime = float(snap.get("packet_mtime", 0.0) or 0.0)
+            if ext_mdir.is_dir():
+                for pkt_file in ext_mdir.glob("_company_positions_input*.md"):
+                    pkt_mtime = max(pkt_mtime, float(os.path.getmtime(pkt_file)))
+            if pkt_mtime > syn_mtime + 0.5:
+                changed_meetings.add(m_key)
 
         if same_baseline_tracked and active_fps.get(m_key) != prev_cov.get(m_key):
             changed_meetings.add(m_key)

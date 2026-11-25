@@ -2712,5 +2712,288 @@ class TestOpenEndedTimeframeAndFreshness(unittest.TestCase):
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+class TestCheckupResponsivenessAndStatusDialog(unittest.TestCase):
+    """Tests Stage-2 fingerprint staleness guard, checkup progress/cancel, CorpusStatusReportDialog, and UI polish."""
+
+    _qapp = None
+
+    @classmethod
+    def _ensure_qapp(cls):
+        from PyQt5.QtWidgets import QApplication
+        app = QApplication.instance() or QApplication([])
+        cls._qapp = app
+        return app
+
+    def test_stage2_unchanged_fingerprint_ignores_input_packet_rewrite(self):
+        import time
+        from modules.meetings.core.exporters.export_manifest import (
+            compute_meeting_snapshot,
+            save_manifest,
+        )
+        from modules.meetings.core.exporters.topic_dossier_exporter import check_and_refresh_dossier
+
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            dossier = tmp_dir / "Topic_DF"
+            ran2_dir = dossier / "RAN2" / "RAN2_135"
+            sa2_dir = dossier / "SA2" / "SA2_177"
+            (ran2_dir / "Discussion").mkdir(parents=True, exist_ok=True)
+            (sa2_dir / "Discussion").mkdir(parents=True, exist_ok=True)
+            (ran2_dir / "Discussion" / "R2-1.md").write_text("# R2-1\n" + ("word " * 120), encoding="utf-8")
+            (sa2_dir / "Discussion" / "S2-1.md").write_text("# S2-1\n" + ("word " * 120), encoding="utf-8")
+            (ran2_dir / "_company_positions_input.md").write_text("# Input", encoding="utf-8")
+            (sa2_dir / "_company_positions_input.md").write_text("# Input", encoding="utf-8")
+            (ran2_dir / "_company_positions_analysis.md").write_text("# Analysis", encoding="utf-8")
+            (sa2_dir / "_company_positions_analysis.md").write_text("# Analysis", encoding="utf-8")
+
+            now = time.time()
+            for p in (
+                ran2_dir / "_company_positions_input.md",
+                sa2_dir / "_company_positions_input.md",
+                ran2_dir / "_company_positions_analysis.md",
+                sa2_dir / "_company_positions_analysis.md",
+            ):
+                os.utime(p, (now - 100.0, now - 100.0))
+
+            s2_dir = dossier / "stage2_2026-11-15_r1"
+            (s2_dir / "working").mkdir(parents=True, exist_ok=True)
+            rep = s2_dir / "COMPANY_VIEWS_AND_PROGRESS.md"
+            rep.write_text("# Report", encoding="utf-8")
+            (s2_dir / "working" / "package_state.json").write_text(
+                json.dumps({"package_id": "DF-20261115-r1", "as_of": "2026-11-15"}),
+                encoding="utf-8",
+            )
+            os.utime(rep, (now - 10.0, now - 10.0))
+
+            snap_r2 = compute_meeting_snapshot("concluded", [], {"R2-1": {"rel_path": "RAN2/RAN2_135/Discussion/R2-1.md"}}, packet_mtime=now - 100.0)
+            snap_s2 = compute_meeting_snapshot("concluded", [], {"S2-1": {"rel_path": "SA2/SA2_177/Discussion/S2-1.md"}}, packet_mtime=now - 100.0)
+            manifest = ExportManifest(meeting="Data Framework", export_type="topic_full_dossier")
+            manifest.tdocs = {
+                "R2-1": {"rel_path": "RAN2/RAN2_135/Discussion/R2-1.md", "title": "R2", "type": "Discussion"},
+                "S2-1": {"rel_path": "SA2/SA2_177/Discussion/S2-1.md", "title": "S2", "type": "Discussion"},
+            }
+            manifest.exported_meetings = {
+                "RAN2/RAN2_135": {
+                    "wg": "RAN2", "meeting_number": "135", "meeting_folder_id": "RAN2_135",
+                    "cohort_key": "2026-Q3", "start_date": "2026-08-24", "lifecycle": "concluded",
+                    "tdoc_count": 1, "decision_count": 0, "stub_count": 0, "analysis_status": "analyzed",
+                    "current_snapshot": snap_r2, "analyzed_snapshot": snap_r2,
+                },
+                "SA2/SA2_177": {
+                    "wg": "SA2", "meeting_number": "177", "meeting_folder_id": "SA2_177",
+                    "cohort_key": "2026-Q4", "start_date": "2026-10-12", "lifecycle": "concluded",
+                    "tdoc_count": 1, "decision_count": 0, "stub_count": 0, "analysis_status": "analyzed",
+                    "current_snapshot": snap_s2, "analyzed_snapshot": snap_s2,
+                },
+            }
+            save_manifest(dossier, manifest)
+
+            topic = MetaTopicDefinition(id="df", name="Data Framework", target_wgs=["RAN2", "SA2"])
+            res1 = check_and_refresh_dossier(dossier, topic=topic)
+            self.assertEqual(res1["synthesis_status"], "analyzed")
+
+            # Rewrite _company_positions_input.md with newer mtime on BOTH meetings without changing content/fingerprint
+            os.utime(ran2_dir / "_company_positions_input.md", (now + 50.0, now + 50.0))
+            os.utime(sa2_dir / "_company_positions_input.md", (now + 50.0, now + 50.0))
+            res2 = check_and_refresh_dossier(dossier, topic=topic)
+            self.assertEqual(res2["synthesis_status"], "analyzed")
+            self.assertEqual(res2["synthesis_state"]["changed_meetings"], [])
+
+            # Updating ONLY SA2's Stage-1 analysis must flag ONLY SA2/SA2_177
+            os.utime(sa2_dir / "_company_positions_analysis.md", (now + 80.0, now + 80.0))
+            res3 = check_and_refresh_dossier(dossier, topic=topic)
+            self.assertEqual(res3["synthesis_status"], "stale")
+            self.assertEqual(res3["synthesis_state"]["changed_meetings"], ["SA2/SA2_177"])
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_checkup_progress_callback_and_cancel_check(self):
+        from modules.meetings.core.exporters.export_manifest import save_manifest
+        from modules.meetings.core.exporters.topic_dossier_exporter import check_and_refresh_dossier
+
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            dossier = tmp_dir / "Topic_Cancel"
+            dossier.mkdir(parents=True, exist_ok=True)
+            manifest = ExportManifest(meeting="Cancel Test", export_type="topic_full_dossier")
+            manifest.exported_meetings = {
+                "SA2/SA2_177": {"wg": "SA2", "meeting_number": "177", "meeting_folder_id": "SA2_177", "lifecycle": "no_activity"},
+                "SA2/SA2_178": {"wg": "SA2", "meeting_number": "178", "meeting_folder_id": "SA2_178", "lifecycle": "no_activity"},
+            }
+            save_manifest(dossier, manifest)
+
+            seen_pcts = []
+            res_ok = check_and_refresh_dossier(
+                dossier,
+                progress_cb=lambda cur, tot, msg: seen_pcts.append((cur, tot, msg)),
+            )
+            self.assertTrue(res_ok["ok"])
+            self.assertGreaterEqual(len(seen_pcts), 4)
+            self.assertEqual(seen_pcts[-1][0], 100)
+            self.assertIn("elapsed_ms", res_ok)
+            self.assertEqual(len(res_ok["meeting_records"]), 2)
+
+            calls = 0
+
+            def _cancel_after_one() -> bool:
+                nonlocal calls
+                calls += 1
+                return calls > 1
+
+            res_cancel = check_and_refresh_dossier(dossier, cancel_check=_cancel_after_one)
+            self.assertFalse(res_cancel["ok"])
+            self.assertTrue(res_cancel.get("cancelled"))
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_corpus_status_report_dialog_and_reuse(self):
+        from PyQt5.QtCore import Qt
+        from modules.meetings.ui.dialogs.topic_dossier_dialog import CorpusStatusReportDialog
+
+        self._ensure_qapp()
+        dlg = CorpusStatusReportDialog(parent=None)
+        self.assertEqual(dlg.windowModality(), Qt.NonModal)
+        self.assertFalse(dlg.table_breakdown.isVisible())
+
+        sample_res = {
+            "ok": True,
+            "target_dir": "C:/temp/Topic_DF",
+            "topic_name": "Data Framework & Data Transfer (Rel-20)",
+            "total_meetings": 2,
+            "analyzed": 1,
+            "stale": 1,
+            "pending": 0,
+            "no_activity": 0,
+            "newly_promoted": 1,
+            "newly_promoted_meetings": ["SA2/SA2_178"],
+            "total_decisions": 12,
+            "total_active_docs": 180,
+            "total_stubs": 3,
+            "elapsed_ms": 1240,
+            "synthesis_status": "stale",
+            "synthesis_state": {
+                "latest_package": {
+                    "folder_name": "stage2_2026-11-15_r1",
+                    "package_id": "DF-20261115-r1",
+                    "as_of": "2026-11-15",
+                    "revision": "r1",
+                    "validation_passed": True,
+                    "claims": 32,
+                },
+                "packages": [{"status": "completed"}],
+                "changed_meetings": ["SA2/SA2_178", "SA5/SA5_170"],
+            },
+            "meeting_records": [
+                {
+                    "wg": "SA2", "meeting_folder_id": "SA2_178", "lifecycle": "concluded",
+                    "analysis_status": "analyzed", "newly_promoted": True,
+                    "decision_count": 8, "tdoc_count": 140, "stub_count": 0,
+                },
+                {
+                    "wg": "SA5", "meeting_folder_id": "SA5_170", "lifecycle": "concluded",
+                    "analysis_status": "stale", "newly_promoted": False,
+                    "decision_count": 4, "tdoc_count": 40, "stub_count": 3,
+                },
+            ],
+        }
+        dlg.update_report(sample_res)
+        self.assertIn("Refreshed in 1.2s", dlg.lbl_elapsed_pill.text())
+        self.assertIn("SA2:", dlg.lbl_s2_changed.text())
+        self.assertIn("SA5_170", dlg.lbl_s2_changed.text())
+        self.assertIn("Newly Promoted (+1)", dlg.lbl_highlights.text())
+        self.assertEqual(dlg.table_breakdown.rowCount(), 2)
+
+        # Toggle expandable breakdown table
+        dlg.show()
+        dlg.btn_toggle_breakdown.setChecked(True)
+        self.assertTrue(dlg.table_breakdown.isVisible())
+        dlg.btn_toggle_breakdown.setChecked(False)
+        self.assertFalse(dlg.table_breakdown.isVisible())
+
+        # Single-instance reuse updates cleanly
+        sample_res["synthesis_status"] = "analyzed"
+        sample_res["synthesis_state"]["changed_meetings"] = []
+        dlg.update_report(sample_res)
+        self.assertIn("ANALYZED", dlg.lbl_s2_pill.text())
+        self.assertFalse(dlg.lbl_s2_changed.isVisible())
+        dlg.close()
+
+    def test_topic_dossier_semantic_banner_wg_pills_and_async_checkup(self):
+        from unittest.mock import MagicMock, patch
+        from PyQt5.QtWidgets import QFrame
+        from core.ui.theme import C
+        from modules.meetings.core.exporters.export_manifest import save_manifest
+        from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
+
+        app = self._ensure_qapp()
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            topic_dir = tmp_dir / "Topic_Data Framework & Data Transfer (Rel-20)"
+            sa2_dir = topic_dir / "SA2" / "SA2_178"
+            (sa2_dir / "Discussion").mkdir(parents=True, exist_ok=True)
+            (sa2_dir / "Discussion" / "S2-1.md").write_text("# S2-1\n" + ("word " * 120), encoding="utf-8")
+            (sa2_dir / "_company_positions_input.md").write_text("# Input", encoding="utf-8")
+            (sa2_dir / "_company_positions_analysis.md").write_text("# Analysis", encoding="utf-8")
+
+            manifest = ExportManifest(meeting="Data Framework & Data Transfer (Rel-20)", export_type="topic_full_dossier")
+            manifest.tdocs = {"S2-1": {"rel_path": "SA2/SA2_178/Discussion/S2-1.md", "title": "T", "type": "Discussion"}}
+            manifest.exported_meetings = {
+                "SA2/SA2_178": {
+                    "wg": "SA2", "meeting_number": "178", "meeting_folder_id": "SA2_178",
+                    "start_date": "2026-11-16", "lifecycle": "concluded",
+                    "tdoc_count": 1, "decision_count": 0, "stub_count": 0, "analysis_status": "stale",
+                }
+            }
+            save_manifest(topic_dir, manifest)
+
+            isolated_tm = MetaTopicManager(config_path=tmp_dir / "meta_topics.json")
+            mock_db = MagicMock()
+            mock_db.search_meetings.return_value = [
+                {
+                    "wg_name": "SA2",
+                    "meeting_number": "178",
+                    "start_date": "2026-11-16",
+                    "end_date": "2026-11-20",
+                    "folder_name": "TSGS2_178_Calgary_2026-11",
+                }
+            ]
+            with patch(
+                "modules.meetings.ui.dialogs.topic_dossier.mixins.topics_and_status.get_default_topic_export_base",
+                return_value=tmp_dir,
+            ), patch(
+                "modules.meetings.ui.dialogs.topic_dossier.dialog.MetaTopicManager",
+                return_value=isolated_tm,
+            ):
+                dlg = TopicDossierDialog(meetings_db=mock_db, parent=None)
+                idx = next(i for i in range(dlg.list_topics.count()) if "Data Framework" in dlg.list_topics.item(i).text())
+                dlg.list_topics.setCurrentRow(idx)
+
+            self.assertLessEqual(dlg.minimumSizeHint().width(), 1020)
+            self.assertIsNotNone(dlg.findChild(QFrame, "IncStatusBanner"))
+            self.assertIn(C.WG_SA_BG, dlg.lbl_topic_desc.text())
+            self.assertIn(C.WARNING_DARK, dlg.lbl_inc_status.text())
+            self.assertIn("hover for all rounds", dlg.lbl_cohorts_summary.text())
+
+            # Async checkup launches worker, updates progress/cancel state, and opens modeless CorpusStatusReportDialog
+            start_res = dlg._on_check_status(silent=False)
+            self.assertTrue(start_res.get("started"))
+            self.assertIsNotNone(dlg._checkup_worker)
+
+            for _ in range(100):
+                app.processEvents()
+                if not dlg._checkup_worker.isRunning():
+                    break
+                import time
+                time.sleep(0.02)
+            app.processEvents()
+
+            self.assertIsNotNone(dlg._status_report_dlg)
+            self.assertTrue(dlg._status_report_dlg.isVisible())
+            self.assertFalse(dlg.btn_cancel_op.isVisible())
+            dlg.close()
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

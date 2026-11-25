@@ -36,6 +36,8 @@ class TopicDossierDialog(
         self.active_topic: Optional[MetaTopicDefinition] = None
         self.selected_cohorts: List[MeetingCohort] = []
         self._worker: Optional[TopicDossierExporterThread] = None
+        self._checkup_worker = None
+        self._status_report_dlg = None
 
         self._init_ui()
         self._load_topics_list()
@@ -46,9 +48,17 @@ class TopicDossierDialog(
                 self._inputs_dlg.close()
             except Exception:
                 pass
+        if getattr(self, "_status_report_dlg", None) is not None:
+            try:
+                self._status_report_dlg.close()
+            except Exception:
+                pass
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
             self._worker.wait(5000)
+        if getattr(self, "_checkup_worker", None) and self._checkup_worker.isRunning():
+            self._checkup_worker.cancel()
+            self._checkup_worker.wait(3000)
         super().closeEvent(event)
 
     def get_session_state(self) -> dict:

@@ -1,6 +1,7 @@
 """Topic selection, cohort preview, CRUD dialogs, and incremental status mixin."""
 
 import datetime
+import html
 import os
 from pathlib import Path
 from typing import Dict, List, Optional, Set
@@ -15,7 +16,6 @@ from modules.meetings.core.cohort_resolver import (
     MeetingCohortResolver,
 )
 from modules.meetings.core.exporters.export_manifest import load_manifest
-from modules.meetings.core.exporters.topic_digest_builder import STAGE2_SYNTHESIS_FILENAME
 from modules.meetings.core.exporters.topic_dossier_exporter import (
     check_and_refresh_dossier,
     discover_stage2_packages,
@@ -23,21 +23,15 @@ from modules.meetings.core.exporters.topic_dossier_exporter import (
     sanitize_folder_name,
 )
 from modules.meetings.core.topic_manager import MetaTopicDefinition
+from modules.meetings.ui.dialogs.topic_dossier.checkup_worker import TopicCheckupWorker
 from modules.meetings.ui.dialogs.topic_dossier.editor_dialog import TopicEditorDialog
-
-
-def _format_meeting_num(mtg: Dict[str, object]) -> str:
-    num = str(mtg.get("meeting_number") or "").strip()
-    folder = str(mtg.get("folder_name") or "").strip().lower()
-    if "bis" in folder and "bis" not in num.lower():
-        return f"{num}-bis" if num else "bis"
-    return num
-
-
-def _format_meeting_label(mtg: Dict[str, object]) -> str:
-    wg = str(mtg.get("wg_name") or "").strip().upper()
-    num = _format_meeting_num(mtg)
-    return f"{wg} #{num}" if num else wg
+from modules.meetings.ui.dialogs.topic_dossier.status_report_dialog import CorpusStatusReportDialog
+from modules.meetings.ui.dialogs.topic_dossier.styles import (
+    build_incremental_banner_html,
+    format_meeting_label,
+    format_meeting_num,
+    format_wg_badges_html,
+)
 
 
 class TopicDossierTopicsStatusMixin:
@@ -89,8 +83,10 @@ class TopicDossierTopicsStatusMixin:
         if 0 <= row < len(topics):
             self.active_topic = topics[row]
             self.lbl_topic_title.setText(f"🌐 {self.active_topic.name}")
-            wgs_str = ", ".join(self.active_topic.target_wgs)
-            self.lbl_topic_desc.setText(f"<b>WGs:</b> {wgs_str} | {self.active_topic.description}")
+            wg_badges = format_wg_badges_html(self.active_topic.target_wgs)
+            desc_txt = html.escape(self.active_topic.description) if self.active_topic.description else ""
+            sep = " &nbsp;·&nbsp; " if (wg_badges and desc_txt) else ""
+            self.lbl_topic_desc.setText(f"{wg_badges}{sep}{desc_txt}")
 
             # Update default destination in user meeting cache
             base_dir = get_default_topic_export_base()
@@ -273,12 +269,12 @@ class TopicDossierTopicsStatusMixin:
                 past_or_cur = [m for m in mtgs_sorted if str(m.get("start_date") or "")[:10] <= today_iso]
                 future = [m for m in mtgs_sorted if str(m.get("start_date") or "")[:10] > today_iso]
                 if past_or_cur:
-                    lbl = _format_meeting_label(past_or_cur[-1])
+                    lbl = format_meeting_label(past_or_cur[-1])
                     if future:
-                        lbl += f" → #{_format_meeting_num(future[-1])}"
+                        lbl += f" → #{format_meeting_num(future[-1])}"
                     latest_parts.append(lbl)
                 elif future:
-                    latest_parts.append(_format_meeting_label(future[-1]))
+                    latest_parts.append(format_meeting_label(future[-1]))
 
             anchored_date = getattr(self, "_anchored_corpus_date", "")
             anchor_note = ""
@@ -286,14 +282,14 @@ class TopicDossierTopicsStatusMixin:
                 anchor_note = f" (anchored to existing corpus start {anchored_date})"
 
             tooltip_lines = [
-                f"{c.label} ({c.key}): " + ", ".join(_format_meeting_label(m) for m in c.meetings)
+                f"{c.label} ({c.key}): " + ", ".join(format_meeting_label(m) for m in c.meetings)
                 for c in self.selected_cohorts
             ]
             self.lbl_cohorts_summary.setToolTip("\n".join(tooltip_lines))
             self.lbl_cohorts_summary.setText(
                 f"Resolved: <b>{len(self.selected_cohorts)} Synchronized Meeting Round(s)</b> ({first_c} → {last_c}) "
                 f"with <b>{total_mtgs} meetings</b> across {', '.join(sorted(self.active_topic.target_wgs))}{anchor_note}.<br/>"
-                f"<span style='color: {C.TEXT_MUTED};'>Latest per WG: {', '.join(latest_parts)}</span>"
+                f"<span style='color: {C.TEXT_MUTED};'>Latest per WG: {', '.join(latest_parts)} (hover for all rounds)</span>"
             )
         else:
             self.lbl_cohorts_summary.setToolTip("")
@@ -301,8 +297,10 @@ class TopicDossierTopicsStatusMixin:
 
     def _check_incremental_status(self):
         folder_str = self.edit_dest_folder.text().strip()
+        self.edit_dest_folder.setToolTip(folder_str)
         if not folder_str:
             self.lbl_inc_status.setText("⚠️ Please specify a destination folder.")
+            self.lbl_inc_status.setStyleSheet(f"color: {C.WARNING_DARK}; font-size: 11px;")
             self.btn_open_folder.setEnabled(False)
             self.btn_open_folder.setToolTip("Destination folder is empty.")
             self.btn_launch_cli.setEnabled(False)
@@ -401,8 +399,10 @@ class TopicDossierTopicsStatusMixin:
         if not completed_pkgs:
             if in_prog_pkgs:
                 syn_badge = f"🏗️ Stage-2 In Progress [{in_prog_pkgs[-1]['folder_name']}]"
+                syn_color = C.INFO_DARK
             else:
                 syn_badge = "⏳ Stage-2 Pending"
+                syn_color = C.TEXT_MUTED
         else:
             latest_pkg = completed_pkgs[-1]
             dated_lbl = f"{latest_pkg.get('as_of') or 'dated'} ({latest_pkg.get('revision') or 'r1'})"
@@ -420,49 +420,48 @@ class TopicDossierTopicsStatusMixin:
                     syn_badge = f"🔄 Stage-2 Stale: {chg_cnt} updated since {dated_lbl}{folder_tag}{runs_tag}"
                 else:
                     syn_badge = f"🔄 Stage-2 Stale (since {dated_lbl}{folder_tag}){runs_tag}"
+                syn_color = C.WARNING_DARK
             else:
                 syn_badge = f"✅ Stage-2: {dated_lbl}{folder_tag}{runs_tag}"
+                syn_color = C.SUCCESS_DARK
 
-        total_mtgs = len(manifest.exported_meetings)
-        stage1_parts = [f"✅ {analyzed_cnt} Analyzed"]
-        if stale_cnt:
-            stage1_parts.append(f"🔄 {stale_cnt} Stale")
-        stage1_parts.append(f"⏳ {pending_cnt} Pending")
-        if no_act_cnt:
-            stage1_parts.append(f"⚪ {no_act_cnt} No Activity")
-
-        stub_note = f" ({stub_cnt} stubs)" if stub_cnt else ""
         self.lbl_inc_status.setText(
-            f"🔄 <b>Existing Corpus Detected:</b> {total_mtgs} meetings · {dec_cnt} decisions · "
-            f"{doc_cnt} docs{stub_note}<br>"
-            f"<b>LLM Stage-1:</b> {' · '.join(stage1_parts)} &nbsp;|&nbsp; <b>{syn_badge}</b>"
+            build_incremental_banner_html(
+                total_mtgs=len(manifest.exported_meetings),
+                dec_cnt=dec_cnt,
+                doc_cnt=doc_cnt,
+                stub_cnt=stub_cnt,
+                analyzed_cnt=analyzed_cnt,
+                stale_cnt=stale_cnt,
+                pending_cnt=pending_cnt,
+                no_act_cnt=no_act_cnt,
+                syn_badge=syn_badge,
+                syn_color=syn_color,
+            )
         )
-        self.lbl_inc_status.setStyleSheet(f"color: {C.EMERALD_DARK}; font-size: 11px;")
+        self.lbl_inc_status.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 11px;")
 
-    def _on_check_status(self, silent: bool = False) -> Dict[str, object]:
-        folder_str = self.edit_dest_folder.text().strip()
-        if not folder_str:
-            if not silent:
-                QMessageBox.warning(self, "No Destination", "Please specify a destination folder first.")
-            return {"ok": False, "error": "Empty destination"}
+    def _set_operation_busy(self, busy: bool, status_text: Optional[str] = None) -> None:
+        self.btn_export.setEnabled((not busy) and (self.active_topic is not None))
+        if busy:
+            self.btn_check_status.setEnabled(False)
+            self.prog_bar.setRange(0, 100)
+            self.prog_bar.setValue(0)
+        self.prog_bar.setVisible(busy)
+        if hasattr(self, "btn_cancel_op"):
+            self.btn_cancel_op.setVisible(busy)
+            self.btn_cancel_op.setEnabled(busy)
+        if status_text is not None:
+            self.lbl_status.setText(status_text)
 
-        res = check_and_refresh_dossier(Path(folder_str), topic=self.active_topic)
+    def _apply_checkup_result(self, res: Dict[str, object], show_dialog: bool = False) -> None:
         self._check_incremental_status()
-
         if not res.get("ok"):
-            if not silent:
-                QMessageBox.warning(
-                    self,
-                    "Checkup Failed",
-                    str(res.get("error") or "Could not inspect destination corpus."),
-                )
-            return res
+            return
 
         syn = str(res.get("synthesis_status") or "pending").lower()
         s2_state = res.get("synthesis_state") or {}
         latest_pkg = s2_state.get("latest_package") or {}
-        all_pkgs = list(s2_state.get("packages") or [])
-        completed_cnt = sum(1 for pk in all_pkgs if pk.get("status") == "completed")
 
         if latest_pkg:
             dated_s2 = f"{latest_pkg.get('as_of') or 'dated'} ({latest_pkg.get('revision') or 'r1'})"
@@ -482,41 +481,60 @@ class TopicDossierTopicsStatusMixin:
             f"⏳ {res['pending']} pending · ⚪ {res['no_activity']} no-activity · Stage-2: {syn_short}"
         )
 
-        if not silent:
-            promo = res.get("newly_promoted", 0)
-            promo_line = f"\n• Newly Linked / Promoted Analyses: +{promo}" if promo else ""
-            if latest_pkg:
-                val_note = (
-                    f" | Validation: {'PASSED' if latest_pkg.get('validation_passed') else 'ISSUES'}"
-                    if latest_pkg.get("validation_passed") is not None
-                    else ""
-                )
-                claims_note = f" ({latest_pkg['claims']} claims)" if latest_pkg.get("claims") is not None else ""
-                s2_detail = (
-                    f"• Stage-2 Synthesis: {syn.upper()} — {s2_folder} "
-                    f"[{latest_pkg.get('package_id', '')}, cut-off {latest_pkg.get('as_of', 'N/A')} {latest_pkg.get('revision', '')}]"
-                    f"{val_note}{claims_note}"
-                    + (f" ({completed_cnt} package(s) total)" if completed_cnt > 1 else "")
-                )
-                chg_list = list(s2_state.get("changed_meetings") or [])
-                if chg_list:
-                    preview_chg = ", ".join(chg_list[:5]) + ("..." if len(chg_list) > 5 else "")
-                    s2_detail += f"\n  ↳ Updated since baseline ({len(chg_list)}): {preview_chg}"
-            else:
-                s2_detail = f"• Stage-2 E2E Synthesis ({STAGE2_SYNTHESIS_FILENAME} / stage2_*): {syn.upper()}"
+        if show_dialog:
+            if getattr(self, "_status_report_dlg", None) is None:
+                self._status_report_dlg = CorpusStatusReportDialog(parent=None)
+            self._status_report_dlg.update_report(res)
+            self._status_report_dlg.show()
+            self._status_report_dlg.raise_()
+            self._status_report_dlg.activateWindow()
 
-            QMessageBox.information(
+    def _on_checkup_finished(self, res: Dict[str, object]) -> None:
+        self._set_operation_busy(False)
+        if res.get("cancelled"):
+            self._check_incremental_status()
+            self.lbl_status.setText("Checkup cancelled.")
+            return
+        if not res.get("ok"):
+            self._check_incremental_status()
+            self.lbl_status.setText("Checkup failed.")
+            QMessageBox.warning(
                 self,
-                "Corpus Status & Index Refreshed",
-                f"Checked '{res.get('topic_name', '')}' ({res['total_meetings']} meetings):\n"
-                f"• Decisions: {res['total_decisions']} | Active Docs: {res['total_active_docs']} (Stubs: {res['total_stubs']})\n"
-                f"• Stage-1 Analyses: ✅ {res['analyzed']} Analyzed | 🔄 {res['stale']} Stale (Delta Ready) | "
-                f"⏳ {res['pending']} Pending | ⚪ {res['no_activity']} No Activity"
-                f"{promo_line}\n"
-                f"{s2_detail}\n\n"
-                f"Updated index.md, company_positions_e2e_prompt.md, per-meeting briefs, and .export_manifest.json.",
+                "Checkup Failed",
+                str(res.get("error") or "Could not inspect destination corpus."),
             )
-        return res
+            return
+        self._apply_checkup_result(res, show_dialog=True)
+
+    def _on_check_status(self, silent: bool = False) -> Dict[str, object]:
+        folder_str = self.edit_dest_folder.text().strip()
+        if not folder_str:
+            if not silent:
+                QMessageBox.warning(self, "No Destination", "Please specify a destination folder first.")
+            return {"ok": False, "error": "Empty destination"}
+
+        if silent:
+            res = check_and_refresh_dossier(Path(folder_str), topic=self.active_topic)
+            if not res.get("ok"):
+                self._check_incremental_status()
+                return res
+            self._apply_checkup_result(res, show_dialog=False)
+            return res
+
+        if (self._worker and self._worker.isRunning()) or (
+            getattr(self, "_checkup_worker", None) and self._checkup_worker.isRunning()
+        ):
+            self.raise_()
+            self.activateWindow()
+            return {"ok": False, "error": "Another operation is already running."}
+
+        self._set_operation_busy(True, "Scanning corpus manifest...")
+        self._checkup_worker = TopicCheckupWorker(Path(folder_str), topic=self.active_topic)
+        self._checkup_worker.progress_msg.connect(self.lbl_status.setText)
+        self._checkup_worker.progress_step.connect(self.prog_bar.setValue)
+        self._checkup_worker.checkup_finished.connect(self._on_checkup_finished)
+        self._checkup_worker.start()
+        return {"ok": True, "started": True}
 
     def _on_browse_dest(self):
         cur = self.edit_dest_folder.text().strip() or str(get_default_topic_export_base())

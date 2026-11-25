@@ -23,9 +23,12 @@ from PyQt5.QtWidgets import (
 from core.ui.flow_layout import FlowLayout
 from core.ui.theme import C
 from modules.meetings.ui.dialogs.topic_dossier.styles import (
+    STYLE_CANCEL_BTN,
     STYLE_CARD,
     STYLE_PRIMARY_BTN,
+    STYLE_PROGRESS_BAR,
     STYLE_SECONDARY_BTN,
+    STYLE_STATUS_BANNER,
 )
 
 TIMEFRAME_PRESETS = [
@@ -53,7 +56,7 @@ class TopicDossierUiSetupMixin:
         # LEFT PANE: Topics Navigation & Management
         # ==========================================
         left_frame = QFrame()
-        left_frame.setFixedWidth(260)
+        left_frame.setFixedWidth(280)
         left_layout = QVBoxLayout(left_frame)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(8)
@@ -218,10 +221,15 @@ class TopicDossierUiSetupMixin:
         btn_browse.clicked.connect(self._on_browse_dest)
         dest_layout.addWidget(btn_browse, 0, 2)
 
+        self.inc_status_frame = QFrame()
+        self.inc_status_frame.setObjectName("IncStatusBanner")
+        self.inc_status_frame.setStyleSheet(STYLE_STATUS_BANNER)
+        inc_layout = QVBoxLayout(self.inc_status_frame)
+        inc_layout.setContentsMargins(10, 7, 10, 7)
         self.lbl_inc_status = QLabel("🟢 New Folder")
         self.lbl_inc_status.setWordWrap(True)
-        self.lbl_inc_status.setStyleSheet("font-size: 11px; font-weight: bold;")
-        dest_layout.addWidget(self.lbl_inc_status, 1, 0, 1, 3)
+        inc_layout.addWidget(self.lbl_inc_status)
+        dest_layout.addWidget(self.inc_status_frame, 1, 0, 1, 3)
         right_layout.addWidget(dest_box)
 
         # 4. Conversion Options (2x2 grid prevents excessive minimum dialog width)
@@ -254,12 +262,24 @@ class TopicDossierUiSetupMixin:
         # 6. Progress & Actions
         self.prog_bar = QProgressBar()
         self.prog_bar.setVisible(False)
-        self.prog_bar.setFixedHeight(12)
+        self.prog_bar.setTextVisible(False)
+        self.prog_bar.setFixedHeight(8)
+        self.prog_bar.setStyleSheet(STYLE_PROGRESS_BAR)
         right_layout.addWidget(self.prog_bar)
 
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.setSpacing(8)
         self.lbl_status = QLabel("Ready")
         self.lbl_status.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
-        right_layout.addWidget(self.lbl_status)
+        status_row.addWidget(self.lbl_status, 1)
+
+        self.btn_cancel_op = QPushButton("✖ Cancel")
+        self.btn_cancel_op.setStyleSheet(STYLE_CANCEL_BTN)
+        self.btn_cancel_op.setVisible(False)
+        self.btn_cancel_op.clicked.connect(self._on_cancel_active_operation)
+        status_row.addWidget(self.btn_cancel_op, 0)
+        right_layout.addLayout(status_row)
 
         action_layout = QHBoxLayout()
         action_layout.setSpacing(8)

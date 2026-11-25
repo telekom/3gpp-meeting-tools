@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import copy
 import os
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core.utils.paths import to_extended_path
 from modules.meetings.core.cohort_resolver import format_round_label
@@ -269,6 +270,8 @@ def _rebuild_meeting_state_for_checkup(
 def check_and_refresh_dossier(
     target_dir: Path,
     topic: Optional[MetaTopicDefinition] = None,
+    progress_cb: Optional[Callable[[int, int, str], None]] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
 ) -> Dict[str, Any]:
     """
     Fast offline checkup & non-destructive refresh for an existing Topic Dossier folder.
@@ -279,7 +282,17 @@ def check_and_refresh_dossier(
     regenerate `index.md`, `company_positions_e2e_prompt.md`, and `_meeting_brief.md`
     without overwriting any LLM analysis files or re-running document conversions.
     """
+    t_start = time.perf_counter()
+
+    def _emit(pct: int, msg: str) -> None:
+        if progress_cb is not None:
+            try:
+                progress_cb(pct, 100, msg)
+            except Exception:
+                pass
+
     target_dir = Path(target_dir)
+    _emit(0, "Loading export manifest...")
     manifest = load_manifest(target_dir)
     if manifest is None:
         return {
@@ -326,10 +339,20 @@ def check_and_refresh_dossier(
 
     meeting_records: List[Dict[str, Any]] = []
     newly_promoted_count = 0
-    for m_key in meeting_keys:
+    newly_promoted_meetings: List[str] = []
+    total_keys = max(1, len(meeting_keys))
+    for idx, m_key in enumerate(meeting_keys, start=1):
+        if cancel_check is not None and cancel_check():
+            return {
+                "ok": False,
+                "cancelled": True,
+                "target_dir": str(target_dir),
+                "error": "Checkup cancelled.",
+            }
         m_state = manifest.exported_meetings[m_key]
         if not isinstance(m_state, dict):
             continue
+        _emit(5 + int(((idx - 1) / total_keys) * 73), f"Scanning {m_key} ({idx}/{len(meeting_keys)})...")
         updated_state, rec = _rebuild_meeting_state_for_checkup(
             target_dir=target_dir,
             manifest=manifest,
@@ -339,9 +362,18 @@ def check_and_refresh_dossier(
             decisions_by_fid=decisions_by_fid,
         )
         manifest.exported_meetings[m_key] = updated_state
-        if rec.pop("newly_promoted", False):
+        if rec.get("newly_promoted"):
             newly_promoted_count += 1
+            newly_promoted_meetings.append(m_key)
         meeting_records.append(rec)
+
+    if cancel_check is not None and cancel_check():
+        return {
+            "ok": False,
+            "cancelled": True,
+            "target_dir": str(target_dir),
+            "error": "Checkup cancelled.",
+        }
 
     meeting_records.sort(
         key=lambda r: (
@@ -351,7 +383,10 @@ def check_and_refresh_dossier(
         )
     )
 
+    _emit(82, "Evaluating Stage-2 synthesis packages...")
     synthesis_status = _evaluate_stage2_synthesis_state(target_dir, manifest)
+
+    _emit(90, "Regenerating company_positions_e2e_prompt.md & index.md...")
     write_e2e_synthesis_prompt(
         target_dir,
         eff_topic,
@@ -382,7 +417,11 @@ def check_and_refresh_dossier(
         synthesis_status=synthesis_status,
         synthesis_state=manifest.synthesis_state,
     )
+
+    _emit(96, "Saving .export_manifest.json...")
     save_manifest(target_dir, manifest)
+    elapsed_ms = int((time.perf_counter() - t_start) * 1000)
+    _emit(100, "Checkup complete")
 
     analyzed_cnt = sum(1 for r in meeting_records if r.get("analysis_status") == "analyzed")
     stale_cnt = sum(1 for r in meeting_records if r.get("analysis_status") == "stale")
@@ -399,10 +438,13 @@ def check_and_refresh_dossier(
         "pending": pending_cnt,
         "no_activity": no_act_cnt,
         "newly_promoted": newly_promoted_count,
+        "newly_promoted_meetings": newly_promoted_meetings,
+        "meeting_records": meeting_records,
         "synthesis_status": synthesis_status,
         "synthesis_state": manifest.synthesis_state,
         "total_decisions": total_decisions,
         "total_active_docs": total_active_docs,
         "total_stubs": total_stubs,
         "session_id": session_id,
+        "elapsed_ms": elapsed_ms,
     }

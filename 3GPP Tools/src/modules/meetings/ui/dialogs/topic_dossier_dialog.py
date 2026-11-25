@@ -8,6 +8,7 @@ from modules.meetings.ui.dialogs.topic_dossier import (
     STYLE_CARD,
     STYLE_PRIMARY_BTN,
     STYLE_SECONDARY_BTN,
+    CorpusStatusReportDialog,
     TopicDossierDialog,
     TopicEditorDialog,
 )
@@ -15,6 +16,7 @@ from modules.meetings.ui.dialogs.topic_dossier import (
 __all__ = [
     "TopicDossierDialog",
     "TopicEditorDialog",
+    "CorpusStatusReportDialog",
     "ALL_COMMON_WGS",
     "STYLE_CARD",
     "STYLE_PRIMARY_BTN",
