@@ -4,7 +4,7 @@ import traceback
 import logging
 import os
 from pathlib import Path
-from typing import Optional, Sequence, Tuple, Union
+from typing import Any, Optional, Sequence, Tuple, Union
 
 if platform.system() == 'Windows':
     import win32com.client

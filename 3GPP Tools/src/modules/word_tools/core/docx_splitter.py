@@ -3,6 +3,7 @@ import shutil
 import logging
 import re
 import threading
+import time
 from pathlib import Path
 from core.utils.paths import to_extended_path
 from concurrent.futures import ThreadPoolExecutor, as_completed

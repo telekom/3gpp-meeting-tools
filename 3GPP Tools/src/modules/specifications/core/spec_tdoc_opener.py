@@ -342,5 +342,6 @@ class SpecTDocOpener:
             meeting=meeting,
             subject=subject,
         )
-        _copy_to_clipboard(plain, html, label=f"TDoc {tdoc_id.strip()}", parent=parent)
+        clean_tdoc = tdoc_id.strip()
+        _copy_to_clipboard(plain, html, label=f"TDoc {clean_tdoc}", parent=parent)
         logger.info(f"📋 [Clipboard] Copied citation for TDoc {clean_tdoc}")

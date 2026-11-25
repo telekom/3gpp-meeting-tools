@@ -20,6 +20,8 @@ from modules.spec_search.core.spec_search_db import SpecSearchDatabase
 from modules.spec_search.core.spec_text_extractor import SpecDocxExtractor
 from modules.word_tools.core.word_converter import convert_doc_to_docx
 
+logger = logging.getLogger(__name__)
+
 
 def is_change_mark_file(file_path_or_name: Any) -> bool:
     """
