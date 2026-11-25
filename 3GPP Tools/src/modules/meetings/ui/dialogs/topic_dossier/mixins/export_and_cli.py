@@ -19,6 +19,7 @@ from core.utils.folder_opener import open_folder as _open_folder
 from core.utils.paths import strip_extended_path, to_extended_path
 from modules.meetings.core.exporters.export_manifest import load_manifest
 from modules.meetings.core.exporters.topic_dossier_exporter import TopicDossierExporterThread
+from modules.meetings.ui.dialogs.topic_dossier.status_report_dialog import CorpusStatusReportDialog
 
 
 def _resolve_shim_attr(name: str, default):
@@ -125,6 +126,7 @@ class TopicDossierExportCliMixin:
         self._worker.start()
 
     def _on_export_finished(self, success: bool, target_dir: str, msg: str):
+        report = getattr(self._worker, "last_export_report", None)
         self._set_operation_busy(False)
         if success:
             self.lbl_status.setText("Export completed successfully!")
@@ -133,7 +135,15 @@ class TopicDossierExportCliMixin:
             if target_dir and os.path.isdir(to_extended_path(target_dir)):
                 self.btn_open_folder.setEnabled(True)
                 self.btn_launch_cli.setEnabled(True)
-            QMessageBox.information(self, "Export Complete", msg)
+            if isinstance(report, dict) and report.get("ok"):
+                if getattr(self, "_status_report_dlg", None) is None:
+                    self._status_report_dlg = CorpusStatusReportDialog(parent=None)
+                self._status_report_dlg.update_report(report)
+                self._status_report_dlg.show()
+                self._status_report_dlg.raise_()
+                self._status_report_dlg.activateWindow()
+            else:
+                QMessageBox.information(self, "Export Complete", msg)
         else:
             self._check_incremental_status()
             self.lbl_status.setText("Export failed.")

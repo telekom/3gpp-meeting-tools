@@ -137,6 +137,34 @@ def build_incremental_banner_html(
         f"<span style='color: {syn_color}; font-weight: bold;'>{syn_badge}</span>"
     )
 
+
+def pill_qss(bg: str, fg: str, border: str) -> str:
+    """Returns compact rounded pill stylesheet using theme tokens."""
+    return (
+        f"background-color: {bg}; color: {fg}; border: 1px solid {border}; "
+        f"border-radius: {R.SM}px; padding: 2px 8px; font-size: 11px; font-weight: bold;"
+    )
+
+
+def format_grouped_changed_meetings(changed_meetings: List[str]) -> str:
+    """Groups `'WG/MeetingFolder'` keys by WG for compact display."""
+    grouped: Dict[str, List[str]] = {}
+    ungrouped: List[str] = []
+    for raw in changed_meetings or []:
+        entry = str(raw or "").strip()
+        if not entry:
+            continue
+        if "/" in entry:
+            wg, mtg = entry.split("/", 1)
+            grouped.setdefault(wg.strip().upper(), []).append(mtg.strip())
+        else:
+            ungrouped.append(entry)
+
+    parts = [f"<b>{wg}:</b> {', '.join(mtgs)}" for wg, mtgs in grouped.items()]
+    if ungrouped:
+        parts.append(", ".join(ungrouped))
+    return " &nbsp;·&nbsp; ".join(parts)
+
 STYLE_PRIMARY_BTN = f"""
     QPushButton {{
         background-color: {C.EMERALD_ACCENT};

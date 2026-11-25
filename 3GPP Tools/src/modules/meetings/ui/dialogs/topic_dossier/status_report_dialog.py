@@ -29,34 +29,9 @@ from core.utils.paths import strip_extended_path, to_extended_path
 from modules.meetings.ui.dialogs.topic_dossier.styles import (
     STYLE_PRIMARY_BTN,
     STYLE_SECONDARY_BTN,
+    format_grouped_changed_meetings,
+    pill_qss,
 )
-
-
-def format_grouped_changed_meetings(changed_meetings: List[str]) -> str:
-    """Groups `'WG/MeetingFolder'` keys by WG for compact display."""
-    grouped: Dict[str, List[str]] = {}
-    ungrouped: List[str] = []
-    for raw in changed_meetings or []:
-        entry = str(raw or "").strip()
-        if not entry:
-            continue
-        if "/" in entry:
-            wg, mtg = entry.split("/", 1)
-            grouped.setdefault(wg.strip().upper(), []).append(mtg.strip())
-        else:
-            ungrouped.append(entry)
-
-    parts = [f"<b>{wg}:</b> {', '.join(mtgs)}" for wg, mtgs in grouped.items()]
-    if ungrouped:
-        parts.append(", ".join(ungrouped))
-    return " &nbsp;·&nbsp; ".join(parts)
-
-
-def _pill_qss(bg: str, fg: str, border: str) -> str:
-    return (
-        f"background-color: {bg}; color: {fg}; border: 1px solid {border}; "
-        f"border-radius: {R.SM}px; padding: 2px 8px; font-size: 11px; font-weight: bold;"
-    )
 
 
 class _NumericTableItem(QTableWidgetItem):
@@ -86,6 +61,7 @@ class CorpusStatusReportDialog(QDialog):
         self.setWindowTitle("Corpus Status & Index Refreshed")
         self.resize(scale_px(680), scale_px(470))
         self._target_dir: str = ""
+        self._delta_rel_path: str = ""
         self._init_ui()
 
     def _init_ui(self) -> None:
@@ -117,7 +93,7 @@ class CorpusStatusReportDialog(QDialog):
 
         self.lbl_elapsed_pill = QLabel("Refreshed")
         self.lbl_elapsed_pill.setObjectName("StatusElapsedPill")
-        self.lbl_elapsed_pill.setStyleSheet(_pill_qss(C.INFO_SOFT, C.INFO_DARK, C.INFO_BORDER))
+        self.lbl_elapsed_pill.setStyleSheet(pill_qss(C.INFO_SOFT, C.INFO_DARK, C.INFO_BORDER))
         top_row.addWidget(self.lbl_elapsed_pill, 0, Qt.AlignTop)
         hdr_layout.addLayout(top_row)
 
@@ -155,6 +131,23 @@ class CorpusStatusReportDialog(QDialog):
         kpi_grid.addWidget(card_doc, 0, 2)
         kpi_grid.addWidget(card_s1, 0, 3)
         root.addLayout(kpi_grid)
+
+        # 2b. Export Session Summary Strip (shown in export mode)
+        self.export_session_frame = QFrame()
+        self.export_session_frame.setObjectName("StatusExportSessionCard")
+        self.export_session_frame.setStyleSheet(
+            f"QFrame#StatusExportSessionCard {{ background-color: {C.SUCCESS_SOFT}; "
+            f"border: 1px solid {C.SUCCESS_BORDER}; border-radius: {R.MD}px; }}"
+            f"QFrame#StatusExportSessionCard QLabel {{ background: transparent; border: none; }}"
+        )
+        exp_lay = QVBoxLayout(self.export_session_frame)
+        exp_lay.setContentsMargins(12, 8, 12, 8)
+        self.lbl_export_session = QLabel("")
+        self.lbl_export_session.setWordWrap(True)
+        self.lbl_export_session.setStyleSheet(f"color: {C.TEXT_BODY}; font-size: 11px;")
+        exp_lay.addWidget(self.lbl_export_session)
+        self.export_session_frame.setVisible(False)
+        root.addWidget(self.export_session_frame)
 
         # 3. Stage-2 Synthesis Card
         s2_card = QFrame()
@@ -268,6 +261,12 @@ class CorpusStatusReportDialog(QDialog):
         self.btn_open_index.clicked.connect(self._on_open_index)
         btn_row.addWidget(self.btn_open_index)
 
+        self.btn_open_delta = QPushButton("📝 Open Delta Feed")
+        self.btn_open_delta.setStyleSheet(STYLE_SECONDARY_BTN)
+        self.btn_open_delta.setVisible(False)
+        self.btn_open_delta.clicked.connect(self._on_open_delta)
+        btn_row.addWidget(self.btn_open_delta)
+
         self.btn_open_folder = QPushButton("📂 Open Folder")
         self.btn_open_folder.setStyleSheet(STYLE_SECONDARY_BTN)
         self.btn_open_folder.clicked.connect(self._on_open_folder)
@@ -308,22 +307,37 @@ class CorpusStatusReportDialog(QDialog):
         return lbl_val, lbl_sub, card
 
     def update_report(self, res: Dict[str, Any]) -> None:
-        """Populates all KPI cards, Stage-2 synthesis details, highlights, and breakdown rows."""
+        """Populates all KPI cards, export/checkup summary, Stage-2 details, and breakdown rows."""
         self._target_dir = strip_extended_path(str(res.get("target_dir") or ""))
+        self._delta_rel_path = str(res.get("delta_rel_path") or "").strip()
+        is_export = str(res.get("mode") or "").strip().lower() == "export"
         topic_name = str(res.get("topic_name") or "Topic Dossier")
+        self.setWindowTitle("Export Complete — Topic Dossier" if is_export else "Corpus Status & Index Refreshed")
         self.lbl_topic_name.setText(f"🌐 {topic_name}")
         self.lbl_target_dir.setText(self._target_dir)
         self.lbl_target_dir.setToolTip(self._target_dir)
 
         elapsed_ms = int(res.get("elapsed_ms", 0) or 0)
         if elapsed_ms >= 1000:
-            self.lbl_elapsed_pill.setText(f"Refreshed in {elapsed_ms / 1000.0:.1f}s")
+            dur_str = f"{elapsed_ms / 1000.0:.1f}s"
         elif elapsed_ms > 0:
-            self.lbl_elapsed_pill.setText(f"Refreshed in {elapsed_ms} ms")
+            dur_str = f"{elapsed_ms} ms"
         else:
-            self.lbl_elapsed_pill.setText("Refreshed")
+            dur_str = ""
+
+        if is_export:
+            sess_id = int(res.get("session_id", 1) or 1)
+            pill_txt = f"✅ Session #{sess_id} Complete" + (f" · {dur_str}" if dur_str else "")
+            self.lbl_elapsed_pill.setText(pill_txt)
+            self.lbl_elapsed_pill.setStyleSheet(
+                pill_qss(C.SUCCESS_SOFT_ALT, C.SUCCESS_DARK, C.SUCCESS_BORDER)
+            )
+        else:
+            self.lbl_elapsed_pill.setText(f"Refreshed in {dur_str}" if dur_str else "Refreshed")
+            self.lbl_elapsed_pill.setStyleSheet(pill_qss(C.INFO_SOFT, C.INFO_DARK, C.INFO_BORDER))
 
         total_mtgs = int(res.get("total_meetings", 0) or 0)
+        round_cnt = int(res.get("round_count", 0) or 0)
         no_act = int(res.get("no_activity", 0) or 0)
         analyzed = int(res.get("analyzed", 0) or 0)
         stale = int(res.get("stale", 0) or 0)
@@ -334,7 +348,11 @@ class CorpusStatusReportDialog(QDialog):
         promo = int(res.get("newly_promoted", 0) or 0)
 
         self.kpi_meetings_val.setText(f"{total_mtgs}")
-        self.kpi_meetings_sub.setText(f"{no_act} no-activity" if no_act else "all active")
+        mtg_sub_parts: List[str] = []
+        if round_cnt:
+            mtg_sub_parts.append(f"{round_cnt} round(s)")
+        mtg_sub_parts.append(f"{no_act} no-activity" if no_act else "all active")
+        self.kpi_meetings_sub.setText(" · ".join(mtg_sub_parts))
 
         self.kpi_decisions_val.setText(f"{total_decs:,}")
         self.kpi_decisions_sub.setText("unified decisions")
@@ -355,6 +373,30 @@ class CorpusStatusReportDialog(QDialog):
             s1_parts.append(f"{pending} pending")
         self.kpi_stage1_sub.setText(" · ".join(s1_parts))
 
+        if is_export:
+            sess_id = int(res.get("session_id", 1) or 1)
+            mode_lbl = "Incremental Update" if res.get("is_incremental") else "Initial Complete Export"
+            exp_cnt = int(res.get("exported_count", 0) or 0)
+            new_conv = int(res.get("newly_converted_count", 0) or 0)
+            reused = int(res.get("reused_from_cache_count", 0) or 0)
+            already = int(res.get("already_complete_count", 0) or 0)
+            delta_rel = self._delta_rel_path or f"deltas/delta_session_{sess_id}.md"
+            self.lbl_export_session.setText(
+                f"<span style='color: {C.SUCCESS_DARK}; font-weight: bold;'>🚀 Session #{sess_id} ({mode_lbl}):</span> "
+                f"<b>{exp_cnt}</b> exported ({new_conv} newly converted · {reused} reused from shared cache · "
+                f"{already} already complete)<br>"
+                f"<span style='color: {C.TEXT_SECONDARY};'>Delta feed: <code>{delta_rel}</code></span>"
+            )
+            self.export_session_frame.setVisible(True)
+            self.lbl_footer_note.setText(
+                f"Written: index.md · agreements_timeline.md · ls_dialogue.md · per-meeting briefs · {delta_rel}"
+            )
+        else:
+            self.export_session_frame.setVisible(False)
+            self.lbl_footer_note.setText(
+                "Refreshed: index.md · company_positions_e2e_prompt.md · per-meeting briefs · .export_manifest.json"
+            )
+
         # Stage-2 Card
         syn = str(res.get("synthesis_status") or "pending").lower()
         s2_state = res.get("synthesis_state") or {}
@@ -364,16 +406,16 @@ class CorpusStatusReportDialog(QDialog):
 
         if syn == "analyzed":
             self.lbl_s2_pill.setText("✅ ANALYZED")
-            self.lbl_s2_pill.setStyleSheet(_pill_qss(C.SUCCESS_SOFT_ALT, C.SUCCESS_DARK, C.SUCCESS_BORDER))
+            self.lbl_s2_pill.setStyleSheet(pill_qss(C.SUCCESS_SOFT_ALT, C.SUCCESS_DARK, C.SUCCESS_BORDER))
         elif syn == "stale":
             self.lbl_s2_pill.setText("🔄 STALE")
-            self.lbl_s2_pill.setStyleSheet(_pill_qss(C.WARNING_SOFT_ALT, C.WARNING_DARK, C.WARNING_BORDER))
+            self.lbl_s2_pill.setStyleSheet(pill_qss(C.WARNING_SOFT_ALT, C.WARNING_DARK, C.WARNING_BORDER))
         elif syn == "in_progress":
             self.lbl_s2_pill.setText("🏗️ IN PROGRESS")
-            self.lbl_s2_pill.setStyleSheet(_pill_qss(C.INFO_SOFT, C.INFO_DARK, C.INFO_BORDER))
+            self.lbl_s2_pill.setStyleSheet(pill_qss(C.INFO_SOFT, C.INFO_DARK, C.INFO_BORDER))
         else:
             self.lbl_s2_pill.setText("⏳ PENDING")
-            self.lbl_s2_pill.setStyleSheet(_pill_qss(C.BG_CANVAS, C.TEXT_MUTED, C.BORDER_STRONG))
+            self.lbl_s2_pill.setStyleSheet(pill_qss(C.BG_CANVAS, C.TEXT_MUTED, C.BORDER_STRONG))
 
         if latest_pkg:
             s2_folder = latest_pkg.get("folder_name") or "(root)"
@@ -391,10 +433,10 @@ class CorpusStatusReportDialog(QDialog):
                 claims_txt = f" · {claims} claims" if claims is not None else ""
                 if val_passed is False:
                     self.lbl_s2_val_pill.setText(f"⚠️ ISSUES{claims_txt}")
-                    self.lbl_s2_val_pill.setStyleSheet(_pill_qss(C.DANGER_SOFT, C.DANGER_DARK, C.DANGER_BORDER))
+                    self.lbl_s2_val_pill.setStyleSheet(pill_qss(C.DANGER_SOFT, C.DANGER_DARK, C.DANGER_BORDER))
                 else:
                     self.lbl_s2_val_pill.setText(f"✓ PASSED{claims_txt}")
-                    self.lbl_s2_val_pill.setStyleSheet(_pill_qss(C.SUCCESS_SOFT, C.SUCCESS_DARK, C.SUCCESS_BORDER))
+                    self.lbl_s2_val_pill.setStyleSheet(pill_qss(C.SUCCESS_SOFT, C.SUCCESS_DARK, C.SUCCESS_BORDER))
                 self.lbl_s2_val_pill.setVisible(True)
             else:
                 self.lbl_s2_val_pill.setVisible(False)
@@ -460,6 +502,14 @@ class CorpusStatusReportDialog(QDialog):
         self.btn_open_index.setEnabled(
             has_dir and os.path.isfile(to_extended_path(Path(self._target_dir) / "index.md"))
         )
+        delta_exists = bool(
+            is_export
+            and has_dir
+            and self._delta_rel_path
+            and os.path.isfile(to_extended_path(Path(self._target_dir) / self._delta_rel_path))
+        )
+        self.btn_open_delta.setVisible(is_export)
+        self.btn_open_delta.setEnabled(delta_exists)
 
     def _populate_breakdown_table(self, records: List[Dict[str, Any]]) -> None:
         self.table_breakdown.setSortingEnabled(False)
@@ -528,6 +578,13 @@ class CorpusStatusReportDialog(QDialog):
         idx_path = Path(self._target_dir) / "index.md"
         if os.path.isfile(to_extended_path(idx_path)):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(idx_path)))
+
+    def _on_open_delta(self) -> None:
+        if not self._target_dir or not self._delta_rel_path:
+            return
+        delta_path = Path(self._target_dir) / self._delta_rel_path
+        if os.path.isfile(to_extended_path(delta_path)):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(delta_path)))
 
     def _on_open_folder(self) -> None:
         if self._target_dir and os.path.isdir(to_extended_path(self._target_dir)):

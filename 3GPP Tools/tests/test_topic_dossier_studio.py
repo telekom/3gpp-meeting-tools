@@ -2994,6 +2994,112 @@ class TestCheckupResponsivenessAndStatusDialog(unittest.TestCase):
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    def test_exporter_populates_last_export_report_and_status_dialog_export_mode(self):
+        from unittest.mock import MagicMock, patch
+        from modules.meetings.core.exporters.topic_dossier_exporter import TopicDossierExporterThread
+        from modules.meetings.ui.dialogs.topic_dossier_dialog import (
+            CorpusStatusReportDialog,
+            TopicDossierDialog,
+        )
+
+        self._ensure_qapp()
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            topic = MetaTopicDefinition(
+                id="t_exp_rpt",
+                name="6G User Plane",
+                target_wgs=["SA2"],
+                rules=MetaTopicRules(wi_tokens=["fs_6g_arc"]),
+            )
+            cohort = MeetingCohort(
+                key="2026-Q4",
+                year=2026,
+                quarter=4,
+                label="Nov 2026 Meeting Round",
+                meetings=[
+                    {"wg_name": "SA2", "meeting_number": "178", "start_date": "2026-11-16", "folder_name": "TSGS2_178"},
+                ],
+                wgs_present={"SA2"},
+            )
+            exporter = TopicDossierExporterThread(
+                meetings_db=MagicMock(),
+                topic=topic,
+                selected_cohorts=[cohort],
+                output_base_dir=tmp_dir,
+                target_folder_name="Topic_6G_UP",
+            )
+            with patch.object(exporter, "_load_meeting_tdocs", return_value=[
+                {"TDoc": "S2-2613110", "Title": "UP Arch", "AI": "20.6.1", "Related WIs": "FS_6G_ARC", "Type": "pCR", "Status": "Approved"},
+            ]), patch.object(exporter, "_load_meeting_agreements", return_value=[]), \
+                 patch.object(exporter, "_convert_docs_pipeline"):
+                exporter._run_export()
+
+            rpt = exporter.last_export_report
+            self.assertIsInstance(rpt, dict)
+            self.assertTrue(rpt["ok"])
+            self.assertEqual(rpt["mode"], "export")
+            self.assertEqual(rpt["session_id"], 1)
+            self.assertEqual(rpt["round_count"], 1)
+            self.assertEqual(rpt["total_decisions"], 1)
+            self.assertEqual(rpt["total_active_docs"], 1)
+            self.assertEqual(rpt["delta_rel_path"], "deltas/delta_session_1.md")
+
+            # CorpusStatusReportDialog renders export mode and switches cleanly back to checkup mode
+            dlg_rpt = CorpusStatusReportDialog(parent=None)
+            dlg_rpt.show()
+            dlg_rpt.update_report(rpt)
+            self.assertEqual(dlg_rpt.windowTitle(), "Export Complete — Topic Dossier")
+            self.assertIn("Session #1 Complete", dlg_rpt.lbl_elapsed_pill.text())
+            self.assertTrue(dlg_rpt.export_session_frame.isVisible())
+            self.assertTrue(dlg_rpt.btn_open_delta.isVisible())
+            self.assertTrue(dlg_rpt.btn_open_delta.isEnabled())
+            self.assertIn("Initial Complete Export", dlg_rpt.lbl_export_session.text())
+
+            # Reuse same dialog in checkup mode
+            dlg_rpt.update_report({
+                "ok": True,
+                "target_dir": str(tmp_dir / "Topic_6G_UP"),
+                "topic_name": "6G User Plane",
+                "total_meetings": 1,
+                "analyzed": 0,
+                "stale": 0,
+                "pending": 1,
+                "no_activity": 0,
+                "newly_promoted": 0,
+                "total_decisions": 1,
+                "total_active_docs": 1,
+                "total_stubs": 1,
+                "synthesis_status": "pending",
+                "synthesis_state": {},
+                "meeting_records": rpt["meeting_records"],
+            })
+            self.assertEqual(dlg_rpt.windowTitle(), "Corpus Status & Index Refreshed")
+            self.assertFalse(dlg_rpt.export_session_frame.isVisible())
+            self.assertFalse(dlg_rpt.btn_open_delta.isVisible())
+            dlg_rpt.close()
+
+            # TopicDossierDialog._on_export_finished opens modeless _status_report_dlg when last_export_report is present
+            isolated_tm = MetaTopicManager(config_path=tmp_dir / "meta_topics.json")
+            mock_db = MagicMock()
+            mock_db.search_meetings.return_value = []
+            with patch(
+                "modules.meetings.ui.dialogs.topic_dossier.mixins.topics_and_status.get_default_topic_export_base",
+                return_value=tmp_dir,
+            ), patch(
+                "modules.meetings.ui.dialogs.topic_dossier.dialog.MetaTopicManager",
+                return_value=isolated_tm,
+            ):
+                studio = TopicDossierDialog(meetings_db=mock_db, parent=None)
+            studio._worker = exporter
+            studio._on_export_finished(True, str(tmp_dir / "Topic_6G_UP"), "ok")
+            self.assertIsNotNone(studio._status_report_dlg)
+            self.assertTrue(studio._status_report_dlg.isVisible())
+            self.assertIn("Session #1 Complete", studio._status_report_dlg.lbl_elapsed_pill.text())
+            studio._worker = None
+            studio.close()
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()

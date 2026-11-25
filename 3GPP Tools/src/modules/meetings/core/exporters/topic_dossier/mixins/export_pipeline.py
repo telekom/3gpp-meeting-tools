@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import datetime
 import os
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from core.utils.paths import to_extended_path
 from modules.meetings.core.cohort_resolver import MeetingCohort
@@ -38,6 +39,7 @@ class TopicDossierExportPipelineMixin(TopicDossierMeetingProcessorMixin):
     """Orchestrates incremental cohort discovery, document conversion, and dossier synthesis."""
 
     def _run_export(self):
+        t_start = time.perf_counter()
         self.progress_msg.emit("Initializing Topic Dossier Studio...")
         self.progress_step.emit(0, 100)
 
@@ -188,6 +190,7 @@ class TopicDossierExportPipelineMixin(TopicDossierMeetingProcessorMixin):
             ls_tracker=ls_tracker,
             reused_from_cache_count=reused_from_cache_count,
             already_complete_count=already_complete_count,
+            t_start=t_start,
         )
 
     def _resolve_and_convert_meeting_docs(
@@ -262,6 +265,7 @@ class TopicDossierExportPipelineMixin(TopicDossierMeetingProcessorMixin):
         ls_tracker: CrossWgLiaisonTracker,
         reused_from_cache_count: int,
         already_complete_count: int,
+        t_start: Optional[float] = None,
     ):
         """Generate root timeline/LS/synthesis/delta/index Markdown files and emit completion."""
         self.progress_msg.emit("Synthesizing Master Timeline Index, LS Tracker, and LLM Delta Feed...")
@@ -327,6 +331,42 @@ class TopicDossierExportPipelineMixin(TopicDossierMeetingProcessorMixin):
             )
 
         save_manifest(target_dir, manifest)
+
+        analyzed_cnt = sum(1 for r in meeting_records if r.get("analysis_status") == "analyzed")
+        stale_cnt = sum(1 for r in meeting_records if r.get("analysis_status") == "stale")
+        pending_cnt = sum(1 for r in meeting_records if r.get("analysis_status") == "pending")
+        no_act_cnt = sum(1 for r in meeting_records if r.get("analysis_status") == "no_activity")
+        newly_converted_count = max(0, len(newly_exported_tids) - reused_from_cache_count)
+        elapsed_ms = int((time.perf_counter() - t_start) * 1000) if t_start is not None else 0
+
+        self.last_export_report = {
+            "ok": True,
+            "mode": "export",
+            "is_incremental": is_incremental,
+            "target_dir": str(target_dir),
+            "topic_name": self.topic.name,
+            "session_id": session_id,
+            "round_count": len(self.cohorts),
+            "total_meetings": len(meeting_records),
+            "analyzed": analyzed_cnt,
+            "stale": stale_cnt,
+            "pending": pending_cnt,
+            "no_activity": no_act_cnt,
+            "newly_promoted": 0,
+            "newly_promoted_meetings": [],
+            "meeting_records": meeting_records,
+            "synthesis_status": synthesis_status,
+            "synthesis_state": manifest.synthesis_state,
+            "total_decisions": len(all_decisions),
+            "total_active_docs": len(all_candidates),
+            "total_stubs": total_stubs,
+            "exported_count": len(newly_exported_tids),
+            "newly_converted_count": newly_converted_count,
+            "reused_from_cache_count": reused_from_cache_count,
+            "already_complete_count": already_complete_count,
+            "delta_rel_path": f"deltas/delta_session_{session_id}.md",
+            "elapsed_ms": elapsed_ms,
+        }
 
         self.progress_step.emit(100, 100)
         summary = (

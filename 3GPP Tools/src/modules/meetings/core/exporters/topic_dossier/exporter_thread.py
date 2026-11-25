@@ -5,7 +5,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from PyQt5.QtCore import QThread, pyqtSignal
 
@@ -62,6 +62,7 @@ class TopicDossierExporterThread(
 
         self._is_cancelled = False
         self._executor: Optional[ThreadPoolExecutor] = None
+        self.last_export_report: Optional[Dict[str, Any]] = None
 
     def cancel(self):
         self._is_cancelled = True
