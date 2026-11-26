@@ -23,6 +23,7 @@ from core.ui.page_ribbon import PageRibbonCard, apply_lucide_icon
 from core.ui.theme import C
 from core.ui.ui_components import COMBOBOX_STYLE_TOOLBAR
 from modules.nas.ui.nas_components import NASInspectorWidget, NASMatrixTreeDelegate
+from ..layout_controller import ProtocolWorkspaceLayoutController
 
 
 class NASTabRightPaneMixin:
@@ -47,17 +48,37 @@ class NASTabRightPaneMixin:
         # ---------------------------------------------------------------------
         # 1. Main Horizontal Splitter (Left: Indexed Protocols + Library, Right: Matrix + Inspector)
         # ---------------------------------------------------------------------
-        main_splitter = QSplitter(Qt.Horizontal)
-        main_splitter.addWidget(self._build_left_pane())
-        main_splitter.addWidget(self._build_right_pane())
-        main_splitter.setSizes([380, 700])
-        layout.addWidget(main_splitter, 1)
+        self.main_splitter = QSplitter(Qt.Horizontal)
+        self.main_splitter.addWidget(self._build_left_pane())
+        self.main_splitter.addWidget(self._build_right_pane())
+        self.main_splitter.setSizes([380, 700])
+        layout.addWidget(self.main_splitter, 1)
+
+        self.layout_controller = ProtocolWorkspaceLayoutController(
+            owner=self,
+            main_splitter=self.main_splitter,
+            left_pane=self.left_pane_widget,
+            left_splitter=self.left_splitter,
+            ver_card=self.ver_card,
+            ver_body_widget=self.ver_body_widget,
+            ver_summary_bar=self.ver_summary_bar,
+            ver_summary_lbl=self.ver_summary_lbl,
+            btn_toggle_specs_card=self.btn_toggle_specs_card,
+            right_splitter=self.right_splitter,
+            matrix_card=self.matrix_card,
+            matrix_header_layout=self.matrix_header_layout,
+            matrix_stack=self.matrix_stack,
+            msg_context_banner=self.msg_context_banner,
+            inspector=self.inspector,
+        )
 
     def _build_right_pane(self) -> QSplitter:
         # --- Right Panel (Matrix Card + Inspector Card) ---
         right_splitter = QSplitter(Qt.Vertical)
+        self.right_splitter = right_splitter
 
         matrix_card = QFrame()
+        self.matrix_card = matrix_card
         matrix_card.setObjectName("cardFrame")
         matrix_card.setStyleSheet(f"""
             QFrame#cardFrame {{
@@ -83,7 +104,8 @@ class NASTabRightPaneMixin:
         """)
         matrix_header_layout = QHBoxLayout(matrix_header_frame)
         matrix_header_layout.setContentsMargins(6, 4, 6, 4)
-        matrix_header_layout.setSpacing(8)
+        matrix_header_layout.setSpacing(6)
+        self.matrix_header_layout = matrix_header_layout
 
         self.matrix_title = QLabel("Select a Message to View Evolution Matrix")
         self.matrix_title.setStyleSheet(f"font-weight: bold; font-size: 12px; color: {C.TEXT_STRONG};")
@@ -396,6 +418,7 @@ class NASTabRightPaneMixin:
         )
         self.inspector.show_in_specs_tab_requested.connect(self.navigate_to_specs_tab_requested)
         self.inspector.search_in_spec_search_requested.connect(self.search_in_spec_search_requested)
+        self.inspector.send_plantuml_to_editor_requested.connect(self.send_plantuml_to_editor_requested)
         right_splitter.addWidget(self.inspector)
 
         right_splitter.setSizes([380, 320])

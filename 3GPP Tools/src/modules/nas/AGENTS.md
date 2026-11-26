@@ -11,6 +11,7 @@ src/modules/nas/
 ├── AGENTS.md
 ├── core/
 │   ├── db/                            # Modular NASDatabase package (see db/README.md)
+│   ├── packet_stack/                  # Cross-spec Full Packet Stack composer & exporters (see docs/PROTOCOL_PACKET_STACK.md)
 │   ├── nas_db.py (shim) / nas_exporter.py / nas_threads.py
 │   └── parsing/                       # ProtocolDocxDispatcher + specialized parsers (see parsing/AGENTS.md)
 │       ├── nas_parser.py / rrc_asn1_parser.py / ran3_asn1_parser.py / xnap_asn1_parser.py
@@ -50,6 +51,9 @@ src/modules/nas/
 - **Evolution Matrix & Exports (`nas_models.py`, `nas_exporter.py`):**
   - Checkable header diff filter pills (`diff_counts` + `diff_filter`), `NASMatrixTreeDelegate` guide lines, `depth_combo` (`max_depth`), auto-hidden empty `IEI / ID` columns (excluded from exports when hidden), `Rel-20\nv20.0.0` headers, unclipped `NASInspectorWidget` header (`TS XX.YYY · RNN (v...)`, hidden `usage_btn` when 0 refs), Message Context Banner (`⇄ Direction: ...`, `msg_meta_badge`: `SRB`, `RLC`, `Ch`).
   - **📋 Copy Table ▾** (Word/Outlook styled HTML `#E8F5E9`/`#FFF9C4`/`#FFEBEE`, Markdown, TSV) & **📋 Copy Definition ▾** (Word HTML, Markdown ````asn1 ````, Plain Text, Citation).
+- **5G UP Full Packet Stack & Flexible Layout (`core/packet_stack/`, `packet_stack_widget.py`, `layout_controller.py`, [`docs/PROTOCOL_PACKET_STACK.md`](../../../docs/PROTOCOL_PACKET_STACK.md)):**
+  - When a `TS 29.281` / `TS 38.415` message or IE is inspected, `NASInspectorWidget` exposes `[ 📖 Definition | 📦 Full Packet ]` assembling Outer IP/UDP + GTPv1-U Header + chained Extension Headers (`0x03`, `0x84`, `0x85`, `0x04`) with automatic 4-octet `Padding` calculation, interactive flag/scenario toggles, click-to-inspect definitions, and Word/Markdown/Plain Text/PlantUML `@startpacketdiag` export (+ PlantUML IDE handoff).
+  - `ProtocolWorkspaceLayoutController` provides `⬒`/`◫`/`⤢`/`⧉` (reparented modeless pop-out) Matrix–Inspector modes (`Ctrl+L`), collapsible left sidebar (`◀`/`▶`, `Ctrl+[`), collapsible `Indexed Protocols` 1-line summary bar, and auto-compact single-row `All IEs` matrices.
 - **Spec Document Resolution & Reloading (`nas_ingest_controller.py`, `spec_doc_resolver.py`):**
   - Multi-surface `📖 Open Spec ▾` (Matrix header, Inspector, Matrix double-click, Releases tree, Protocol list) copies `Clause X.Y.Z` to clipboard and routes multi-part specs (`_s06_s08.docx`, `_s09_s10.docx`, `_sA_sHistory.docx`).
   - 1-click Version Reload, Batch Spec Group Reload, and Bulk Checked Reload use `build_spec_reload_task` + atomic `insert_parsed_spec`.

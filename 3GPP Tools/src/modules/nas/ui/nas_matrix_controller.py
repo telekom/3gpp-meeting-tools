@@ -114,6 +114,7 @@ def handle_table_cell_click(tab: Any, index: QModelIndex) -> None:
         target_version_hint=target_version_hint,
         fallback_type_ref=type_ref,
         field_description=field_desc,
+        message_name=getattr(tab, "current_selected_message_name", "") or "",
     )
 
     if defs:

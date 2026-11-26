@@ -5,6 +5,7 @@ from __future__ import annotations
 from .delegates import NASMatrixTreeDelegate, NASMessageItemDelegate
 from .inspector import NASInspectorWidget
 from .inspector_render import RE_EXPLICIT_SPEC_REF, RE_NAS_CROSS_REF
+from .packet_stack_widget import PacketStackWidget
 from .spec_card import (
     NASReleasePillWidget,
     NASSpecCardWidget,
@@ -25,6 +26,7 @@ __all__ = [
     "NASSpecCardWidget",
     "NASVersionCardsWidget",
     "NASVersionTreeWidget",
+    "PacketStackWidget",
     "RE_EXPLICIT_SPEC_REF",
     "RE_NAS_CROSS_REF",
     "_NASCardCompatChild",

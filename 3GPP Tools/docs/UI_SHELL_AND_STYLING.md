@@ -46,3 +46,22 @@ Per-machine typography scaling (`0.85`–`1.60`) is persisted in `QSettings` and
   - `src/assets/3gpp_tools.ico` must remain a multi-resolution `.ico` container (`16`, `24`, `32`, `48`, `64`, `128`, `256` px).
   - `create_app_icon()` pre-hydrates OneDrive Files On-Demand placeholders (`_hydrate_file_if_needed()`), loads `3gpp_tools.ico` and `3gpp_tools.png` across all standard DPI sizes (`16..256` px) with an in-memory vector fallback (`_render_fallback_pixmap()`), and caches the resulting `QIcon`.
   - `apply_native_window_icon()` + `install_window_icon_manager(app)` (`main_tools.py`, `main_window.py`) install a global `QEvent.Show` / `QEvent.WinIdChange` filter that stamps every top-level `Qt.Window` and `Qt.Dialog` (including standalone `super().__init__(None)` windows whose `HWND` is recreated by `setWindowFlags(Qt.Window)`) with native Win32 `WM_SETICON` (`ICON_BIG`/`ICON_SMALL`), `SetClassLongPtrW` class icons, and `SHGetPropertyStoreForWindow` `IPropertyStore` shell properties (`PKEY_AppUserModel_ID`, `PKEY_AppUserModel_RelaunchIconResource`, `PKEY_AppUserModel_RelaunchDisplayNameResource`), as well as setting the attached launcher console icon (`GetConsoleWindow()`). Covered by `tests/test_taskbar_icon.py`.
+
+---
+
+## 4. Flexible Multi-Pane Focus & Layout Methodology (Reusable Pattern)
+
+Master–detail / multi-card workbenches (implemented in [`SummaryReaderLayoutController`](../src/modules/emails/ui/ai_summary/layout_controller.py) for Emails and [`ProtocolWorkspaceLayoutController`](../src/modules/nas/ui/nas_tab/layout_controller.py) for Protocols) should follow this four-part ergonomic pattern instead of locking users into rigid static `QSplitter` ratios:
+
+1. **Dual-Pane Mode Controller (`⬒` / `◫` / `⤢` / `⧉`):**
+   - Provide checkable icon-button toggles in card headers (and `Ctrl+L` for split orientation) across:
+     - `split_v` (`⬒` Top/Bottom) and `split_h` (`◫` Side-by-Side — especially valuable on widescreen monitors for tall vertical readers or packet stacks).
+     - Maximize modes (`⤢` primary-only / detail-only) that hide the peer pane's body while keeping its slim **38–40 px header bar** visible (and double-clicking the header restores `last_split_mode`).
+     - Multi-monitor pop-out (`⧉`) using a **modeless `Qt.Window` (`super().__init__(None)`, `Qt.NonModal`, `owner.destroyed` cleanup)** that either mirrors content or **reparents the live widget** into the pop-out body (`PopoutInspectorWindow`) and docks it cleanly back on close or `📌 Dock Back Inline`.
+   - Persist `right_mode`, `last_split_mode`, independent `sizes_v` / `sizes_h`, and `popout_geometry` in `QSettings` (excluding transient `"popout"` as a startup default).
+2. **Collapsible Master Sidebar (`◀` / `▶`, `Ctrl+[`):**
+   - Place the collapse button inside the **remaining visible pane's header** (so it stays reachable when the sidebar is hidden), saving/restoring the sidebar's last `QSplitter` width in `QSettings`.
+3. **Collapsible Filter/Selector Card $\to$ 1-Line Summary Chip Bar (`▾` / `▸`):**
+   - When a top-left selector card (e.g., `Indexed Protocols` or filter facets) is rarely changed after initial setup, allow collapsing its body (`ver_body_widget`) into a 1-line summary bar (`ver_summary_bar` showing active pills + a `Change ▾` button) and clamping its max height so the catalog/list below gains the full column height.
+4. **Smart Auto-Compact for Single-Row Summary Tables:**
+   - When a top table serves only as a 1-row summary (e.g., `All IEs / Types` mode in `NASTab`) while in `split_v`, temporarily compact the table pane to fit the header + 1 row (`apply_auto_compact_for_matrix`) and automatically restore the user's saved `sizes_v` when returning to a multi-row view — never overriding explicit `split_h`, `matrix_only`, or `inspector_only` choices.

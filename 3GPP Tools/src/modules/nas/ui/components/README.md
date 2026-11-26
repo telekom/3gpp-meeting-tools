@@ -11,7 +11,8 @@ Modular decomposition of the protocol UI delegates, version selectors, cards, an
 | [`spec_card.py`](spec_card.py) | Compact release pills and collapsible specification card widgets | `_extract_major_release`, `NASReleasePillWidget`, `NASSpecCardWidget` |
 | [`version_cards.py`](version_cards.py) | Scrollable cards container with `NASVersionTreeWidget` compatibility shims | `_NASCardCompatChild`, `_NASCardCompatSpec`, `NASVersionCardsWidget` |
 | [`inspector_render.py`](inspector_render.py) | Clause 9 / ASN.1 / IE definition HTML rendering, cross-ref regexes, usage menu mixin | `RE_NAS_CROSS_REF`, `RE_EXPLICIT_SPEC_REF`, `NASInspectorRenderMixin` |
-| [`inspector.py`](inspector.py) | Top-level `QFrame` Clause 9 / IE definition inspector card | `NASInspectorWidget` |
+| [`inspector.py`](inspector.py) | Top-level `QFrame` Clause 9 / IE definition & Full Packet Stack inspector card | `NASInspectorWidget` |
+| [`packet_stack_widget.py`](packet_stack_widget.py) | Interactive 5G UP Full Packet Stack viewer (`TS 29.281` + `TS 38.415`), flag toggles & `packetdiag` export | `PacketStackWidget` |
 | [`__init__.py`](__init__.py) | Package exports | All public and compatibility symbols above |
 
 ## Backward Compatibility

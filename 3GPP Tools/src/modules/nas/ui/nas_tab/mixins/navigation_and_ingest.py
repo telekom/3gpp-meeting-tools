@@ -392,6 +392,8 @@ class NASTabNavigationAndIngestMixin:
 
     def shutdown(self, wait_ms: int = 1500):
         """Cooperatively wait for short-lived NAS query workers during app shutdown."""
+        if hasattr(self, "layout_controller"):
+            self.layout_controller.shutdown()
         self._msg_search_timer.stop()
         self._ie_search_timer.stop()
 

@@ -25,10 +25,21 @@ from core.ui.theme import C
 from modules.nas.core.nas_db import NASDatabase
 from modules.nas.core.nas_exporter import copy_definition_to_clipboard
 from .inspector_render import NASInspectorRenderMixin
+from .packet_stack_widget import PacketStackWidget
+
+
+class _InspectorHeaderFrame(QFrame):
+    """Header frame emitting double-click for maximize/restore focus toggle."""
+
+    double_clicked = pyqtSignal()
+
+    def mouseDoubleClickEvent(self, event) -> None:  # type: ignore[override]
+        self.double_clicked.emit()
+        super().mouseDoubleClickEvent(event)
 
 
 class NASInspectorWidget(NASInspectorRenderMixin, QFrame):
-    """Modern Card Frame rendering Clause 9 diagrams, ASN.1 syntax, and field descriptions."""
+    """Modern Card Frame rendering Clause 9 diagrams, ASN.1 syntax, field descriptions, and UP Packet Stack."""
 
     jump_to_message_requested = pyqtSignal(str)
     filter_by_ie_requested = pyqtSignal(str)
@@ -36,6 +47,8 @@ class NASInspectorWidget(NASInspectorRenderMixin, QFrame):
     open_spec_requested = pyqtSignal(str, str, str, str)  # (spec_number, version, clause_number, doc_format)
     show_in_specs_tab_requested = pyqtSignal(str, str)     # (spec_number, version)
     search_in_spec_search_requested = pyqtSignal(str, str) # (spec_number, version)
+    send_plantuml_to_editor_requested = pyqtSignal(str)
+    header_double_clicked = pyqtSignal()
 
     def __init__(self, db: Optional[NASDatabase] = None, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -47,6 +60,9 @@ class NASInspectorWidget(NASInspectorRenderMixin, QFrame):
         self._current_containing_msgs: List[Dict[str, Any]] = []
         self._current_html_content: str = ""
         self._updating_combo: bool = False
+        self._inspector_mode: str = "definition"
+        self._current_message_name_hint: str = ""
+        self._packet_available: bool = False
 
         self.setObjectName("cardFrame")
         self.setStyleSheet(f"""
@@ -61,6 +77,8 @@ class NASInspectorWidget(NASInspectorRenderMixin, QFrame):
 
     def set_database(self, db: NASDatabase):
         self.db = db
+        if hasattr(self, "packet_stack_widget"):
+            self.packet_stack_widget.set_database(db)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -68,8 +86,9 @@ class NASInspectorWidget(NASInspectorRenderMixin, QFrame):
         layout.setSpacing(0)
 
         # 1. Header Toolbar
-        header_frame = QFrame()
+        header_frame = _InspectorHeaderFrame()
         header_frame.setObjectName("inspHeaderFrame")
+        header_frame.double_clicked.connect(self.header_double_clicked.emit)
         header_frame.setStyleSheet(f"""
             QFrame#inspHeaderFrame {{
                 background-color: {C.BG_SURFACE};
@@ -81,7 +100,8 @@ class NASInspectorWidget(NASInspectorRenderMixin, QFrame):
         """)
         insp_header = QHBoxLayout(header_frame)
         insp_header.setContentsMargins(6, 4, 6, 4)
-        insp_header.setSpacing(8)
+        insp_header.setSpacing(6)
+        self.insp_header_layout = insp_header
 
         card_title = QLabel("🔍 Field & Structure Inspector:")
         card_title.setStyleSheet(f"font-weight: bold; color: {C.TEXT_STRONG}; font-size: 11px;")
@@ -100,6 +120,42 @@ class NASInspectorWidget(NASInspectorRenderMixin, QFrame):
             border: 1px solid {C.SKY_BORDER};
         """)
         insp_header.addWidget(self.title_lbl)
+
+        self.mode_segment = QFrame(header_frame)
+        self.mode_segment.setObjectName("inspModeSegment")
+        self.mode_segment.setStyleSheet(
+            f"#inspModeSegment {{ background-color: {C.BG_CANVAS}; "
+            f"border: 1px solid {C.BORDER_SUBTLE}; border-radius: 5px; }}"
+        )
+        mode_lay = QHBoxLayout(self.mode_segment)
+        mode_lay.setContentsMargins(2, 2, 2, 2)
+        mode_lay.setSpacing(2)
+        seg_qss = (
+            f"QPushButton {{ font-size: 10.5px; font-weight: 500; color: {C.TEXT_SECONDARY}; "
+            f"background-color: transparent; border: 1px solid transparent; border-radius: 4px; padding: 1px 7px; }} "
+            f"QPushButton:hover {{ color: {C.TEXT_PRIMARY}; background-color: {C.BG_SURFACE}; }} "
+            f"QPushButton:checked {{ font-weight: 600; color: {C.ACCENT_PRIMARY}; "
+            f"background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; }}"
+        )
+        self.btn_mode_definition = QPushButton("📖 Definition", self.mode_segment)
+        self.btn_mode_definition.setCheckable(True)
+        self.btn_mode_definition.setChecked(True)
+        self.btn_mode_definition.setCursor(Qt.PointingHandCursor)
+        self.btn_mode_definition.setStyleSheet(seg_qss)
+        self.btn_mode_definition.clicked.connect(lambda: self.set_inspector_mode("definition"))
+        mode_lay.addWidget(self.btn_mode_definition)
+
+        self.btn_mode_packet = QPushButton("📦 Full Packet", self.mode_segment)
+        self.btn_mode_packet.setCheckable(True)
+        self.btn_mode_packet.setChecked(False)
+        self.btn_mode_packet.setCursor(Qt.PointingHandCursor)
+        self.btn_mode_packet.setToolTip("Inspect full multi-layer User Plane packet stack (TS 29.281 + TS 38.415)")
+        self.btn_mode_packet.setStyleSheet(seg_qss)
+        self.btn_mode_packet.clicked.connect(lambda: self.set_inspector_mode("packet"))
+        mode_lay.addWidget(self.btn_mode_packet)
+
+        self.mode_segment.setVisible(False)
+        insp_header.addWidget(self.mode_segment)
 
         insp_header.addStretch()
 
@@ -262,6 +318,9 @@ class NASInspectorWidget(NASInspectorRenderMixin, QFrame):
 
         self.stack.addWidget(self.empty_widget)
 
+        # Content Container (Index 1): Definition TextBrowser (0) vs Full Packet Stack (1)
+        self.content_stack = QStackedWidget()
+
         # Text Browser View
         self.text_area = QTextBrowser()
         self.text_area.setReadOnly(True)
@@ -277,7 +336,15 @@ class NASInspectorWidget(NASInspectorRenderMixin, QFrame):
                 background-color: {C.BG_CARD};
             }}
         """)
-        self.stack.addWidget(self.text_area)
+        self.content_stack.addWidget(self.text_area)
+
+        self.packet_stack_widget = PacketStackWidget(db=self.db, parent=self)
+        self.packet_stack_widget.open_spec_requested.connect(self.open_spec_requested.emit)
+        self.packet_stack_widget.inspect_field_requested.connect(self._on_inspect_packet_field)
+        self.packet_stack_widget.send_plantuml_to_editor_requested.connect(self.send_plantuml_to_editor_requested.emit)
+        self.content_stack.addWidget(self.packet_stack_widget)
+
+        self.stack.addWidget(self.content_stack)
 
         layout.addWidget(self.stack)
 

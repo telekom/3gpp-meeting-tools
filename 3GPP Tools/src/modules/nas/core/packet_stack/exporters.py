@@ -1,0 +1,347 @@
+"""Multi-format renderers and clipboard exporter (HTML, Word, Markdown, Plain Text, PlantUML packetdiag)."""
+
+from __future__ import annotations
+
+import html
+from typing import Dict, List, Tuple
+
+from PyQt5.QtCore import QMimeData
+from PyQt5.QtWidgets import QApplication
+
+from core.ui.theme import C
+from .models import ComposedPacket, PacketField, PacketLayer
+
+
+_ROLE_COLORS: Dict[str, Tuple[str, str, str]] = {
+    # (banner_bg, banner_fg, cell_tint)
+    "transport": (C.BG_MUTED, C.TEXT_STRONG, C.BG_SURFACE),
+    "gtpu_header": (C.SKY_SOFT, C.ACCENT_SKY_DARK, C.SKY_SURFACE),
+    "gtpu_ext_wrapper": (C.SUCCESS_SOFT_ALT, C.SUCCESS_DARK, C.SUCCESS_SOFT),
+    "up_frame": (C.WARNING_YELLOW_SOFT, C.WARNING_YELLOW_TEXT, C.WARNING_SOFT),
+    "ran_container": (C.VIOLET_SOFT, C.VIOLET_DARK, C.VIOLET_SURFACE),
+    "payload": (C.BG_CANVAS, C.TEXT_SECONDARY, C.BG_ALT_LIGHT),
+}
+
+
+def _pack_layer_rows(layer: PacketLayer, start_octet: int) -> Tuple[List[Dict[str, object]], int]:
+    """Pack bit/octet fields of a layer into visual 8-bit rows with continuous wire octet offsets."""
+    rows: List[Dict[str, object]] = []
+    cur_octet = start_octet
+    bit_buf: List[PacketField] = []
+    bit_sum = 0
+
+    def _flush_bit_buf() -> None:
+        nonlocal cur_octet, bit_buf, bit_sum
+        if not bit_buf:
+            return
+        rows.append({
+            "kind": "bits",
+            "octet_label": str(cur_octet),
+            "fields": list(bit_buf),
+            "size_label": "1 octet",
+            "spec_ref": f"TS {bit_buf[0].spec_number} {bit_buf[0].clause}".strip(),
+        })
+        cur_octet += 1
+        bit_buf = []
+        bit_sum = 0
+
+    for fld in layer.fields:
+        if fld.is_variable:
+            _flush_bit_buf()
+            rows.append({
+                "kind": "full",
+                "octet_label": "Var",
+                "field": fld,
+                "size_label": fld.size_label,
+                "spec_ref": f"TS {fld.spec_number} {fld.clause}".strip() if fld.spec_number else fld.clause,
+            })
+            continue
+
+        if fld.bits <= 8 and (bit_sum > 0 or fld.bits < 8):
+            bit_buf.append(fld)
+            bit_sum += fld.bits
+            if bit_sum == 8:
+                _flush_bit_buf()
+            elif bit_sum > 8:
+                _flush_bit_buf()
+            continue
+
+        _flush_bit_buf()
+        n_oct = max(1, fld.octets)
+        oct_label = str(cur_octet) if n_oct == 1 else f"{cur_octet}–{cur_octet + n_oct - 1}"
+        rows.append({
+            "kind": "full",
+            "octet_label": oct_label,
+            "field": fld,
+            "size_label": fld.size_label,
+            "spec_ref": f"TS {fld.spec_number} {fld.clause}".strip() if fld.spec_number else fld.clause,
+        })
+        cur_octet += n_oct
+
+    _flush_bit_buf()
+    return rows, cur_octet
+
+
+def _is_highlighted(fld: PacketField, highlight_name: str) -> bool:
+    if not highlight_name:
+        return False
+    h = highlight_name.strip().lower()
+    return h in fld.name.strip().lower() or fld.name.strip().lower() in h
+
+
+def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -> str:
+    """Render unified octet/bit stack table in HTML (`C` tokens only; interactive links optional)."""
+    hl = packet.config.highlight_field
+    parts: List[str] = [
+        f'<div style="font-family: Segoe UI, Calibri, Arial, sans-serif; color: {C.TEXT_PRIMARY};">'
+    ]
+
+    # Summary Header Banner
+    parts.append(
+        f'<div style="background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_STRONG}; '
+        f'border-left: 4px solid {C.ACCENT_SKY}; border-radius: 5px; padding: 8px 10px; margin-bottom: 8px;">'
+        f'<div style="font-size: 13px; font-weight: bold; color: {C.ACCENT_SKY_DARK};">{html.escape(packet.title)}</div>'
+        f'<div style="font-size: 11px; color: {C.TEXT_BODY}; margin-top: 2px;">'
+        f'<b>Direction:</b> {html.escape(packet.direction)} &nbsp;|&nbsp; '
+        f'<b>Interface:</b> {html.escape(packet.interface)} &nbsp;|&nbsp; '
+        f'<b>Specs:</b> {html.escape(", ".join(packet.spec_refs))}</div>'
+    )
+    if packet.ext_header_summaries:
+        chain_txt = " &nbsp;→&nbsp; ".join(html.escape(s) for s in packet.ext_header_summaries)
+        parts.append(
+            f'<div style="font-size: 10.5px; color: {C.SUCCESS_DARK}; margin-top: 4px;">'
+            f'<b>Ext Header Chain:</b> {chain_txt}</div>'
+        )
+    parts.append(
+        f'<div style="font-size: 10.5px; color: {C.TEXT_SECONDARY}; margin-top: 3px;">'
+        f'<b>Fixed Overhead:</b> 3GPP UP = <b>{packet.overhead_3gpp_octets} octets</b>'
+        + (
+            f' &nbsp;|&nbsp; Transport = <b>{packet.overhead_transport_octets} octets</b>'
+            f' &nbsp;|&nbsp; Total Header = <b>{packet.overhead_total_octets} octets</b>'
+            if packet.overhead_transport_octets > 0
+            else ""
+        )
+        + "</div></div>"
+    )
+
+    # Bit-Grid Table
+    parts.append(
+        f'<table border="1" cellspacing="0" cellpadding="4" style="border-collapse: collapse; '
+        f'width: 100%; border: 1px solid {C.BORDER_STRONG}; font-family: Consolas, \'Courier New\', monospace; font-size: 11px;">'
+        f'<thead>'
+        f'<tr style="background-color: {C.BG_CANVAS}; color: {C.TEXT_PRIMARY};">'
+        f'<th rowspan="2" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 6px; text-align: center;">Octet</th>'
+        f'<th colspan="8" style="border: 1px solid {C.BORDER_STRONG}; padding: 3px 6px; text-align: center;">Bits</th>'
+        f'<th rowspan="2" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 6px; text-align: center;">Size</th>'
+        f'<th rowspan="2" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 6px; text-align: left;">Spec / Clause</th>'
+        f'</tr>'
+        f'<tr style="background-color: {C.BG_SURFACE}; color: {C.TEXT_SECONDARY};">'
+        + "".join(
+            f'<th style="border: 1px solid {C.BORDER_STRONG}; padding: 2px 4px; text-align: center; width: 9%;">{b}</th>'
+            for b in range(7, -1, -1)
+        )
+        + "</tr></thead><tbody>"
+    )
+
+    cur_octet = 1
+    for layer in packet.layers:
+        b_bg, b_fg, cell_tint = _ROLE_COLORS.get(layer.role, (C.BG_CANVAS, C.TEXT_STRONG, C.BG_CARD))
+        spec_tag = f"TS {layer.spec_number} Cl. {layer.clause}" if layer.spec_number else ""
+        parts.append(
+            f'<tr style="background-color: {b_bg}; color: {b_fg}; font-family: Segoe UI, Arial, sans-serif;">'
+            f'<td colspan="11" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; font-weight: bold; font-size: 11px;">'
+            f'{html.escape(layer.title)}'
+            + (f' <span style="font-weight: normal; font-size: 10px;">({html.escape(spec_tag)})</span>' if spec_tag else "")
+            + "</td></tr>"
+        )
+
+        rows, cur_octet = _pack_layer_rows(layer, cur_octet)
+        for row in rows:
+            parts.append("<tr>")
+            parts.append(
+                f'<td style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 6px; text-align: center; '
+                f'background-color: {C.BG_SURFACE}; color: {C.TEXT_SECONDARY}; font-weight: bold;">'
+                f'{html.escape(str(row["octet_label"]))}</td>'
+            )
+            if row["kind"] == "bits":
+                for fld in row["fields"]:  # type: ignore[attr-defined]
+                    bg = C.HIGHLIGHT_YELLOW if _is_highlighted(fld, hl) else (C.BG_MUTED if fld.is_spare else cell_tint)
+                    fg = C.TEXT_PRIMARY if not fld.is_spare else C.TEXT_MUTED
+                    lbl = html.escape(fld.short_label)
+                    if interactive_links and not fld.is_spare:
+                        href = f"action:packet_field:{html.escape(fld.spec_number)}:{html.escape(fld.clause)}:{html.escape(fld.name)}"
+                        lbl_html = f'<a href="{href}" style="color: {fg}; text-decoration: none; font-weight: 600;">{lbl}</a>'
+                    else:
+                        lbl_html = f'<span style="font-weight: 600;">{lbl}</span>'
+                    parts.append(
+                        f'<td colspan="{fld.bits}" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 3px; '
+                        f'text-align: center; background-color: {bg}; color: {fg};">{lbl_html}</td>'
+                    )
+            else:
+                fld = row["field"]  # type: ignore[assignment]
+                bg = C.HIGHLIGHT_YELLOW if _is_highlighted(fld, hl) else (C.ORANGE_SOFT if fld.is_padding else cell_tint)
+                fg = C.ORANGE_DARK if fld.is_padding else C.TEXT_PRIMARY
+                lbl = html.escape(fld.short_label)
+                if interactive_links and not fld.is_spare and not fld.is_padding:
+                    href = f"action:packet_field:{html.escape(fld.spec_number)}:{html.escape(fld.clause)}:{html.escape(fld.name)}"
+                    lbl_html = f'<a href="{href}" style="color: {fg}; text-decoration: none; font-weight: 600;">{lbl}</a>'
+                else:
+                    lbl_html = f'<span style="font-weight: 600;">{lbl}</span>'
+                parts.append(
+                    f'<td colspan="8" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 6px; '
+                    f'text-align: center; background-color: {bg}; color: {fg};">{lbl_html}</td>'
+                )
+
+            parts.append(
+                f'<td style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 6px; text-align: center; '
+                f'background-color: {C.BG_CARD}; color: {C.TEXT_SECONDARY};">{html.escape(str(row["size_label"]))}</td>'
+            )
+            spec_ref_txt = str(row["spec_ref"])
+            if interactive_links and row["kind"] == "full" and row["field"].spec_number:  # type: ignore[union-attr]
+                f_obj = row["field"]  # type: ignore[assignment]
+                spec_cell = (
+                    f'<a href="action:open_spec:{html.escape(f_obj.spec_number)}::{html.escape(f_obj.clause)}" '
+                    f'style="color: {C.ACCENT_SKY_DARK}; text-decoration: underline;">{html.escape(spec_ref_txt)}</a>'
+                )
+            else:
+                spec_cell = html.escape(spec_ref_txt)
+            parts.append(
+                f'<td style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 6px; text-align: left; '
+                f'background-color: {C.BG_CARD}; color: {C.TEXT_SECONDARY};">{spec_cell}</td>'
+            )
+            parts.append("</tr>")
+
+    parts.append("</tbody></table></div>")
+    return "".join(parts)
+
+
+def render_packet_markdown(packet: ComposedPacket) -> str:
+    """Render packet stack as GitHub-Flavored Markdown."""
+    lines = [
+        f"### {packet.title}",
+        "",
+        f"- **Direction:** {packet.direction}",
+        f"- **Interface:** {packet.interface}",
+        f"- **Specs:** {', '.join(packet.spec_refs)}",
+        f"- **Fixed 3GPP UP Overhead:** {packet.overhead_3gpp_octets} octets",
+    ]
+    if packet.overhead_transport_octets > 0:
+        lines.append(f"- **Transport Overhead:** {packet.overhead_transport_octets} octets (Total = {packet.overhead_total_octets} octets)")
+    if packet.ext_header_summaries:
+        lines.append(f"- **Extension Header Chain:** {' -> '.join(packet.ext_header_summaries)}")
+    lines.extend(["", "| Octet | Layer / Field | Size | Presence | Spec / Clause |", "| --- | --- | --- | --- | --- |"])
+
+    cur_octet = 1
+    for layer in packet.layers:
+        rows, cur_octet = _pack_layer_rows(layer, cur_octet)
+        lines.append(f"| — | **{layer.title}** | — | — | TS {layer.spec_number} Cl. {layer.clause} |")
+        for row in rows:
+            if row["kind"] == "bits":
+                summary = " | ".join(f"{f.short_label} ({f.bits}b)" for f in row["fields"])  # type: ignore[attr-defined]
+                lines.append(f"| {row['octet_label']} | {summary} | {row['size_label']} | M/C | {row['spec_ref']} |")
+            else:
+                fld = row["field"]  # type: ignore[assignment]
+                lines.append(
+                    f"| {row['octet_label']} | {fld.short_label} | {row['size_label']} | {fld.presence} | {row['spec_ref']} |"
+                )
+    return "\n".join(lines)
+
+
+def render_packet_plain_text(packet: ComposedPacket) -> str:
+    """Render clean plain-text packet stack summary."""
+    lines = [
+        packet.title,
+        "=" * len(packet.title),
+        f"Direction : {packet.direction}",
+        f"Interface : {packet.interface}",
+        f"Specs     : {', '.join(packet.spec_refs)}",
+        f"Overhead  : 3GPP UP = {packet.overhead_3gpp_octets} octets"
+        + (f" (+ {packet.overhead_transport_octets} transport = {packet.overhead_total_octets} octets)" if packet.overhead_transport_octets else ""),
+        "",
+    ]
+    cur_octet = 1
+    for layer in packet.layers:
+        lines.append(f"[{layer.title}] (TS {layer.spec_number} Cl. {layer.clause})")
+        rows, cur_octet = _pack_layer_rows(layer, cur_octet)
+        for row in rows:
+            if row["kind"] == "bits":
+                summary = " | ".join(f"{f.short_label}({f.bits}b)" for f in row["fields"])  # type: ignore[attr-defined]
+                lines.append(f"  Oct {str(row['octet_label']):>5} : {summary}")
+            else:
+                fld = row["field"]  # type: ignore[assignment]
+                lines.append(f"  Oct {str(row['octet_label']):>5} : {fld.short_label} [{row['size_label']}] ({row['spec_ref']})")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def _sanitize_puml_label(label: str) -> str:
+    return (label or "").replace(":", " -").replace("\n", " ").strip()
+
+
+def render_packet_plantuml_packetdiag(packet: ComposedPacket) -> str:
+    """
+    Generate an editable PlantUML `@startpacketdiag ... @endpacketdiag` diagram
+    representing the active full packet stack with contiguous bit offsets.
+    """
+    lines = [
+        "@startpacketdiag",
+        f"title {_sanitize_puml_label(packet.title)}",
+        "colwidth = 32",
+        "node_height = 48",
+        "scale_interval = 8",
+    ]
+
+    bit_pos = 0
+    for layer in packet.layers:
+        lines.append(f"' === {layer.title} (TS {layer.spec_number} Cl. {layer.clause}) ===")
+        for fld in layer.fields:
+            lbl = _sanitize_puml_label(fld.short_label or fld.name)
+            if fld.is_variable:
+                disp_bits = max(16, (fld.variable_display_octets or 4) * 8)
+                end_bit = bit_pos + disp_bits - 1
+                lines.append(f"{bit_pos}-{end_bit}: {lbl} [colheight = 2]")
+                bit_pos = end_bit + 1
+                continue
+
+            if fld.bits <= 0:
+                continue
+            start_bit = bit_pos
+            end_bit = bit_pos + fld.bits - 1
+            bit_range = f"{start_bit}" if start_bit == end_bit else f"{start_bit}-{end_bit}"
+            attrs: List[str] = []
+            if fld.bits <= 2 and len(lbl) > 3:
+                attrs.append("rotate = 270")
+            elif fld.bits >= 64:
+                attrs.append("colheight = 2")
+            attr_str = f" [{', '.join(attrs)}]" if attrs else ""
+            lines.append(f"{bit_range}: {lbl}{attr_str}")
+            bit_pos = end_bit + 1
+
+    lines.append("@endpacketdiag")
+    return "\n".join(lines)
+
+
+def copy_packet_to_clipboard(packet: ComposedPacket, mode: str = "word") -> str:
+    """Copy the composed packet diagram to the clipboard in the chosen format."""
+    clipboard = QApplication.clipboard()
+    if not clipboard:
+        return "Clipboard unavailable"
+
+    if mode == "word":
+        html_doc = (
+            f'<div style="font-family: Calibri, \'Segoe UI\', Arial, sans-serif; max-width: 900px;">'
+            f"{render_packet_html(packet, interactive_links=False)}</div>"
+        )
+        mime = QMimeData()
+        mime.setHtml(html_doc)
+        mime.setText(render_packet_plain_text(packet))
+        clipboard.setMimeData(mime)
+        return "Copied Packet Diagram for Word / Outlook!"
+    if mode == "packetdiag":
+        clipboard.setText(render_packet_plantuml_packetdiag(packet))
+        return "Copied PlantUML packetdiag!"
+    if mode == "markdown":
+        clipboard.setText(render_packet_markdown(packet))
+        return "Copied Packet as Markdown!"
+    clipboard.setText(render_packet_plain_text(packet))
+    return "Copied Packet Plain Text!"

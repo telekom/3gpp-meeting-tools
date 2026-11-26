@@ -34,6 +34,7 @@ class NASTabLeftPaneMixin:
     def _build_left_pane(self) -> QWidget:
         # --- Left Panel (Vertical Splitter: Protocol Pill Cards + Protocol Library) ---
         left_widget = QWidget()
+        self.left_pane_widget = left_widget
         left_widget.setMinimumWidth(scale_px(280))
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -44,6 +45,7 @@ class NASTabLeftPaneMixin:
 
         # Indexed Protocols Card Frame (Spec-Search-aligned pill cards & inline header)
         ver_card = QFrame()
+        self.ver_card = ver_card
         ver_card.setObjectName("nasSpecTreeCard")
         ver_card.setStyleSheet(f"""
             QFrame#nasSpecTreeCard {{
@@ -64,6 +66,16 @@ class NASTabLeftPaneMixin:
         ver_title = QLabel("📚 Indexed Protocols")
         ver_title.setStyleSheet(f"font-weight: bold; font-size: 12px; color: {C.TEXT_STRONG};")
         ver_hdr_layout.addWidget(ver_title)
+
+        self.btn_toggle_specs_card = QPushButton("▾")
+        self.btn_toggle_specs_card.setCursor(Qt.PointingHandCursor)
+        self.btn_toggle_specs_card.setToolTip("Collapse / expand Indexed Protocols list to free space for Protocol Library")
+        self.btn_toggle_specs_card.setStyleSheet(
+            f"QPushButton {{ background-color: {C.BG_SURFACE}; color: {C.TEXT_SECONDARY}; "
+            f"border: 1px solid {C.BORDER_STRONG}; border-radius: 4px; padding: 1px 6px; font-size: 10px; }} "
+            f"QPushButton:hover {{ background-color: {C.BG_HOVER}; color: {C.TEXT_PRIMARY}; }}"
+        )
+        ver_hdr_layout.addWidget(self.btn_toggle_specs_card)
 
         self.tree_stats_badge = QLabel("0")
         self.tree_stats_badge.setStyleSheet(f"""
@@ -174,6 +186,35 @@ class NASTabLeftPaneMixin:
 
         ver_card_layout.addLayout(ver_hdr_layout)
 
+        # Compact 1-line summary bar shown when Indexed Protocols card is collapsed
+        self.ver_summary_bar = QFrame(ver_card)
+        self.ver_summary_bar.setObjectName("verSummaryBar")
+        self.ver_summary_bar.setStyleSheet(
+            f"#verSummaryBar {{ background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px; }}"
+        )
+        sum_lay = QHBoxLayout(self.ver_summary_bar)
+        sum_lay.setContentsMargins(6, 3, 6, 3)
+        sum_lay.setSpacing(6)
+        self.ver_summary_lbl = QLabel("No specs checked", self.ver_summary_bar)
+        self.ver_summary_lbl.setStyleSheet(f"font-size: 10.5px; color: {C.TEXT_SECONDARY};")
+        sum_lay.addWidget(self.ver_summary_lbl, 1)
+        self.btn_change_specs = QPushButton("Change ▾", self.ver_summary_bar)
+        self.btn_change_specs.setCursor(Qt.PointingHandCursor)
+        self.btn_change_specs.setStyleSheet(
+            f"QPushButton {{ font-size: 10px; font-weight: 600; color: {C.ACCENT_PRIMARY}; "
+            f"background-color: {C.SKY_SURFACE}; border: 1px solid {C.SKY_BORDER}; border-radius: 3px; padding: 1px 6px; }} "
+            f"QPushButton:hover {{ background-color: {C.SKY_SOFT}; }}"
+        )
+        self.btn_change_specs.clicked.connect(lambda: self.btn_toggle_specs_card.click())
+        sum_lay.addWidget(self.btn_change_specs)
+        self.ver_summary_bar.setVisible(False)
+        ver_card_layout.addWidget(self.ver_summary_bar)
+
+        self.ver_body_widget = QWidget(ver_card)
+        ver_body_layout = QVBoxLayout(self.ver_body_widget)
+        ver_body_layout.setContentsMargins(0, 0, 0, 0)
+        ver_body_layout.setSpacing(6)
+
         # Sleek 4px inline progress bar for background ingestion
         self.progress_bar = QProgressBar()
         self.progress_bar.setFixedHeight(4)
@@ -190,7 +231,7 @@ class NASTabLeftPaneMixin:
             }}
         """)
         self.progress_bar.setVisible(False)
-        ver_card_layout.addWidget(self.progress_bar)
+        ver_body_layout.addWidget(self.progress_bar)
 
         # Quick Spec Filter Input
         self.tree_filter_input = QLineEdit()
@@ -209,7 +250,7 @@ class NASTabLeftPaneMixin:
                 background-color: {C.BG_CARD};
             }}
         """)
-        ver_card_layout.addWidget(self.tree_filter_input)
+        ver_body_layout.addWidget(self.tree_filter_input)
 
         # Quick Filter Action Chips (matching Spec Search)
         chips_layout = QHBoxLayout()
@@ -289,7 +330,7 @@ class NASTabLeftPaneMixin:
         """)
         chips_layout.addWidget(btn_r18)
         chips_layout.addStretch()
-        ver_card_layout.addLayout(chips_layout)
+        ver_body_layout.addLayout(chips_layout)
 
         self.version_tree = NASVersionCardsWidget()
         self.version_tree.selection_changed.connect(self._on_version_selection_changed)
@@ -311,7 +352,8 @@ class NASTabLeftPaneMixin:
         btn_latest.clicked.connect(self.version_tree.select_latest_only)
         btn_r18.clicked.connect(lambda: self.version_tree.select_releases_min(18))
 
-        ver_card_layout.addWidget(self.version_tree)
+        ver_body_layout.addWidget(self.version_tree)
+        ver_card_layout.addWidget(self.ver_body_widget)
         self.left_splitter.addWidget(ver_card)
 
         # Protocol Library Card Frame

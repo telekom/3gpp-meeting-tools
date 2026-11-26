@@ -218,9 +218,11 @@ class ShellSetupMixin:
         self.specs_tab.batch_index_in_spec_search_requested.connect(self._batch_index_specs_from_specs_tab)
         self.specs_tab.smart_index_in_spec_search_requested.connect(self._smart_index_spec_from_specs_tab)
 
-        # Wire deep-linking from Protocols tab to Specifications and Spec Search tabs
+        # Wire deep-linking from Protocols tab to Specifications, Spec Search, and PlantUML IDE tabs
         self.nas_tab.navigate_to_specs_tab_requested.connect(self._navigate_from_search_to_specs)
         self.nas_tab.search_in_spec_search_requested.connect(self._navigate_from_specs_to_search)
+        if hasattr(self.nas_tab, "send_plantuml_to_editor_requested"):
+            self.nas_tab.send_plantuml_to_editor_requested.connect(self._on_send_code_to_editor)
 
         logging.info("🏁 [STARTUP:UI:TAB] 9/9 Initializing AssistantTab...")
         self.assistant_tab = AssistantTab(

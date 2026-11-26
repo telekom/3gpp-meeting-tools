@@ -43,6 +43,7 @@ class NASInspectorRenderMixin:
         self._current_ie_name = ie_name
         self._current_ie_spec = spec_number
         self._current_containing_msgs = containing_msgs
+        self._current_message_name_hint = str(kwargs.get("message_name", "") or "")
 
         meta = get_spec_metadata(spec_number) if spec_number else {}
         acronym_str = f" [{meta.get('acronym', f'TS {spec_number}')}]" if spec_number else ""
@@ -98,6 +99,12 @@ class NASInspectorRenderMixin:
             selected_def = self._current_clause_defs.get(target_version_key) or defs[0]
             self._render_selected_definition(selected_def)
             self._update_open_spec_menu()
+            self._update_packet_stack_availability(
+                spec_number=spec_number,
+                clause=clause,
+                ie_name=ie_name,
+                version_hint=selected_def.get("version", "") or target_version_hint or "",
+            )
             self.stack.setCurrentIndex(1)
             self.copy_btn.setEnabled(True)
             return
@@ -160,6 +167,12 @@ class NASInspectorRenderMixin:
             self._update_open_spec_menu()
             self.stack.setCurrentIndex(1)
             self.copy_btn.setEnabled(bool(fallback_type_ref))
+        self._update_packet_stack_availability(
+            spec_number=spec_number,
+            clause=clause,
+            ie_name=ie_name,
+            version_hint=target_version_hint or "",
+        )
 
     def _render_selected_definition(self, definition: Dict[str, Any]):
         base_html = definition.get("raw_description", "")
@@ -255,8 +268,15 @@ class NASInspectorRenderMixin:
             return
         version_key = self.version_combo.itemData(index)
         if version_key in self._current_clause_defs:
-            self._render_selected_definition(self._current_clause_defs[version_key])
+            selected_def = self._current_clause_defs[version_key]
+            self._render_selected_definition(selected_def)
             self._update_open_spec_menu()
+            self._update_packet_stack_availability(
+                spec_number=selected_def.get("spec_number") or self._current_ie_spec,
+                clause=self._current_ie_clause or "",
+                ie_name=self._current_ie_name or "",
+                version_hint=selected_def.get("version", ""),
+            )
 
     @staticmethod
     def _render_inline_type_html(
@@ -313,11 +333,80 @@ class NASInspectorRenderMixin:
         self.text_area.clear()
         self._current_html_content = ""
         self._current_clause_defs.clear()
+        self._packet_available = False
+        if hasattr(self, "mode_segment"):
+            self.mode_segment.setVisible(False)
+        if hasattr(self, "content_stack"):
+            self.content_stack.setCurrentIndex(0)
         self.copy_btn.setEnabled(False)
         self.open_spec_btn.setEnabled(False)
         self.open_spec_btn.setText("📖 Open Spec")
         self.open_spec_btn.setMenu(None)
         self.stack.setCurrentIndex(0)
+
+    def set_inspector_mode(self, mode: str) -> None:
+        clean = "packet" if (mode == "packet" and getattr(self, "_packet_available", False)) else "definition"
+        self._inspector_mode = clean
+        if hasattr(self, "btn_mode_definition"):
+            self.btn_mode_definition.blockSignals(True)
+            self.btn_mode_definition.setChecked(clean == "definition")
+            self.btn_mode_definition.blockSignals(False)
+        if hasattr(self, "btn_mode_packet"):
+            self.btn_mode_packet.blockSignals(True)
+            self.btn_mode_packet.setChecked(clean == "packet")
+            self.btn_mode_packet.blockSignals(False)
+        if hasattr(self, "content_stack"):
+            self.content_stack.setCurrentIndex(1 if clean == "packet" else 0)
+
+    def _update_packet_stack_availability(
+        self,
+        *,
+        spec_number: Optional[str],
+        clause: str = "",
+        ie_name: str = "",
+        version_hint: str = "",
+    ) -> None:
+        if not hasattr(self, "packet_stack_widget"):
+            return
+        ver_clean = str(version_hint or "").strip()
+        if " v" in ver_clean:
+            ver_clean = ver_clean.split(" v", 1)[1].strip()
+        m_ver = re.search(r"([0-9]+\.[0-9]+\.[0-9]+)", ver_clean)
+        ver_clean = m_ver.group(1) if m_ver else ""
+
+        available = self.packet_stack_widget.set_context(
+            db=self.db,
+            spec_number=spec_number,
+            clause=clause,
+            ie_name=ie_name,
+            message_name=getattr(self, "_current_message_name_hint", ""),
+            version_hint=ver_clean,
+        )
+        self._packet_available = available
+        self.mode_segment.setVisible(available)
+        if available and getattr(self, "_inspector_mode", "definition") == "packet":
+            self.set_inspector_mode("packet")
+        else:
+            self.set_inspector_mode("definition")
+
+    def _on_inspect_packet_field(self, spec_number: str, clause: str, field_name: str) -> None:
+        defs = []
+        if self.db and spec_number in ("29.281", "38.415"):
+            defs = self.db.get_ie_definitions_by_clause(
+                clause=clause,
+                alt_name=field_name,
+                spec_number=spec_number,
+            )
+        self.set_inspector_mode("definition")
+        if defs:
+            self.display_definitions(
+                clause=clause,
+                ie_name=field_name,
+                spec_number=spec_number,
+                defs=defs,
+                containing_msgs=[],
+                fallback_type_ref=f"{field_name} (Clause {clause})",
+            )
 
     def _show_usage_menu(self):
         if not self._current_ie_clause:

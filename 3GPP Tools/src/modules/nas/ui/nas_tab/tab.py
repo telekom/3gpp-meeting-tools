@@ -5,8 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import QTimer, pyqtSignal
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QKeySequence
+from PyQt5.QtWidgets import QShortcut, QWidget
 
 from core.utils.paths import get_project_root, get_specs_root
 from modules.meetings.core.settings import MeetingsSettings
@@ -36,6 +37,7 @@ class NASTab(
     log_msg = pyqtSignal(str, int)
     navigate_to_specs_tab_requested = pyqtSignal(str, str)  # spec_number, version
     search_in_spec_search_requested = pyqtSignal(str, str)  # spec_number, version
+    send_plantuml_to_editor_requested = pyqtSignal(str)
 
     def __init__(
         self,
@@ -89,4 +91,14 @@ class NASTab(
         self._ie_search_timer.timeout.connect(self._on_search_timer_timeout)
 
         self._setup_ui()
+        self._init_layout_shortcuts()
         self.refresh_versions()
+
+    def _init_layout_shortcuts(self) -> None:
+        sc_split = QShortcut(QKeySequence("Ctrl+L"), self)
+        sc_split.setContext(Qt.WidgetWithChildrenShortcut)
+        sc_split.activated.connect(self.layout_controller.toggle_split_orientation)
+
+        sc_left = QShortcut(QKeySequence("Ctrl+["), self)
+        sc_left.setContext(Qt.WidgetWithChildrenShortcut)
+        sc_left.activated.connect(self.layout_controller.toggle_left_pane)

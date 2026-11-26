@@ -6,7 +6,8 @@ Modular decomposition of `NASTab` previously housed in `nas/ui/nas_tabs.py`.
 
 | Module | Class / Responsibility | Key Methods / Symbols |
 |---|---|---|
-| [`tab.py`](tab.py) | `QWidget` entry point, signals, debounce timers, DB wiring | `NASTab`, `log_msg`, `navigate_to_specs_tab_requested`, `search_in_spec_search_requested`, `__init__` |
+| [`tab.py`](tab.py) | `QWidget` entry point, signals, debounce timers, DB wiring, shortcuts (`Ctrl+L`, `Ctrl+[`) | `NASTab`, `log_msg`, `navigate_to_specs_tab_requested`, `search_in_spec_search_requested`, `send_plantuml_to_editor_requested` |
+| [`layout_controller.py`](layout_controller.py) | Flexible multi-pane focus modes (`⬒`/`◫`/`⤢`/`⧉`), collapsible sidebar/specs bar, auto-compact single-row matrix | `ProtocolWorkspaceLayoutController`, `PopoutInspectorWindow`, `VALID_RIGHT_LAYOUT_MODES` |
 | [`styles.py`](styles.py) | Context/ref regex patterns and toolbar/segmented QSS constants | `RE_SPEC_FROM_COL`, `RE_CLAUSE_FROM_REF`, `RE_CTX_*`, `SEGMENTED_MODE_STYLE`, `TOGGLE_BUTTON_STYLE`, `TINY_HEADER_BTN_STYLE`, `RIBBON_BADGE_STYLE` |
 | [`mixins/ui_left_pane.py`](mixins/ui_left_pane.py) | Left vertical splitter: Indexed Protocols card and Protocol Library list | `NASTabLeftPaneMixin._build_left_pane` |
 | [`mixins/ui_right_pane.py`](mixins/ui_right_pane.py) | Top-level horizontal splitter and Right vertical splitter (Matrix + Inspector) | `NASTabRightPaneMixin` (`_setup_ui`, `_build_right_pane`) |

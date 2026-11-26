@@ -400,6 +400,7 @@ class NASTabMessagesAndMatrixMixin:
                 defs=msg_defs,
                 containing_msgs=[],
                 fallback_type_ref=f"{msg_name} {eff_clause}".strip(),
+                message_name=msg_name,
             )
 
     def _get_active_diff_filter(self) -> set:
@@ -455,6 +456,8 @@ class NASTabMessagesAndMatrixMixin:
         has_rows = model.rowCount() > 0
         self.matrix_stack.setCurrentIndex(1 if has_rows else 0)
         self.copy_matrix_btn.setEnabled(has_rows)
+        if hasattr(self, "layout_controller"):
+            self.layout_controller.apply_auto_compact_for_matrix(self._browse_mode, model.rowCount())
 
         h_header = self.matrix_table.horizontalHeader()
         if model.columnCount() > 0:

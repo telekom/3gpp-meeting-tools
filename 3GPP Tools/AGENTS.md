@@ -57,7 +57,7 @@ $env:PYTHONPATH = ".;.\src;$env:PYTHONPATH"; python -m main_tools   # Direct lau
 | Specifications Catalogue | [specifications/AGENTS.md](src/modules/specifications/AGENTS.md) |
 | Spec Search & Evolution Matrix | [spec_search/AGENTS.md](src/modules/spec_search/AGENTS.md) |
 | Spec Change History, Clause Attribution & Origin CRs | [SPEC_HISTORY_AND_ATTRIBUTION.md](docs/SPEC_HISTORY_AND_ATTRIBUTION.md) |
-| Protocol Matrix & Inspector | [nas/AGENTS.md](src/modules/nas/AGENTS.md) & [parsing/AGENTS.md](src/modules/nas/core/parsing/AGENTS.md) |
+| Protocol Matrix & Inspector | [nas/AGENTS.md](src/modules/nas/AGENTS.md), [parsing/AGENTS.md](src/modules/nas/core/parsing/AGENTS.md) & [PROTOCOL_PACKET_STACK.md](docs/PROTOCOL_PACKET_STACK.md) |
 | Meetings & TDocs | [meetings/AGENTS.md](src/modules/meetings/AGENTS.md) + `docs/MEETINGS_*.md` |
 | Emails, Tracked Threads & Inbox | [emails/AGENTS.md](src/modules/emails/AGENTS.md) |
 | Research Assistant, MCP & External CLIs | [assistant/AGENTS.md](src/modules/assistant/AGENTS.md) |

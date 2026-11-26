@@ -247,9 +247,13 @@ class NASTabLibraryAndConfigMixin:
                 self.current_selected_ie_key = saved_config["selected_ie"]
             self._loading_config = False
             self._initialized_filters = True
+        if hasattr(self, "layout_controller"):
+            self.layout_controller.update_specs_summary(self.version_tree.get_checked_versions_info())
 
     def _on_version_selection_changed(self):
         self.selected_version_ids = self.version_tree.get_selected_version_ids()
+        if hasattr(self, "layout_controller"):
+            self.layout_controller.update_specs_summary(self.version_tree.get_checked_versions_info())
         self._save_config()
         self._populate_messages()
 
@@ -263,6 +267,8 @@ class NASTabLibraryAndConfigMixin:
             self._hide_message_context_banner()
 
     def _hide_message_context_banner(self):
+        if hasattr(self, "layout_controller"):
+            self.layout_controller.set_banner_active(False)
         if hasattr(self, "msg_context_banner"):
             self.msg_context_banner.setVisible(False)
         if hasattr(self, "msg_direction_badge"):
@@ -323,7 +329,12 @@ class NASTabLibraryAndConfigMixin:
             self.msg_description_lbl.setText("")
             self.msg_description_lbl.setVisible(False)
 
-        self.msg_context_banner.setVisible(True)
+        if hasattr(self, "layout_controller"):
+            self.layout_controller.set_banner_active(True)
+        if getattr(self, "layout_controller", None) and self.layout_controller.current_mode() == "inspector_only":
+            self.msg_context_banner.setVisible(False)
+        else:
+            self.msg_context_banner.setVisible(True)
 
     def _reload_single_version(self, spec_number: str, version: str):
         reload_single_version(self, spec_number, version)
