@@ -70,6 +70,7 @@ class NASTabRightPaneMixin:
             matrix_stack=self.matrix_stack,
             msg_context_banner=self.msg_context_banner,
             inspector=self.inspector,
+            settings=getattr(self, "_layout_settings", None),
         )
 
     def _build_right_pane(self) -> QSplitter:

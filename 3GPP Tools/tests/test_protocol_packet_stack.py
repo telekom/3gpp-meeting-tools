@@ -226,6 +226,27 @@ class TestUPPacketStackEngine(unittest.TestCase):
             self.assertEqual(res.returncode, 0, f"PlantUML failed: {res.stderr}")
             self.assertIn("<svg", res.stdout)
 
+    def test_ipv4_and_ipv6_html_table_strictly_11_columns_no_ts_rfc(self):
+        from bs4 import BeautifulSoup
+
+        for mode in ("ipv4_udp", "ipv6_udp"):
+            pkt = compose_up_packet(
+                PacketConfig(
+                    target_frame="dl_pdu_session",
+                    preset_id="n3_n9_pdu_set",
+                    transport_mode=mode,
+                    flags={"ext_pdu_session": True, "ext_pdu_set": True, "qmp": True},
+                )
+            )
+            html_out = render_packet_html(pkt, interactive_links=True)
+            self.assertNotIn("TS RFC", html_out)
+            soup = BeautifulSoup(html_out, "html.parser")
+            tbody = soup.find("tbody")
+            self.assertIsNotNone(tbody)
+            for tr in tbody.find_all("tr"):
+                col_sum = sum(int(cell.get("colspan", "1")) for cell in tr.find_all(["td", "th"]))
+                self.assertEqual(col_sum, 11, f"{mode} row had {col_sum} columns instead of 11: {tr}")
+
 
 class TestProtocolsFlexibleUI(unittest.TestCase):
     """Tests NASInspectorWidget mode toggle and ProtocolWorkspaceLayoutController ergonomics."""
@@ -259,7 +280,33 @@ class TestProtocolsFlexibleUI(unittest.TestCase):
         inspector.set_inspector_mode("packet")
         self.assertEqual(inspector.stack.currentIndex(), 1)
         self.assertEqual(inspector.content_stack.currentIndex(), 1)
-        self.assertIsNotNone(inspector.packet_stack_widget.current_packet())
+        psw = inspector.packet_stack_widget
+        pkt_default = psw.current_packet()
+        self.assertIsNotNone(pkt_default)
+        # Default N3/N9 has 0x85 ON and 0x04 OFF (16B 3GPP overhead)
+        self.assertEqual(pkt_default.overhead_3gpp_octets, 16)
+        self.assertTrue(psw._flag_buttons["ext_pdu_session"].isChecked())
+        self.assertFalse(psw._flag_buttons["ext_pdu_set"].isChecked())
+
+        # Switch to N3/N9 + PDU Set Chained (0x85 -> 0x04): both extensions + both flag groups
+        idx_chain = psw.scenario_combo.findData("n3_n9_pdu_set")
+        psw.scenario_combo.setCurrentIndex(idx_chain)
+        pkt_chain = psw.current_packet()
+        self.assertEqual(pkt_chain.overhead_3gpp_octets, 24)
+        self.assertIn("qmp", psw._flag_buttons)
+        self.assertIn("edb", psw._flag_buttons)
+
+        # Switch back to N3/N9: cleanly restores 0x85 ON, 0x04 OFF, 16B overhead
+        idx_n3 = psw.scenario_combo.findData("n3_n9")
+        psw.scenario_combo.setCurrentIndex(idx_n3)
+        pkt_back = psw.current_packet()
+        self.assertEqual(pkt_back.overhead_3gpp_octets, 16)
+        self.assertIn("DL PDU SESSION INFORMATION", pkt_back.title)
+
+        # Toggle Scenarios guide
+        self.assertTrue(psw.scenarios_guide_panel.isHidden())
+        psw.btn_scenarios_help.setChecked(True)
+        self.assertFalse(psw.scenarios_guide_panel.isHidden())
 
     def test_layout_controller_modes_popout_collapse_and_autocompact(self):
         settings = QSettings("3GPP_Tools_Test", "ProtocolsLayoutTest")

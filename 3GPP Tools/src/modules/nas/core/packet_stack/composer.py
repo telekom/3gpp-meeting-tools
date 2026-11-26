@@ -67,8 +67,10 @@ def build_transport_layers(transport_mode: str) -> List[PacketLayer]:
                 role="transport",
                 fields=[
                     PacketField("Version", "Ver=6", 4, "M", "6", "RFC 8200", "3"),
-                    PacketField("Traffic Class (DSCP/ECN)", "Traffic Class", 8, "M", "DSCP", "RFC 8200", "3"),
-                    PacketField("Flow Label", "Flow Label (20-bit)", 20, "M", "0", "RFC 8200", "3"),
+                    PacketField("Traffic Class (MSB)", "TC (hi)", 4, "M", "DSCP", "RFC 8200", "3"),
+                    PacketField("Traffic Class (LSB)", "TC (lo)", 4, "M", "ECN", "RFC 8200", "3"),
+                    PacketField("Flow Label (MSB)", "Flow (hi)", 4, "M", "0", "RFC 8200", "3"),
+                    PacketField("Flow Label (LSB)", "Flow Label (bits 15..0)", 16, "M", "0", "RFC 8200", "3"),
                     PacketField("Payload Length", "Payload Length (16-bit)", 16, "M", "UDP+GTP", "RFC 8200", "3"),
                     PacketField("Next Header", "Next=17 (UDP)", 8, "M", "17", "RFC 8200", "3"),
                     PacketField("Hop Limit", "Hop Limit", 8, "M", "64", "RFC 8200", "3"),
@@ -92,7 +94,8 @@ def build_transport_layers(transport_mode: str) -> List[PacketLayer]:
                     PacketField("Total Length", "Total Length (16-bit)", 16, "M", "Octets", "RFC 791", "3.1"),
                     PacketField("Identification", "Identification (16-bit)", 16, "M", "-", "RFC 791", "3.1"),
                     PacketField("Flags", "Flags", 3, "M", "-", "RFC 791", "3.1"),
-                    PacketField("Fragment Offset", "Fragment Offset (13-bit)", 13, "M", "0", "RFC 791", "3.1"),
+                    PacketField("Fragment Offset (MSB)", "Frag (hi)", 5, "M", "0", "RFC 791", "3.1"),
+                    PacketField("Fragment Offset (LSB)", "Frag Offset (bits 7..0)", 8, "M", "0", "RFC 791", "3.1"),
                     PacketField("Time to Live", "TTL", 8, "M", "64", "RFC 791", "3.1"),
                     PacketField("Protocol", "Proto=17 (UDP)", 8, "M", "17", "RFC 791", "3.1"),
                     PacketField("Header Checksum", "Header Checksum (16-bit)", 16, "M", "CRC", "RFC 791", "3.1"),
@@ -298,7 +301,12 @@ def compose_up_packet(config: PacketConfig, db: Any = None) -> ComposedPacket:
     """Compose a complete 5G User Plane packet stack from `PacketConfig` and optional protocol DB."""
     preset = UP_PRESET_MAP.get(config.preset_id, UP_SCENARIO_PRESETS[0])
     caps = load_up_release_capabilities(db, config.spec_version_38415, config.spec_version_29281)
-    available_flags = get_flags_for_target(config.target_frame, preset.preset_id, caps)
+    available_flags = get_flags_for_target(
+        config.target_frame,
+        preset.preset_id,
+        caps,
+        active_flags=config.flags,
+    )
 
     # Normalize & enforce flag dependencies
     effective_flags: Dict[str, bool] = {}
@@ -363,7 +371,7 @@ def compose_up_packet(config: PacketConfig, db: Any = None) -> ComposedPacket:
             "inner_clause": "5.5.2.1",
         })
 
-    if config.target_frame == "dl_pdu_set" or effective_flags.get("ext_pdu_set"):
+    if effective_flags.get("ext_pdu_set", config.target_frame == "dl_pdu_set"):
         ext_specs.append({
             "layer_id": "ext_pdu_set",
             "code": "0x04",
@@ -451,18 +459,40 @@ def compose_up_packet(config: PacketConfig, db: Any = None) -> ComposedPacket:
     else:
         overhead_transport = 0
 
-    frame_title_map = {
-        "dl_pdu_session": "DL PDU SESSION INFORMATION (PDU Type 0)",
-        "ul_pdu_session": "UL PDU SESSION INFORMATION (PDU Type 1)",
-        "dl_pdu_set": "DL PDU SET INFORMATION (PDU Type 0)",
-        "end_marker": "GTP-U End Marker (MsgType 254)",
-    }
+    has_0x85 = any(s["code"] == "0x85" for s in ext_specs)
+    has_0x04 = any(s["code"] == "0x04" for s in ext_specs)
+    has_ran = any(s["code"] in ("0x03", "0x84") for s in ext_specs)
+
+    if is_end_marker:
+        title_suffix = "GTP-U End Marker (MsgType 254)"
+    elif has_0x85 and has_0x04:
+        sess_lbl = "UL PDU SESSION" if config.target_frame == "ul_pdu_session" else "DL PDU SESSION"
+        title_suffix = f"{sess_lbl} (0x85) + PDU SET (0x04)"
+    elif has_0x85:
+        title_suffix = (
+            "UL PDU SESSION INFORMATION (PDU Type 1)"
+            if config.target_frame == "ul_pdu_session"
+            else "DL PDU SESSION INFORMATION (PDU Type 0)"
+        )
+    elif has_0x04:
+        title_suffix = "DL PDU SET INFORMATION (PDU Type 0)"
+    elif has_ran:
+        title_suffix = preset.label
+    else:
+        title_suffix = "GTPv1-U G-PDU (No Extension Headers)"
+
     direction_map = {
         "dl_pdu_session": "UPF → NG-RAN node",
         "ul_pdu_session": "NG-RAN node → UPF",
         "dl_pdu_set": "UPF / gNB-CU-UP → NG-RAN / gNB-DU",
         "end_marker": "Source GTP-U Peer → Target GTP-U Peer",
     }
+    if preset.preset_id == "xnu_forwarding":
+        direction_txt = "Source NG-RAN node ↔ Target NG-RAN node"
+    elif preset.preset_id == "f1u_cu_du":
+        direction_txt = "gNB-CU-UP ↔ gNB-DU"
+    else:
+        direction_txt = direction_map.get(config.target_frame, "GTP-U Peer ↔ GTP-U Peer")
 
     spec_refs = ["TS 29.281 Cl. 5.1 / 5.2.1"]
     if caps.get("version_29281"):
@@ -474,9 +504,9 @@ def compose_up_packet(config: PacketConfig, db: Any = None) -> ComposedPacket:
         spec_refs.append("TS 38.425 (NR UP)")
 
     return ComposedPacket(
-        title=f"Full 5G UP Packet Stack — {frame_title_map.get(config.target_frame, preset.label)}",
+        title=f"Full 5G UP Packet Stack — {title_suffix}",
         subtitle=preset.description,
-        direction=direction_map.get(config.target_frame, "GTP-U Peer ↔ GTP-U Peer"),
+        direction=direction_txt,
         interface=preset.interface,
         spec_refs=spec_refs,
         layers=layers,

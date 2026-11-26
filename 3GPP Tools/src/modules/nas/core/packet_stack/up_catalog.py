@@ -16,8 +16,8 @@ UP_SCENARIO_PRESETS: List[PacketScenarioPreset] = [
         preset_id="n3_n9",
         label="N3 / N9 (UPF ↔ NG-RAN)",
         interface="N3, N9",
-        description="Standard 5GS User Plane G-PDU with GTP-U Header and PDU Session Container (0x85).",
-        default_flags={"gtpu_seq": False, "ext_pdu_session": True},
+        description="Standard 5G user-plane packet (UPF↔gNB on N3, UPF↔UPF on N9) carrying mandatory 0x85 PDU Session Container (QFI/RQI); PDU Set (0x04) is NOT included by default.",
+        default_flags={"gtpu_seq": False, "ext_pdu_session": True, "ext_pdu_set": False},
         transport_mode="collapsed",
         include_tpdu=True,
     ),
@@ -25,7 +25,7 @@ UP_SCENARIO_PRESETS: List[PacketScenarioPreset] = [
         preset_id="n3_n9_pdu_set",
         label="N3 / N9 + PDU Set Chained (0x85 → 0x04)",
         interface="N3, N9",
-        description="Rel-18/19 XR/media G-PDU chaining PDU Session Container (0x85) and PDU Set Information Container (0x04).",
+        description="Rel-18/19 XR & media packet on N3/N9 chaining mandatory 0x85 PDU Session Container → optional 0x04 PDU Set Information Container (PSSN/PSI/PSN).",
         default_flags={"gtpu_seq": False, "ext_pdu_session": True, "ext_pdu_set": True},
         transport_mode="collapsed",
         include_tpdu=True,
@@ -34,8 +34,8 @@ UP_SCENARIO_PRESETS: List[PacketScenarioPreset] = [
         preset_id="xnu_forwarding",
         label="Xn-U (Inter-gNB / Data Forwarding)",
         interface="Xn-U",
-        description="Xn-U user plane packet carrying Long PDCP PDU Number (0x03) and NR RAN Container (0x84, TS 38.425).",
-        default_flags={"gtpu_seq": False, "ext_pdcp_sn": True, "ext_nr_ran": True, "ext_pdu_session": False},
+        description="Inter-gNB packet on Xn-U (handover forwarding / DC) using 0x03 Long PDCP PDU Number + 0x84 NR RAN Container (TS 38.425); 0x85 PDU Session Container is not used.",
+        default_flags={"gtpu_seq": False, "ext_pdcp_sn": True, "ext_nr_ran": True, "ext_pdu_session": False, "ext_pdu_set": False},
         transport_mode="collapsed",
         include_tpdu=True,
     ),
@@ -43,8 +43,8 @@ UP_SCENARIO_PRESETS: List[PacketScenarioPreset] = [
         preset_id="f1u_cu_du",
         label="F1-U (gNB-CU-UP ↔ gNB-DU)",
         interface="F1-U",
-        description="Split gNB F1-U packet carrying NR RAN Container (0x84, TS 38.425) and optional PDU Set Information (0x04).",
-        default_flags={"gtpu_seq": False, "ext_nr_ran": True, "ext_pdu_session": False},
+        description="Split-gNB packet between gNB-CU-UP and gNB-DU on F1-U carrying 0x84 NR RAN Container (TS 38.425); optionally chain 0x04 PDU Set Information for Rel-18/19.",
+        default_flags={"gtpu_seq": False, "ext_nr_ran": True, "ext_pdu_session": False, "ext_pdu_set": False},
         transport_mode="collapsed",
         include_tpdu=True,
     ),
@@ -52,8 +52,8 @@ UP_SCENARIO_PRESETS: List[PacketScenarioPreset] = [
         preset_id="dummy_qmp",
         label="QoS Monitoring Dummy G-PDU (No T-PDU)",
         interface="N3, N9",
-        description="Control G-PDU without T-PDU payload carrying QoS Monitoring timestamps (QMP=1) in PDU Session Container (0x85).",
-        default_flags={"gtpu_seq": False, "ext_pdu_session": True, "qmp": True},
+        description="Control-only G-PDU (no T-PDU user payload) on N3/N9 for per-QoS-Flow QoS Monitoring (TS 23.501 Cl. 5.33.3.2), carrying 0x85 PDU Session Container with QMP=1.",
+        default_flags={"gtpu_seq": False, "ext_pdu_session": True, "ext_pdu_set": False, "qmp": True},
         transport_mode="collapsed",
         include_tpdu=False,
     ),
@@ -61,8 +61,8 @@ UP_SCENARIO_PRESETS: List[PacketScenarioPreset] = [
         preset_id="end_marker",
         label="End Marker (MsgType 0xFE / 254)",
         interface="N3, N9, Xn-U",
-        description="GTP-U End Marker signalling packet (Message Type 254) with optional PDU Session Container (0x85) and no T-PDU.",
-        default_flags={"gtpu_seq": False, "ext_pdu_session": True},
+        description="GTP-U End Marker signalling (Message Type 254, no T-PDU) sent at handover to mark the end of a tunnel stream; carries 0x85 PDU Session Container on 5GS↔EPS tunnels.",
+        default_flags={"gtpu_seq": False, "ext_pdu_session": True, "ext_pdu_set": False},
         transport_mode="collapsed",
         include_tpdu=False,
     ),
@@ -329,8 +329,10 @@ def get_flags_for_target(
     target_frame: str,
     preset_id: str,
     caps: Dict[str, Any],
+    active_flags: Optional[Dict[str, bool]] = None,
 ) -> List[FlagOption]:
-    """Return interactive FlagOption pills applicable to the active target frame & release."""
+    """Return interactive FlagOption pills applicable to the active target frame, extensions & release."""
+    cur_flags = active_flags or {}
     flags: List[FlagOption] = [
         FlagOption("gtpu_seq", "GTP-U S (Seq)", "Include GTP-U Sequence Number (Octets 9–10, S=1).", "gtpu", False),
     ]
@@ -340,52 +342,64 @@ def get_flags_for_target(
             FlagOption("ext_nr_ran", "0x84 NR RAN", "Chain NR RAN Container extension header (0x84, TS 38.425).", "ext", preset_id in ("xnu_forwarding", "f1u_cu_du")),
         ])
 
+    ext_sess_default = preset_id in ("n3_n9", "n3_n9_pdu_set", "dummy_qmp", "end_marker")
     if target_frame in ("dl_pdu_session", "ul_pdu_session", "dl_pdu_set", "end_marker"):
         flags.append(
             FlagOption(
                 "ext_pdu_session",
                 "0x85 PDU Session",
-                "Include PDU Session Container extension header (0x85).",
+                "Include PDU Session Container extension header (0x85, TS 38.415 Cl. 5.5).",
                 "ext",
-                preset_id in ("n3_n9", "n3_n9_pdu_set", "dummy_qmp", "end_marker"),
+                ext_sess_default,
             )
         )
-    if target_frame in ("dl_pdu_session", "dl_pdu_set", "f1u_cu_du") or preset_id == "n3_n9_pdu_set":
+    ext_set_default = target_frame == "dl_pdu_set" or preset_id == "n3_n9_pdu_set"
+    if target_frame in ("dl_pdu_session", "ul_pdu_session", "dl_pdu_set", "f1u_cu_du") or preset_id == "n3_n9_pdu_set":
         flags.append(
-            FlagOption("ext_pdu_set", "0x04 PDU Set", "Chain PDU Set Information Container (0x04, TS 38.415 Cl. 6.5.2.1).", "ext", target_frame == "dl_pdu_set")
+            FlagOption(
+                "ext_pdu_set",
+                "0x04 PDU Set",
+                "Chain PDU Set Information Container (0x04, TS 38.415 Cl. 6.5.2.1).",
+                "ext",
+                ext_set_default,
+            )
         )
 
-    if target_frame == "dl_pdu_session":
-        cl = "5.5.2.1"
-        flags.extend([
-            FlagOption("qmp", "QMP", "QoS Monitoring Packet: adds 8-octet DL Sending Time Stamp (Cl. 5.5.3.9).", "frame"),
-            FlagOption("snp", "SNP", "Sequence Number Presence: adds 3-octet DL QFI Sequence Number (Cl. 5.5.3.18).", "frame"),
-            FlagOption("msnp", "MSNP", "MBS Sequence Number Presence: adds 4-octet DL MBS QFI Sequence Number (Cl. 5.5.3.24).", "frame", is_release_present=_has_field(caps, cl, "msnp")),
-            FlagOption("ppp", "PPP", "Paging Policy Presence: activates Octet 3 and 3-bit PPI (Cl. 5.5.3.7).", "frame"),
-            FlagOption("rqi", "RQI", "Reflective QoS Indicator bit in Octet 2 (Cl. 5.5.3.4).", "frame"),
-            FlagOption("bssi", "BSSI", "Burst Size Indicator (Rel-19): activates Octet 3 + 3-octet BSSize (Cl. 5.5.3.30).", "frame", is_release_present=_has_field(caps, cl, "bssi")),
-            FlagOption("ttnbi", "TTNBI", "TTNB Indicator (Rel-19): activates Octet 3 + 2-octet TTNB (Cl. 5.5.3.32).", "frame", is_release_present=_has_field(caps, cl, "ttnbi")),
-        ])
-    elif target_frame == "ul_pdu_session":
+    show_sess_flags = bool(cur_flags.get("ext_pdu_session", ext_sess_default))
+    show_set_flags = bool(cur_flags.get("ext_pdu_set", ext_set_default))
+
+    if show_sess_flags and target_frame == "ul_pdu_session":
         cl = "5.5.2.2"
         flags.extend([
-            FlagOption("qmp", "QMP", "QoS Monitoring Packet: adds 3×8-octet timestamps (Cl. 5.5.3.10–12).", "frame"),
-            FlagOption("dl_delay_ind", "DL Delay", "Adds 4-octet DL Delay Result (Cl. 5.5.3.14).", "frame"),
-            FlagOption("ul_delay_ind", "UL Delay", "Adds 4-octet UL Delay Result (Cl. 5.5.3.16).", "frame"),
-            FlagOption("snp", "SNP", "Adds 3-octet UL QFI Sequence Number (Cl. 5.5.3.19).", "frame"),
-            FlagOption("n3_n9_delay_ind", "N3/N9 Delay", "Adds 4-octet N3/N9 Delay Result (Cl. 5.5.3.21).", "frame"),
-            FlagOption("new_ie_flag", "New IE Flag", "Includes New IE Flags Octet (Rel-16+ extensibility).", "frame", is_release_present=_has_field(caps, cl, "newieflag")),
-            FlagOption("new_ie_0", "IE0: D1 PDCP", "New IE Flag 0: adds D1 UL PDCP Delay Result Ind octet (Cl. 5.5.3.22).", "frame", requires_flag="new_ie_flag", is_release_present=_has_field(caps, cl, "pdcpdelay")),
-            FlagOption("new_ie_1", "IE1: UL Cong", "New IE Flag 1: adds 2-octet UL Congestion Information (Cl. 5.5.3.26).", "frame", requires_flag="new_ie_flag", is_release_present=_has_field(caps, cl, "ulcongestion")),
-            FlagOption("new_ie_2", "IE2: DL Cong", "New IE Flag 2: adds 2-octet DL Congestion Information (Cl. 5.5.3.25).", "frame", requires_flag="new_ie_flag", is_release_present=_has_field(caps, cl, "dlcongestion")),
-            FlagOption("new_ie_3", "IE3: UL Bitrate", "New IE Flag 3: adds 4-octet UL Available Bitrate (Cl. 5.5.3.27).", "frame", requires_flag="new_ie_flag", is_release_present=_has_field(caps, cl, "ulavailablebitrate")),
-            FlagOption("new_ie_4", "IE4: DL Bitrate", "New IE Flag 4: adds 4-octet DL Available Bitrate (Cl. 5.5.3.28).", "frame", requires_flag="new_ie_flag", is_release_present=_has_field(caps, cl, "dlavailablebitrate")),
+            FlagOption("qmp", "QMP", "QoS Monitoring Packet: adds 3×8-octet timestamps (Cl. 5.5.3.10–12).", "frame_pdu_session"),
+            FlagOption("dl_delay_ind", "DL Delay", "Adds 4-octet DL Delay Result (Cl. 5.5.3.14).", "frame_pdu_session"),
+            FlagOption("ul_delay_ind", "UL Delay", "Adds 4-octet UL Delay Result (Cl. 5.5.3.16).", "frame_pdu_session"),
+            FlagOption("snp", "SNP", "Adds 3-octet UL QFI Sequence Number (Cl. 5.5.3.19).", "frame_pdu_session"),
+            FlagOption("n3_n9_delay_ind", "N3/N9 Delay", "Adds 4-octet N3/N9 Delay Result (Cl. 5.5.3.21).", "frame_pdu_session"),
+            FlagOption("new_ie_flag", "New IE Flag", "Includes New IE Flags Octet (Rel-16+ extensibility).", "frame_pdu_session", is_release_present=_has_field(caps, cl, "newieflag")),
+            FlagOption("new_ie_0", "IE0: D1 PDCP", "New IE Flag 0: adds D1 UL PDCP Delay Result Ind octet (Cl. 5.5.3.22).", "frame_pdu_session", requires_flag="new_ie_flag", is_release_present=_has_field(caps, cl, "pdcpdelay")),
+            FlagOption("new_ie_1", "IE1: UL Cong", "New IE Flag 1: adds 2-octet UL Congestion Information (Cl. 5.5.3.26).", "frame_pdu_session", requires_flag="new_ie_flag", is_release_present=_has_field(caps, cl, "ulcongestion")),
+            FlagOption("new_ie_2", "IE2: DL Cong", "New IE Flag 2: adds 2-octet DL Congestion Information (Cl. 5.5.3.25).", "frame_pdu_session", requires_flag="new_ie_flag", is_release_present=_has_field(caps, cl, "dlcongestion")),
+            FlagOption("new_ie_3", "IE3: UL Bitrate", "New IE Flag 3: adds 4-octet UL Available Bitrate (Cl. 5.5.3.27).", "frame_pdu_session", requires_flag="new_ie_flag", is_release_present=_has_field(caps, cl, "ulavailablebitrate")),
+            FlagOption("new_ie_4", "IE4: DL Bitrate", "New IE Flag 4: adds 4-octet DL Available Bitrate (Cl. 5.5.3.28).", "frame_pdu_session", requires_flag="new_ie_flag", is_release_present=_has_field(caps, cl, "dlavailablebitrate")),
         ])
-    elif target_frame == "dl_pdu_set":
+    elif show_sess_flags and target_frame in ("dl_pdu_session", "dl_pdu_set", "end_marker"):
+        cl = "5.5.2.1"
         flags.extend([
-            FlagOption("edb", "EDB", "End of Data Burst indicator bit (Cl. 6.5.3.8).", "frame"),
-            FlagOption("epdu", "EPDU", "End PDU of the PDU Set indicator bit (Cl. 6.5.3.7).", "frame"),
-            FlagOption("pssi", "PSSI", "PDU Set Size Indicator: adds 3-octet PSSize field (Cl. 6.5.3.12).", "frame"),
+            FlagOption("qmp", "QMP", "QoS Monitoring Packet: adds 8-octet DL Sending Time Stamp (Cl. 5.5.3.9).", "frame_pdu_session"),
+            FlagOption("snp", "SNP", "Sequence Number Presence: adds 3-octet DL QFI Sequence Number (Cl. 5.5.3.18).", "frame_pdu_session"),
+            FlagOption("msnp", "MSNP", "MBS Sequence Number Presence: adds 4-octet DL MBS QFI Sequence Number (Cl. 5.5.3.24).", "frame_pdu_session", is_release_present=_has_field(caps, cl, "msnp")),
+            FlagOption("ppp", "PPP", "Paging Policy Presence: activates Octet 3 and 3-bit PPI (Cl. 5.5.3.7).", "frame_pdu_session"),
+            FlagOption("rqi", "RQI", "Reflective QoS Indicator bit in Octet 2 (Cl. 5.5.3.4).", "frame_pdu_session"),
+            FlagOption("bssi", "BSSI", "Burst Size Indicator (Rel-19): activates Octet 3 + 3-octet BSSize (Cl. 5.5.3.30).", "frame_pdu_session", is_release_present=_has_field(caps, cl, "bssi")),
+            FlagOption("ttnbi", "TTNBI", "TTNB Indicator (Rel-19): activates Octet 3 + 2-octet TTNB (Cl. 5.5.3.32).", "frame_pdu_session", is_release_present=_has_field(caps, cl, "ttnbi")),
+        ])
+
+    if show_set_flags:
+        flags.extend([
+            FlagOption("edb", "EDB", "End of Data Burst indicator bit (Cl. 6.5.3.8).", "frame_pdu_set"),
+            FlagOption("epdu", "EPDU", "End PDU of the PDU Set indicator bit (Cl. 6.5.3.7).", "frame_pdu_set"),
+            FlagOption("pssi", "PSSI", "PDU Set Size Indicator: adds 3-octet PSSize field (Cl. 6.5.3.12).", "frame_pdu_set"),
         ])
 
     return flags

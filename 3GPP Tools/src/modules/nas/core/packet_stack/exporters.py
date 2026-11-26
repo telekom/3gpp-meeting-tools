@@ -23,6 +23,21 @@ _ROLE_COLORS: Dict[str, Tuple[str, str, str]] = {
 }
 
 
+def _is_3gpp_spec(spec_number: str) -> bool:
+    s = (spec_number or "").strip()
+    return bool(s) and s[0].isdigit()
+
+
+def _format_spec_ref(spec_number: str, clause: str) -> str:
+    spec = (spec_number or "").strip()
+    cl = (clause or "").strip()
+    if not spec:
+        return cl
+    if _is_3gpp_spec(spec):
+        return f"TS {spec} {cl}".strip() if cl and cl != "-" else f"TS {spec}"
+    return f"{spec} §{cl}".strip() if cl and cl != "-" else spec
+
+
 def _pack_layer_rows(layer: PacketLayer, start_octet: int) -> Tuple[List[Dict[str, object]], int]:
     """Pack bit/octet fields of a layer into visual 8-bit rows with continuous wire octet offsets."""
     rows: List[Dict[str, object]] = []
@@ -39,7 +54,7 @@ def _pack_layer_rows(layer: PacketLayer, start_octet: int) -> Tuple[List[Dict[st
             "octet_label": str(cur_octet),
             "fields": list(bit_buf),
             "size_label": "1 octet",
-            "spec_ref": f"TS {bit_buf[0].spec_number} {bit_buf[0].clause}".strip(),
+            "spec_ref": _format_spec_ref(bit_buf[0].spec_number, bit_buf[0].clause),
         })
         cur_octet += 1
         bit_buf = []
@@ -53,16 +68,26 @@ def _pack_layer_rows(layer: PacketLayer, start_octet: int) -> Tuple[List[Dict[st
                 "octet_label": "Var",
                 "field": fld,
                 "size_label": fld.size_label,
-                "spec_ref": f"TS {fld.spec_number} {fld.clause}".strip() if fld.spec_number else fld.clause,
+                "spec_ref": _format_spec_ref(fld.spec_number, fld.clause),
             })
             continue
 
         if fld.bits <= 8 and (bit_sum > 0 or fld.bits < 8):
+            if bit_sum + fld.bits > 8:
+                _flush_bit_buf()
+            if fld.bits == 8 and bit_sum == 0:
+                rows.append({
+                    "kind": "full",
+                    "octet_label": str(cur_octet),
+                    "field": fld,
+                    "size_label": fld.size_label,
+                    "spec_ref": _format_spec_ref(fld.spec_number, fld.clause),
+                })
+                cur_octet += 1
+                continue
             bit_buf.append(fld)
             bit_sum += fld.bits
             if bit_sum == 8:
-                _flush_bit_buf()
-            elif bit_sum > 8:
                 _flush_bit_buf()
             continue
 
@@ -74,7 +99,7 @@ def _pack_layer_rows(layer: PacketLayer, start_octet: int) -> Tuple[List[Dict[st
             "octet_label": oct_label,
             "field": fld,
             "size_label": fld.size_label,
-            "spec_ref": f"TS {fld.spec_number} {fld.clause}".strip() if fld.spec_number else fld.clause,
+            "spec_ref": _format_spec_ref(fld.spec_number, fld.clause),
         })
         cur_octet += n_oct
 
@@ -130,14 +155,14 @@ def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -
         f'width: 100%; border: 1px solid {C.BORDER_STRONG}; font-family: Consolas, \'Courier New\', monospace; font-size: 11px;">'
         f'<thead>'
         f'<tr style="background-color: {C.BG_CANVAS}; color: {C.TEXT_PRIMARY};">'
-        f'<th rowspan="2" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 6px; text-align: center;">Octet</th>'
+        f'<th rowspan="2" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; text-align: center; white-space: nowrap;">Octet</th>'
         f'<th colspan="8" style="border: 1px solid {C.BORDER_STRONG}; padding: 3px 6px; text-align: center;">Bits</th>'
-        f'<th rowspan="2" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 6px; text-align: center;">Size</th>'
-        f'<th rowspan="2" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 6px; text-align: left;">Spec / Clause</th>'
+        f'<th rowspan="2" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; text-align: center; white-space: nowrap;">Size</th>'
+        f'<th rowspan="2" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; text-align: left; white-space: nowrap;">Spec / Clause</th>'
         f'</tr>'
         f'<tr style="background-color: {C.BG_SURFACE}; color: {C.TEXT_SECONDARY};">'
         + "".join(
-            f'<th style="border: 1px solid {C.BORDER_STRONG}; padding: 2px 4px; text-align: center; width: 9%;">{b}</th>'
+            f'<th style="border: 1px solid {C.BORDER_STRONG}; padding: 2px 4px; text-align: center; width: 8.5%;">{b}</th>'
             for b in range(7, -1, -1)
         )
         + "</tr></thead><tbody>"
@@ -146,7 +171,7 @@ def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -
     cur_octet = 1
     for layer in packet.layers:
         b_bg, b_fg, cell_tint = _ROLE_COLORS.get(layer.role, (C.BG_CANVAS, C.TEXT_STRONG, C.BG_CARD))
-        spec_tag = f"TS {layer.spec_number} Cl. {layer.clause}" if layer.spec_number else ""
+        spec_tag = _format_spec_ref(layer.spec_number, f"Cl. {layer.clause}" if layer.clause and layer.clause != "-" else "")
         parts.append(
             f'<tr style="background-color: {b_bg}; color: {b_fg}; font-family: Segoe UI, Arial, sans-serif;">'
             f'<td colspan="11" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; font-weight: bold; font-size: 11px;">'
@@ -159,12 +184,14 @@ def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -
         for row in rows:
             parts.append("<tr>")
             parts.append(
-                f'<td style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 6px; text-align: center; '
-                f'background-color: {C.BG_SURFACE}; color: {C.TEXT_SECONDARY}; font-weight: bold;">'
+                f'<td style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; text-align: center; '
+                f'background-color: {C.BG_SURFACE}; color: {C.TEXT_SECONDARY}; font-weight: bold; white-space: nowrap;">'
                 f'{html.escape(str(row["octet_label"]))}</td>'
             )
             if row["kind"] == "bits":
+                used_bits = 0
                 for fld in row["fields"]:  # type: ignore[attr-defined]
+                    used_bits += fld.bits
                     bg = C.HIGHLIGHT_YELLOW if _is_highlighted(fld, hl) else (C.BG_MUTED if fld.is_spare else cell_tint)
                     fg = C.TEXT_PRIMARY if not fld.is_spare else C.TEXT_MUTED
                     lbl = html.escape(fld.short_label)
@@ -173,9 +200,15 @@ def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -
                         lbl_html = f'<a href="{href}" style="color: {fg}; text-decoration: none; font-weight: 600;">{lbl}</a>'
                     else:
                         lbl_html = f'<span style="font-weight: 600;">{lbl}</span>'
+                    nowrap = " white-space: nowrap;" if len(fld.short_label) <= 8 else ""
                     parts.append(
                         f'<td colspan="{fld.bits}" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 3px; '
-                        f'text-align: center; background-color: {bg}; color: {fg};">{lbl_html}</td>'
+                        f'text-align: center; background-color: {bg}; color: {fg};{nowrap}">{lbl_html}</td>'
+                    )
+                if used_bits < 8:
+                    parts.append(
+                        f'<td colspan="{8 - used_bits}" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 3px; '
+                        f'text-align: center; background-color: {C.BG_MUTED}; color: {C.TEXT_MUTED};">—</td>'
                     )
             else:
                 fld = row["field"]  # type: ignore[assignment]
@@ -193,11 +226,11 @@ def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -
                 )
 
             parts.append(
-                f'<td style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 6px; text-align: center; '
-                f'background-color: {C.BG_CARD}; color: {C.TEXT_SECONDARY};">{html.escape(str(row["size_label"]))}</td>'
+                f'<td style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; text-align: center; '
+                f'background-color: {C.BG_CARD}; color: {C.TEXT_SECONDARY}; white-space: nowrap;">{html.escape(str(row["size_label"]))}</td>'
             )
             spec_ref_txt = str(row["spec_ref"])
-            if interactive_links and row["kind"] == "full" and row["field"].spec_number:  # type: ignore[union-attr]
+            if interactive_links and row["kind"] == "full" and _is_3gpp_spec(row["field"].spec_number):  # type: ignore[union-attr]
                 f_obj = row["field"]  # type: ignore[assignment]
                 spec_cell = (
                     f'<a href="action:open_spec:{html.escape(f_obj.spec_number)}::{html.escape(f_obj.clause)}" '
@@ -206,8 +239,8 @@ def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -
             else:
                 spec_cell = html.escape(spec_ref_txt)
             parts.append(
-                f'<td style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 6px; text-align: left; '
-                f'background-color: {C.BG_CARD}; color: {C.TEXT_SECONDARY};">{spec_cell}</td>'
+                f'<td style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; text-align: left; '
+                f'background-color: {C.BG_CARD}; color: {C.TEXT_SECONDARY}; white-space: nowrap;">{spec_cell}</td>'
             )
             parts.append("</tr>")
 
@@ -234,7 +267,8 @@ def render_packet_markdown(packet: ComposedPacket) -> str:
     cur_octet = 1
     for layer in packet.layers:
         rows, cur_octet = _pack_layer_rows(layer, cur_octet)
-        lines.append(f"| — | **{layer.title}** | — | — | TS {layer.spec_number} Cl. {layer.clause} |")
+        spec_hdr = _format_spec_ref(layer.spec_number, f"Cl. {layer.clause}" if layer.clause and layer.clause != "-" else "")
+        lines.append(f"| — | **{layer.title}** | — | — | {spec_hdr} |")
         for row in rows:
             if row["kind"] == "bits":
                 summary = " | ".join(f"{f.short_label} ({f.bits}b)" for f in row["fields"])  # type: ignore[attr-defined]
@@ -261,7 +295,8 @@ def render_packet_plain_text(packet: ComposedPacket) -> str:
     ]
     cur_octet = 1
     for layer in packet.layers:
-        lines.append(f"[{layer.title}] (TS {layer.spec_number} Cl. {layer.clause})")
+        spec_hdr = _format_spec_ref(layer.spec_number, f"Cl. {layer.clause}" if layer.clause and layer.clause != "-" else "")
+        lines.append(f"[{layer.title}]" + (f" ({spec_hdr})" if spec_hdr else ""))
         rows, cur_octet = _pack_layer_rows(layer, cur_octet)
         for row in rows:
             if row["kind"] == "bits":

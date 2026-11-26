@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QSettings, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import QShortcut, QWidget
 
@@ -44,11 +44,19 @@ class NASTab(
         nas_db_path: Path,
         specs_db_path: Optional[Path] = None,
         config_path: Optional[Path] = None,
+        layout_settings: Optional[QSettings] = None,
     ):
         super().__init__()
         self.nas_db_path = Path(nas_db_path)
         self.specs_db_path = Path(specs_db_path) if specs_db_path else None
-        self.config_path = Path(config_path) if config_path else (get_project_root() / "config" / "nas_config.json")
+        default_cfg = get_project_root() / "config" / "nas_config.json"
+        self.config_path = Path(config_path) if config_path else default_cfg
+        if layout_settings is not None:
+            self._layout_settings = layout_settings
+        elif config_path is not None and self.config_path.resolve() != default_cfg.resolve():
+            self._layout_settings = QSettings(str(self.config_path.with_suffix(".layout.ini")), QSettings.IniFormat)
+        else:
+            self._layout_settings = QSettings("3GPP_Tools", "ProtocolsWorkspaceLayout")
 
         self._reverse_lookup_worker: Optional[ReverseLookupWorker] = None
         self._reverse_lookup_request_id: int = 0
