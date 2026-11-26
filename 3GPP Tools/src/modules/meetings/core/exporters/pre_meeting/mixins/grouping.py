@@ -88,7 +88,7 @@ class PreMeetingGroupingMixin:
                     preds.append(tdoc_id)
 
         # Sort predecessor lists for clean display
-        for leaf, preds in predecessors_map.items():
+        for _leaf, preds in predecessors_map.items():
             preds.sort()
 
         return superseded_set, predecessors_map, leaf_map

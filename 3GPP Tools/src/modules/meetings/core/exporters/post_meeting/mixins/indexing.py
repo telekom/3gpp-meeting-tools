@@ -327,8 +327,8 @@ class IndexingMixin:
         if self.include_chair_agreements:
             all_ags = []
             seen_ag_keys = set()
-            for rel, wis in filtered_entries.items():
-                for wi_name, wi_data in wis.items():
+            for _rel, wis in filtered_entries.items():
+                for _wi_name, wi_data in wis.items():
                     for ag in wi_data.get("agreements", []):
                         ag_key = (ag.get("ai", ""), ag.get("kind", ""), ag.get("text", "")[:120])
                         if ag_key not in seen_ag_keys:

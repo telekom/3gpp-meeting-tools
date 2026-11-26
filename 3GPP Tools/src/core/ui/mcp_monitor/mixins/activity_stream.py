@@ -211,7 +211,7 @@ class McpActivityStreamMixin:
         tool_flt = self.tool_filter_combo.currentData() or ""
         status_flt = self.status_filter_combo.currentData() or "all"
 
-        for row_idx, ev in enumerate(events):
+        for _row_idx, ev in enumerate(events):
             tool = ev.get("tool", "")
             action = ev.get("action", "")
             client = ev.get("client", "")

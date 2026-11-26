@@ -133,8 +133,8 @@ class VisioToPptxConverterThread(QThread):
             if pptx_path.exists():
                 try:
                     pptx_path.unlink()
-                except PermissionError:
-                    raise PermissionError(f"Please close {pptx_path.name} in PowerPoint before converting.")
+                except PermissionError as err:
+                    raise PermissionError(f"Please close {pptx_path.name} in PowerPoint before converting.") from err
 
             pres.SaveAs(str(pptx_path.resolve()))
             sr = None
@@ -157,7 +157,7 @@ class VisioToPptxConverterThread(QThread):
                 if emf.exists():
                     try:
                         emf.unlink()
-                    except:
+                    except Exception:
                         pass
             sr = None
             shape = None
@@ -224,14 +224,14 @@ class VisioToPptxConverterThread(QThread):
                             # Dynamically shrink boundaries to exact visual text size
                             s.CellsU("Width").FormulaU = "TEXTWIDTH(TheText)"
                             s.CellsU("Height").FormulaU = "TEXTHEIGHT(TheText, Width)"
-                except:
+                except Exception:
                     pass
 
                 # Recurse into groups
                 try:
                     if s.Type == 2:  # visTypeGroup
                         clean_and_shrink_text(s.Shapes)
-                except:
+                except Exception:
                     pass
 
         clean_and_shrink_text(page.Shapes)

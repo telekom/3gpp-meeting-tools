@@ -89,8 +89,8 @@ class PptxToVisioConverterThread(QThread):
             if vsdx_path.exists():
                 try:
                     vsdx_path.unlink()
-                except PermissionError:
-                    raise PermissionError(f"Please close {vsdx_path.name} in Visio before converting.")
+                except PermissionError as err:
+                    raise PermissionError(f"Please close {vsdx_path.name} in Visio before converting.") from err
 
             doc.SaveAs(str(vsdx_path.resolve()))
             page = None
@@ -112,7 +112,7 @@ class PptxToVisioConverterThread(QThread):
                 if emf.exists():
                     try:
                         emf.unlink()
-                    except:
+                    except Exception:
                         pass
 
             # Failsafe COM cleanup
@@ -156,7 +156,7 @@ class PptxToVisioConverterThread(QThread):
                     if s.Type == 2:  # visTypeGroup
                         s.Ungroup()
                         peeling = True
-                except:
+                except Exception:
                     pass
 
         # --- CANVAS FIX 2: Text Margin & Pin Adjustment ---
@@ -191,13 +191,13 @@ class PptxToVisioConverterThread(QThread):
 
                             s.CellsU("Width").FormulaU = "TEXTWIDTH(TheText)"
                             s.CellsU("Height").FormulaU = "TEXTHEIGHT(TheText, Width)"
-                except:
+                except Exception:
                     pass
 
                 try:
                     if s.Type == 2:
                         clean_and_shrink_text(s.Shapes)
-                except:
+                except Exception:
                     pass
 
         clean_and_shrink_text(page.Shapes)
@@ -210,5 +210,5 @@ class PptxToVisioConverterThread(QThread):
         page_sheet.CellsU("PageBottomMargin").FormulaU = "0.05 in"
         try:
             page.ResizeToFitContents()
-        except:
+        except Exception:
             pass

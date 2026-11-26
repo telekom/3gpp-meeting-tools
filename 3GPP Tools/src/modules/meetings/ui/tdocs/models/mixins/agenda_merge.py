@@ -159,8 +159,8 @@ class TDocsAgendaMergeMixin:
 
                 base_row = tdoc_dict.get(base_tdoc, {}) if base_tdoc else {}
 
-                def fuzzy_get(key):
-                    for k, v in base_row.items():
+                def fuzzy_get(key, row=base_row):
+                    for k, v in row.items():
                         if str(k).strip().lower() == key.lower():
                             return str(v).strip() if v is not None else ''
                     return ''

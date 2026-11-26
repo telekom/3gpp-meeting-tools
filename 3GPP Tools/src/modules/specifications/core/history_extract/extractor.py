@@ -173,10 +173,10 @@ class SpecHistoryExtractor:
                 if detect_header_columns(row_texts):
                     continue
 
-                def get_col(role: str) -> str:
-                    idx = col_map.get(role)
-                    if idx is not None and idx < len(row_texts):
-                        return row_texts[idx].strip()
+                def get_col(role: str, _cmap=col_map, _row=row_texts) -> str:
+                    idx = _cmap.get(role)
+                    if idx is not None and idx < len(_row):
+                        return _row[idx].strip()
                     return ""
 
                 raw_date = get_col("date")

@@ -190,9 +190,9 @@ class TestUnassignedLsInExport(unittest.TestCase):
 
         tree = thread._filter_and_group_tdocs(self.wi_db_info)
         exported_ids = set()
-        for rel, wis in tree.items():
-            for wi, data in wis.items():
-                for cat, doc_list in data["categories"].items():
+        for _rel, wis in tree.items():
+            for _wi, data in wis.items():
+                for _cat, doc_list in data["categories"].items():
                     for d in doc_list:
                         exported_ids.add(d["tdoc_id"])
 

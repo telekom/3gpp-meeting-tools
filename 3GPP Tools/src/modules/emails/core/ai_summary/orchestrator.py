@@ -296,7 +296,7 @@ class EmailSummaryOrchestrator:
         )
 
         leaf_sections: List[str] = []
-        for idx, (_bkey, bucket, rec) in enumerate(leaf_records, 1):
+        for idx, (_bkey, _bucket, rec) in enumerate(leaf_records, 1):
             stype = rec.scope_type
             skey = rec.scope_key
             link_tag = f"[{skey}](tdoc:{skey})" if stype == "tdoc" else f"[{rec.title}](thread:{skey})"

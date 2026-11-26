@@ -304,7 +304,7 @@ class OverviewRenderMixin:
 
         # Add individual delegates
         if self.delegation_plan:
-            for name, m in self.delegation_plan.members.items():
+            for name, _m in self.delegation_plan.members.items():
                 self.delegate_agenda_combo.addItem(f"● {name}", name)
 
         # Add personal / unassigned starred topics option

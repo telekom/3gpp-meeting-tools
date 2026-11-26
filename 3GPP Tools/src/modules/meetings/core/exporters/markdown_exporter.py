@@ -77,20 +77,16 @@ class MarkdownExporterThread(QThread):
                 logger.error(f"[MarkdownExporter] Failed to load config, falling back to defaults: {e}")
                 self.config = default_config
 
-        # Check whether this is a RAN meeting
-        wg_name = str(self.mtg_info.get("wg_name", "")).strip().upper()
-        is_ran = wg_name.startswith("RAN") or "RAN" in wg_name
-
         # Resolve include_chair_agreements preference:
         # 1. Explicit argument if passed
         # 2. Config setting if defined
-        # 3. Default True for RAN meetings (and True by default)
+        # 3. Default True
         if include_chair_agreements is not None:
             self.include_chair_agreements = bool(include_chair_agreements)
         elif "include_chair_agreements" in self.config:
             self.include_chair_agreements = bool(self.config.get("include_chair_agreements", True))
         else:
-            self.include_chair_agreements = True if is_ran else True
+            self.include_chair_agreements = True
 
         self.include_agreements_summary = bool(self.config.get("include_agreements_summary", True))
 

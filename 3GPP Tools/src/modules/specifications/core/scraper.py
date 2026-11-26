@@ -356,7 +356,7 @@ class SpecsCrawlerThread(QThread):
         file_links: List[Tuple[str, str]] = self.fetch_links(spec_url)
         files_to_save = []
 
-        for href, file_url in file_links:
+        for _href, file_url in file_links:
             clean_file_name: str = file_url.split('/')[-1]
             if clean_file_name.endswith('.zip'):
                 match = self.version_pattern.search(clean_file_name)
@@ -404,7 +404,7 @@ class SpecsCrawlerThread(QThread):
                         self._log(f"⏳ Mapping entire {series_number} series directory...", logging.INFO)
                         spec_links = self.fetch_links(series_url)
 
-                        for href, spec_url in spec_links:
+                        for _href, spec_url in spec_links:
                             folder_name: str = [x for x in spec_url.split('/') if x][-1]
                             match = self.spec_folder_pattern.search(folder_name)
                             if match:
@@ -428,7 +428,7 @@ class SpecsCrawlerThread(QThread):
                 raw_links = self.fetch_links(self.root_url)
                 series_links = []
 
-                for href, url in raw_links:
+                for _href, url in raw_links:
                     folder_name = [x for x in url.split('/') if x][-1]
                     match = re.search(r'^(\d{2,3})_series$', folder_name.lower())
                     if match:
@@ -449,7 +449,7 @@ class SpecsCrawlerThread(QThread):
                         s_name, s_url = future_to_series[future]
                         specs = future.result()
 
-                        for href, spec_url in specs:
+                        for _href, spec_url in specs:
                             folder_name: str = [x for x in spec_url.split('/') if x][-1]
                             match = self.spec_folder_pattern.search(folder_name)
                             if match:

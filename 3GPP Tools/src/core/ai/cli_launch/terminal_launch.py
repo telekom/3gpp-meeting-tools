@@ -27,7 +27,7 @@ def _resolve_detect_cli_agents():
     """Preserve unittest.mock.patch hooks targeting ``core.ai.cli_launcher.detect_cli_agents``."""
     facade = sys.modules.get("core.ai.cli_launcher")
     if facade is not None and hasattr(facade, "detect_cli_agents"):
-        return getattr(facade, "detect_cli_agents")
+        return facade.detect_cli_agents
     return detect_cli_agents
 
 

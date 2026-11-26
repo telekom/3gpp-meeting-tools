@@ -39,7 +39,7 @@ class AgendaItemsParserMixin:
                     room_override = "Breakout 2"
                 else:
                     room_override = r_str
-                rest = tok_s[m_room.end():].strip(" :) -–—")
+                rest = tok_s[m_room.end():].strip(" :)-–—")
                 if rest:
                     clean_tokens.append(rest)
             else:

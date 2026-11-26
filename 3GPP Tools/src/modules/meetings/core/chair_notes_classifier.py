@@ -175,7 +175,7 @@ def analyze_candidate_files(
         groups.setdefault(t_id, []).append(idx)
 
     # Pre-pick the highest recency file in each track group
-    for t_id, indices in groups.items():
+    for _t_id, indices in groups.items():
         best_idx = max(indices, key=lambda i: records[i]["recency_score"])
         records[best_idx]["is_latest_for_chair"] = True
 

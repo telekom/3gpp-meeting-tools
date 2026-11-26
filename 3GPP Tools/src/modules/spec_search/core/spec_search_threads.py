@@ -95,9 +95,15 @@ class SpecSearchImportThread(QThread):
             base_progress = int((t_idx / total_tasks) * 100)
             task_weight = 1.0 / total_tasks
 
-            def emit_task_progress(msg: str, step_pct: int):
-                overall = base_progress + int(step_pct * task_weight)
-                self.progress.emit(f"[{t_idx + 1}/{total_tasks}] {msg}", min(overall, 99))
+            def emit_task_progress(
+                msg: str,
+                step_pct: int,
+                _base: int = base_progress,
+                _weight: float = task_weight,
+                _idx: int = t_idx,
+            ):
+                overall = _base + int(step_pct * _weight)
+                self.progress.emit(f"[{_idx + 1}/{total_tasks}] {msg}", min(overall, 99))
 
             try:
                 target_docs: List[Path] = []

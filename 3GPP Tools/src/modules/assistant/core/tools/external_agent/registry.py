@@ -363,9 +363,9 @@ def build_external_agent_tool_registry(
                 "toggle_wi_tracking",
                 "save_email_summary",
             }
-            def _ro_guard(orig=orig_handler, tname=tool.name, **kw: Any) -> ToolResult:
+            def _ro_guard(orig=orig_handler, tname=tool.name, mutating=mutating_actions, **kw: Any) -> ToolResult:
                 act = str(kw.get("action") or "").strip().lower()
-                if act in mutating_actions or (
+                if act in mutating or (
                     act == "get_or_set_stance"
                     and (kw.get("stance") is not None or kw.get("notes") is not None)
                 ):

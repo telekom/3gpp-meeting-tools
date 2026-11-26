@@ -73,7 +73,7 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
 
     if len(G.nodes) > 0 and community_map:
         html_faction_list = "<h3 style='margin-bottom: 10px; color: #333;'>Faction Membership Roster</h3><div class='factions-container'>"
-        for c_idx, c_name in cluster_names.items():
+        for _c_idx, c_name in cluster_names.items():
             members = faction_members_dict.get(c_name, [])
             local_members = [m for m in members if m in G.nodes]
             if not local_members: continue
@@ -250,7 +250,7 @@ def generate_alliance_plots(df, export_dir, threshold, cluster_palette, global_f
                 cluster_tdoc_counts[c_name] += 1
 
         plot_data = []
-        for c_idx, c_name in cluster_names.items():
+        for _c_idx, c_name in cluster_names.items():
             members_list = faction_members_dict.get(c_name, [])
             local_members = [m for m in members_list if m in G.nodes]
             if not local_members: continue

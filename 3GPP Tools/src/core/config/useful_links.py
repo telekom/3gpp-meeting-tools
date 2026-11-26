@@ -130,7 +130,7 @@ def populate_help_menu(
     config = load_useful_links()
     categories = config.get("categories", [])
 
-    for cat_idx, category in enumerate(categories):
+    for _cat_idx, category in enumerate(categories):
         cat_name = category.get("name", "External Links")
         links = category.get("links", [])
         if not links:

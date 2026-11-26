@@ -224,7 +224,7 @@ class PptxConverterThread(QThread):
                 self._emit_log(f"⚠️ Could not unpack {file_type}: {e}", logging.WARNING)
                 try:
                     _ = shape.Width
-                except:
+                except Exception:
                     if slide.Shapes.Count > 0:
                         shape = slide.Shapes(slide.Shapes.Count)
 
@@ -255,12 +255,12 @@ class PptxConverterThread(QThread):
             if svg_path.exists():
                 try:
                     svg_path.unlink()
-                except:
+                except Exception:
                     pass
             if emf_path and emf_path.exists():
                 try:
                     emf_path.unlink()
-                except:
+                except Exception:
                     pass
 
             if is_appending:
@@ -338,7 +338,7 @@ class PptxConverterThread(QThread):
                             if s.Type == 2:
                                 s.Ungroup()
                                 peeling = True
-                        except:
+                        except Exception:
                             pass
 
                 # --- CANVAS FIX 2: Background Rect Deletion ---
@@ -351,7 +351,7 @@ class PptxConverterThread(QThread):
                             if len(s.Characters.Text.strip()) == 0:
                                 if s.CellsU("LinePattern").ResultIU == 0:
                                     s.Delete()
-                    except:
+                    except Exception:
                         pass
 
                 def clean_and_shrink_text(shapes):
@@ -384,12 +384,12 @@ class PptxConverterThread(QThread):
 
                                     s.CellsU("Width").FormulaU = "TEXTWIDTH(TheText)"
                                     s.CellsU("Height").FormulaU = "TEXTHEIGHT(TheText, Width)"
-                        except:
+                        except Exception:
                             pass
                         try:
                             if s.Type == 2:
                                 clean_and_shrink_text(s.Shapes)
-                        except:
+                        except Exception:
                             pass
 
                 clean_and_shrink_text(page.Shapes)
@@ -401,14 +401,14 @@ class PptxConverterThread(QThread):
                 page_sheet.CellsU("PageBottomMargin").FormulaU = "0.05 in"
                 try:
                     page.ResizeToFitContents()
-                except:
+                except Exception:
                     pass
 
             emf_path = svg_path.with_suffix(".emf")
             if emf_path.exists():
                 try:
                     emf_path.unlink()
-                except:
+                except Exception:
                     pass
 
             page.Export(str(emf_path.resolve()))

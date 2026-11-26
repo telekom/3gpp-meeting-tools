@@ -191,7 +191,7 @@ class SpecTDocReportGenerator:
         meeting_to_tdocs: Dict[str, Tuple[Dict[str, Any], List[str]]] = {}
         unmapped: List[str] = []
 
-        for idx, tdoc in enumerate(pending_tdocs):
+        for _idx, tdoc in enumerate(pending_tdocs):
             mtg = self.meetings_db.find_meeting_by_tdoc(tdoc)
             if mtg:
                 m_key = mtg.get("folder_name") or mtg.get("meeting_number") or "unknown"

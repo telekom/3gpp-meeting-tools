@@ -25,7 +25,7 @@ def _resolve_standing_context_path() -> Path:
     """Resolve STANDING_CONTEXT_PATH via facade so patch.object(cli_launcher, ...) works."""
     facade = sys.modules.get("core.ai.cli_launcher")
     if facade is not None and hasattr(facade, "STANDING_CONTEXT_PATH"):
-        return Path(getattr(facade, "STANDING_CONTEXT_PATH"))
+        return Path(facade.STANDING_CONTEXT_PATH)
     return STANDING_CONTEXT_PATH
 
 

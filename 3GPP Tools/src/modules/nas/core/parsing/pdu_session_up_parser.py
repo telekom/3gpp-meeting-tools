@@ -451,7 +451,7 @@ class PDUSessionUPDocxParser:
         ies: List[Dict[str, Any]] = []
         current_octet = 0
 
-        for r_idx, row in enumerate(rows):
+        for _r_idx, row in enumerate(rows):
             cells = row.findall(TAG_TC)
             if not cells or self._is_header_or_bit_scale_row(cells):
                 continue

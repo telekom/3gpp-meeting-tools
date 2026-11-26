@@ -174,7 +174,7 @@ def test_dossier_exporter_pdf_and_bookmarks():
         assert "S2-240101" in page_spans
         assert "S2-240102" in page_spans
         assert "S2-240201" in page_spans
-        for tid, (st, en) in page_spans.items():
+        for _tid, (st, en) in page_spans.items():
             assert 1 <= st <= en
 
         # Verify pypdf outline bookmarks

@@ -124,7 +124,7 @@ class TDocSummaryModel(QAbstractTableModel):
             if comp: groups[tid]['companies'].add(comp)
 
         # Build clean strings for the Tooltips
-        for k, v in groups.items():
+        for _k, v in groups.items():
             comps = sorted(list(v['companies']))
             v['companies_str'] = ", ".join(comps)
             if len(v['companies_str']) > 100: v['companies_str'] = v['companies_str'][:97] + "..."

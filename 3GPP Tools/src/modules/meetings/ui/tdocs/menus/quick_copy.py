@@ -94,7 +94,7 @@ def _resolve_copy_helper():
     """Preserve unittest.mock.patch hooks targeting ``tdocs_menus._copy_to_clipboard``."""
     facade = sys.modules.get("modules.meetings.ui.tdocs_menus")
     if facade is not None and hasattr(facade, "_copy_to_clipboard"):
-        return getattr(facade, "_copy_to_clipboard")
+        return facade._copy_to_clipboard
     return _copy_to_clipboard
 
 

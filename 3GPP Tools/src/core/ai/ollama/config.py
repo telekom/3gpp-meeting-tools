@@ -31,7 +31,7 @@ def _resolve_config_path() -> Path:
     """Resolve CONFIG_PATH dynamically from the legacy shim if monkeypatched."""
     facade = sys.modules.get("core.ai.ollama_client")
     if facade is not None and hasattr(facade, "CONFIG_PATH"):
-        return Path(getattr(facade, "CONFIG_PATH"))
+        return Path(facade.CONFIG_PATH)
     return CONFIG_PATH
 
 

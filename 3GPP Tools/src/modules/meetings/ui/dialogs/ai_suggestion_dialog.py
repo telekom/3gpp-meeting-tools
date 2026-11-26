@@ -455,14 +455,14 @@ class AiSuggestionDialog(QDialog):
         return container
 
     def _set_checks_by_confidence(self, allowed_confidences: Set[str]):
-        for wg, cb_list in self.checkbox_map.items():
+        for _wg, cb_list in self.checkbox_map.items():
             for cb, item in cb_list:
                 cb.setChecked(item.confidence in allowed_confidences)
         self._update_preview()
 
     def _set_all_checks(self, checked: bool):
-        for wg, cb_list in self.checkbox_map.items():
-            for cb, item in cb_list:
+        for _wg, cb_list in self.checkbox_map.items():
+            for cb, _item in cb_list:
                 cb.setChecked(checked)
         self._update_preview()
 

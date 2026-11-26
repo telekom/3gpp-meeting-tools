@@ -89,7 +89,7 @@ def generate_cleaned_svg(puml_path: Path, jar_path: Path, log_callback=None) -> 
     except subprocess.CalledProcessError as e:
         raise RuntimeError(
             f"PlantUML Syntax Error:\n{e.stderr}"
-        )
+        ) from e
 
     svg_path = puml_path.with_suffix(".svg")
 

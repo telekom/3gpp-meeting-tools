@@ -103,7 +103,7 @@ class EmailStatsExporterThread(QThread):
             # 📊 GENERATE PER-AI VIEWS
             # =================================================================
             for idx, ai_name in enumerate(unique_ais):
-                ai_df = df[df['ai_list'].apply(lambda x: ai_name in x)].copy()
+                ai_df = df[df['ai_list'].apply(lambda x, target_ai=ai_name: target_ai in x)].copy()
                 if ai_df.empty: continue
 
                 safe_id = f"ai_{idx}"

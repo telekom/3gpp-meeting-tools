@@ -139,8 +139,8 @@ def convert_svg_to_vsdx(
     if vsdx_path.exists():
         try:
             vsdx_path.unlink()
-        except PermissionError:
-            raise PermissionError("Close file in Visio first.")
+        except PermissionError as err:
+            raise PermissionError("Close file in Visio first.") from err
 
     with open(puml_path, "r", encoding="utf-8") as f:
         raw_code = f.read()

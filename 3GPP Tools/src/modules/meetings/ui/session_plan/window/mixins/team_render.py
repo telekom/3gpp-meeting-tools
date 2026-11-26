@@ -339,7 +339,7 @@ class TeamRenderMixin:
             )
             self.team_clashes_table.setRowCount(clash_count)
 
-            for row, ((del_name, d_idx, q_name), slots) in enumerate(collisions.items()):
+            for row, ((del_name, _d_idx, _q_name), slots) in enumerate(collisions.items()):
                 s_a = slots[0]
                 time_str = format_venue_time_range(s_a.start_time_local, s_a.end_time_local)
 

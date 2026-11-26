@@ -123,7 +123,7 @@ class DelegationMixin:
         if not self.active_snapshot or not self.delegation_plan:
             return res
 
-        for name, m in self.delegation_plan.members.items():
+        for name, _m in self.delegation_plan.members.items():
             busy_slots = []
             for s in self.active_snapshot.slots:
                 if (

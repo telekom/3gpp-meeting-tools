@@ -46,7 +46,7 @@ class TDocsRevisionsFetcherThread(QThread):
             matches = pattern.findall(html)
 
             revisions = {}
-            for full_file, base_tdoc, rev_str in matches:
+            for _full_file, base_tdoc, rev_str in matches:
                 base_tdoc = base_tdoc.upper()
                 rev_str = rev_str.lower()
                 if base_tdoc not in revisions:

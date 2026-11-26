@@ -46,7 +46,7 @@ def track_doc_worker(parent_widget: Optional[QWidget], worker: QThread) -> None:
         workers = getattr(parent_widget, "_active_doc_workers", None)
         if workers is None:
             workers = []
-            setattr(parent_widget, "_active_doc_workers", workers)
+            parent_widget._active_doc_workers = workers
         workers.append(worker)
 
     def _cleanup(w=worker, pw=parent_widget) -> None:

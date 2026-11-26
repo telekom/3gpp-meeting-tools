@@ -204,7 +204,7 @@ def _update_cr_document_xml(
         body.remove(child)
 
     # Inject dynamic change separators and anchors
-    for idx, block in enumerate(change_blocks):
+    for idx, _block in enumerate(change_blocks):
         # Separator
         sep_p = etree.SubElement(body, f"{{{W_NS}}}p")
         sep_ppr = etree.SubElement(sep_p, f"{{{W_NS}}}pPr")

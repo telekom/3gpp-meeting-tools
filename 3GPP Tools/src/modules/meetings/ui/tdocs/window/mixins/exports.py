@@ -153,10 +153,6 @@ class ExportsMixin:
     # Backwards compatibility alias
     _export_llm_single = _export_markdown_single
 
-
-    # Backwards compatibility alias
-    _export_llm_single = _export_markdown_single
-
     def _open_pre_meeting_export_dialog(self):
         open_pre_meeting_export_dialog(self)
 

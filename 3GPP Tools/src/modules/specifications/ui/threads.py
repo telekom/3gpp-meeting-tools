@@ -210,7 +210,7 @@ class SpecExcerptPrepThread(QThread):
                     stem_map[doc_stem] = doc_path
 
             total_items = len(stem_map)
-            for idx, (doc_stem, doc_path) in enumerate(stem_map.items()):
+            for idx, (_doc_stem, doc_path) in enumerate(stem_map.items()):
                 if self.isInterruptionRequested():
                     return
 

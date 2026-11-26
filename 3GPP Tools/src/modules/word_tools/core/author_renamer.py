@@ -223,7 +223,7 @@ def replace_authors(
 
                         for elem in root.iter():
                             author_key = None
-                            for k, v in elem.attrib.items():
+                            for k, _v in elem.attrib.items():
                                 if k == W_AUTHOR or k.endswith("}author") or k == "author":
                                     author_key = k
                                     break

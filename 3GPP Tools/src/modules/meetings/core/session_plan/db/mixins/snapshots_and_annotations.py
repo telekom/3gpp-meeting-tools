@@ -71,7 +71,7 @@ class SessionPlanSnapshotsAnnotationsMixin:
             snap_id = cursor.lastrowid
 
             # Insert streams
-            for s_num, s_info in snapshot.streams.items():
+            for _s_num, s_info in snapshot.streams.items():
                 cursor.execute(
                     """
                     INSERT INTO meeting_streams (snapshot_id, stream_number, stream_name, room_name, capacity, convener, tohru_room)

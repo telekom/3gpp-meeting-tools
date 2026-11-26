@@ -379,7 +379,7 @@ class SpecSearchDatabase:
             groups.setdefault((r["spec_number"], rel), []).append(r)
 
         superseded: List[Dict[str, Any]] = []
-        for (spec_num, rel), ver_list in groups.items():
+        for (_spec_num, rel), ver_list in groups.items():
             if len(ver_list) > 1:
                 sorted_vers = sorted(ver_list, key=lambda x: parse_version_tuple(x["version"]), reverse=True)
                 newest_ver = sorted_vers[0]["version"]
