@@ -9,6 +9,7 @@ import urllib.parse
 from PyQt5.QtCore import QTimer
 
 from core.ui.theme import C
+from core.ui.ui_components import escape_qt_mnemonic
 from modules.emails.core.emeeting_signals import (
     build_message_jump_strip_html,
     extract_base_tdoc_id,
@@ -80,11 +81,47 @@ class InboxDetailRenderingMixin:
         if hasattr(self, "summary_card"):
             self.summary_card.clear_scope()
         self._update_selected_sync_controls(0)
+        self._update_assign_toggle_label()
+
+    def _update_assign_toggle_label(self):
+        btn = getattr(self, "btn_toggle_assign_bar", None)
+        if btn is None:
+            return
+        arrow = "▴" if self._show_assign_bar else "▾"
+        has_sel = bool(getattr(self, "_selected_items", None) or getattr(self, "_current_item", None) is not None)
+        if not has_sel:
+            btn.setText(f"🏷️ AI / WI {arrow}")
+            btn.setToolTip("Show or hide the inline AI / Sub-Topic / WI assignment bar.")
+            return
+        ais = self.assign_ais_pills.tags() if hasattr(self, "assign_ais_pills") else []
+        subs = self.assign_subs_pills.tags() if hasattr(self, "assign_subs_pills") else []
+        wis = self.assign_wis_pills.tags() if hasattr(self, "assign_wis_pills") else []
+        parts: List[str] = []
+        if ais:
+            parts.append(ais[0] if len(ais) == 1 else f"{ais[0]} (+{len(ais) - 1})")
+        if subs:
+            parts.append(subs[0] if len(subs) == 1 and len(subs[0]) <= 16 else f"{len(subs)} sub")
+        if wis:
+            parts.append(wis[0] if len(wis) == 1 else f"{wis[0]} (+{len(wis) - 1})")
+        if parts:
+            btn.setText(f"🏷️ {escape_qt_mnemonic(' · '.join(parts))} {arrow}")
+            tip_lines = []
+            if ais:
+                tip_lines.append(f"AIs: {', '.join(ais)}")
+            if subs:
+                tip_lines.append(f"Sub-Topics: {', '.join(subs)}")
+            if wis:
+                tip_lines.append(f"WIs: {', '.join(wis)}")
+            tip_lines.append("Click to show/hide inline AI / Sub-Topic / WI editor.")
+            btn.setToolTip("\n".join(tip_lines))
+        else:
+            btn.setText(f"🏷️ Set AI / WI {arrow}")
+            btn.setToolTip("No AI, Sub-Topic, or WI assigned yet. Click to assign.")
 
     def _on_toggle_assign_bar(self, checked: bool):
         self._show_assign_bar = bool(checked)
         self.assign_frame.setVisible(self._show_assign_bar)
-        self.btn_toggle_assign_bar.setText("🏷️ AI / WI ▴" if self._show_assign_bar else "🏷️ AI / WI ▾")
+        self._update_assign_toggle_label()
         try:
             self._settings.setValue("show_assign_bar", self._show_assign_bar)
             self._settings.sync()
@@ -122,6 +159,7 @@ class InboxDetailRenderingMixin:
             self.btn_auto_assign.setEnabled(self.tracked_db is not None)
         finally:
             self._updating_assign_bar = False
+        self._update_assign_toggle_label()
 
     def _populate_assign_bar_multi(self, selected: List[dict]):
         self._updating_assign_bar = True
@@ -157,6 +195,7 @@ class InboxDetailRenderingMixin:
             self.btn_auto_assign.setEnabled(self.tracked_db is not None)
         finally:
             self._updating_assign_bar = False
+        self._update_assign_toggle_label()
 
     def _render_multi_detail(self, selected: List[dict]):
         if self._view_mode == "TDOCS":

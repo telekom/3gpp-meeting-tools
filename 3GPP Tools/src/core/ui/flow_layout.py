@@ -115,6 +115,9 @@ class FlowLayout(QLayout):
                 )
 
             item_size = item.sizeHint()
+            avail_w = effective_rect.width()
+            if avail_w > 0 and item.hasHeightForWidth() and item_size.width() > avail_w:
+                item_size = QSize(avail_w, item.heightForWidth(avail_w))
             next_x = x + item_size.width() + space_x
             if next_x - space_x > effective_rect.right() and line_height > 0:
                 x = effective_rect.x()

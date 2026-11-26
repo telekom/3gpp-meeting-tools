@@ -282,4 +282,5 @@ class InboxInlineAssignmentMixin:
                 ai_cell.setText(", ".join(selected_ais) if selected_ais else "❓ —")
                 ai_cell.setForeground(QColor(C.TEXT_PRIMARY if selected_ais else C.WARNING))
         self._populate_filter_combos()
+        self._update_assign_toggle_label()
         self.data_changed.emit()

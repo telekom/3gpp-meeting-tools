@@ -216,27 +216,30 @@ class InboxUiSetupMixin:
         self.detail_jump_strip_lbl.setVisible(False)
         meta_layout.addWidget(self.detail_jump_strip_lbl)
 
-        # Inline Assignment Bar (Single compact row: AIs, Sub-Topics, WIs + Auto/Pin; persisted in QSettings)
-        self._show_assign_bar = bool(self._settings.value("show_assign_bar", True, type=bool))
+        # Inline Assignment Bar (Single compact flowing strip: AIs, Sub-Topics, WIs + Auto/Pin; persisted in QSettings)
+        self._show_assign_bar = bool(self._settings.value("show_assign_bar", False, type=bool))
         self.assign_frame = QFrame(meta_frame)
         self.assign_frame.setObjectName("InboxAssignBar")
+        assign_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        assign_sp.setHeightForWidth(True)
+        self.assign_frame.setSizePolicy(assign_sp)
         self.assign_frame.setStyleSheet(
             f"#InboxAssignBar {{ background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 5px; }}"
         )
-        assign_row = QHBoxLayout(self.assign_frame)
-        assign_row.setContentsMargins(6, 2, 6, 2)
-        assign_row.setSpacing(6)
+        assign_row = FlowLayout(self.assign_frame, margin=4, h_spacing=8, v_spacing=3)
 
         strict_ai = bool(self._ai_suggestions)
         strict_wi = bool(self._wi_suggestions)
 
-        assign_row.addWidget(QLabel("<b>AI:</b>"))
         self.assign_ais_pills = TagCloudWidget(
             placeholder="AI #...",
             pill_colors={"bg": C.INFO_SOFT, "fg": C.INFO, "border": C.INFO_BORDER},
             strict_dropdown=strict_ai,
             dropdown_label="+ AI ▾",
             empty_dropdown_label="No AIs",
+            compact=True,
+            prefix_label="AI:",
+            max_visible_pills=4,
         )
         if self._ai_suggestions:
             self.assign_ais_pills.set_suggestions(
@@ -244,26 +247,30 @@ class InboxUiSetupMixin:
                 value_extractor=lambda s: s.split(" — ", 1)[0].strip(),
             )
         self.assign_ais_pills.tagsChanged.connect(self._on_inline_links_changed)
-        assign_row.addWidget(self.assign_ais_pills, 2)
+        assign_row.addWidget(self.assign_ais_pills)
 
-        assign_row.addWidget(QLabel("<b>Sub:</b>"))
         self.assign_subs_pills = TagCloudWidget(
             placeholder="Sub-Topic...",
             pill_colors={"bg": C.TEAL_SURFACE, "fg": C.TEAL_DARK, "border": C.TEAL_BORDER},
             strict_dropdown=True,
             dropdown_label="+ Sub ▾",
             empty_dropdown_label="Assign AI",
+            compact=True,
+            prefix_label="Sub:",
+            max_visible_pills=3,
         )
         self.assign_subs_pills.tagsChanged.connect(self._on_inline_links_changed)
-        assign_row.addWidget(self.assign_subs_pills, 3)
+        assign_row.addWidget(self.assign_subs_pills)
 
-        assign_row.addWidget(QLabel("<b>WI:</b>"))
         self.assign_wis_pills = TagCloudWidget(
             placeholder="WI...",
             pill_colors={"bg": C.WG_SA_BG, "fg": C.INDIGO_DARK, "border": C.WG_SA_BORDER},
             strict_dropdown=strict_wi,
             dropdown_label="+ WI ▾",
             empty_dropdown_label="No WIs",
+            compact=True,
+            prefix_label="WI:",
+            max_visible_pills=3,
         )
         if self._wi_suggestions:
             self.assign_wis_pills.set_suggestions(
@@ -271,7 +278,7 @@ class InboxUiSetupMixin:
                 value_extractor=lambda s: s.split(" — ", 1)[0].strip(),
             )
         self.assign_wis_pills.tagsChanged.connect(self._on_inline_links_changed)
-        assign_row.addWidget(self.assign_wis_pills, 2)
+        assign_row.addWidget(self.assign_wis_pills)
 
         self.btn_auto_assign = QPushButton("🪄 Auto")
         self.btn_auto_assign.setCursor(Qt.PointingHandCursor)

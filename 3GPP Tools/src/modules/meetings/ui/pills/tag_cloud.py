@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import html
 import re
 from typing import Callable, Dict, List, Optional
 
-from PyQt5.QtCore import QStringListModel, QTimer, Qt, pyqtSignal
+from PyQt5.QtCore import QSize, QStringListModel, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QKeyEvent
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -34,25 +35,31 @@ class TagPillItem(QFrame):
 
     removed = pyqtSignal(str)
 
-    def __init__(self, text: str, parent=None, colors: Optional[Dict[str, str]] = None):
+    def __init__(
+        self,
+        text: str,
+        parent=None,
+        colors: Optional[Dict[str, str]] = None,
+        compact: bool = False,
+    ):
         super().__init__(parent)
         self.tag_text = text
         bg = (colors or {}).get("bg", C.BG_CANVAS)
         border = (colors or {}).get("border", C.BORDER_STRONG)
         fg = (colors or {}).get("fg", C.TEXT_BODY)
+        radius = 9 if compact else 11
+        pad = "0px 3px" if compact else "1px 4px"
         self.setStyleSheet(
-            f"""
-            QFrame {{
-                background-color: {bg};
-                border: 1px solid {border};
-                border-radius: 11px;
-                padding: 1px 4px;
-            }}
-        """
+            f"QFrame {{ background-color: {bg}; border: 1px solid {border}; "
+            f"border-radius: {radius}px; padding: {pad}; }}"
         )
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(4)
+        if compact:
+            layout.setContentsMargins(3, 1, 3, 1)
+            layout.setSpacing(2)
+        else:
+            layout.setContentsMargins(4, 2, 4, 2)
+            layout.setSpacing(4)
 
         lbl = QLabel(text)
         lbl.setStyleSheet(f"color: {fg}; font-size: 11px; font-weight: 500; background: transparent; border: none;")
@@ -60,21 +67,12 @@ class TagPillItem(QFrame):
 
         btn_close = QPushButton("✕")
         btn_close.setCursor(Qt.PointingHandCursor)
-        btn_close.setFixedSize(14, 14)
+        close_px = scale_px(12) if compact else 14
+        btn_close.setFixedSize(close_px, close_px)
         btn_close.setStyleSheet(
-            f"""
-            QPushButton {{
-                color: {C.TEXT_FAINT};
-                background: transparent;
-                border: none;
-                font-size: 10px;
-                font-weight: bold;
-                padding: 0;
-            }}
-            QPushButton:hover {{
-                color: {C.DANGER_ACCENT};
-            }}
-        """
+            f"QPushButton {{ color: {C.TEXT_FAINT}; background: transparent; border: none; "
+            f"font-size: 10px; font-weight: bold; padding: 0; }}"
+            f"QPushButton:hover {{ color: {C.DANGER_ACCENT}; }}"
         )
         btn_close.clicked.connect(lambda: self.removed.emit(self.tag_text))
         layout.addWidget(btn_close)
@@ -108,41 +106,78 @@ class TagCloudWidget(QFrame):
         strict_dropdown: bool = False,
         dropdown_label: str = "+ Select ▾",
         empty_dropdown_label: str = "None available",
+        compact: bool = False,
+        prefix_label: Optional[str] = None,
+        max_visible_pills: Optional[int] = None,
     ):
         super().__init__(parent)
         self.pill_colors = pill_colors
         self.strict_dropdown = strict_dropdown
         self._dropdown_label = dropdown_label
         self._empty_dropdown_label = empty_dropdown_label
+        self._compact = bool(compact)
+        self._prefix_text = str(prefix_label or "").strip()
+        self._max_visible_pills = int(max_visible_pills) if max_visible_pills and max_visible_pills > 0 else None
+        self._overflow_expanded = False
+        self._overflow_btn: Optional[QPushButton] = None
+        self.pick_clear_btn: Optional[QPushButton] = None
         self._suggestions: List[str] = []
         self._completer: Optional[QCompleter] = None
         self._value_extractor: Optional[Callable[[str], str]] = None
         self.setObjectName("TagCloudFrame")
-        self.setStyleSheet(
-            f"""
-            QFrame#TagCloudFrame {{
-                background-color: {C.BG_CARD};
-                border: 1px solid {C.BORDER_STRONG};
-                border-radius: 6px;
-                padding: 3px;
-            }}
-            QFrame#TagCloudFrame:focus-within {{
-                border-color: {C.INFO_ACCENT};
-            }}
-        """
-        )
+        if self._compact:
+            sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+            sp.setHeightForWidth(True)
+            self.setSizePolicy(sp)
+            self.setStyleSheet(
+                "QFrame#TagCloudFrame { background-color: transparent; border: none; padding: 0px; }"
+            )
+            self.flow_layout = FlowLayout(self, margin=0, h_spacing=3, v_spacing=2)
+        else:
+            self.setStyleSheet(
+                f"""
+                QFrame#TagCloudFrame {{
+                    background-color: {C.BG_CARD};
+                    border: 1px solid {C.BORDER_STRONG};
+                    border-radius: 6px;
+                    padding: 3px;
+                }}
+                QFrame#TagCloudFrame:focus-within {{
+                    border-color: {C.INFO_ACCENT};
+                }}
+            """
+            )
+            self.flow_layout = FlowLayout(self, margin=2, h_spacing=6, v_spacing=4)
         self._tags: List[str] = []
 
-        self.flow_layout = FlowLayout(self, margin=2, h_spacing=6, v_spacing=4)
+        self._prefix_lbl: Optional[QLabel] = None
+        if self._prefix_text:
+            self._prefix_lbl = QLabel(f"<b>{html.escape(self._prefix_text)}</b>", self)
+            self._prefix_lbl.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+            self._prefix_lbl.setMinimumHeight(scale_px(20))
+            self._prefix_lbl.setStyleSheet(
+                f"QLabel {{ color: {C.TEXT_SECONDARY}; font-size: 11px; "
+                "background: transparent; border: none; padding-right: 1px; }"
+            )
+            self.flow_layout.addWidget(self._prefix_lbl)
 
         self.input_edit = _TagLineEdit()
         self.input_edit.setObjectName("TagCloudInput")
         self.input_edit.setPlaceholderText(placeholder)
-        self.input_edit.setMinimumWidth(190)
-        self.input_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.input_edit.setStyleSheet(
-            "QLineEdit#TagCloudInput { border: none; background: transparent; font-size: 11px; padding: 2px 4px; }"
-        )
+        if self._compact:
+            self.input_edit.setMinimumWidth(scale_px(95))
+            self.input_edit.setMaximumWidth(scale_px(150))
+            self.input_edit.setStyleSheet(
+                f"QLineEdit#TagCloudInput {{ background: {C.BG_CARD}; color: {C.TEXT_BODY}; "
+                f"border: 1px dashed {C.BORDER_STRONG}; border-radius: 9px; font-size: 11px; padding: 1px 6px; }} "
+                f"QLineEdit#TagCloudInput:focus {{ border-style: solid; border-color: {C.INFO_ACCENT}; }}"
+            )
+        else:
+            self.input_edit.setMinimumWidth(190)
+            self.input_edit.setStyleSheet(
+                "QLineEdit#TagCloudInput { border: none; background: transparent; font-size: 11px; padding: 2px 4px; }"
+            )
+        self.input_edit.setSizePolicy(QSizePolicy.Expanding if not self._compact else QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.input_edit.returnPressed.connect(self._on_enter_pressed)
         self.input_edit.textChanged.connect(self._on_text_changed)
         self.input_edit.backspace_pressed.connect(self._on_backspace_pressed)
@@ -157,9 +192,11 @@ class TagCloudWidget(QFrame):
             self.pick_btn = QPushButton(self._empty_dropdown_label)
             self.pick_btn.setCursor(Qt.PointingHandCursor)
             self.pick_btn.setEnabled(False)
+            btn_radius = 9 if self._compact else 10
+            btn_pad = "1px 7px" if self._compact else "2px 8px"
             self.pick_btn.setStyleSheet(
                 f"QPushButton {{ background: {C.BG_SURFACE}; color: {C.TEXT_BODY}; border: 1px solid {C.BORDER_STRONG}; "
-                "border-radius: 10px; padding: 2px 8px; font-size: 11px; }"
+                f"border-radius: {btn_radius}px; padding: {btn_pad}; font-size: 11px; }}"
                 f"QPushButton:hover:enabled {{ background: {C.INFO_SOFT}; border-color: {C.INFO_ACCENT}; }}"
                 f"QPushButton:disabled {{ color: {C.TEXT_MUTED}; border-style: dashed; }}"
             )
@@ -272,6 +309,19 @@ class TagCloudWidget(QFrame):
         status_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         footer.addWidget(status_lbl, 1)
 
+        btn_clear = QPushButton("Clear", container)
+        btn_clear.setCursor(Qt.PointingHandCursor)
+        btn_clear.setToolTip("Clear all tags in this category")
+        btn_clear.setStyleSheet(
+            f"QPushButton {{ background: {C.BG_SURFACE}; color: {C.DANGER}; "
+            f"border: 1px solid {C.BORDER_STRONG}; border-radius: 4px; "
+            "padding: 2px 8px; font-size: 11px; } "
+            f"QPushButton:hover:enabled {{ background: {C.DANGER_SOFT}; border-color: {C.DANGER_BORDER}; }} "
+            f"QPushButton:disabled {{ color: {C.TEXT_MUTED}; }}"
+        )
+        self.pick_clear_btn = btn_clear
+        footer.addWidget(btn_clear)
+
         btn_done = QPushButton("Done ✓", container)
         btn_done.setCursor(Qt.PointingHandCursor)
         btn_done.setStyleSheet(
@@ -288,10 +338,19 @@ class TagCloudWidget(QFrame):
             total = list_widget.count()
             shown = sum(1 for i in range(total) if not list_widget.item(i).isHidden())
             sel_cnt = sum(1 for i in range(total) if list_widget.item(i).data(Qt.CheckStateRole) == Qt.Checked)
+            btn_clear.setEnabled(bool(self._tags))
             if shown < total:
                 status_lbl.setText(f"Showing {shown} of {total} · {sel_cnt} selected")
             else:
                 status_lbl.setText(f"{total} item(s) · {sel_cnt} selected")
+
+        def _on_clear_clicked():
+            self.clear_tags()
+            for i in range(list_widget.count()):
+                _style_item(list_widget.item(i), False)
+            _update_status()
+
+        btn_clear.clicked.connect(_on_clear_clicked)
 
         def _toggle_item(it: Optional[QListWidgetItem]):
             if it is None:
@@ -403,24 +462,107 @@ class TagCloudWidget(QFrame):
         self._rebuild_pills()
         self.tagsChanged.emit()
 
+    def set_overflow_expanded(self, expanded: bool):
+        """Expands or collapses overflow pills when max_visible_pills is configured."""
+        self._overflow_expanded = bool(expanded)
+        self._rebuild_pills()
+
+    def clear_tags(self):
+        """Removes all currently selected tags and emits tagsChanged if non-empty."""
+        if not self._tags:
+            return
+        self._tags = []
+        self._overflow_expanded = False
+        self._rebuild_pills()
+        self.tagsChanged.emit()
+
     def _rebuild_pills(self):
-        # Detach persistent input/dropdown controls first so FlowLayout.clear() never deletes them
+        # Detach persistent prefix/input/dropdown controls first so FlowLayout.clear() never deletes them
+        if self._prefix_lbl is not None:
+            self.flow_layout.removeWidget(self._prefix_lbl)
         self.flow_layout.removeWidget(self.input_edit)
         if self.pick_btn is not None:
             self.flow_layout.removeWidget(self.pick_btn)
+        self._overflow_btn = None
         self.flow_layout.clear()
 
-        for t in self._tags:
-            pill = TagPillItem(t, self, colors=self.pill_colors)
+        if self._prefix_lbl is not None:
+            self.flow_layout.addWidget(self._prefix_lbl)
+
+        limit = self._max_visible_pills
+        if limit and not self._overflow_expanded and len(self._tags) > limit:
+            visible_tags = self._tags[:limit]
+            hidden_tags = self._tags[limit:]
+        else:
+            visible_tags = self._tags
+            hidden_tags = []
+
+        for t in visible_tags:
+            pill = TagPillItem(t, self, colors=self.pill_colors, compact=self._compact)
             pill.removed.connect(self.remove_tag)
             self.flow_layout.addWidget(pill)
+
+        if limit and len(self._tags) > limit:
+            ov_txt = f"+{len(hidden_tags)} more" if hidden_tags else "Show less"
+            ov_btn = QPushButton(ov_txt, self)
+            ov_btn.setCursor(Qt.PointingHandCursor)
+            ov_btn.setToolTip(
+                f"Show all {len(self._tags)} tags: {', '.join(hidden_tags)}"
+                if hidden_tags
+                else "Collapse extra tags"
+            )
+            ov_btn.setStyleSheet(
+                f"QPushButton {{ background: {C.BG_SURFACE}; color: {C.TEXT_SECONDARY}; "
+                f"border: 1px solid {C.BORDER_STRONG}; border-radius: 9px; "
+                "padding: 1px 6px; font-size: 11px; font-weight: 500; }"
+                f"QPushButton:hover {{ background: {C.INFO_SOFT}; border-color: {C.INFO_ACCENT}; color: {C.INFO_DARK}; }}"
+            )
+            ov_btn.clicked.connect(lambda _=False, exp=bool(hidden_tags): self.set_overflow_expanded(exp))
+            self._overflow_btn = ov_btn
+            self.flow_layout.addWidget(ov_btn)
 
         if self.pick_btn is not None:
             self.flow_layout.addWidget(self.pick_btn)
             self._update_pick_button_state()
         else:
             self.flow_layout.addWidget(self.input_edit)
+        self.flow_layout.invalidate()
         self.updateGeometry()
+        parent = self.parentWidget()
+        if parent is not None and parent.layout() is not None:
+            parent.layout().invalidate()
+            parent.updateGeometry()
+
+    def hasHeightForWidth(self) -> bool:
+        return True if self._compact else super().hasHeightForWidth()
+
+    def heightForWidth(self, width: int) -> int:
+        if self._compact:
+            return self.flow_layout.heightForWidth(width)
+        return super().heightForWidth(width)
+
+    def sizeHint(self) -> QSize:
+        if not self._compact:
+            return super().sizeHint()
+        margins = self.contentsMargins()
+        l_m, t_m, r_m, b_m = self.flow_layout.getContentsMargins()
+        h_space = max(0, self.flow_layout.horizontalSpacing())
+        total_w = margins.left() + margins.right() + l_m + r_m
+        max_h = 0
+        vis_cnt = 0
+        for i in range(self.flow_layout.count()):
+            it = self.flow_layout.itemAt(i)
+            wid = it.widget() if it else None
+            if wid is not None and wid.isHidden():
+                continue
+            sz = it.sizeHint()
+            total_w += sz.width()
+            max_h = max(max_h, sz.height())
+            vis_cnt += 1
+        if vis_cnt > 1:
+            total_w += h_space * (vis_cnt - 1)
+        total_h = max(scale_px(22), max_h + margins.top() + margins.bottom() + t_m + b_m)
+        return QSize(total_w, total_h)
 
     def tags(self) -> List[str]:
         return list(self._tags)
@@ -432,6 +574,7 @@ class TagCloudWidget(QFrame):
     def setText(self, text: str):
         """Sets tags from comma-separated or semicolon-separated string."""
         self._tags = []
+        self._overflow_expanded = False
         if text:
             parts = re.split(r"[,;]+", str(text))
             for p in parts:

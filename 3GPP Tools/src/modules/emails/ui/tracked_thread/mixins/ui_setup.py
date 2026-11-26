@@ -5,7 +5,6 @@ from PyQt5.QtWidgets import (
     QAction,
     QComboBox,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -22,6 +21,8 @@ from core.ai.cli_detector import detect_cli_agents, format_active_model_badge
 from core.ai.cli_launcher import open_mcp_agent_setup_dialog
 from core.ui.flow_layout import FlowLayout
 from core.ui.font_scale import bind_reader_zoom_settings, create_help_tips_pill, scale_px
+from core.ui.theme import C
+from core.ui.ui_components import escape_qt_mnemonic
 from modules.emails.core.thread_markdown_exporter import apply_email_reader_document_style
 from modules.emails.ui.ai_summary import (
     InlineEmailSummaryCard,
@@ -31,7 +32,6 @@ from modules.emails.ui.ai_summary import (
 from modules.emails.ui.sync_progress_bar import AsyncSyncProgressBar
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.topic_pills import TagCloudWidget
-from core.ui.theme import C
 
 
 class TrackedThreadUiSetupMixin:
@@ -63,72 +63,93 @@ class TrackedThreadUiSetupMixin:
         header_row.addWidget(self.links_toggle_btn)
         layout.addLayout(header_row)
 
-        # Collapsible compact 2-column Links & Tags panel
+        # Collapsible compact flowing Links & Tags panel
         self.links_panel = QFrame(self)
         self.links_panel.setObjectName("LinksPanel")
         self.links_panel.setStyleSheet(
             f"#LinksPanel {{ background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; }}"
         )
-        links_grid = QGridLayout(self.links_panel)
-        links_grid.setContentsMargins(8, 6, 8, 6)
-        links_grid.setHorizontalSpacing(10)
-        links_grid.setVerticalSpacing(4)
-        links_grid.setColumnStretch(1, 1)
-        links_grid.setColumnStretch(3, 1)
+        links_vbox = QVBoxLayout(self.links_panel)
+        links_vbox.setContentsMargins(6, 4, 6, 4)
+        links_vbox.setSpacing(3)
 
-        links_grid.addWidget(QLabel("<b>AIs:</b>"), 0, 0, Qt.AlignVCenter)
+        row1_widget = QWidget(self.links_panel)
+        row1_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        row1_sp.setHeightForWidth(True)
+        row1_widget.setSizePolicy(row1_sp)
+        links_row1 = FlowLayout(row1_widget, margin=0, h_spacing=8, v_spacing=2)
+
         self.ais_pills = TagCloudWidget(
             placeholder="AI # (e.g. 20.6.1)...",
             pill_colors={"bg": C.INFO_SOFT, "fg": C.INFO, "border": C.INFO_BORDER},
             strict_dropdown=True,
-            dropdown_label="+ Add AI ▾",
+            dropdown_label="+ AI ▾",
             empty_dropdown_label="No meeting AIs",
+            compact=True,
+            prefix_label="AIs:",
+            max_visible_pills=4,
         )
         self.ais_pills.set_suggestions(self._ai_suggestions, value_extractor=lambda s: s.split(" — ", 1)[0].strip())
         self.ais_pills.tagsChanged.connect(self._on_links_changed)
-        links_grid.addWidget(self.ais_pills, 0, 1)
+        links_row1.addWidget(self.ais_pills)
 
-        links_grid.addWidget(QLabel("<b>Sub-Topics:</b>"), 0, 2, Qt.AlignVCenter)
         self.sub_items_pills = TagCloudWidget(
             placeholder="AI Sub-Topic...",
             pill_colors={"bg": C.TEAL_SURFACE, "fg": C.TEAL_DARK, "border": C.TEAL_BORDER},
             strict_dropdown=True,
-            dropdown_label="+ Add Sub-Topic ▾",
+            dropdown_label="+ Sub ▾",
             empty_dropdown_label="Assign AI first",
+            compact=True,
+            prefix_label="Sub:",
+            max_visible_pills=3,
         )
         self.sub_items_pills.set_suggestions([], value_extractor=lambda s: s.split(" — ", 1)[0].strip())
         self.sub_items_pills.tagsChanged.connect(self._on_links_changed)
-        links_grid.addWidget(self.sub_items_pills, 0, 3)
+        links_row1.addWidget(self.sub_items_pills)
 
-        links_grid.addWidget(QLabel("<b>WIs:</b>"), 1, 0, Qt.AlignVCenter)
         self.wis_pills = TagCloudWidget(
             placeholder="Work Item (e.g. FS_6G_ARC)...",
             pill_colors={"bg": C.WG_SA_BG, "fg": C.INDIGO_DARK, "border": C.WG_SA_BORDER},
             strict_dropdown=True,
-            dropdown_label="+ Add WI ▾",
+            dropdown_label="+ WI ▾",
             empty_dropdown_label="No meeting WIs",
+            compact=True,
+            prefix_label="WIs:",
+            max_visible_pills=3,
         )
         self.wis_pills.set_suggestions(self._wi_suggestions, value_extractor=lambda s: s.split(" — ", 1)[0].strip())
         self.wis_pills.tagsChanged.connect(self._on_links_changed)
-        links_grid.addWidget(self.wis_pills, 1, 1)
+        links_row1.addWidget(self.wis_pills)
+        links_vbox.addWidget(row1_widget)
 
-        links_grid.addWidget(QLabel("<b>TDocs:</b>"), 1, 2, Qt.AlignVCenter)
+        row2_widget = QWidget(self.links_panel)
+        row2_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        row2_sp.setHeightForWidth(True)
+        row2_widget.setSizePolicy(row2_sp)
+        links_row2 = FlowLayout(row2_widget, margin=0, h_spacing=8, v_spacing=2)
+
         self.tdocs_pills = TagCloudWidget(
-            placeholder="TDoc # (auto-expands revs)...",
+            placeholder="+ TDoc #...",
             pill_colors={"bg": C.WG_RAN_BG, "fg": C.EMERALD_DARK, "border": C.WG_RAN_BORDER},
+            compact=True,
+            prefix_label="TDocs:",
+            max_visible_pills=5,
         )
         self.tdocs_pills.set_suggestions(self._tdoc_suggestions, value_extractor=lambda s: s.split(" — ", 1)[0].strip().upper())
         self.tdocs_pills.tagsChanged.connect(self._on_links_changed)
-        links_grid.addWidget(self.tdocs_pills, 1, 3)
+        links_row2.addWidget(self.tdocs_pills)
 
-        links_grid.addWidget(QLabel("<b>Tags:</b>"), 2, 0, Qt.AlignVCenter)
         self.tags_pills = TagCloudWidget(
-            placeholder="Personal tag (e.g. Key Issue, Follow-up)...",
+            placeholder="+ Tag...",
             pill_colors={"bg": C.WARNING_SOFT_ALT, "fg": C.WARNING_DARK, "border": C.WARNING_BORDER_STRONG},
+            compact=True,
+            prefix_label="Tags:",
+            max_visible_pills=5,
         )
         self.tags_pills.set_suggestions(self._all_existing_tags)
         self.tags_pills.tagsChanged.connect(self._on_links_changed)
-        links_grid.addWidget(self.tags_pills, 2, 1, 1, 3)
+        links_row2.addWidget(self.tags_pills)
+        links_vbox.addWidget(row2_widget)
 
         self.links_panel.setVisible(saved_links_open)
         layout.addWidget(self.links_panel)
@@ -318,7 +339,15 @@ class TrackedThreadUiSetupMixin:
         )
         arrow = "▾" if self.links_toggle_btn.isChecked() else "▸"
         suffix = f" ({total_items})" if total_items > 0 else ""
-        self.links_toggle_btn.setText(f"🏷️ Links && Tags{suffix} {arrow}")
+        preview_parts = []
+        ais = thread.get("linked_ais") or []
+        if ais:
+            preview_parts.append(ais[0] if len(ais) == 1 else f"{ais[0]} (+{len(ais) - 1})")
+        wis = thread.get("linked_wis") or []
+        if wis:
+            preview_parts.append(wis[0] if len(wis) == 1 else f"{wis[0]} (+{len(wis) - 1})")
+        preview = f" · {escape_qt_mnemonic(' · '.join(preview_parts))}" if preview_parts else ""
+        self.links_toggle_btn.setText(f"🏷️ Links && Tags{suffix}{preview} {arrow}")
         parts = []
         for label, key in (
             ("AIs", "linked_ais"),

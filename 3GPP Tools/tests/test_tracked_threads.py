@@ -2487,13 +2487,15 @@ def test_reader_formatting_cleanup_and_compact_inbox_header(tmp_path):
     )
     assert dlg.table.rowCount() == 1
     assert "(Vivo) (Vivo)" not in dlg.detail_meta_lbl.text()
-    assert "20S2-" not in dlg.detail_links_lbl.text()
+    assert not dlg.detail_links_lbl.text().__contains__("20S2-")
     assert "S2-2611844" in dlg.detail_links_lbl.text()
+    # Default collapsed assignment bar (Option C) with live summary on toggle button
+    assert dlg.assign_frame.isHidden()
+    assert "Set AI / WI" in dlg.btn_toggle_assign_bar.text()
+    dlg.btn_toggle_assign_bar.click()
     assert not dlg.assign_frame.isHidden()
     dlg.btn_toggle_assign_bar.click()
     assert dlg.assign_frame.isHidden()
-    dlg.btn_toggle_assign_bar.click()
-    assert not dlg.assign_frame.isHidden()
     dlg.close()
 
 
@@ -3214,4 +3216,114 @@ def test_tdocs_menu_and_inbox_multi_select_merge(tmp_path):
     merged_msgs = tdb.get_thread_messages(t1)
     assert {m["id"] for m in merged_msgs} == {"MA1", "GU-1"}
     inbox.close()
+
+
+def test_compact_tag_cloud_overflow_clear_and_live_toggle_summaries(tmp_path):
+    from PyQt5.QtCore import QSettings
+    from PyQt5.QtWidgets import QApplication
+    from modules.emails.core.general_email_db import GeneralEmailDatabase
+    from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
+    from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
+    from modules.meetings.ui.topic_pills import TagCloudWidget, TagPillItem
+
+    app = QApplication.instance() or QApplication([])
+
+    # 1. Compact TagCloudWidget: inline prefix, +N more overflow collapse/expand, Clear button & setText reset
+    cloud = TagCloudWidget(
+        strict_dropdown=True,
+        dropdown_label="+ AI ▾",
+        compact=True,
+        prefix_label="AI:",
+        max_visible_pills=4,
+    )
+    cloud.set_suggestions(["20.6.0", "20.6.1", "20.6.2", "20.6.3", "20.6.4", "20.6.5"])
+    cloud.setText("20.6.0, 20.6.1, 20.6.2, 20.6.3, 20.6.4, 20.6.5")
+    pills = cloud.findChildren(TagPillItem)
+    assert len(pills) == 4
+    assert cloud._overflow_btn is not None
+    assert "+2 more" in cloud._overflow_btn.text()
+
+    cloud._overflow_btn.click()
+    assert len(cloud.findChildren(TagPillItem)) == 6
+    assert "Show less" in cloud._overflow_btn.text()
+
+    cloud._overflow_btn.click()
+    assert len(cloud.findChildren(TagPillItem)) == 4
+
+    # setText resets expanded state back to compact collapsed view
+    cloud._overflow_btn.click()
+    assert len(cloud.findChildren(TagPillItem)) == 6
+    cloud.setText("20.6.0, 20.6.1, 20.6.2, 20.6.3, 20.6.4")
+    assert len(cloud.findChildren(TagPillItem)) == 4
+    assert "+1 more" in cloud._overflow_btn.text()
+
+    # Clear button inside dropdown menu clears all tags and emits tagsChanged
+    changes = []
+    cloud.tagsChanged.connect(lambda: changes.append(list(cloud.tags())))
+    cloud._populate_pick_menu()
+    assert cloud.pick_clear_btn is not None
+    assert cloud.pick_clear_btn.isEnabled()
+    cloud.pick_clear_btn.click()
+    assert cloud.tags() == []
+    assert changes and changes[-1] == []
+
+    # 2. MeetingEmailInboxDialog live summary & mnemonic escaping on collapsed toggle button
+    tdb = TrackedThreadsDatabase(tmp_path / "compact_inbox_threads.db")
+    gdb = GeneralEmailDatabase(tmp_path / "compact_inbox_gen.db")
+    t1 = tdb.create_or_get_thread(
+        "6G Architecture & QoS",
+        "6g architecture & qos",
+        conversation_id="CID-COMPACT",
+        meeting_id="SA2#178",
+        wg="SA2",
+        linked_ais=["20.6.1", "20.6.2"],
+        linked_wis=["FS_6G_ARC&QoS"],
+        linked_sub_items=["KI#1 Architecture & Flow"],
+    )
+    tdb.upsert_messages(
+        t1,
+        [{"id": "MC-1", "sender_name": "Alice (Nokia)", "company": "Nokia", "date_sent": "2026-11-20 09:00:00", "body_text": "Body", "is_read": 0}],
+    )
+    dlg = MeetingEmailInboxDialog(
+        tdb,
+        gdb,
+        meeting_id="SA2#178",
+        wg="SA2",
+        settings=QSettings(str(tmp_path / "compact_live.ini"), QSettings.IniFormat),
+    )
+    assert dlg.assign_frame.isHidden()
+    btn_txt = dlg.btn_toggle_assign_bar.text()
+    assert "20.6.1 (+1)" in btn_txt
+    assert "FS_6G_ARC&&QoS" in btn_txt
+    assert "1 sub" in btn_txt
+    dlg.assign_ais_pills.clear_tags()
+    dlg.assign_subs_pills.clear_tags()
+    dlg.assign_wis_pills.clear_tags()
+    assert "Set AI / WI" in dlg.btn_toggle_assign_bar.text()
+    dlg.close()
+
+    # 3. TrackedThreadDialog compact links panel & live AI/WI preview on toggle button
+    t2 = tdb.create_or_get_thread(
+        "Tracked Preview Thread",
+        "tracked preview thread",
+        conversation_id="CID-COMPACT-2",
+        meeting_id="SA2#178",
+        wg="SA2",
+        linked_ais=["20.6.1", "20.6.2"],
+        linked_wis=["FS_6G_ARC&QoS"],
+        linked_sub_items=["KI#1 Architecture & Flow"],
+    )
+    tdlg = TrackedThreadDialog(tdb, t2)
+    tdlg._settings.setValue("links_panel_expanded", False)
+    tdlg.links_toggle_btn.setChecked(False)
+    tdlg._update_links_toggle_label(tdb.get_thread(t2) or {})
+    assert not tdlg.links_panel.isVisible()
+    assert "Links && Tags" in tdlg.links_toggle_btn.text()
+    assert "20.6.1 (+1)" in tdlg.links_toggle_btn.text()
+    assert "FS_6G_ARC&&QoS" in tdlg.links_toggle_btn.text()
+    tdlg.links_toggle_btn.setChecked(True)
+    assert not tdlg.links_panel.isHidden()
+    assert tdlg.ais_pills._compact is True
+    assert tdlg.tdocs_pills._compact is True
+    tdlg.close()
 
