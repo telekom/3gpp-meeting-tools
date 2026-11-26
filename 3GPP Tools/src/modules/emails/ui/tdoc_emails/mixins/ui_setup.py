@@ -24,7 +24,7 @@ from core.ui.flow_layout import FlowLayout
 from core.ui.font_scale import bind_reader_zoom_settings, create_help_tips_pill, scale_px
 from core.ui.theme import C
 from modules.emails.core.thread_markdown_exporter import apply_email_reader_document_style
-from modules.emails.ui.ai_summary import InlineEmailSummaryCard
+from modules.emails.ui.ai_summary import InlineEmailSummaryCard, SummaryReaderLayoutController
 from modules.emails.ui.meeting_email_inbox_dialog import (
     _NotePlainTextEdit,
     get_compact_action_bar_qss,
@@ -342,4 +342,11 @@ class TDocEmailsUiSetupMixin:
         self.browser.anchorClicked.connect(self._on_anchor_clicked)
         bind_reader_zoom_settings(self.browser, self._settings, key="zoom_steps")
         self.reader_splitter.setSizes([190, 480])
+        self.summary_layout_ctrl = SummaryReaderLayoutController(
+            self.reader_splitter,
+            self.summary_card,
+            self.browser,
+            settings_prefix="tdoc_emails",
+            owner=self,
+        )
         layout.addWidget(self.reader_splitter, 1)

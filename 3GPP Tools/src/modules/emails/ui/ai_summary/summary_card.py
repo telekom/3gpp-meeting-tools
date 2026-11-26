@@ -47,6 +47,9 @@ class InlineEmailSummaryCard(QFrame):
     anchor_clicked = pyqtSignal(QUrl)
     append_to_notes_requested = pyqtSignal(str)
     summary_saved = pyqtSignal(object)  # EmailSummaryRecord
+    expand_toggled = pyqtSignal(bool)
+    scope_visibility_changed = pyqtSignal(bool)
+    header_double_clicked = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None, *, settings_key: str = "inline_summary_expanded") -> None:
         super().__init__(parent)
@@ -68,6 +71,7 @@ class InlineEmailSummaryCard(QFrame):
         self._worker: Optional[EmailSummaryTaskWorker] = None
         self._m365_dialog = None
         self._last_error: str = ""
+        self._popped_out: bool = False
         self._stream_chunks: List[str] = []
 
         self.setStyleSheet(
@@ -89,6 +93,9 @@ class InlineEmailSummaryCard(QFrame):
         hdr_sp.setHeightForWidth(True)
         hdr_bar.setSizePolicy(hdr_sp)
         hdr = FlowLayout(hdr_bar, margin=0, h_spacing=6, v_spacing=4)
+        self._hdr_bar = hdr_bar
+        self._hdr_flow = hdr
+        hdr_bar.mouseDoubleClickEvent = lambda ev: (self.header_double_clicked.emit(), ev.accept())
         ctrl_h = scale_px(24)
 
         self.btn_toggle = QPushButton("▾ 🤖 AI Summary", hdr_bar)
@@ -234,6 +241,27 @@ class InlineEmailSummaryCard(QFrame):
         self._model_override = spec
         self._refresh_header_labels()
 
+    def has_active_content(self) -> bool:
+        return bool(self._current_record is not None or self.is_running() or self._last_error)
+
+    def set_expanded(self, expanded: bool, *, emit_signal: bool = False) -> None:
+        self._expanded = bool(expanded)
+        self._settings.setValue(self._settings_key, self._expanded)
+        self._apply_expand_state()
+        if emit_signal:
+            self.expand_toggled.emit(self._expanded)
+
+    def set_popped_out(self, popped_out: bool) -> None:
+        self._popped_out = bool(popped_out)
+        if self._popped_out:
+            self.setVisible(False)
+        elif not self.has_active_content():
+            self.setVisible(False)
+        else:
+            self.setVisible(True)
+            self._render_record()
+            self._refresh_header_labels()
+
     def clear_scope(self) -> None:
         self._scope = None
         self._messages = []
@@ -243,6 +271,7 @@ class InlineEmailSummaryCard(QFrame):
         self.error_banner.clear_error()
         if not self.is_running():
             self.setVisible(False)
+        self.scope_visibility_changed.emit(self.has_active_content())
 
     def bind_scope(
         self,
@@ -278,11 +307,14 @@ class InlineEmailSummaryCard(QFrame):
 
         if self._current_record is None and not self.is_running():
             self.setVisible(False)
+            self._refresh_header_labels()
+            self.scope_visibility_changed.emit(False)
             return self._current_freshness
 
-        self.setVisible(True)
+        self.setVisible(not self._popped_out)
         self._render_record()
         self._refresh_header_labels()
+        self.scope_visibility_changed.emit(self.has_active_content())
         return self._current_freshness
 
     def current_freshness(self) -> Optional[SummaryFreshness]:
@@ -292,12 +324,10 @@ class InlineEmailSummaryCard(QFrame):
         return bool(self._worker is not None and self._worker.isRunning())
 
     def _on_toggle_expand(self) -> None:
-        self._expanded = not self._expanded
-        self._settings.setValue(self._settings_key, self._expanded)
-        self._apply_expand_state()
+        self.set_expanded(not self._expanded, emit_signal=True)
 
     def _apply_expand_state(self) -> None:
-        has_body = self._current_record is not None or self.is_running()
+        has_body = self._current_record is not None or self.is_running() or (self._popped_out and not self._last_error)
         self.body_browser.setVisible(self._expanded and has_body)
         arrow = "▾" if self._expanded else "▸"
         self.btn_toggle.setText(f"{arrow} 🤖 AI Summary")
@@ -305,7 +335,7 @@ class InlineEmailSummaryCard(QFrame):
     def _render_record(self) -> None:
         self._apply_expand_state()
         if self._current_record is None:
-            self.body_browser.setMarkdown("*No summary generated yet.*")
+            self.body_browser.setMarkdown("*No AI summary generated yet.*")
             return
         self.body_browser.setMarkdown(self._current_record.summary_md)
 
@@ -385,12 +415,7 @@ class InlineEmailSummaryCard(QFrame):
             )
             self.btn_update.setVisible(False)
 
-    def trigger_summarize(
-        self,
-        *,
-        mode: str = "auto",
-        model_override: Optional[ModelSpec] = None,
-    ) -> None:
+    def trigger_summarize(self, *, mode: str = "auto", model_override: Optional[ModelSpec] = None) -> None:
         if self._store is None or self._scope is None:
             return
         if not self._messages:
@@ -405,7 +430,7 @@ class InlineEmailSummaryCard(QFrame):
         self.error_banner.clear_error()
         self._expanded = True
         self._settings.setValue(self._settings_key, True)
-        self.setVisible(True)
+        self.setVisible(not self._popped_out)
         self._stream_chunks = []
         self.body_browser.setVisible(True)
         self.body_browser.setPlainText("Initializing summary...")
@@ -416,18 +441,10 @@ class InlineEmailSummaryCard(QFrame):
             f"background-color: {C.INFO_SOFT}; color: {C.INFO}; border: 1px solid {C.INFO_BORDER}; "
             f"border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: bold;"
         )
-
         self._worker = EmailSummaryTaskWorker(
-            self._store.db_path,
-            self._scope,
-            self._messages,
-            meeting_dir=self._meeting_dir,
-            wg=self._wg,
-            meeting_id=self._meeting_id,
-            mode=mode,
-            model_spec=spec,
-            tdoc_meta=self._tdoc_meta,
-            parent=self,
+            self._store.db_path, self._scope, self._messages,
+            meeting_dir=self._meeting_dir, wg=self._wg, meeting_id=self._meeting_id,
+            mode=mode, model_spec=spec, tdoc_meta=self._tdoc_meta, parent=self,
         )
         self._worker.progress_changed.connect(self._on_worker_progress)
         self._worker.token_received.connect(self._on_worker_token)
@@ -435,6 +452,7 @@ class InlineEmailSummaryCard(QFrame):
         self._worker.summary_failed.connect(self._on_worker_failed)
         self._worker.finished.connect(self._on_worker_finished)
         self._refresh_header_labels()
+        self.scope_visibility_changed.emit(self.has_active_content())
         self._worker.start()
 
     def _on_worker_progress(self, msg: str) -> None:
@@ -460,6 +478,7 @@ class InlineEmailSummaryCard(QFrame):
             )
         self._render_record()
         self._refresh_header_labels()
+        self.scope_visibility_changed.emit(self.has_active_content())
         self.summary_saved.emit(record)
 
     def _on_worker_failed(self, err: str) -> None:
@@ -470,15 +489,18 @@ class InlineEmailSummaryCard(QFrame):
         else:
             self._apply_expand_state()
         self._refresh_header_labels()
+        self.scope_visibility_changed.emit(self.has_active_content())
 
     def _on_dismiss_error(self) -> None:
         self._last_error = ""
         self.error_banner.clear_error()
-        if self._current_record is None and not self.is_running():
+        if self._current_record is None and not self.is_running() and not self._popped_out:
             self.setVisible(False)
+            self.scope_visibility_changed.emit(False)
             return
         self._render_record()
         self._refresh_header_labels()
+        self.scope_visibility_changed.emit(self.has_active_content())
 
     def _on_worker_finished(self) -> None:
         self._worker = None
@@ -489,12 +511,7 @@ class InlineEmailSummaryCard(QFrame):
             self._worker.request_cancel()
             self.freshness_pill.setText("Cancelling...")
 
-    def open_m365_copilot_handoff(
-        self,
-        *,
-        mode: str = "auto",
-        auto_launch: bool = True,
-    ):
+    def open_m365_copilot_handoff(self, *, mode: str = "auto", auto_launch: bool = True):
         """Open the modeless Send & Paste-Back dialog for Microsoft 365 Copilot."""
         if self._store is None or self._scope is None:
             return None
@@ -512,34 +529,23 @@ class InlineEmailSummaryCard(QFrame):
             self._m365_dialog = None
 
         packet = build_leaf_handoff_packet(
-            self._store,
-            self._scope,
-            self._messages,
-            meeting_dir=self._meeting_dir,
-            wg=self._wg,
-            meeting_id=self._meeting_id,
-            mode=mode,
-            tdoc_meta=self._tdoc_meta,
+            self._store, self._scope, self._messages,
+            meeting_dir=self._meeting_dir, wg=self._wg, meeting_id=self._meeting_id,
+            mode=mode, tdoc_meta=self._tdoc_meta,
         )
         dlg = M365CopilotHandoffDialog(
-            self._store,
-            packet,
-            auto_launch=auto_launch,
-            meeting_dir=self._meeting_dir,
-            owner=self.window(),
+            self._store, packet, auto_launch=auto_launch, meeting_dir=self._meeting_dir, owner=self.window()
         )
         dlg.summary_saved.connect(self._on_external_summary_saved)
         dlg.destroyed.connect(lambda _=None: setattr(self, "_m365_dialog", None))
         self._m365_dialog = dlg
-        dlg.show()
-        dlg.raise_()
-        dlg.activateWindow()
+        dlg.show(); dlg.raise_(); dlg.activateWindow()
         return dlg
 
     def _on_external_summary_saved(self, record: EmailSummaryRecord) -> None:
         self._expanded = True
         self._settings.setValue(self._settings_key, True)
-        self.setVisible(True)
+        self.setVisible(not self._popped_out)
         self._on_worker_completed(record)
 
     def shutdown_worker(self) -> None:
@@ -559,13 +565,8 @@ class InlineEmailSummaryCard(QFrame):
         restored = self._store.revert_previous_version(self._scope.scope_type, self._scope.scope_key)
         if restored is not None:
             self._current_record = restored
-            self._current_freshness = self._store.compute_freshness(
-                self._scope.scope_type,
-                self._scope.scope_key,
-                self._messages,
-            )
-            self._render_record()
-            self._refresh_header_labels()
+            self._current_freshness = self._store.compute_freshness(self._scope.scope_type, self._scope.scope_key, self._messages)
+            self._render_record(); self._refresh_header_labels()
             self.summary_saved.emit(restored)
             notify_info(self, "Summary Reverted", "Restored previous AI summary version.")
 

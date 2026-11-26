@@ -22,7 +22,7 @@ from core.ui.flow_layout import FlowLayout
 from core.ui.font_scale import bind_reader_zoom_settings, scale_px
 from core.ui.theme import C
 from modules.emails.core.thread_markdown_exporter import apply_email_reader_document_style
-from modules.emails.ui.ai_summary import InlineEmailSummaryCard
+from modules.emails.ui.ai_summary import InlineEmailSummaryCard, SummaryReaderLayoutController
 from modules.meetings.ui.tdocs_dialogs import MY_STATUS_OPTIONS
 from modules.meetings.ui.topic_pills import TagCloudWidget
 from ..widgets import (
@@ -445,6 +445,14 @@ class InboxUiSetupMixin:
         self.preview_browser.anchorClicked.connect(self._on_anchor_clicked)
         bind_reader_zoom_settings(self.preview_browser, self._settings, key="zoom_steps")
         self.detail_reader_splitter.setSizes([190, 420])
+        self.summary_layout_ctrl = SummaryReaderLayoutController(
+            self.detail_reader_splitter,
+            self.summary_card,
+            self.preview_browser,
+            settings_prefix="meeting_inbox",
+            owner=self,
+            settings=self._settings if getattr(self, "_has_custom_settings", False) else None,
+        )
         right_layout.addWidget(self.detail_reader_splitter, 1)
 
         self.splitter.addWidget(left_widget)

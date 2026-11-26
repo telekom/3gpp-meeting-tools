@@ -23,7 +23,11 @@ from core.ai.cli_launcher import open_mcp_agent_setup_dialog
 from core.ui.flow_layout import FlowLayout
 from core.ui.font_scale import bind_reader_zoom_settings, create_help_tips_pill, scale_px
 from modules.emails.core.thread_markdown_exporter import apply_email_reader_document_style
-from modules.emails.ui.ai_summary import InlineEmailSummaryCard, populate_summary_model_menu
+from modules.emails.ui.ai_summary import (
+    InlineEmailSummaryCard,
+    SummaryReaderLayoutController,
+    populate_summary_model_menu,
+)
 from modules.emails.ui.sync_progress_bar import AsyncSyncProgressBar
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.topic_pills import TagCloudWidget
@@ -282,6 +286,13 @@ class TrackedThreadUiSetupMixin:
         self.browser.anchorClicked.connect(self._on_anchor_clicked)
         bind_reader_zoom_settings(self.browser, self._settings, key="zoom_steps")
         self.reader_splitter.setSizes([190, 480])
+        self.summary_layout_ctrl = SummaryReaderLayoutController(
+            self.reader_splitter,
+            self.summary_card,
+            self.browser,
+            settings_prefix="tracked_thread",
+            owner=self,
+        )
         layout.addWidget(self.reader_splitter, 1)
 
     def _on_order_changed(self):

@@ -280,6 +280,8 @@ class InboxLayoutAndSettingsMixin:
             if getattr(self, "_stats_thread", None) and self._stats_thread.isRunning():
                 self._stats_thread.requestInterruption()
                 self._stats_thread.wait(500)
+            if hasattr(self, "summary_layout_ctrl"):
+                self.summary_layout_ctrl.shutdown()
             if hasattr(self, "summary_card"):
                 self.summary_card.shutdown_worker()
             if getattr(self, "_briefings_dialog", None) is not None:

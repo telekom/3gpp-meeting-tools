@@ -93,6 +93,8 @@ class TrackedThreadDialog(
 
     def closeEvent(self, event):
         try:
+            if hasattr(self, "summary_layout_ctrl"):
+                self.summary_layout_ctrl.shutdown()
             if hasattr(self, "summary_card"):
                 self.summary_card.shutdown_worker()
             if getattr(self, "_refresh_worker", None) and self._refresh_worker.isRunning():

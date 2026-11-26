@@ -275,6 +275,109 @@ class TestEmailAiSummaryUi(unittest.TestCase):
         self.assertFalse(br_dlg.error_banner.isVisible())
         br_dlg.close()
 
+    def test_summary_reader_layout_modes_popout_and_jump_restore(self):
+        from modules.emails.ui.ai_summary import PopoutSummaryWindow
+
+        # Save a summary for the tracked thread and TDoc first
+        self.store.upsert_summary(
+            EmailSummaryRecord(
+                scope_type="thread",
+                scope_key=self.tid,
+                title="URSP rule update",
+                summary_md="### 1. Topic\nSummary body [Msg #1](jump://msg/1)",
+                covered_message_ids=["M1", "M2"],
+                cutoff_utc="2026-04-14 11:00:00",
+                provider="m365-copilot",
+                model="M365 Copilot",
+            )
+        )
+        self.store.upsert_summary(
+            EmailSummaryRecord(
+                scope_type="tdoc",
+                scope_key="S2-2602001",
+                title="S2-2602001",
+                summary_md="### 1. Topic\nTDoc summary body [Msg #1](jump://msg/1)",
+                covered_message_ids=["G1"],
+                cutoff_utc="2026-04-14 12:00:00",
+                provider="m365-copilot",
+                model="M365 Copilot",
+            )
+        )
+
+        with patch(
+            "modules.emails.ui.ai_summary.layout_controller.QSettings",
+            return_value=self.settings,
+        ):
+            td_dlg = TDocEmailsDialog("S2-2602001", ["S2-2602001"], self.gdb.db_path, wg="SA2")
+            ctrl = td_dlg.summary_layout_ctrl
+            td_dlg.show()
+
+            # Side-by-Side (Summary Left | Emails Right)
+            ctrl.set_mode("split_h")
+            self.assertEqual(td_dlg.reader_splitter.orientation(), Qt.Horizontal)
+            self.assertEqual(td_dlg.reader_splitter.indexOf(td_dlg.summary_card), 0)
+            self.assertEqual(td_dlg.reader_splitter.indexOf(td_dlg.browser), 1)
+            self.assertTrue(td_dlg.browser.isVisible())
+
+            # Summary Only hides browser; clicking jump://msg/1 restores Side-by-Side
+            ctrl.set_mode("summary_only")
+            self.assertTrue(td_dlg.summary_card.isVisible())
+            self.assertFalse(td_dlg.browser.isVisible())
+            td_dlg.summary_card.anchor_clicked.emit(QUrl("jump://msg/1"))
+            self.assertEqual(ctrl.current_mode(), "split_h")
+            self.assertTrue(td_dlg.browser.isVisible())
+
+            # Slim collapse -> thread_only
+            td_dlg.summary_card.btn_toggle.click()
+            self.assertEqual(ctrl.current_mode(), "thread_only")
+            self.assertLessEqual(td_dlg.summary_card.maximumHeight(), 45)
+            self.assertTrue(td_dlg.browser.isVisible())
+
+            # Pop Out -> modeless PopoutSummaryWindow (mirrors live content, keeps inline card in splitter)
+            ctrl.set_mode("popout")
+            pop = ctrl._popout_win
+            self.assertIsInstance(pop, PopoutSummaryWindow)
+            self.assertIsNone(pop.parent())
+            self.assertEqual(pop.windowModality(), Qt.NonModal)
+            self.assertTrue(bool(pop.windowFlags() & Qt.Window))
+            self.assertTrue(pop.isVisible())
+            self.assertFalse(td_dlg.summary_card.isVisible())
+            self.assertTrue(td_dlg.browser.isVisible())
+            self.assertIn("TDoc summary body", pop.browser.toPlainText())
+
+            # Anchor clicked inside PopoutSummaryWindow forwards to summary_card -> scrolls parent reader
+            pop_jumps = []
+            td_dlg.summary_card.anchor_clicked.connect(pop_jumps.append)
+            pop.anchor_clicked.emit(QUrl("jump://msg/1"))
+            self.assertEqual(len(pop_jumps), 1)
+            self.assertEqual(pop_jumps[0].toString(), "jump://msg/1")
+
+            pop.close()
+            QApplication.processEvents()
+            self.assertIsNone(ctrl._popout_win)
+            self.assertTrue(td_dlg.summary_card.isVisible())
+            self.assertEqual(td_dlg.reader_splitter.indexOf(td_dlg.summary_card), 0)
+            self.assertNotEqual(ctrl.current_mode(), "popout")
+            td_dlg.close()
+
+            # TrackedThreadDialog and MeetingEmailInboxDialog also expose summary_layout_ctrl
+            tt_dlg = TrackedThreadDialog(self.tdb, self.tid)
+            self.assertTrue(hasattr(tt_dlg, "summary_layout_ctrl"))
+            tt_dlg.close()
+
+            inbox_dlg = MeetingEmailInboxDialog(
+                tracked_db=self.tdb,
+                general_email_db=self.gdb,
+                meeting_id="S2-174",
+                tdoc_ai_lookup={"S2-2602001": "6.1"},
+                wg="SA2",
+                ai_suggestions=["6.1 — 5GS Policy"],
+                settings=self.settings,
+            )
+            self.assertTrue(hasattr(inbox_dlg, "summary_layout_ctrl"))
+            inbox_dlg.close()
+            QApplication.processEvents()
+
 
 if __name__ == "__main__":
     unittest.main()

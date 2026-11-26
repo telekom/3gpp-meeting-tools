@@ -110,6 +110,11 @@ class TDocEmailsDialog(
                 self._settings.setValue("zoom_steps", int(self.browser.property("_reader_zoom_steps") or 0))
         except Exception:
             pass
+        if hasattr(self, "summary_layout_ctrl"):
+            try:
+                self.summary_layout_ctrl.shutdown()
+            except Exception:
+                pass
         if hasattr(self, "summary_card"):
             try:
                 self.summary_card.shutdown_worker()
