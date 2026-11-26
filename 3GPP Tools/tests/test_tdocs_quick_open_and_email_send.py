@@ -5,7 +5,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QSettings, Qt
 from PyQt5.QtWidgets import QApplication, QMenu
 
 from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
@@ -67,8 +67,14 @@ class TestTDocsQuickOpenEmailSendAndFilterPreserve(unittest.TestCase):
         shutil.rmtree(self.tmp_path, ignore_errors=True)
 
     def _make_window(self):
+        filter_settings = QSettings(str(self.tmp_path / "tdocs_filters.ini"), QSettings.IniFormat)
         with patch("modules.meetings.ui.tdocs.window.mixins.meeting_data.MeetingWIEnricherThread"):
-            win = TDocsWindow(self.mtg_info, list(self.sample_data), str(self.agenda_file))
+            win = TDocsWindow(
+                self.mtg_info,
+                list(self.sample_data),
+                str(self.agenda_file),
+                filter_settings=filter_settings,
+            )
         win.docs_ftp_url = "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178/Docs/"
         win.main_ftp_url = "https://www.3gpp.org/ftp/tsg_sa/WG2_Arch/TSGS2_178/"
         return win
@@ -285,8 +291,15 @@ class TestTDocsQuickOpenEmailSendAndFilterPreserve(unittest.TestCase):
         cb.setCheckedItems(["CATT"])
         self.assertEqual(cb.getCheckedItems(), ["CATT"])
 
-        cb.updateItems(["CATT", "Ericsson", "Huawei", "Nokia"])
+        # Existing items preserve the active selection
+        cb.updateItems(["CATT", "Ericsson", "Nokia"])
         self.assertEqual(cb.getCheckedItems(), ["CATT"])
+        self.assertTrue(cb.isFiltered())
+
+        # Newly discovered items (e.g. from a live sync) are auto-checked so they aren't hidden,
+        # while previously unchecked items stay unchecked.
+        cb.updateItems(["CATT", "Ericsson", "Huawei", "Nokia"])
+        self.assertEqual(cb.getCheckedItems(), ["CATT", "Huawei"])
         self.assertTrue(cb.isFiltered())
 
         win = self._make_window()

@@ -832,7 +832,7 @@ class DocxConverter:
             htxt = text.replace("\n", " ").strip()
             # If the entire heading text was bolded in Word, strip outer ** to avoid redundant Markdown bolding
             if htxt.startswith("**") and htxt.endswith("**") and len(htxt) >= 4:
-                htxt = htxt[2:-2].strip()
+                htxt = htxt[2:-2].replace("****", "").strip()
             if label and label != "-":
                 htxt = "%s %s" % (label, htxt)
             return note + "%s %s" % ("#" * level, htxt)

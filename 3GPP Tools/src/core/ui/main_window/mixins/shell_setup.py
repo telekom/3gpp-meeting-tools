@@ -404,9 +404,10 @@ class ShellSetupMixin:
             self.command_palette_shortcut.setContext(Qt.WindowShortcut)
             self.command_palette_shortcut.activated.connect(self.open_command_palette)
 
-        self.restart_shortcut = QShortcut(QKeySequence("Ctrl+Shift+R"), self)
-        self.restart_shortcut.setContext(Qt.WindowShortcut)
-        self.restart_shortcut.activated.connect(self.restart_application)
+        if hasattr(self, "restart_application"):
+            self.restart_shortcut = QShortcut(QKeySequence("Ctrl+Shift+R"), self)
+            self.restart_shortcut.setContext(Qt.WindowShortcut)
+            self.restart_shortcut.activated.connect(self.restart_application)
 
         self.zoom_in_shortcut = QShortcut(QKeySequence.ZoomIn, self)
         self.zoom_in_shortcut.setContext(Qt.WindowShortcut)
@@ -424,7 +425,8 @@ class ShellSetupMixin:
         self.zoom_reset_shortcut.setContext(Qt.WindowShortcut)
         self.zoom_reset_shortcut.activated.connect(lambda: self._zoom_active_reader(0, reset=True))
 
-        get_font_scale_notifier().scale_changed.connect(self._on_font_scale_changed)
+        if hasattr(self, "_on_font_scale_changed"):
+            get_font_scale_notifier().scale_changed.connect(self._on_font_scale_changed)
 
         if hasattr(self, "toggle_right_panel"):
             self.assistant_dock_shortcut = QShortcut(QKeySequence("Ctrl+Shift+A"), self)

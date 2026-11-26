@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from PyQt5.QtWidgets import QApplication
 
+from core.ui.font_scale import scale_px
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 
 
@@ -46,8 +47,8 @@ class TestTDocWindowFilterBar(unittest.TestCase):
             # Verify icon-only tracked WI buttons
             self.assertEqual(window.btn_followed_wis.text(), "🎯")
             self.assertEqual(window.btn_starred_wis.text(), "⭐")
-            self.assertEqual(window.btn_followed_wis.width(), 30)
-            self.assertEqual(window.btn_starred_wis.width(), 30)
+            self.assertEqual(window.btn_followed_wis.width(), scale_px(28))
+            self.assertEqual(window.btn_starred_wis.width(), scale_px(28))
 
             # Verify reset button exists and clears active filters
             self.assertTrue(hasattr(window, "btn_reset_filters"))

@@ -111,8 +111,9 @@ class TestXnAPParser(unittest.TestCase):
             self.skipTest("TS 38.331 test docx not found")
         disp = ProtocolDocxDispatcher([self.rrc_docx])
         messages, ie_defs = disp.parse()
-        self.assertEqual(len(messages), 46)
-        self.assertEqual(len(ie_defs), 1621)
+        # Non-PDU types (*-IEs-rXX, SetupRelease, lowercase inline fields) are filtered out.
+        self.assertEqual(len(messages), 41)
+        self.assertEqual(len(ie_defs), 1017)
 
 
 if __name__ == "__main__":
