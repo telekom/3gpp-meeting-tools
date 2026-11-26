@@ -7,7 +7,7 @@ Mixin of TDocsWindow: relies on attributes set in TDocsWindow.__init__ / _setup_
 import logging
 import re
 from pathlib import Path
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QSettings, Qt
 from PyQt5.QtWidgets import (
     QApplication,
     QMessageBox,
@@ -536,14 +536,20 @@ class TrackedThreadsMixin:
                 ai_label_map[code] = str(item)
         meta_map = self._build_tdoc_meta_map()
         gdb = getattr(self, "general_email_db", None)
+        mtg_label = self._get_meeting_id_label()
+        safe_mtg = re.sub(r"[^A-Za-z0-9_.-]+", "_", mtg_label or "_global").strip("_") or "_global"
+        inbox_settings = QSettings("3GPP_Tools", "MeetingEmailInboxDialog")
         followed_ais, _inherited, _cust = load_effective_followed_ais(
-            meeting_id=self._get_meeting_id_label(),
+            inbox_settings,
+            f"meetings/{safe_mtg}",
             tdoc_meta_map=meta_map,
             general_email_db_path=getattr(gdb, "db_path", None) if gdb else None,
+            available_ais=list(ai_label_map.keys()),
         )
         tdb = getattr(self, "tracked_threads_db", None)
         base_p = getattr(tdb, "db_path", None) or getattr(gdb, "db_path", None)
-        sum_db_p = (Path(base_p).parent / "email_summaries.db") if base_p else (self.meeting_dir / "Agenda" / "email_summaries.db")
+        fallback_dir = Path(getattr(self, "meeting_dir", None) or getattr(self, "cache_dir", "."))
+        sum_db_p = (Path(base_p).parent / "email_summaries.db") if base_p else (fallback_dir / "Agenda" / "email_summaries.db")
 
         dlg = EmailBriefingsDialog(
             tracked_db=tdb,

@@ -560,6 +560,35 @@ class TestEmailAiSummaryUi(unittest.TestCase):
         self.assertIn('href="jump://msg/6"', rendered_html)
         br_dlg.close()
 
+    def test_tdocs_window_open_email_briefings_dialog_does_not_crash(self):
+        from types import SimpleNamespace
+        from modules.meetings.ui.tdocs.window.mixins.tracked_threads import TrackedThreadsMixin
+
+        fake_win = SimpleNamespace(
+            mtg_info={"wg_name": "SA2", "meeting_number": "178"},
+            model=SimpleNamespace(
+                _data=[{"TDoc": "S2-2602001", "Agenda Item": "6.1", "Related WIs": "FS_6G_ARC", "Title": "URSP"}],
+                _split_related_wis=lambda s: [x.strip() for x in str(s or "").split(",") if x.strip()],
+            ),
+            agenda_map={},
+            general_email_db=self.gdb,
+            tracked_threads_db=self.tdb,
+            meeting_dir=self.tmp_path,
+            _briefings_dialog=None,
+            _get_meeting_id_label=lambda: "SA2#178",
+            _build_thread_autocomplete_suggestions=lambda: (["6.1 — 5GS Policy"], ["FS_6G_ARC"], [], [], {}),
+            _build_tdoc_meta_map=lambda: {"S2-2602001": {"ai": "6.1", "wis": ["FS_6G_ARC"], "my_status": "🔵 My TDoc"}},
+            _open_tdoc_document_directly=lambda _t: None,
+            _open_tracked_thread_dialog=lambda _t: None,
+            _jump_to_tdoc_from_signal=lambda _t: None,
+        )
+        TrackedThreadsMixin._open_email_briefings_dialog(fake_win)
+        self.assertIsNotNone(fake_win._briefings_dialog)
+        self.assertIn("SA2#178", fake_win._briefings_dialog.windowTitle())
+        self.assertIn("6.1", fake_win._briefings_dialog.followed_ais)
+        fake_win._briefings_dialog.close()
+        QApplication.processEvents()
+
 
 if __name__ == "__main__":
     unittest.main()
