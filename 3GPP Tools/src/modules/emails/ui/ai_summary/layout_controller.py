@@ -255,6 +255,8 @@ class SummaryReaderLayoutController(QObject):
 
         if hasattr(self._summary_card, "header_double_clicked"):
             self._summary_card.header_double_clicked.connect(self._on_header_double_clicked)
+        if hasattr(self._summary_card, "header_width_changed"):
+            self._summary_card.header_width_changed.connect(self._on_card_width_changed)
 
         self._summary_card.set_expanded(self._mode != "thread_only", emit_signal=False)
         self._apply_layout()
@@ -440,6 +442,26 @@ class SummaryReaderLayoutController(QObject):
             return [scale_px(430), scale_px(560)]
         return [scale_px(210), scale_px(430)]
 
+    def _effective_collapsed_width(self, measured_w: int = 0) -> int:
+        if self._splitter.isVisible() and self._splitter.width() > scale_px(240):
+            return max(measured_w, self._splitter.width())
+        owner_w = (self._owner.width() - scale_px(32)) if self._owner is not None else 0
+        return max(measured_w, self._splitter.width(), owner_w)
+
+    def _on_card_width_changed(self, width: int) -> None:
+        if self._shutting_down or self._mode != "thread_only":
+            return
+        if not self._summary_card.has_active_content() or not self._summary_card.isVisible():
+            return
+        if hasattr(self._summary_card, "collapsed_header_height"):
+            collapsed_h = self._summary_card.collapsed_header_height(self._effective_collapsed_width(width))
+        else:
+            collapsed_h = scale_px(38)
+        if self._summary_card.maximumHeight() != collapsed_h:
+            self._summary_card.setMaximumHeight(collapsed_h)
+            reader_h = max(scale_px(200), self._splitter.height() - collapsed_h, scale_px(580))
+            self._splitter.setSizes([collapsed_h, reader_h])
+
     def _apply_layout(self) -> None:
         self._sync_button_checks()
         has_inline_content = self._summary_card.has_active_content()
@@ -458,7 +480,7 @@ class SummaryReaderLayoutController(QObject):
             self._splitter.setOrientation(Qt.Vertical)
             self._summary_card.set_expanded(False, emit_signal=False)
             if hasattr(self._summary_card, "collapsed_header_height"):
-                collapsed_h = self._summary_card.collapsed_header_height(self._splitter.width())
+                collapsed_h = self._summary_card.collapsed_header_height(self._effective_collapsed_width())
             else:
                 collapsed_h = scale_px(38)
             self._summary_card.setMaximumHeight(collapsed_h)

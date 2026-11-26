@@ -5,17 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from PyQt5.QtCore import QSettings, Qt, QUrl, pyqtSignal
+from PyQt5.QtCore import QSettings, QTimer, Qt, QUrl, pyqtSignal
 from PyQt5.QtWidgets import (
-    QApplication,
-    QFrame,
-    QLabel,
-    QMenu,
-    QPushButton,
-    QSizePolicy,
-    QTextBrowser,
-    QVBoxLayout,
-    QWidget,
+    QApplication, QFrame, QLabel, QMenu, QPushButton,
+    QSizePolicy, QTextBrowser, QVBoxLayout, QWidget,
 )
 
 from core.ai.llm_runner import ModelSpec, resolve_effective_model_spec
@@ -24,12 +17,8 @@ from core.ui.font_scale import bind_reader_zoom_settings, scale_px
 from core.ui.theme import C
 from core.ui.toast import notify_info, notify_success
 from modules.emails.core.ai_summary import (
-    EmailSummaryRecord,
-    EmailSummaryStore,
-    EmailSummaryTaskWorker,
-    SummaryFreshness,
-    SummaryScope,
-    build_leaf_handoff_packet,
+    EmailSummaryRecord, EmailSummaryStore, EmailSummaryTaskWorker,
+    SummaryFreshness, SummaryScope, build_leaf_handoff_packet,
 )
 from modules.emails.core.markdown_export import apply_email_reader_document_style, format_compact_timestamp
 
@@ -49,6 +38,7 @@ class InlineEmailSummaryCard(QFrame):
     expand_toggled = pyqtSignal(bool)
     scope_visibility_changed = pyqtSignal(bool)
     header_double_clicked = pyqtSignal()
+    header_width_changed = pyqtSignal(int)
 
     def __init__(self, parent: Optional[QWidget] = None, *, settings_key: str = "inline_summary_expanded") -> None:
         super().__init__(parent)
@@ -131,70 +121,39 @@ class InlineEmailSummaryCard(QFrame):
             f"QPushButton:disabled {{ background-color: {C.BG_SURFACE}; color: {C.TEXT_FAINT}; }}"
         )
 
-        self.btn_update = QPushButton("⚡ Update", hdr_bar)
-        self.btn_update.setCursor(Qt.PointingHandCursor)
-        self.btn_update.setMinimumHeight(ctrl_h)
-        self.btn_update.setStyleSheet(
+        def _add_btn(text: str, qss: str, slot=None, tip: str = "", visible: bool = True) -> QPushButton:
+            btn = QPushButton(text, hdr_bar)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setMinimumHeight(ctrl_h)
+            btn.setStyleSheet(qss)
+            if tip:
+                btn.setToolTip(tip)
+            if slot is not None:
+                btn.clicked.connect(slot)
+            btn.setVisible(visible)
+            hdr.addWidget(btn)
+            return btn
+
+        update_qss = (
             f"QPushButton {{ background-color: {C.WARNING_SOFT_ALT}; color: {C.WARNING_DARK}; "
             f"border: 1px solid {C.WARNING_BORDER_STRONG}; border-radius: 4px; padding: 2px 8px; "
-            f"font-size: 11px; font-weight: bold; }} "
-            f"QPushButton:hover {{ background-color: {C.WARNING_BORDER}; }}"
+            f"font-size: 11px; font-weight: bold; }} QPushButton:hover {{ background-color: {C.WARNING_BORDER}; }}"
         )
-        self.btn_update.clicked.connect(lambda: self.trigger_summarize(mode="auto"))
-        hdr.addWidget(self.btn_update)
-
-        self.btn_rebuild = QPushButton("🔄 Rebuild", hdr_bar)
-        self.btn_rebuild.setCursor(Qt.PointingHandCursor)
-        self.btn_rebuild.setMinimumHeight(ctrl_h)
-        self.btn_rebuild.setStyleSheet(btn_qss)
-        self.btn_rebuild.setToolTip("Re-summarize the full discussion from scratch.")
-        self.btn_rebuild.clicked.connect(lambda: self.trigger_summarize(mode="full"))
-        hdr.addWidget(self.btn_rebuild)
-
-        self.btn_model = QPushButton("⚙️ Model ▾", hdr_bar)
-        self.btn_model.setCursor(Qt.PointingHandCursor)
-        self.btn_model.setMinimumHeight(ctrl_h)
-        self.btn_model.setStyleSheet(btn_qss)
-        self.model_menu = QMenu(self)
-        self.model_menu.aboutToShow.connect(self._populate_model_menu)
-        self.btn_model.setMenu(self.model_menu)
-        hdr.addWidget(self.btn_model)
-
-        self.btn_undo = QPushButton("↩️ Undo", hdr_bar)
-        self.btn_undo.setCursor(Qt.PointingHandCursor)
-        self.btn_undo.setMinimumHeight(ctrl_h)
-        self.btn_undo.setStyleSheet(btn_qss)
-        self.btn_undo.setToolTip("Revert to the previous saved summary version.")
-        self.btn_undo.clicked.connect(self._on_undo_clicked)
-        self.btn_undo.setVisible(False)
-        hdr.addWidget(self.btn_undo)
-
-        self.btn_copy = QPushButton("📋 Copy", hdr_bar)
-        self.btn_copy.setCursor(Qt.PointingHandCursor)
-        self.btn_copy.setMinimumHeight(ctrl_h)
-        self.btn_copy.setStyleSheet(btn_qss)
-        self.btn_copy.clicked.connect(self._on_copy_clicked)
-        hdr.addWidget(self.btn_copy)
-
-        self.btn_to_notes = QPushButton("📝 → Notes", hdr_bar)
-        self.btn_to_notes.setCursor(Qt.PointingHandCursor)
-        self.btn_to_notes.setMinimumHeight(ctrl_h)
-        self.btn_to_notes.setStyleSheet(btn_qss)
-        self.btn_to_notes.setToolTip("Append this AI summary to your delegate notes.")
-        self.btn_to_notes.clicked.connect(self._on_to_notes_clicked)
-        hdr.addWidget(self.btn_to_notes)
-
-        self.btn_stop = QPushButton("⏹ Stop", hdr_bar)
-        self.btn_stop.setCursor(Qt.PointingHandCursor)
-        self.btn_stop.setMinimumHeight(ctrl_h)
-        self.btn_stop.setStyleSheet(
+        stop_qss = (
             f"QPushButton {{ background-color: {C.DANGER_SOFT}; color: {C.DANGER}; "
             f"border: 1px solid {C.DANGER_BORDER_HOVER}; border-radius: 4px; padding: 2px 8px; "
             f"font-size: 11px; font-weight: bold; }}"
         )
-        self.btn_stop.clicked.connect(self.cancel_running)
-        self.btn_stop.setVisible(False)
-        hdr.addWidget(self.btn_stop)
+        self.btn_update = _add_btn("⚡ Update", update_qss, lambda: self.trigger_summarize(mode="auto"))
+        self.btn_rebuild = _add_btn("🔄 Rebuild", btn_qss, lambda: self.trigger_summarize(mode="full"), "Re-summarize the full discussion from scratch.")
+        self.btn_model = _add_btn("⚙️ Model ▾", btn_qss)
+        self.model_menu = QMenu(self)
+        self.model_menu.aboutToShow.connect(self._populate_model_menu)
+        self.btn_model.setMenu(self.model_menu)
+        self.btn_undo = _add_btn("↩️ Undo", btn_qss, self._on_undo_clicked, "Revert to the previous saved summary version.", visible=False)
+        self.btn_copy = _add_btn("📋 Copy", btn_qss, self._on_copy_clicked)
+        self.btn_to_notes = _add_btn("📝 → Notes", btn_qss, self._on_to_notes_clicked, "Append this AI summary to your delegate notes.")
+        self.btn_stop = _add_btn("⏹ Stop", stop_qss, self.cancel_running, visible=False)
 
         root.addWidget(hdr_bar)
 
@@ -242,6 +201,19 @@ class InlineEmailSummaryCard(QFrame):
 
     def has_active_content(self) -> bool:
         return bool(self._current_record is not None or self.is_running() or self._last_error)
+
+    def _emit_header_width(self) -> None:
+        if self.isVisible() and self.width() > 0:
+            self.header_width_changed.emit(self.width())
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        QTimer.singleShot(0, self._emit_header_width)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if event.size().width() != event.oldSize().width() and event.size().width() > 0:
+            self.header_width_changed.emit(event.size().width())
 
     def collapsed_header_height(self, available_width: int = 0) -> int:
         """Return compact single/wrapped header height when collapsed into thread-only mode."""

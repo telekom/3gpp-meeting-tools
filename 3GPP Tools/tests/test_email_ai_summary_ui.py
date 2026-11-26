@@ -403,13 +403,19 @@ class TestEmailAiSummaryUi(unittest.TestCase):
             return_value=bad_settings,
         ):
             td_dlg = TDocEmailsDialog("S2-2602001", ["S2-2602001"], self.gdb.db_path, wg="SA2")
+            td_dlg.resize(680, 760)
             ctrl = td_dlg.summary_layout_ctrl
             td_dlg.show()
             QApplication.processEvents()
+            narrow_max_h = td_dlg.summary_card.maximumHeight()
+            self.assertGreater(narrow_max_h, 55)
 
-            # Reopening in thread_only keeps body_browser hidden rather than crushed inside maximumHeight
+            # Widening window after show() automatically recomputes collapsed header back down to 1 row
+            td_dlg.resize(1380, 760)
+            QApplication.processEvents()
             self.assertEqual(ctrl.current_mode(), "thread_only")
             self.assertFalse(td_dlg.summary_card.body_browser.isVisible())
+            self.assertLessEqual(td_dlg.summary_card.maximumHeight(), 48)
             self.assertEqual(td_dlg.summary_card.model_pill.text(), "💠 M365 Copilot")
 
             # Simulate pasting/saving an updated M365 Copilot summary while collapsed in thread_only
