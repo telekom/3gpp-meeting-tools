@@ -214,7 +214,7 @@ class InboxOutlookSyncWorker(_BaseComWorker):
         scoped_thread_ids: Optional[List[str]] = None,
         scoped_email_ids: Optional[List[str]] = None,
         sync_mode: str = "incremental",
-        days_buffer: int = 3,
+        days_buffer: int = 5,
         silent: bool = False,
     ):
         super().__init__(parent)
@@ -228,7 +228,7 @@ class InboxOutlookSyncWorker(_BaseComWorker):
         self.scoped_email_ids = list(scoped_email_ids) if scoped_email_ids is not None else None
         is_scoped = self.scoped_thread_ids is not None or self.scoped_email_ids is not None
         self.sync_mode = "scoped" if is_scoped else (str(sync_mode or "incremental").strip().lower() or "incremental")
-        self.days_buffer = max(0, int(days_buffer if days_buffer is not None else 3))
+        self.days_buffer = max(0, int(days_buffer if days_buffer is not None else 5))
         self.silent = bool(silent)
         self.last_sync_window_info: Optional[dict] = None
 

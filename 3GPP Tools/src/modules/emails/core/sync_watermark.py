@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 DEFAULT_OVERLAP_MINUTES = 5
+DEFAULT_SYNC_DAYS_BUFFER = 5
 DEFAULT_LIVE_SYNC_INTERVAL_MS = 120_000  # 2 minutes
 LAST_SYNC_META_KEY = "last_sync_utc"
 
@@ -117,7 +118,7 @@ def resolve_sync_window(
     *,
     sync_mode: str = "incremental",
     overlap_minutes: int = DEFAULT_OVERLAP_MINUTES,
-    days_buffer: int = 3,
+    days_buffer: int = DEFAULT_SYNC_DAYS_BUFFER,
     now_utc: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """Resolves the Outlook sync window from the persisted DB watermark or meeting date bounds."""
@@ -130,7 +131,7 @@ def resolve_sync_window(
         cur_utc = now_utc.astimezone(timezone.utc)
 
     today_local = cur_utc.astimezone().date()
-    buf = max(0, int(days_buffer if days_buffer is not None else 3))
+    buf = max(0, int(days_buffer if days_buffer is not None else DEFAULT_SYNC_DAYS_BUFFER))
 
     if mode_clean == "full":
         s_d = _parse_yyyy_mm_dd(meeting_start) or (today_local - timedelta(days=10))

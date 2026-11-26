@@ -362,7 +362,7 @@ class InboxSyncAndMergeMixin:
         sync_mode: str = "incremental",
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        days_buffer: int = 3,
+        days_buffer: int = 5,
         silent: bool = False,
     ):
         if getattr(self, "_sync_worker", None) and self._sync_worker.isRunning():

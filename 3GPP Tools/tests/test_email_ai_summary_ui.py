@@ -183,6 +183,47 @@ class TestEmailAiSummaryUi(unittest.TestCase):
         card.shutdown_worker()
         card.close()
 
+    def test_general_email_sync_dialog_default_buffer_5_and_live_window(self):
+        from PyQt5.QtCore import QDate
+        from modules.emails.ui.general_email_dialog import GeneralEmailSyncDialog
+
+        sample_folders = [
+            {"folder_path": "Mailbox/SA2", "tag": "WG", "color": "#1E6FD9", "include_subfolders": True},
+        ]
+        with patch("modules.emails.ui.general_email_dialog.load_wg_email_config", return_value=sample_folders):
+            dlg = GeneralEmailSyncDialog("SA2", "2026-11-16", "2026-11-20")
+            self.assertEqual(dlg.get_params()["buffer"], 5)
+            self.assertEqual(dlg.dt_start.displayFormat(), "yyyy-MM-dd")
+            self.assertGreaterEqual(dlg.dt_start.minimumWidth(), 130)
+            self.assertTrue(dlg.btn_sync.isEnabled())
+            self.assertIn("2026-11-11", dlg.lbl_effective_window.text())
+            self.assertIn("2026-11-25", dlg.lbl_effective_window.text())
+
+            # Clicking preset changes buffer & recomputes effective window live
+            for dval, btn in dlg._preset_buttons:
+                if dval == 10:
+                    btn.click()
+                    break
+            self.assertEqual(dlg.get_params()["buffer"], 10)
+            self.assertIn("2026-11-06", dlg.lbl_effective_window.text())
+            self.assertIn("2026-11-30", dlg.lbl_effective_window.text())
+
+            # Inverted date range disables Start Sync
+            dlg.dt_end.setDate(QDate(2026, 11, 10))
+            self.assertFalse(dlg.btn_sync.isEnabled())
+
+            dlg.btn_reset_dates.click()
+            self.assertEqual(dlg.get_params()["buffer"], 5)
+            self.assertTrue(dlg.btn_sync.isEnabled())
+            dlg.close()
+
+        # Zero folders disables Start Sync with actionable prompt
+        with patch("modules.emails.ui.general_email_dialog.load_wg_email_config", return_value=[]):
+            empty_dlg = GeneralEmailSyncDialog("SA2", "2026-11-16", "2026-11-20")
+            self.assertFalse(empty_dlg.btn_sync.isEnabled())
+            self.assertIn("No Outlook folders", empty_dlg.lbl_folders.text())
+            empty_dlg.close()
+
 
 if __name__ == "__main__":
     unittest.main()

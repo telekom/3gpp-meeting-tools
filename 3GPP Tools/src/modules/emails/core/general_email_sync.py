@@ -50,7 +50,7 @@ class GeneralEmailSyncThread(QThread):
     )
 
     def __init__(self, folder_configs: List[dict], db_path: Path,
-                 start_date: str = "", end_date: str = "", days_buffer: int = 3,
+                 start_date: str = "", end_date: str = "", days_buffer: int = 5,
                  since_dt_utc: Optional[datetime.datetime] = None):
         super().__init__()
         self.folder_configs = folder_configs

@@ -803,6 +803,17 @@ class TestEMeetingUnifiedInbox(unittest.TestCase):
             self.assertEqual(win_full["end_date"], "2026-11-14")
             self.assertEqual(win_full["days_buffer"], 5)
 
+            # Default buffer when omitted is ±5 days
+            win_default = resolve_sync_window(
+                gdb,
+                meeting_start="2026-11-16",
+                meeting_end="2026-11-20",
+                sync_mode="incremental",
+                now_utc=now_dt,
+            )
+            self.assertEqual(win_default["days_buffer"], 5)
+            self.assertLessEqual(win_default["since_dt_utc"].date().isoformat(), "2026-11-11")
+
     def test_apply_mapi_since_restriction_dasl_and_fallback(self):
         from datetime import datetime, timedelta, timezone
         from modules.emails.core.sync_watermark import (

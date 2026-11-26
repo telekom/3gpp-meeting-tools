@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (
     QDateEdit,
     QDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -332,89 +333,227 @@ class GeneralEmailFoldersDialog(QDialog):
 
 
 class GeneralEmailSyncDialog(QDialog):
-    """Dialog for configuring date range and buffer window before running a WG Outlook folder sync."""
+    """Dialog for configuring date range and ±5 day default buffer before running a WG Outlook folder sync."""
+
+    DEFAULT_BUFFER_DAYS = 5
 
     def __init__(self, wg: str, start_date: str, end_date: str, parent=None):
         super().__init__(parent)
         self.wg = str(wg or "SA2").strip().upper()
+        self._init_start = QDate.fromString(start_date, Qt.ISODate) if start_date else QDate()
+        self._init_end = QDate.fromString(end_date, Qt.ISODate) if end_date else QDate()
+        if not self._init_start.isValid():
+            self._init_start = QDate.currentDate().addDays(-14)
+        if not self._init_end.isValid():
+            self._init_end = QDate.currentDate().addDays(7)
+
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setWindowTitle(f"🔄 Sync Emails: {self.wg}")
-        self.resize(scale_px(480), scale_px(270))
+        self.setMinimumWidth(scale_px(550))
         self.setStyleSheet(f"QDialog {{ background-color: {C.BG_CANVAS}; }}")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(10)
 
-        hdr = QLabel(f"📡 Sync Outlook Emails for {self.wg}")
+        hdr = QLabel(f"📡 Sync Outlook Emails for {self.wg}", self)
         hdr.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {C.TEXT_PRIMARY};")
         layout.addWidget(hdr)
 
-        folders = load_wg_email_config(self.wg)
-        sub_cnt = sum(1 for f in folders if isinstance(f, dict) and bool(f.get("include_subfolders", True)))
-        tags_str = ", ".join(str(f.get("tag", "WG")) for f in folders if isinstance(f, dict)) or "None"
-        lbl_folders = QLabel(
-            f"Configured Folders: <b>{len(folders)}</b> ({tags_str}) · "
-            f"Subfolders enabled on <b>{sub_cnt}/{len(folders)}</b>"
-        )
-        lbl_folders.setWordWrap(True)
-        lbl_folders.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 12px;")
-        layout.addWidget(lbl_folders)
+        # Compact Folder Summary + Quick Configure Card
+        folder_card = QFrame(self)
+        folder_card.setStyleSheet(CARD_FRAME_STYLE)
+        folder_lay = QHBoxLayout(folder_card)
+        folder_lay.setContentsMargins(12, 8, 12, 8)
+        folder_lay.setSpacing(8)
 
+        self.lbl_folders = QLabel("", folder_card)
+        self.lbl_folders.setWordWrap(True)
+        self.lbl_folders.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 12px;")
+        folder_lay.addWidget(self.lbl_folders, 1)
+
+        self.btn_configure_folders = QPushButton("⚙️ Folders...", folder_card)
+        self.btn_configure_folders.setMinimumHeight(scale_px(28))
+        self.btn_configure_folders.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_configure_folders.setToolTip(f"Configure Outlook folders and subfolder scope for {self.wg}.")
+        self.btn_configure_folders.clicked.connect(self._on_configure_folders)
+        folder_lay.addWidget(self.btn_configure_folders)
+        layout.addWidget(folder_card)
+
+        # Date Range + Buffer Card
         card = QFrame(self)
         card.setStyleSheet(CARD_FRAME_STYLE)
-        form = QVBoxLayout(card)
-        form.setContentsMargins(12, 10, 12, 10)
-        form.setSpacing(8)
+        grid = QGridLayout(card)
+        grid.setContentsMargins(12, 10, 12, 10)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(8)
 
-        dt_layout = QHBoxLayout()
-        dt_layout.addWidget(QLabel("Date Range:"))
-        self.dt_start = QDateEdit()
+        lbl_dates = QLabel("Meeting Dates:", card)
+        lbl_dates.setStyleSheet(f"color: {C.TEXT_PRIMARY}; font-weight: bold;")
+        grid.addWidget(lbl_dates, 0, 0)
+
+        dates_row = QHBoxLayout()
+        dates_row.setSpacing(6)
+        ctrl_h = scale_px(30)
+
+        self.dt_start = QDateEdit(card)
+        self.dt_start.setDisplayFormat("yyyy-MM-dd")
         self.dt_start.setCalendarPopup(True)
-        self.dt_end = QDateEdit()
+        self.dt_start.setMinimumWidth(scale_px(142))
+        self.dt_start.setMinimumHeight(ctrl_h)
+        self.dt_start.setDate(self._init_start)
+
+        self.dt_end = QDateEdit(card)
+        self.dt_end.setDisplayFormat("yyyy-MM-dd")
         self.dt_end.setCalendarPopup(True)
+        self.dt_end.setMinimumWidth(scale_px(142))
+        self.dt_end.setMinimumHeight(ctrl_h)
+        self.dt_end.setDate(self._init_end)
 
-        if start_date:
-            self.dt_start.setDate(QDate.fromString(start_date, Qt.ISODate))
-        else:
-            self.dt_start.setDate(QDate.currentDate().addDays(-14))
+        dates_row.addWidget(self.dt_start)
+        dates_row.addWidget(QLabel("to", card))
+        dates_row.addWidget(self.dt_end)
 
-        if end_date:
-            self.dt_end.setDate(QDate.fromString(end_date, Qt.ISODate))
-        else:
-            self.dt_end.setDate(QDate.currentDate().addDays(7))
+        self.btn_reset_dates = QPushButton("↺ Reset", card)
+        self.btn_reset_dates.setMinimumHeight(scale_px(26))
+        self.btn_reset_dates.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_reset_dates.setToolTip("Reset dates to the meeting bounds and ±5 day default buffer.")
+        self.btn_reset_dates.clicked.connect(self._on_reset_defaults)
+        dates_row.addWidget(self.btn_reset_dates)
+        dates_row.addStretch()
+        grid.addLayout(dates_row, 0, 1)
 
-        dt_layout.addWidget(self.dt_start)
-        dt_layout.addWidget(QLabel("to"))
-        dt_layout.addWidget(self.dt_end)
-        dt_layout.addStretch()
-        form.addLayout(dt_layout)
+        lbl_buf = QLabel("Buffer Window (±):", card)
+        lbl_buf.setStyleSheet(f"color: {C.TEXT_PRIMARY}; font-weight: bold;")
+        grid.addWidget(lbl_buf, 1, 0)
 
-        buf_layout = QHBoxLayout()
-        buf_layout.addWidget(QLabel("Buffer Window (Days ±):"))
-        self.spin_buf = QSpinBox()
-        self.spin_buf.setRange(0, 30)
-        self.spin_buf.setValue(3)
-        buf_layout.addWidget(self.spin_buf)
-        buf_layout.addStretch()
-        form.addLayout(buf_layout)
+        buf_row = QHBoxLayout()
+        buf_row.setSpacing(6)
+        self.spin_buf = QSpinBox(card)
+        self.spin_buf.setRange(0, 60)
+        self.spin_buf.setValue(self.DEFAULT_BUFFER_DAYS)
+        self.spin_buf.setSuffix(" days")
+        self.spin_buf.setMinimumWidth(scale_px(110))
+        self.spin_buf.setMinimumHeight(ctrl_h)
+        buf_row.addWidget(self.spin_buf)
+
+        self._preset_buttons = []
+        for days_val in (0, 3, 5, 10, 14):
+            btn_p = QPushButton(f"±{days_val}d", card)
+            btn_p.setCheckable(True)
+            btn_p.setMinimumHeight(scale_px(26))
+            btn_p.setStyleSheet(
+                f"QPushButton {{ background-color: {C.BG_SURFACE}; color: {C.TEXT_STRONG}; "
+                f"border: 1px solid {C.BORDER_STRONG}; border-radius: 4px; padding: 2px 8px; font-size: 11px; }} "
+                f"QPushButton:hover {{ background-color: {C.BG_HOVER}; }} "
+                f"QPushButton:checked {{ background-color: {C.INFO_SOFT}; color: {C.INFO_DARK}; "
+                f"border-color: {C.INFO_BORDER}; font-weight: bold; }} "
+                f"QPushButton:checked:hover {{ background-color: {C.INFO_SOFT_STRONG}; }}"
+            )
+            btn_p.clicked.connect(lambda _=False, d=days_val: self.spin_buf.setValue(d))
+            buf_row.addWidget(btn_p)
+            self._preset_buttons.append((days_val, btn_p))
+        buf_row.addStretch()
+        grid.addLayout(buf_row, 1, 1)
+
+        self.lbl_effective_window = QLabel("", card)
+        self.lbl_effective_window.setWordWrap(True)
+        grid.addWidget(self.lbl_effective_window, 2, 0, 1, 2)
         layout.addWidget(card)
 
-        layout.addStretch()
-
+        # Footer Row
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
-        btn_cancel = QPushButton("Cancel")
+        tip_lbl = QLabel("Includes Sent Items & deduplicates messages across folders.", self)
+        tip_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
+        btn_row.addWidget(tip_lbl)
+        btn_row.addStretch()
+
+        btn_cancel = QPushButton("Cancel", self)
+        btn_cancel.setMinimumHeight(ctrl_h)
         btn_cancel.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         btn_cancel.clicked.connect(self.reject)
 
-        btn_sync = QPushButton("🚀 Start Sync")
-        btn_sync.setStyleSheet(_PRIMARY_BTN_STYLE)
-        btn_sync.clicked.connect(self.accept)
+        self.btn_sync = QPushButton("🚀 Start Sync", self)
+        self.btn_sync.setMinimumHeight(ctrl_h)
+        self.btn_sync.setStyleSheet(_PRIMARY_BTN_STYLE)
+        self.btn_sync.setDefault(True)
+        self.btn_sync.clicked.connect(self.accept)
 
-        btn_row.addStretch()
         btn_row.addWidget(btn_cancel)
-        btn_row.addWidget(btn_sync)
+        btn_row.addWidget(self.btn_sync)
         layout.addLayout(btn_row)
+
+        self.dt_start.dateChanged.connect(self._update_preview_and_presets)
+        self.dt_end.dateChanged.connect(self._update_preview_and_presets)
+        self.spin_buf.valueChanged.connect(self._update_preview_and_presets)
+
+        self._has_folders = False
+        self._refresh_folders_summary()
+        self._update_preview_and_presets()
+        self.adjustSize()
+
+    def _refresh_folders_summary(self) -> None:
+        folders = load_wg_email_config(self.wg)
+        self._has_folders = len(folders) > 0
+        if not self._has_folders:
+            self.lbl_folders.setText(
+                f"⚠️ No Outlook folders are configured for <b>{self.wg}</b>. Click <b>Folders...</b> to add one."
+            )
+            self.lbl_folders.setStyleSheet(
+                f"background-color: {C.WARNING_SOFT}; color: {C.WARNING_DARK}; "
+                f"border: 1px solid {C.WARNING_BORDER}; border-radius: 4px; padding: 4px 8px; font-size: 12px;"
+            )
+        else:
+            sub_cnt = sum(1 for f in folders if isinstance(f, dict) and bool(f.get("include_subfolders", True)))
+            tags_str = ", ".join(str(f.get("tag", "WG")) for f in folders if isinstance(f, dict)) or "WG"
+            self.lbl_folders.setText(
+                f"📂 Configured Folders: <b>{len(folders)}</b> ({tags_str}) · "
+                f"Subfolders enabled on <b>{sub_cnt}/{len(folders)}</b>"
+            )
+            self.lbl_folders.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 12px;")
+
+    def _on_configure_folders(self) -> None:
+        dlg = GeneralEmailFoldersDialog(self.wg, self)
+        if dlg.exec_() == QDialog.Accepted:
+            self._refresh_folders_summary()
+            self._update_preview_and_presets()
+
+    def _on_reset_defaults(self) -> None:
+        self.dt_start.setDate(self._init_start)
+        self.dt_end.setDate(self._init_end)
+        self.spin_buf.setValue(self.DEFAULT_BUFFER_DAYS)
+
+    def _update_preview_and_presets(self) -> None:
+        s_date = self.dt_start.date()
+        e_date = self.dt_end.date()
+        buf = int(self.spin_buf.value())
+
+        for days_val, btn_p in self._preset_buttons:
+            btn_p.blockSignals(True)
+            btn_p.setChecked(days_val == buf)
+            btn_p.blockSignals(False)
+
+        invalid_range = e_date < s_date
+        if invalid_range:
+            self.lbl_effective_window.setText("⚠️ End date is before start date — adjust the Meeting Dates range.")
+            self.lbl_effective_window.setStyleSheet(
+                f"background-color: {C.WARNING_SOFT}; color: {C.WARNING_DARK}; "
+                f"border: 1px solid {C.WARNING_BORDER}; border-radius: 4px; padding: 5px 8px; font-size: 12px; font-weight: bold;"
+            )
+        else:
+            eff_start = s_date.addDays(-buf)
+            eff_end = e_date.addDays(buf)
+            span_days = eff_start.daysTo(eff_end) + 1
+            self.lbl_effective_window.setText(
+                f"📅 Effective scan window: <b>{eff_start.toString(Qt.ISODate)} → {eff_end.toString(Qt.ISODate)}</b> "
+                f"({span_days} days total, ±{buf}d buffer)"
+            )
+            self.lbl_effective_window.setStyleSheet(
+                f"background-color: {C.INFO_SOFT}; color: {C.INFO_DARK}; "
+                f"border: 1px solid {C.INFO_BORDER}; border-radius: 4px; padding: 5px 8px; font-size: 12px;"
+            )
+        self.btn_sync.setEnabled(self._has_folders and not invalid_range)
 
     def get_params(self):
         return {

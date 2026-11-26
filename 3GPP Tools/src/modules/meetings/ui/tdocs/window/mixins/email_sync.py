@@ -108,7 +108,7 @@ class EmailSyncMixin:
         sync_mode: str = "incremental",
         start_date: str = "",
         end_date: str = "",
-        days_buffer: int = 3,
+        days_buffer: int = 5,
         silent: bool = False,
     ):
         """Runs unified async Outlook sync across Tracked Threads and TDoc Emails via InboxOutlookSyncWorker."""
