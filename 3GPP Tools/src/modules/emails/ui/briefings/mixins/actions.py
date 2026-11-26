@@ -12,13 +12,12 @@ from PyQt5.QtWidgets import (
     QApplication,
     QFileDialog,
     QMenu,
-    QMessageBox,
     QTreeWidgetItem,
 )
 
 from core.ai.llm_runner import ModelSpec, resolve_effective_model_spec
 from core.ui.theme import C
-from core.ui.toast import notify_info, notify_success
+from core.ui.toast import notify_success
 from modules.emails.core.ai_summary import (
     AiBriefingWorker,
     EmailSummaryRecord,

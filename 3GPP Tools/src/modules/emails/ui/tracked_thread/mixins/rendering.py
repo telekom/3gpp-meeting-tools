@@ -1,7 +1,5 @@
 """Data loading, filtering, Markdown timeline rendering, and unread navigation mixin."""
 
-from pathlib import Path
-
 from modules.emails.core.ai_summary import SummaryScope
 from modules.emails.core.thread_markdown_exporter import (
     export_thread_to_markdown,

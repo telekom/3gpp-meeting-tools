@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Optional, Set
 
 from modules.emails.core.ai_summary import sort_messages_chronologically
 from modules.emails.core.emeeting_signals import extract_base_tdoc_id

@@ -7,7 +7,7 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from .models import EmailSummaryRecord, SummaryFreshness, VALID_SCOPE_TYPES
 

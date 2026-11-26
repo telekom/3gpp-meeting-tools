@@ -11,7 +11,7 @@ from PyQt5.QtCore import Qt, QUrl
 from PyQt5.QtGui import QCursor, QDesktopServices
 from PyQt5.QtWidgets import QApplication, QMenu, QMessageBox
 
-from core.ai.llm_runner import ModelSpec, resolve_effective_model_spec
+from core.ai.llm_runner import resolve_effective_model_spec
 from core.ui.toast import notify_info, notify_success, notify_toast
 from modules.emails.core.ai_summary import SummaryScope
 from modules.emails.core.emeeting_signals import extract_base_tdoc_id

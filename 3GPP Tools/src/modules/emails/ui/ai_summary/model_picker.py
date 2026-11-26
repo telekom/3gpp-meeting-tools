@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Callable, Dict, List, Optional
 
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,

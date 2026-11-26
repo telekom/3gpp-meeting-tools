@@ -20,7 +20,6 @@ from PyQt5.QtWidgets import (
 
 from core.ai.cli_detector import detect_cli_agents, format_active_model_badge
 from core.ai.cli_launcher import open_mcp_agent_setup_dialog
-from core.ai.llm_runner import resolve_effective_model_spec
 from core.ui.flow_layout import FlowLayout
 from core.ui.font_scale import bind_reader_zoom_settings, create_help_tips_pill, scale_px
 from modules.emails.core.thread_markdown_exporter import apply_email_reader_document_style

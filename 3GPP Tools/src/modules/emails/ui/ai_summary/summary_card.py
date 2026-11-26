@@ -23,7 +23,6 @@ from core.ai.llm_runner import ModelSpec, resolve_effective_model_spec
 from core.ui.font_scale import bind_reader_zoom_settings, scale_px
 from core.ui.theme import C
 from core.ui.toast import notify_info, notify_success
-from core.ui.ui_components import escape_qt_mnemonic
 from modules.emails.core.ai_summary import (
     EmailSummaryRecord,
     EmailSummaryStore,
