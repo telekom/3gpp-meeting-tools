@@ -18,7 +18,6 @@ src_dir = project_root / "src"
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from core.ai.llm_runner import RunnerResult
 from modules.emails.core.ai_summary import EmailSummaryRecord, EmailSummaryStore, SummaryScope
 from modules.emails.core.general_email_db import GeneralEmailDatabase
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
@@ -330,7 +329,8 @@ class TestEmailAiSummaryUi(unittest.TestCase):
             # Slim collapse -> thread_only
             td_dlg.summary_card.btn_toggle.click()
             self.assertEqual(ctrl.current_mode(), "thread_only")
-            self.assertLessEqual(td_dlg.summary_card.maximumHeight(), 45)
+            self.assertLessEqual(td_dlg.summary_card.maximumHeight(), 80)
+            self.assertFalse(td_dlg.summary_card.body_browser.isVisible())
             self.assertTrue(td_dlg.browser.isVisible())
 
             # Pop Out -> modeless PopoutSummaryWindow (mirrors live content, keeps inline card in splitter)
@@ -376,6 +376,67 @@ class TestEmailAiSummaryUi(unittest.TestCase):
             )
             self.assertTrue(hasattr(inbox_dlg, "summary_layout_ctrl"))
             inbox_dlg.close()
+            QApplication.processEvents()
+
+    def test_m365_save_from_collapsed_thread_only_restores_split_and_self_heals_sizes(self):
+        # Seed a saved summary and corrupted tiny split height + thread_only mode in settings
+        rec = EmailSummaryRecord(
+            scope_type="tdoc",
+            scope_key="S2-2602001",
+            title="S2-2602001",
+            summary_md="### 1. Topic\nInitial summary [Msg #1](jump://msg/1)",
+            covered_message_ids=["G1"],
+            cutoff_utc="2026-04-14 12:00:00",
+            provider="m365-copilot",
+            model="m365_copilot",
+        )
+        self.store.upsert_summary(rec)
+
+        bad_settings = QSettings(str(self.tmp_path / "corrupt_layout.ini"), QSettings.IniFormat)
+        bad_settings.setValue("tdoc_emails/mode", "thread_only")
+        bad_settings.setValue("tdoc_emails/last_split_mode", "split_v")
+        bad_settings.setValue("tdoc_emails/sizes_v", "38,600")
+        bad_settings.sync()
+
+        with patch(
+            "modules.emails.ui.ai_summary.layout_controller.QSettings",
+            return_value=bad_settings,
+        ):
+            td_dlg = TDocEmailsDialog("S2-2602001", ["S2-2602001"], self.gdb.db_path, wg="SA2")
+            ctrl = td_dlg.summary_layout_ctrl
+            td_dlg.show()
+            QApplication.processEvents()
+
+            # Reopening in thread_only keeps body_browser hidden rather than crushed inside maximumHeight
+            self.assertEqual(ctrl.current_mode(), "thread_only")
+            self.assertFalse(td_dlg.summary_card.body_browser.isVisible())
+            self.assertEqual(td_dlg.summary_card.model_pill.text(), "💠 M365 Copilot")
+
+            # Simulate pasting/saving an updated M365 Copilot summary while collapsed in thread_only
+            updated_rec = EmailSummaryRecord(
+                scope_type="tdoc",
+                scope_key="S2-2602001",
+                title="S2-2602001",
+                summary_md="### 1. Topic\nUpdated Copilot output [Msg #1](jump://msg/1)",
+                covered_message_ids=["G1"],
+                cutoff_utc="2026-04-14 12:00:00",
+                provider="m365_copilot",
+                model="m365_copilot",
+            )
+            self.store.upsert_summary(updated_rec)
+            td_dlg.summary_card._on_external_summary_saved(updated_rec)
+            QApplication.processEvents()
+
+            # Must cleanly exit thread_only into split_v, unlock maximumHeight, show body, and self-heal sizes_v
+            self.assertEqual(ctrl.current_mode(), "split_v")
+            self.assertGreater(td_dlg.summary_card.maximumHeight(), 10000)
+            self.assertTrue(td_dlg.summary_card.body_browser.isVisible())
+            self.assertTrue(td_dlg.browser.isVisible())
+            restored = ctrl._restore_split_sizes("split_v")
+            self.assertGreaterEqual(restored[0], 120)
+            self.assertEqual(td_dlg.summary_card.model_pill.text(), "💠 M365 Copilot")
+
+            td_dlg.close()
             QApplication.processEvents()
 
 

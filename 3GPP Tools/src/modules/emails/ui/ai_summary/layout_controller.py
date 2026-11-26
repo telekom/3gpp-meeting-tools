@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from PyQt5.QtCore import QEvent, QObject, QSettings, Qt, QUrl, pyqtSignal
+from PyQt5.QtCore import QObject, QSettings, Qt, QUrl, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog,
     QFrame,
@@ -256,6 +256,7 @@ class SummaryReaderLayoutController(QObject):
         if hasattr(self._summary_card, "header_double_clicked"):
             self._summary_card.header_double_clicked.connect(self._on_header_double_clicked)
 
+        self._summary_card.set_expanded(self._mode != "thread_only", emit_signal=False)
         self._apply_layout()
 
     def current_mode(self) -> str:
@@ -316,6 +317,8 @@ class SummaryReaderLayoutController(QObject):
 
     def _on_card_expand_toggled(self, expanded: bool) -> None:
         if self._mode == "popout":
+            return
+        if expanded and self._mode in ("split_v", "split_h", "summary_only"):
             return
         self.set_mode(self._last_split_mode if expanded else "thread_only")
 
@@ -419,7 +422,7 @@ class SummaryReaderLayoutController(QObject):
         if self._mode not in ("split_v", "split_h"):
             return
         sizes = self._splitter.sizes()
-        if len(sizes) >= 2 and all(s > 20 for s in sizes[:2]):
+        if len(sizes) >= 2 and all(s >= scale_px(80) for s in sizes[:2]):
             key = "sizes_h" if self._mode == "split_h" else "sizes_v"
             self._settings.setValue(f"{self._settings_prefix}/{key}", f"{sizes[0]},{sizes[1]}")
 
@@ -430,7 +433,8 @@ class SummaryReaderLayoutController(QObject):
         key = "sizes_h" if mode == "split_h" else "sizes_v"
         raw = str(self._settings.value(f"{self._settings_prefix}/{key}", "") or "")
         parts = [int(x) for x in raw.split(",") if x.strip().isdigit()]
-        if len(parts) == 2 and parts[0] > 40 and parts[1] > 40:
+        min_pane = scale_px(180) if mode == "split_h" else scale_px(120)
+        if len(parts) == 2 and parts[0] >= min_pane and parts[1] >= min_pane:
             return parts
         if mode == "split_h":
             return [scale_px(430), scale_px(560)]
@@ -452,22 +456,30 @@ class SummaryReaderLayoutController(QObject):
 
         if self._mode == "thread_only":
             self._splitter.setOrientation(Qt.Vertical)
-            collapsed_h = scale_px(38)
+            self._summary_card.set_expanded(False, emit_signal=False)
+            if hasattr(self._summary_card, "collapsed_header_height"):
+                collapsed_h = self._summary_card.collapsed_header_height(self._splitter.width())
+            else:
+                collapsed_h = scale_px(38)
             self._summary_card.setMaximumHeight(collapsed_h)
             self._reader_browser.setVisible(True)
-            self._splitter.setSizes([collapsed_h, scale_px(580)])
+            reader_h = max(scale_px(200), self._splitter.height() - collapsed_h, scale_px(580))
+            self._splitter.setSizes([collapsed_h, reader_h])
         elif self._mode == "summary_only":
             self._splitter.setOrientation(Qt.Vertical)
+            self._summary_card.set_expanded(True, emit_signal=False)
             self._summary_card.setMaximumHeight(16777215)
             self._reader_browser.setVisible(False)
             self._splitter.setSizes([scale_px(640), 0])
         elif self._mode == "split_h":
             self._splitter.setOrientation(Qt.Horizontal)
+            self._summary_card.set_expanded(True, emit_signal=False)
             self._summary_card.setMaximumHeight(16777215)
             self._reader_browser.setVisible(True)
             self._splitter.setSizes(self._restore_split_sizes("split_h"))
         else:
             self._splitter.setOrientation(Qt.Vertical)
+            self._summary_card.set_expanded(True, emit_signal=False)
             self._summary_card.setMaximumHeight(16777215)
             self._reader_browser.setVisible(True)
             self._splitter.setSizes(self._restore_split_sizes("split_v"))

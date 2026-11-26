@@ -9,7 +9,6 @@ from PyQt5.QtCore import QSettings, Qt, QUrl, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
     QFrame,
-    QHBoxLayout,
     QLabel,
     QMenu,
     QPushButton,
@@ -244,6 +243,18 @@ class InlineEmailSummaryCard(QFrame):
     def has_active_content(self) -> bool:
         return bool(self._current_record is not None or self.is_running() or self._last_error)
 
+    def collapsed_header_height(self, available_width: int = 0) -> int:
+        """Return compact single/wrapped header height when collapsed into thread-only mode."""
+        m = self.layout().contentsMargins() if self.layout() is not None else None
+        pad_h = (m.left() + m.right()) if m is not None else 16
+        pad_v = (m.top() + m.bottom()) if m is not None else 11
+        inner_w = max(scale_px(220), int(available_width) - pad_h - 4) if available_width > 0 else 0
+        if inner_w > 0 and self._hdr_bar.hasHeightForWidth():
+            hdr_h = self._hdr_bar.heightForWidth(inner_w)
+        else:
+            hdr_h = self._hdr_bar.sizeHint().height()
+        return max(scale_px(38), hdr_h + pad_v + 2)
+
     def set_expanded(self, expanded: bool, *, emit_signal: bool = False) -> None:
         self._expanded = bool(expanded)
         self._settings.setValue(self._settings_key, self._expanded)
@@ -348,9 +359,16 @@ class InlineEmailSummaryCard(QFrame):
         rec = self._current_record
         fresh = self._current_freshness
         if rec is not None and not running:
-            prov_badge = f"{rec.provider} · {rec.model or 'default'}" + (
-                f" · {rec.reasoning_effort}" if rec.reasoning_effort else ""
-            )
+            prov_norm = str(rec.provider or "").strip().lower().replace("_", "-")
+            model_norm = str(rec.model or "").strip().lower().replace("_", "-")
+            if prov_norm == "m365-copilot":
+                prov_badge = "💠 M365 Copilot"
+            elif not rec.model or model_norm == prov_norm:
+                prov_badge = rec.provider or "default"
+            else:
+                prov_badge = f"{rec.provider} · {rec.model}"
+            if rec.reasoning_effort and prov_norm != "m365-copilot":
+                prov_badge += f" · {rec.reasoning_effort}"
             self.model_pill.setText(prov_badge)
             self.model_pill.setToolTip(f"Generated with {prov_badge}\nActive override for next run: {self._active_spec().short_badge()}")
         else:
@@ -428,8 +446,7 @@ class InlineEmailSummaryCard(QFrame):
 
         self._last_error = ""
         self.error_banner.clear_error()
-        self._expanded = True
-        self._settings.setValue(self._settings_key, True)
+        self.set_expanded(True, emit_signal=True)
         self.setVisible(not self._popped_out)
         self._stream_chunks = []
         self.body_browser.setVisible(True)
@@ -484,7 +501,9 @@ class InlineEmailSummaryCard(QFrame):
     def _on_worker_failed(self, err: str) -> None:
         self._last_error = str(err or "Summary generation failed.").strip()
         self.error_banner.show_error(self._last_error)
-        if self._current_record is not None:
+        if not self._expanded:
+            self.set_expanded(True, emit_signal=True)
+        elif self._current_record is not None:
             self._render_record()
         else:
             self._apply_expand_state()
@@ -543,10 +562,9 @@ class InlineEmailSummaryCard(QFrame):
         return dlg
 
     def _on_external_summary_saved(self, record: EmailSummaryRecord) -> None:
-        self._expanded = True
-        self._settings.setValue(self._settings_key, True)
         self.setVisible(not self._popped_out)
         self._on_worker_completed(record)
+        self.set_expanded(True, emit_signal=True)
 
     def shutdown_worker(self) -> None:
         if self._worker and self._worker.isRunning():
