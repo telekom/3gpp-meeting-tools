@@ -49,6 +49,7 @@ class McpMonitorDialog(
         self._cached_events: List[Dict[str, Any]] = []
         self._current_selected_event: Optional[Dict[str, Any]] = None
         self._tool_registry = None
+        self._playground_worker = None
 
         self._setup_ui()
 
@@ -200,3 +201,12 @@ class McpMonitorDialog(
         bottom_row.addWidget(close_btn)
 
         main_layout.addLayout(bottom_row)
+
+    def closeEvent(self, event):
+        if getattr(self, "refresh_timer", None) is not None:
+            self.refresh_timer.stop()
+        worker = getattr(self, "_playground_worker", None)
+        if worker is not None and worker.isRunning():
+            worker.requestInterruption()
+            worker.wait(500)
+        super().closeEvent(event)

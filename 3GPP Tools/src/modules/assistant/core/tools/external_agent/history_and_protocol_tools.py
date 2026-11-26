@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import html
 import re
 from pathlib import Path
 from typing import Any, Dict, List
 
 from core.utils.paths import get_output_root
+from modules.assistant.core.agent_models import ToolResult
 from modules.assistant.core.knowledge import ProtocolKnowledgeService
 from .common import resolve_meetings_cache_roots as _get_meetings_cache_roots
+
+
+def _strip_html(text: str) -> str:
+    """Strips HTML tags and collapses whitespace for compact, LLM-friendly text."""
+    cleaned = re.sub(r"<[^>]+>", " ", html.unescape(str(text or "")))
+    return " ".join(cleaned.split())
 
 
 # =========================================================================
@@ -33,12 +41,15 @@ def _handle_spec_history_and_attribution(
     history_db = SpecHistoryDatabase(spec_history_db_path)
 
     if action == "query_history":
+        tdoc_id = str(args.get("tdoc_id") or "").strip() or None
         rows = history_db.search_history(
             spec_number=spec_number or None,
             query=query or None,
             meeting=args.get("meeting"),
             category=args.get("category"),
             version=version,
+            clause_id=clause_id or None,
+            tdoc_id=tdoc_id,
             limit=limit,
         )
         return {
@@ -170,19 +181,28 @@ def _handle_spec_history_and_attribution(
         }
 
     if action == "tdoc_dossier":
-        if not spec_number:
-            return {"error": "spec_number is required for action='tdoc_dossier'."}
+        tdoc_arg = str(args.get("tdoc_id") or "").strip()
+        if not spec_number and not tdoc_arg:
+            return {"error": "spec_number or tdoc_id is required for action='tdoc_dossier'."}
         from modules.specifications.core.spec_tdoc_report import SpecTDocReportGenerator
 
-        rows = history_db.search_history(spec_number=spec_number, version=version, limit=500)
         tdoc_tokens: List[str] = []
-        for r in rows:
-            st = str(r.get("source_tdoc") or "").strip()
-            if st and st != "-":
-                tdoc_tokens.append(st)
-            for pcr in r.get("pcr_tdocs") or []:
-                if pcr and pcr != "-":
-                    tdoc_tokens.append(str(pcr).strip())
+        if tdoc_arg:
+            tdoc_tokens.append(tdoc_arg)
+        if spec_number:
+            rows = history_db.search_history(
+                spec_number=spec_number,
+                version=version,
+                tdoc_id=tdoc_arg or None,
+                limit=500,
+            )
+            for r in rows:
+                st = str(r.get("source_tdoc") or "").strip()
+                if st and st != "-":
+                    tdoc_tokens.append(st)
+                for pcr in r.get("pcr_tdocs") or []:
+                    if pcr and pcr != "-":
+                        tdoc_tokens.append(str(pcr).strip())
 
         cache_roots = _get_meetings_cache_roots()
         gen = SpecTDocReportGenerator(
@@ -191,17 +211,20 @@ def _handle_spec_history_and_attribution(
             history_db=history_db,
         )
         resolved_items = gen.resolve_tdocs_metadata(tdoc_tokens)
+        label_spec = spec_number or tdoc_arg
         md_report = SpecTDocReportGenerator.generate_markdown_report(
-            spec_number=spec_number,
+            spec_number=label_spec,
             version=version or "all",
             tdoc_entries=resolved_items,
         )
         out_dir = Path(args.get("output_dir") or (get_output_root() / "Spec_TDoc_Dossiers"))
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_md = out_dir / f"{spec_number}_{version or 'all'}_tdoc_dossier.md"
+        safe_label = re.sub(r"[^A-Za-z0-9._-]+", "_", label_spec)
+        out_md = out_dir / f"{safe_label}_{version or 'all'}_tdoc_dossier.md"
         out_md.write_text(md_report, encoding="utf-8")
         return {
-            "spec_number": spec_number,
+            "spec_number": spec_number or None,
+            "tdoc_id": tdoc_arg or None,
             "version": version,
             "total_tdocs": len(resolved_items),
             "markdown_dossier_path": str(out_md),
@@ -243,8 +266,21 @@ def _handle_protocol_inspector(
         if not query:
             return {"error": "query (message name) is required for action='find_message'."}
         res = protocol_service.find_message(message=query, protocol=protocol or None, version=version)
-        if isinstance(res.data, dict) and "fields" in res.data:
-            res.data.setdefault("information_elements", res.data["fields"])
+        if isinstance(res.data, dict):
+            data_copy = dict(res.data)
+            if isinstance(data_copy.get("description"), str) and "<" in data_copy["description"]:
+                data_copy["description"] = _strip_html(data_copy["description"])
+            if "fields" in data_copy:
+                raw_fields = data_copy.pop("fields") or []
+                cleaned_fields: List[Dict[str, Any]] = []
+                for f in raw_fields:
+                    fc = dict(f)
+                    for dk in ("ie_description", "field_description", "description"):
+                        if isinstance(fc.get(dk), str) and "<" in fc[dk]:
+                            fc[dk] = _strip_html(fc[dk])
+                    cleaned_fields.append(fc)
+                data_copy["information_elements"] = cleaned_fields
+            return ToolResult(res.status, data=data_copy, message=res.message, metadata=res.metadata)
         return res
 
     if action == "find_ie":
@@ -255,31 +291,74 @@ def _handle_protocol_inspector(
     if action == "evolution_matrix":
         if not protocol or not query:
             return {"error": "protocol and query (message or IE name) are required for action='evolution_matrix'."}
-        from modules.nas.core.nas_db import NASDatabase
+        from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
         from modules.nas.core.nas_exporter import build_matrix_markdown, build_matrix_tsv
 
         nas_db = NASDatabase(protocol_db_path)
+        imported = nas_db.get_imported_versions()
+        descriptors = protocol_service._resolve_descriptors(protocol)
+        if not descriptors:
+            return {"error": f"Unknown protocol '{protocol}'."}
+        selected_vers = protocol_service._select_versions(imported, descriptors, version, None)
+        if not selected_vers:
+            return {"error": f"No imported versions found in protocol DB for {protocol}."}
+        selected_vers_sorted = sorted(
+            selected_vers,
+            key=lambda v: parse_version_tuple(str(v.get("version") or "")),
+        )
+        version_ids = [int(v["id"]) for v in selected_vers_sorted if v.get("id") is not None]
+
         target_type = str(args.get("target_type") or "message").strip().lower()
         fmt = str(args.get("format") or "markdown").strip().lower()
 
         if target_type == "ie":
-            df = nas_db.get_ie_definition_evolution_df(query, protocol=protocol)
+            df = nas_db.get_ie_definition_evolution_df(clause=query, ie_name=query, version_ids=version_ids)
             title = f"{protocol} IE Evolution: {query}"
         else:
-            df = nas_db.get_message_evolution_df(query, protocol=protocol)
+            df = nas_db.get_message_evolution_df(message_name=query, version_ids=version_ids)
             title = f"{protocol} Message Evolution: {query}"
 
         if df is None or df.empty:
             return {"error": f"No evolution matrix rows found for {protocol} {target_type} '{query}'."}
 
-        rendered = build_matrix_tsv(title, df) if fmt == "tsv" else build_matrix_markdown(title, df)
+        # Pivot DataFrame into compact per-version columns for Markdown/TSV matrix rendering
+        ver_cols = sorted(
+            {str(v) for v in df["version"].dropna() if str(v)},
+            key=parse_version_tuple,
+        )
+        headers = ["IE / Field", "Type Ref", *ver_cols]
+        field_order: List[str] = []
+        field_type_ref: Dict[str, str] = {}
+        cell_map: Dict[str, Dict[str, str]] = {}
+
+        for _, row in df.fillna("").iterrows():
+            fname = str(row.get("field_path") or row.get("ie_name") or "").strip()
+            if not fname:
+                continue
+            if fname not in cell_map:
+                field_order.append(fname)
+                cell_map[fname] = {}
+                field_type_ref[fname] = str(row.get("type_reference") or "").strip()
+            ver = str(row.get("version") or "").strip()
+            pres = str(row.get("presence") or "").strip()
+            fmt_s = str(row.get("format") or "").strip()
+            len_s = str(row.get("length") or "").strip()
+            detail = " ".join(p for p in (pres, f"[{fmt_s}]" if fmt_s else "", len_s) if p)
+            if ver:
+                cell_map[fname][ver] = detail or "Present"
+
+        matrix_rows: List[List[Any]] = [
+            [fname, field_type_ref[fname], *[cell_map[fname].get(v, "-") for v in ver_cols]]
+            for fname in field_order
+        ]
+        rendered = build_matrix_tsv(headers, matrix_rows) if fmt == "tsv" else build_matrix_markdown(title, headers, matrix_rows)
         return {
             "protocol": protocol,
             "target_type": target_type,
             "target_name": query,
             "format": fmt,
-            "row_count": len(df),
-            "columns": list(df.columns),
+            "row_count": len(matrix_rows),
+            "columns": headers,
             "matrix": rendered,
         }
 

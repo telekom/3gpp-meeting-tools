@@ -6,7 +6,14 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from core.utils.paths import get_output_root
-from .common import _COM_LOCK, _disable_faulthandler_for_com, _parse_csv_list
+from .common import (
+    _COM_LOCK,
+    _disable_faulthandler_for_com,
+    _export_doc_to_markdown,
+    _extract_resolved_word_docs,
+    _match_heading_for_clause,
+    _parse_csv_list,
+)
 
 
 # =========================================================================
@@ -22,8 +29,6 @@ def _handle_word_markdown_studio(args: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": f"input_path does not exist: {input_path}"}
 
     if action == "word_to_md":
-        from modules.meetings.core.tdocs.tdoc_markdown_converter import convert_document_to_markdown
-
         src = input_path
         if src.suffix.lower() == ".doc":
             from modules.word_tools.core.word_converter import convert_doc_to_docx
@@ -32,15 +37,14 @@ def _handle_word_markdown_studio(args: Dict[str, Any]) -> Dict[str, Any]:
                 src = Path(conv)
         out_md = Path(output_path_raw) if output_path_raw else src.with_suffix(".md")
         rev_mode = str(args.get("revisions") or "markup").strip().lower()
-        res = convert_document_to_markdown(src, out_md, revisions=rev_mode)
-        if not res or not out_md.exists():
+        produced, text, res = _export_doc_to_markdown(src, out_md, revisions=rev_mode)
+        if not produced or not produced.exists():
             return {"error": f"Failed converting {src} to Markdown."}
-        text = out_md.read_text(encoding="utf-8", errors="replace")
         return {
             "input_path": str(input_path),
-            "output_path": str(out_md),
+            "output_path": str(produced),
             "revisions_mode": rev_mode,
-            "media_dir": str(res.media_dir) if getattr(res, "media_dir", None) else None,
+            "media_dir": None,
             "char_length": len(text),
             "preview": text[:4000],
         }
@@ -65,7 +69,6 @@ def _handle_word_markdown_studio(args: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     if action == "slice_clauses":
-        from modules.spec_search.core.spec_clause_exporter import match_heading_for_clause
         from modules.word_tools.core.word_excerpt_extractor import WordExcerptEngine, WordHeadingScanner
 
         clauses = _parse_csv_list(args.get("clauses"))
@@ -80,7 +83,7 @@ def _handle_word_markdown_studio(args: Dict[str, Any]) -> Dict[str, Any]:
         matched_ids = []
         matched_texts = []
         for c in clauses:
-            h = match_heading_for_clause(headings, c)
+            h = _match_heading_for_clause(headings, c)
             if h:
                 matched_ids.append(h.id)
                 matched_texts.append(h.text)
@@ -151,19 +154,18 @@ def _handle_cr_pcr_generator(args: Dict[str, Any]) -> Dict[str, Any]:
     else:
         from modules.spec_search.core.spec_doc_resolver import SpecDocResolver
         resolved = SpecDocResolver.resolve_spec_files(spec_number, version=spec_version)
-        source_paths = [str(p) for p in resolved]
+        source_paths = [str(p) for p in _extract_resolved_word_docs(resolved)]
 
     if not source_paths:
         return {"error": f"No baseline Word document found for {spec_number} v{spec_version}. Provide source_docx_path or download the spec first."}
 
-    from modules.spec_search.core.spec_clause_exporter import match_heading_for_clause
     from modules.word_tools.core.word_excerpt_extractor import WordHeadingScanner
 
     scanner = WordHeadingScanner()
     headings = scanner.scan(source_paths)
     matched_ids: List[str] = []
     for c in clauses:
-        h = match_heading_for_clause(headings, c)
+        h = _match_heading_for_clause(headings, c)
         if h:
             matched_ids.append(h.id)
 

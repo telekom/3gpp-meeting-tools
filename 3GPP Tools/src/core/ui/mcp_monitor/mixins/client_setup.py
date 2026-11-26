@@ -110,8 +110,9 @@ class McpClientSetupMixin:
             title="OpenAI Codex CLI",
             snippet=cfgs["codex_cli"]["config_json"],
             instructions=cfgs["codex_cli"]["instructions"],
+            target_path=cfgs["codex_cli"].get("target_file"),
             command_line=cfgs["codex_cli"]["cli_command"],
-            is_json=True,
+            is_json=False,
         )
         cfg_tabs.addTab(codex_card, "Codex CLI")
 

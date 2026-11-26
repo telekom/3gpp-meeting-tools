@@ -5,10 +5,11 @@ from __future__ import annotations
 import faulthandler
 import os
 import re
+import shutil
 import sys
 import threading
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from core.utils.paths import get_cache_root, get_db_root, get_meetings_root
 from modules.assistant.core.agent_models import ToolResult, ToolStatus
@@ -63,8 +64,6 @@ def _wrap_handler(fn: Callable[[Dict[str, Any]], Any]) -> Callable[..., ToolResu
                 payload = {
                     "ok": is_ok,
                     "items": res.data,
-                    "matches": res.data,
-                    "hits": res.data,
                     "count": len(res.data),
                 }
                 if not is_ok and res.message:
@@ -139,6 +138,61 @@ def _parse_csv_list(val: Any) -> List[str]:
     if isinstance(val, (list, tuple, set)):
         return [str(x).strip() for x in val if str(x).strip()]
     return [x.strip() for x in re.split(r"[,;]+", str(val)) if x.strip()]
+
+
+def _extract_resolved_word_docs(resolved: Any) -> List[Path]:
+    """Extracts a list of Word document Paths from `SpecDocResolver.resolve_spec_files()` output."""
+    if isinstance(resolved, dict):
+        raw = resolved.get("word_docs") or []
+    elif isinstance(resolved, (list, tuple)):
+        raw = resolved
+    else:
+        raw = []
+    return [Path(p) for p in raw if p]
+
+
+def _match_heading_for_clause(headings: Sequence[Any], clause_number: str) -> Optional[Any]:
+    """Matches a `HeadingInfo` whose text begins with the exact clause number."""
+    clean_num = str(clause_number or "").strip()
+    if not clean_num:
+        return None
+    pattern = re.compile(r"^" + re.escape(clean_num) + r"(?:[\s\t]|$)", re.IGNORECASE)
+    for h in headings:
+        text = str(getattr(h, "text", "") or "").strip()
+        if pattern.match(text):
+            return h
+    return None
+
+
+def _export_doc_to_markdown(
+    doc_path: Path,
+    out_md: Optional[Path] = None,
+    *,
+    revisions: str = "markup",
+    tdoc_id: Optional[str] = None,
+) -> Tuple[Optional[Path], str, Any]:
+    """Converts a `.docx` file to Markdown via `convert_document_to_markdown` using a directory `out_dir`."""
+    from modules.meetings.core.tdocs.tdoc_markdown_converter import convert_document_to_markdown
+
+    target_dir = out_md.parent if out_md is not None else doc_path.parent
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_id = out_md.stem if out_md is not None else (tdoc_id or doc_path.stem)
+    exported = convert_document_to_markdown(
+        doc_path,
+        out_dir=target_dir,
+        tdoc_id=target_id,
+        revisions=revisions,
+    )
+    if not exported:
+        return None, "", None
+    produced = Path(exported.md_path) if getattr(exported, "md_path", None) else None
+    if out_md is not None and produced and produced.exists() and produced.resolve() != out_md.resolve():
+        shutil.move(str(produced), str(out_md))
+        produced = out_md
+    md_text = getattr(exported, "text", "") or ""
+    if not md_text and produced and produced.exists():
+        md_text = produced.read_text(encoding="utf-8", errors="replace")
+    return produced, md_text, exported
 
 
 def _get_meetings_cache_roots() -> List[Path]:

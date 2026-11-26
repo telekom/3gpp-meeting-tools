@@ -25,6 +25,7 @@ import json
 import logging
 import math
 import os
+import signal
 import sys
 import time
 from pathlib import Path
@@ -56,9 +57,15 @@ from modules.assistant.core.tools.external_agent_tools import (
 logger = logging.getLogger(__name__)
 
 SERVER_NAME = "3gpp-tools"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "1.1.0"
 DEFAULT_PROTOCOL_VERSION = "2024-11-05"
-SUPPORTED_PROTOCOL_VERSIONS = {"2024-11-05", "2025-03-26", "2024-10-07"}
+SUPPORTED_PROTOCOL_VERSIONS = {
+    "2024-10-07",
+    "2024-11-05",
+    "2025-03-26",
+    "2025-06-18",
+    "2025-11-25",
+}
 
 
 def configure_mcp_logging(log_level: str = "INFO") -> Path:
@@ -243,6 +250,7 @@ class MCPServer:
                 "protocolVersion": negotiated_version,
                 "capabilities": {
                     "tools": {"listChanged": False},
+                    "logging": {},
                 },
                 "serverInfo": {
                     "name": SERVER_NAME,
@@ -461,15 +469,26 @@ def serve_stdio(
         except json.JSONDecodeError as exc:
             logger.error("❌ JSON parse error on stdin: %s", exc)
             err_resp = MCPServer._error_response(None, -32700, f"Parse error: {exc}")
-            _write_rpc_message(writer, err_resp, framing="jsonl")
+            try:
+                _write_rpc_message(writer, err_resp, framing="jsonl")
+            except BrokenPipeError:
+                logger.info("👋 Broken pipe writing parse error; exiting.")
+                break
             continue
+        except (BrokenPipeError, KeyboardInterrupt):
+            logger.info("👋 Stdio interrupted; shutting down MCP Server cleanly.")
+            break
         except Exception as exc:
             logger.exception("❌ Unexpected error reading from stdin: %s", exc)
             break
 
         response = server.handle_message(msg)
         if response is not None:
-            _write_rpc_message(writer, response, framing=framing)
+            try:
+                _write_rpc_message(writer, response, framing=framing)
+            except BrokenPipeError:
+                logger.info("👋 Broken pipe on stdout; shutting down MCP Server cleanly.")
+                break
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -527,7 +546,25 @@ def main(argv: Optional[list[str]] = None) -> int:
         profile=args.profile,
         read_only=args.read_only,
     )
-    serve_stdio(server, in_stream=sys.stdin.buffer, out_stream=real_stdout_buffer)
+
+    def _handle_sig(_signum: int, _frame: Any) -> None:
+        unregister_mcp_session(server.pid)
+        raise KeyboardInterrupt
+
+    for sig_name in ("SIGINT", "SIGTERM"):
+        sig = getattr(signal, sig_name, None)
+        if sig is not None:
+            try:
+                signal.signal(sig, _handle_sig)
+            except Exception:
+                pass
+
+    try:
+        serve_stdio(server, in_stream=sys.stdin.buffer, out_stream=real_stdout_buffer)
+    except KeyboardInterrupt:
+        logger.info("👋 Signal received; shutting down MCP Server.")
+    finally:
+        unregister_mcp_session(server.pid)
     return 0
 
 

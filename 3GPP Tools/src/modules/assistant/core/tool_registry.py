@@ -35,6 +35,7 @@ class ToolDefinition:
     arguments: Tuple[ToolArgument, ...]
     handler: Callable[..., ToolResult]
     permission: ToolPermission = ToolPermission.KNOWLEDGE_READ
+    annotations: Optional[Dict[str, bool]] = None
 
     def ollama_schema(self) -> Dict[str, Any]:
         props, required = {}, []
@@ -64,7 +65,7 @@ class ToolDefinition:
             if arg.default is not None: s["default"] = arg.default
             props[arg.name] = s
             if arg.required: required.append(arg.name)
-        return {
+        schema: Dict[str, Any] = {
             "name": self.name,
             "description": self.description,
             "inputSchema": {
@@ -74,6 +75,9 @@ class ToolDefinition:
                 "additionalProperties": False,
             },
         }
+        if self.annotations:
+            schema["annotations"] = dict(self.annotations)
+        return schema
 
 class ToolRegistry:
     def __init__(self, allowed_permissions: Optional[Iterable[ToolPermission]] = None):

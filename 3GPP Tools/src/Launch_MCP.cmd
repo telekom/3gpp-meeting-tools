@@ -25,8 +25,8 @@ if %ERRORLEVEL% EQU 0 (
 )
 
 if "%PY_CMD%"=="" (
-    echo [ERROR] No Python interpreter found!
-    echo Please install 64-bit Python 3.10+ from https://www.python.org/
+    echo [ERROR] No Python interpreter found! >&2
+    echo Please install 64-bit Python 3.10+ from https://www.python.org/ >&2
     exit /b 1
 )
 

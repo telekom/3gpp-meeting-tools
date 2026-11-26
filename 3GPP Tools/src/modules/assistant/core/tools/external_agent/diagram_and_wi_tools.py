@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import tempfile
@@ -83,80 +84,87 @@ def _handle_plantuml_office_studio(args: Dict[str, Any]) -> Dict[str, Any]:
 
     if action in ("validate_or_render_svg", "export_vsdx", "export_pptx"):
         work_dir = Path(tempfile.mkdtemp(prefix="puml_agent_", dir=str(get_temp_root())))
-        if input_path_raw and Path(input_path_raw).exists():
-            puml_file = Path(input_path_raw)
-            puml_code = puml_file.read_text(encoding="utf-8", errors="replace")
-        elif puml_code:
-            if "@startuml" not in puml_code:
-                puml_code = f"@startuml\n{puml_code}\n@enduml"
-            puml_file = work_dir / "diagram.puml"
-            puml_file.write_text(puml_code, encoding="utf-8")
-        else:
-            return {"error": "Provide puml_code or input_path (.puml) for PlantUML rendering/export."}
+        try:
+            if input_path_raw and Path(input_path_raw).exists():
+                puml_file = Path(input_path_raw)
+                puml_code = puml_file.read_text(encoding="utf-8", errors="replace")
+            elif puml_code:
+                if "@startuml" not in puml_code:
+                    puml_code = f"@startuml\n{puml_code}\n@enduml"
+                puml_file = work_dir / "diagram.puml"
+                puml_file.write_text(puml_code, encoding="utf-8")
+            else:
+                return {"error": "Provide puml_code or input_path (.puml) for PlantUML rendering/export."}
 
-        if action == "validate_or_render_svg":
-            try:
-                svg_path = generate_cleaned_svg(puml_file, jar_path)
-                out_svg = Path(output_path_raw) if output_path_raw else (get_output_root() / f"{puml_file.stem}.svg")
-                out_svg.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(svg_path, out_svg)
+            if action == "validate_or_render_svg":
+                try:
+                    svg_path = generate_cleaned_svg(puml_file, jar_path)
+                    out_svg = Path(output_path_raw) if output_path_raw else (get_output_root() / f"{puml_file.stem}.svg")
+                    out_svg.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(svg_path, out_svg)
+                    return {
+                        "valid": True,
+                        "svg_path": str(out_svg),
+                    }
+                except Exception as e:
+                    return {
+                        "valid": False,
+                        "error": str(e),
+                    }
+
+            if action == "export_vsdx":
+                from modules.puml2visio.core.visio_converter import ConverterThread
+
+                produced_paths: List[str] = []
+                _disable_faulthandler_for_com()
+                with _COM_LOCK:
+                    worker = ConverterThread(
+                        puml_path=puml_file,
+                        jar_path=jar_path,
+                    )
+                    worker.finished_path.connect(produced_paths.append)
+                    worker.run()
+
+                raw_vsdx = Path(produced_paths[-1]) if (produced_paths and produced_paths[-1]) else puml_file.with_suffix(".vsdx")
+                target_vsdx = Path(output_path_raw) if output_path_raw else (get_output_root() / f"{puml_file.stem}.vsdx")
+                target_vsdx.parent.mkdir(parents=True, exist_ok=True)
+                if raw_vsdx.exists() and raw_vsdx.resolve() != target_vsdx.resolve():
+                    shutil.move(str(raw_vsdx), str(target_vsdx))
+                if target_vsdx.exists() and bool(args.get("open_after", False)) and os.name == "nt":
+                    try:
+                        os.startfile(str(target_vsdx))
+                    except Exception:
+                        pass
                 return {
-                    "valid": True,
-                    "svg_path": str(out_svg),
+                    "output_path": str(target_vsdx),
+                    "exists": target_vsdx.exists(),
+                    "embedded_plantuml_metadata": True,
                 }
-            except Exception as e:
+
+            if action == "export_pptx":
+                from modules.puml2visio.core.powerpoint_converter import PptxConverterThread
+
+                append_to_open = bool(args.get("append_to_open", False))
+                insert_pos = str(args.get("insert_position") or "end")
+                produced_paths = []
+                _disable_faulthandler_for_com()
+                with _COM_LOCK:
+                    worker = PptxConverterThread(
+                        puml_path=puml_file,
+                        jar_path=jar_path,
+                        append_to_open=append_to_open,
+                        insert_at=insert_pos,
+                    )
+                    worker.finished_path.connect(produced_paths.append)
+                    worker.run()
+                result_ref = produced_paths[-1] if produced_paths else ""
                 return {
-                    "valid": False,
-                    "error": str(e),
+                    "result_path": result_ref,
+                    "opened_in_powerpoint": bool(result_ref),
+                    "appended_to_open": append_to_open,
                 }
-
-        if action == "export_vsdx":
-            from modules.puml2visio.core.visio_converter import ConverterThread
-
-            out_dir = Path(output_path_raw).parent if output_path_raw else get_output_root()
-            out_dir.mkdir(parents=True, exist_ok=True)
-            _disable_faulthandler_for_com()
-            with _COM_LOCK:
-                worker = ConverterThread(
-                    files=[puml_file],
-                    jar_path=jar_path,
-                    output_dir=out_dir,
-                    open_visio=bool(args.get("open_after", False)),
-                    include_source=bool(args.get("embed_source", True)),
-                )
-                worker.run()
-            expected_vsdx = out_dir / f"{puml_file.stem}.vsdx"
-            if output_path_raw and expected_vsdx.exists() and Path(output_path_raw).resolve() != expected_vsdx.resolve():
-                shutil.move(str(expected_vsdx), output_path_raw)
-                expected_vsdx = Path(output_path_raw)
-            return {
-                "output_path": str(expected_vsdx),
-                "exists": expected_vsdx.exists(),
-                "embedded_plantuml_metadata": bool(args.get("embed_source", True)),
-            }
-
-        if action == "export_pptx":
-            from modules.puml2visio.core.powerpoint_converter import PptxConverterThread
-
-            out_pptx = Path(output_path_raw) if output_path_raw else (get_output_root() / f"{puml_file.stem}.pptx")
-            out_pptx.parent.mkdir(parents=True, exist_ok=True)
-            _disable_faulthandler_for_com()
-            with _COM_LOCK:
-                worker = PptxConverterThread(
-                    puml_path=puml_file,
-                    jar_path=jar_path,
-                    output_pptx=out_pptx,
-                    include_notes=True,
-                    open_after=bool(args.get("open_after", False)),
-                    append_to_open=bool(args.get("append_to_open", False)),
-                    insert_position=str(args.get("insert_position") or "end"),
-                )
-                worker.run()
-            return {
-                "output_path": str(out_pptx),
-                "exists": out_pptx.exists(),
-                "appended_to_open": bool(args.get("append_to_open", False)),
-            }
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
     if action == "bridge_pptx_vsdx":
         if not input_path_raw or not Path(input_path_raw).exists():
@@ -368,25 +376,50 @@ def _handle_work_items_and_emails(
             except Exception:
                 pass
 
-        # 2. Also check per-meeting Agenda/emails.db and global general_emails.db in cache_dir if needed
+        # 2. Also check per-meeting Agenda/emails.db, Agenda/general_emails.db, and General_Emails/general_emails.db
         if len(results) < limit:
+            meeting_num = str(args.get("meeting_number") or "").strip()
             for c_root in _get_meetings_cache_roots():
                 if not c_root.exists():
                     continue
+                candidate_dbs: List[Path] = []
                 gen_db_file = c_root / "General_Emails" / "general_emails.db"
                 if gen_db_file.exists():
+                    candidate_dbs.append(gen_db_file)
+                try:
+                    meeting_dirs = sorted(
+                        (d for d in c_root.iterdir() if d.is_dir() and (d / "Agenda").is_dir()),
+                        key=lambda p: p.name,
+                        reverse=True,
+                    )
+                    for m_dir in meeting_dirs[:15]:
+                        if meeting_num and meeting_num not in m_dir.name:
+                            continue
+                        if wg and wg not in m_dir.name.upper():
+                            continue
+                        for db_name in ("emails.db", "general_emails.db"):
+                            cand = m_dir / "Agenda" / db_name
+                            if cand.exists():
+                                candidate_dbs.append(cand)
+                except Exception:
+                    pass
+                for db_file in candidate_dbs:
+                    if len(results) >= limit:
+                        break
                     try:
-                        gdb = GeneralEmailDatabase(gen_db_file)
+                        gdb = GeneralEmailDatabase(db_file)
                         with gdb._get_connection() as conn:
-                            sql = """
-                                SELECT id, folder_tag AS wg_name, subject, sender_name, company AS sender_company,
-                                       date_received AS sent_date, substr(COALESCE(body_text, ''), 1, 800) AS snippet
-                                FROM general_emails
-                                WHERE (? = '' OR subject LIKE ? OR body_text LIKE ? OR company LIKE ?)
-                                ORDER BY date_received DESC LIMIT ?
-                            """
-                            rows = conn.execute(sql, (query, q_like, q_like, q_like, limit)).fetchall()
-                            results.extend([dict(r) for r in rows])
+                            tbls = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+                            if "general_emails" in tbls:
+                                sql = """
+                                    SELECT id, folder_tag AS wg_name, subject, sender_name, company AS sender_company,
+                                           date_received AS sent_date, substr(COALESCE(body_text, ''), 1, 800) AS snippet
+                                    FROM general_emails
+                                    WHERE (? = '' OR subject LIKE ? OR body_text LIKE ? OR company LIKE ?)
+                                    ORDER BY date_received DESC LIMIT ?
+                                """
+                                rows = conn.execute(sql, (query, q_like, q_like, q_like, limit)).fetchall()
+                                results.extend([dict(r) for r in rows])
                     except Exception:
                         pass
 
@@ -394,6 +427,64 @@ def _handle_work_items_and_emails(
             "query": query,
             "count": len(results[:limit]),
             "emails": results[:limit],
+        }
+
+    if action == "search_tracked_threads":
+        from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+
+        meeting_num = str(args.get("meeting_number") or "").strip()
+        threads_out: List[Dict[str, Any]] = []
+        q_low = query.lower()
+        for c_root in _get_meetings_cache_roots():
+            if not c_root.exists():
+                continue
+            try:
+                meeting_dirs = sorted(
+                    (d for d in c_root.iterdir() if d.is_dir() and (d / "Agenda" / "tracked_threads.db").is_file()),
+                    key=lambda p: p.name,
+                    reverse=True,
+                )
+            except Exception:
+                meeting_dirs = []
+            for m_dir in meeting_dirs[:15]:
+                if meeting_num and meeting_num not in m_dir.name:
+                    continue
+                if wg and wg not in m_dir.name.upper():
+                    continue
+                try:
+                    tdb = TrackedThreadsDatabase(m_dir / "Agenda" / "tracked_threads.db")
+                    for th in tdb.get_threads_for_meeting():
+                        hay = " ".join(
+                            str(th.get(k) or "")
+                            for k in ("thread_id", "title", "subject_patterns", "user_status", "user_notes", "linked_tdocs", "linked_ais", "linked_wis")
+                        ).lower()
+                        if q_low and q_low not in hay:
+                            continue
+                        threads_out.append({
+                            "meeting_folder": m_dir.name,
+                            "thread_id": th.get("thread_id", ""),
+                            "title": th.get("title", ""),
+                            "user_status": th.get("user_status", ""),
+                            "user_notes": th.get("user_notes", ""),
+                            "is_objected": th.get("is_objected", False),
+                            "objected_at_rev": th.get("objected_at_rev", ""),
+                            "linked_tdocs": th.get("linked_tdocs", []),
+                            "linked_ais": th.get("linked_ais", []),
+                            "linked_wis": th.get("linked_wis", []),
+                            "unread_count": th.get("unread_count", 0),
+                            "last_message_date": th.get("last_message_date", ""),
+                        })
+                        if len(threads_out) >= limit:
+                            break
+                except Exception:
+                    continue
+                if len(threads_out) >= limit:
+                    break
+
+        return {
+            "query": query,
+            "count": len(threads_out[:limit]),
+            "threads": threads_out[:limit],
         }
 
     if action in ("list_email_summaries", "get_email_summary", "save_email_summary"):

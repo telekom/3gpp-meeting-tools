@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 
 from core.network.network_state import NetworkState
 from core.network.session import NetworkSession
-from .common import _parse_csv_list
+from .common import _export_doc_to_markdown, _parse_csv_list
 from .meeting_helpers import _resolve_meeting_cache_dir, _resolve_meeting_record
 
 logger = logging.getLogger(__name__)
@@ -154,7 +154,6 @@ def _handle_onsite_meeting_cockpit(
                     })
 
         from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
-        from modules.meetings.core.tdocs.tdoc_markdown_converter import convert_document_to_markdown
 
         downloaded_revs: List[Dict[str, Any]] = []
         for item in sorted(discovered_files, key=lambda x: x["name"].lower()):
@@ -168,7 +167,7 @@ def _handle_onsite_meeting_cockpit(
             if dl_target.suffix.lower() == ".zip":
                 ext_dir = revs_cache_dir / dl_target.stem
                 ext_dir.mkdir(parents=True, exist_ok=True)
-                doc_files = TDocFileHandler.extract_zip_safely(dl_target, ext_dir)
+                doc_files = TDocFileHandler._extract_archive_docs(str(dl_target), ext_dir, dl_target.name)
             elif dl_target.suffix.lower() in (".docx", ".doc"):
                 doc_files = [dl_target]
 
@@ -182,10 +181,9 @@ def _handle_onsite_meeting_cockpit(
                     if conv and Path(conv).exists():
                         primary_doc = Path(conv)
                 md_out = primary_doc.with_suffix(".md")
-                res = convert_document_to_markdown(primary_doc, md_out, revisions="markup")
-                if res and md_out.exists():
-                    md_path = str(md_out)
-                    md_text = md_out.read_text(encoding="utf-8", errors="replace")
+                produced, md_text, _ = _export_doc_to_markdown(primary_doc, md_out, revisions="markup")
+                if produced and produced.exists():
+                    md_path = str(produced)
 
             downloaded_revs.append({
                 "archive_or_file": item["name"],
@@ -264,13 +262,18 @@ def _handle_onsite_meeting_cockpit(
             except Exception as e:
                 logger.debug(f"Could not parse chair notes {f.name}: {e}")
 
+        def _ag_get(obj: Any, key: str, default: Any = "") -> Any:
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+            return getattr(obj, key, default)
+
         filt_q = str(args.get("query") or "").strip().lower()
         if filt_q:
             agreements = [
                 a for a in agreements
-                if filt_q in str(getattr(a, "tdoc_id", "")).lower()
-                or filt_q in str(getattr(a, "ai_number", "")).lower()
-                or filt_q in str(getattr(a, "raw_outcome", "")).lower()
+                if filt_q in str(_ag_get(a, "tdoc_id")).lower()
+                or filt_q in str(_ag_get(a, "ai") or _ag_get(a, "ai_number")).lower()
+                or filt_q in str(_ag_get(a, "text") or _ag_get(a, "raw_outcome")).lower()
             ]
 
         return {
@@ -282,13 +285,14 @@ def _handle_onsite_meeting_cockpit(
             "parsed_outcomes_count": len(agreements),
             "outcomes": [
                 {
-                    "tdoc_id": getattr(a, "tdoc_id", ""),
-                    "canonical_status": getattr(a, "canonical_status", ""),
-                    "raw_outcome": getattr(a, "raw_outcome", ""),
-                    "ai_number": getattr(a, "ai_number", ""),
-                    "chair_name": getattr(a, "chair_name", ""),
-                    "note_version": getattr(a, "note_version", ""),
-                    "follow_up_tdoc": getattr(a, "follow_up_tdoc", ""),
+                    "tdoc_id": _ag_get(a, "tdoc_id", ""),
+                    "kind": _ag_get(a, "kind") or _ag_get(a, "canonical_status", ""),
+                    "text": _ag_get(a, "text") or _ag_get(a, "raw_outcome", ""),
+                    "ai": _ag_get(a, "ai") or _ag_get(a, "ai_number", ""),
+                    "ai_title": _ag_get(a, "ai_title", ""),
+                    "wi": _ag_get(a, "wi", ""),
+                    "release": _ag_get(a, "release", ""),
+                    "source_file": _ag_get(a, "source_file", ""),
                 }
                 for a in agreements[: int(args.get("limit") or 50)]
             ],
@@ -394,7 +398,6 @@ def _handle_onsite_meeting_cockpit(
 
     if action == "batch_cache_tdocs":
         from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
-        from modules.meetings.core.tdocs.tdoc_markdown_converter import convert_document_to_markdown
 
         tdoc_list = _parse_csv_list(args.get("tdoc_id") or args.get("query"))
         if not tdoc_list:
@@ -404,7 +407,7 @@ def _handle_onsite_meeting_cockpit(
         mtg = _resolve_meeting_record(mdb, wg=wg, meeting_number=meeting_number) or {}
 
         docs_ftp = str(mtg.get("docs_folder_url") or "")
-        rev_url = str(mtg.get("revisions_url") or "")
+        main_ftp = docs_ftp.rsplit("/Docs", 1)[0] if "/Docs" in docs_ftp else docs_ftp
         mtg_folder = str(mtg.get("folder_name") or mtg.get("meeting_folder_name") or f"{wg}_{meeting_number or 'Live'}")
         meeting_dir = _resolve_meeting_cache_dir(mtg_folder, wg=wg)
         convert_md = bool(args.get("convert_to_md", True))
@@ -412,23 +415,41 @@ def _handle_onsite_meeting_cockpit(
         results: List[Dict[str, Any]] = []
 
         def _fetch_one(tid: str) -> Dict[str, Any]:
-            files, err = TDocFileHandler.download_and_extract_tdoc(
-                tdoc_id=tid,
-                docs_ftp_url=docs_ftp,
-                meeting_dir=meeting_dir,
-                wg_name=wg,
-                revisions_url=rev_url,
-            )
-            if err or not files:
-                return {"tdoc_id": tid, "success": False, "error": err or "Not found"}
+            clean_tid = tid.strip().upper()
+            target_zip = clean_tid if clean_tid.lower().endswith(".zip") else f"{clean_tid}.zip"
+            base_tid = re.sub(r"R\d+$", "", clean_tid.removesuffix(".ZIP"))
+            tdoc_dir = meeting_dir / base_tid
+            files = TDocFileHandler.find_local_tdoc_files(meeting_dir, target_zip)
+            if not files:
+                base_urls = URLRouter.build_priority_url_list(
+                    wg_name=wg,
+                    folder_name=mtg_folder,
+                    main_ftp_url=main_ftp,
+                    is_active_sync=True,
+                    target_filename=target_zip,
+                )
+                for b_url in base_urls:
+                    try:
+                        found = TDocFileHandler.download_and_extract_tdoc(
+                            target_filename=target_zip,
+                            base_url=b_url,
+                            tdoc_dir=tdoc_dir,
+                        )
+                        if found:
+                            files = list(found)
+                            break
+                    except Exception:
+                        continue
+            if not files:
+                return {"tdoc_id": tid, "success": False, "error": f"Could not locate or download {target_zip}"}
             md_files = []
             if convert_md:
                 for f in files:
                     if f.suffix.lower() in (".docx", ".doc"):
                         md_out = f.with_suffix(".md")
-                        res = convert_document_to_markdown(f, md_out, revisions="markup")
-                        if res and md_out.exists():
-                            md_files.append(str(md_out))
+                        produced, _, _ = _export_doc_to_markdown(f, md_out, revisions="markup")
+                        if produced and produced.exists():
+                            md_files.append(str(produced))
             return {
                 "tdoc_id": tid,
                 "success": True,

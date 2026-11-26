@@ -44,21 +44,17 @@ def get_mcp_client_configurations() -> Dict[str, Dict[str, Any]]:
         }
     }
 
-    # 2. Codex CLI configuration (~/.codex/config.json or flags)
-    codex_cfg = {
-        "mcp": {
-            "servers": {
-                "3gpp-tools": {
-                    "command": python_exe_str,
-                    "args": [server_script_str, "--profile", "all"],
-                }
-            }
-        }
-    }
+    # 2. Codex CLI configuration (~/.codex/config.toml)
+    codex_config_file = Path.home() / ".codex" / "config.toml"
+    codex_toml = (
+        "[mcp_servers.3gpp-tools]\n"
+        f'command = {json.dumps(python_exe_str)}\n'
+        f'args = [{json.dumps(server_script_str)}, "--profile", "all"]\n'
+    )
 
     # 3. Claude CLI command snippet
     claude_cli_cmd = (
-        f'claude mcp add 3gpp-tools "{python_exe_str}" "{server_script_str}" -- --profile all'
+        f'claude mcp add 3gpp-tools -- "{python_exe_str}" "{server_script_str}" --profile all'
     )
 
     # 3b. Google Gemini CLI configuration (~/.gemini/settings.json)
@@ -127,11 +123,13 @@ def get_mcp_client_configurations() -> Dict[str, Dict[str, Any]]:
         },
         "codex_cli": {
             "title": "OpenAI Codex CLI",
-            "config_json": json.dumps(codex_cfg, indent=2),
-            "cli_command": f'codex --mcp "{python_exe_str} {server_script_str} --profile all"',
+            "target_file": str(codex_config_file),
+            "config_toml": codex_toml,
+            "config_json": codex_toml,
+            "cli_command": f'codex mcp add 3gpp-tools -- "{python_exe_str}" "{server_script_str}" --profile all',
             "instructions": (
-                "Pass the command above or add the JSON snippet into ~/.codex/config.json. "
-                "Codex will automatically discover all 12 domain tools with zero token overhead."
+                "Run the CLI command above or add this [mcp_servers.3gpp-tools] block to ~/.codex/config.toml. "
+                "Codex will automatically discover all 12 domain tools."
             ),
         },
         "claude_cli": {

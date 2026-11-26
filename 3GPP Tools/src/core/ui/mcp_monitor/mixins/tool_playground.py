@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
-    QApplication,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -19,13 +19,31 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from core.ai.mcp_activity import record_mcp_event
 from core.ui.mcp_monitor.presets import DEFAULT_PLAYGROUND_ARGUMENTS
-from core.ui.theme import T
+from core.ui.theme import C, T
 from modules.assistant.core.tools.external_agent_tools import (
     PROFILE_TOOLS,
     build_external_agent_tool_registry,
 )
-from core.ui.theme import C
+
+
+class _PlaygroundWorker(QThread):
+    """Runs a ToolRegistry call off the Qt GUI thread."""
+
+    finished_call = pyqtSignal(str, dict, object, float)
+
+    def __init__(self, registry, tool_name: str, args: dict, parent=None):
+        super().__init__(parent)
+        self._registry = registry
+        self._tool_name = tool_name
+        self._args = args
+
+    def run(self):
+        t0 = time.perf_counter()
+        res = self._registry.execute(self._tool_name, self._args)
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        self.finished_call.emit(self._tool_name, self._args, res, elapsed_ms)
 
 
 class McpToolPlaygroundMixin:
@@ -36,8 +54,16 @@ class McpToolPlaygroundMixin:
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
 
+        registry = self._ensure_registry()
+        tool_defs = registry.definitions()
+        action_count = sum(
+            len(a.enum)
+            for d in tool_defs
+            for a in d.arguments
+            if a.name == "action" and a.enum
+        )
         intro = QLabel(
-            "Test-drive any of the 12 domain tools and 58 actions directly within the desktop application. "
+            f"Test-drive any of the {len(tool_defs)} domain tools and {action_count} actions directly within the desktop application. "
             "Select a tool, modify arguments as needed, and hit 'Execute Test Call' to inspect live output."
         )
         intro.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 12px;")
@@ -129,6 +155,8 @@ class McpToolPlaygroundMixin:
         self.play_args_edit.setText(json.dumps(full_args, indent=2))
 
     def _execute_playground_call(self):
+        if getattr(self, "_playground_worker", None) is not None and self._playground_worker.isRunning():
+            return
         tool_name = self.play_tool_combo.currentText()
         raw_text = self.play_args_edit.toPlainText().strip()
         try:
@@ -136,26 +164,58 @@ class McpToolPlaygroundMixin:
         except Exception as exc:
             QMessageBox.critical(self, "Invalid JSON", f"Arguments must be valid JSON:\n{exc}")
             return
+        if not isinstance(args, dict):
+            QMessageBox.critical(self, "Invalid JSON", "Arguments must be a JSON object.")
+            return
 
         self.play_exec_btn.setEnabled(False)
         self.play_out_title.setText("⏳ Executing tool...")
-        QApplication.processEvents()
 
-        t0 = time.perf_counter()
         registry = self._ensure_registry()
-        res = registry.execute(tool_name, args)
-        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        worker = _PlaygroundWorker(registry, tool_name, args, parent=self)
+        worker.finished_call.connect(self._on_playground_call_finished)
+        worker.finished.connect(worker.deleteLater)
+        self._playground_worker = worker
+        worker.start()
 
+    def _on_playground_call_finished(self, tool_name: str, args: dict, res, elapsed_ms: float):
         self.play_exec_btn.setEnabled(True)
+        action = str(args.get("action") or "")
         if res.ok:
             is_err = isinstance(res.data, dict) and res.data.get("ok") is False
             status_emoji = "🟠 Logic Note" if is_err else "🟢 Success"
             self.play_out_title.setText(f"{status_emoji} | Finished in {elapsed_ms:.1f} ms")
             self.play_output_edit.setText(json.dumps(res.data, ensure_ascii=False, indent=2, default=str))
+            record_mcp_event(
+                "playground/call",
+                client="desktop-playground",
+                client_ver="1.0",
+                pid=os.getpid(),
+                tool=tool_name,
+                action=action,
+                arguments=args,
+                elapsed_ms=elapsed_ms,
+                ok=True,
+                is_error=bool(is_err),
+                raw_data=res.data,
+            )
         else:
             err_msg = getattr(res, "error", None) or getattr(res, "message", "Tool execution failed")
             self.play_out_title.setText(f"🔴 Failed in {elapsed_ms:.1f} ms")
             self.play_output_edit.setText(f"Error:\n{err_msg}")
+            record_mcp_event(
+                "playground/call",
+                client="desktop-playground",
+                client_ver="1.0",
+                pid=os.getpid(),
+                tool=tool_name,
+                action=action,
+                arguments=args,
+                elapsed_ms=elapsed_ms,
+                ok=False,
+                is_error=True,
+                error_msg=err_msg,
+            )
 
         # Trigger activity refresh so this test call appears in the table
-        QTimer.singleShot(200, self.refresh_all)
+        QTimer.singleShot(100, self.refresh_all)

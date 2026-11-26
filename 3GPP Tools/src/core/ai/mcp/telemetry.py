@@ -51,15 +51,16 @@ def generate_call_summary(
                 return f"TS {spec} search '{args.get('query', '')}' -> {count} clause hits"
             if action == "get_clause":
                 cid = args.get("clause_id", "")
-                length = len(str(raw_data.get("text", ""))) if isinstance(raw_data, dict) else 0
-                return f"TS {spec} clause {cid} -> {length} characters"
+                text_val = ""
+                if isinstance(raw_data, dict):
+                    text_val = str(raw_data.get("content") or raw_data.get("text") or "")
+                return f"TS {spec} clause {cid} -> {len(text_val)} characters"
             if action == "diff_versions":
-                count = (
-                    len(raw_data.get("clauses_changed", []))
-                    if isinstance(raw_data, dict)
-                    else 0
-                )
-                return f"TS {spec} diff {args.get('old_version', '')} vs {args.get('new_version', '')} -> {count} diffs"
+                if isinstance(raw_data, dict):
+                    added = raw_data.get("added_lines", 0)
+                    removed = raw_data.get("removed_lines", 0)
+                    return f"TS {spec} diff {args.get('old_version', '')} vs {args.get('new_version', '')} -> +{added}/-{removed} lines"
+                return f"TS {spec} diff {args.get('old_version', '')} vs {args.get('new_version', '')}"
             if action == "evolution_matrix":
                 entries = (
                     len(raw_data.get("timeline", [])) if isinstance(raw_data, dict) else 0
@@ -131,7 +132,9 @@ def generate_call_summary(
             if action == "get_or_set_stance":
                 tdoc = args.get("tdoc_id", "")
                 st = args.get("stance") or (
-                    raw_data.get("stance") if isinstance(raw_data, dict) else "queried"
+                    (raw_data.get("my_status") or raw_data.get("stance"))
+                    if isinstance(raw_data, dict)
+                    else "queried"
                 )
                 return f"TDoc {tdoc} stance: {st}"
 
@@ -139,7 +142,9 @@ def generate_call_summary(
             spec = args.get("spec_number", "")
             if action == "query_history":
                 count = (
-                    len(raw_data.get("history", [])) if isinstance(raw_data, dict) else 0
+                    len(raw_data.get("records") or raw_data.get("history") or [])
+                    if isinstance(raw_data, dict)
+                    else 0
                 )
                 return f"TS {spec} change history query -> {count} revisions"
             if action == "attribute_clause":
@@ -149,7 +154,9 @@ def generate_call_summary(
                 return f"TS {spec} clause {args.get('clause_id', '')} attribution -> {count} candidate CRs"
             if action == "rank_origin_crs":
                 count = (
-                    len(raw_data.get("ranked_crs", [])) if isinstance(raw_data, dict) else 0
+                    len(raw_data.get("ranked_origin_crs") or raw_data.get("ranked_crs") or [])
+                    if isinstance(raw_data, dict)
+                    else 0
                 )
                 return f"TS {spec} origin CR ranking for '{args.get('query', '')}' -> {count} CRs"
 
@@ -162,8 +169,12 @@ def generate_call_summary(
                 )
                 return f"Probed 10.10.10.10: local_reachable={reach}"
             if action == "browse_lan_server":
-                count = len(raw_data.get("files", [])) if isinstance(raw_data, dict) else 0
-                return f"Browse LAN {args.get('subfolder', '')} -> {count} files found"
+                count = (
+                    len(raw_data.get("entries") or raw_data.get("files") or [])
+                    if isinstance(raw_data, dict)
+                    else 0
+                )
+                return f"Browse LAN {args.get('subfolder', '')} -> {count} entries found"
             if action == "fetch_live_revisions":
                 return f"Fetched live revisions for TDoc {args.get('tdoc_id', '')}"
             if action == "sync_chair_notes":
@@ -179,16 +190,23 @@ def generate_call_summary(
                     else 0
                 )
                 return f"Work Items search for '{args.get('query', '')}' -> {count} matches"
-            if action == "summarize_email_thread":
-                return f"Summarized reflector email thread '{args.get('subject', '')}'"
+            if action == "search_emails":
+                count = len(raw_data.get("emails", [])) if isinstance(raw_data, dict) else 0
+                return f"Email search '{args.get('query', '')}' -> {count} emails"
+            if action == "search_tracked_threads":
+                count = len(raw_data.get("threads", [])) if isinstance(raw_data, dict) else 0
+                return f"Tracked threads search '{args.get('query', '')}' -> {count} threads"
 
         elif tool == "cr_pcr_generator":
             if action == "generate_pcr":
-                return f"Generated pCR contribution: {raw_data.get('docx_path', 'document.docx')}"
+                out_p = raw_data.get("output_path") or raw_data.get("docx_path", "document.docx") if isinstance(raw_data, dict) else "document.docx"
+                return f"Generated pCR contribution: {out_p}"
             if action == "generate_cr":
-                return f"Generated formal CR contribution: {raw_data.get('docx_path', 'document.docx')}"
+                out_p = raw_data.get("output_path") or raw_data.get("docx_path", "document.docx") if isinstance(raw_data, dict) else "document.docx"
+                return f"Generated formal CR contribution: {out_p}"
             if action == "preview_filename":
-                return f"Filename preview: {raw_data.get('filename', '')}"
+                fn = (raw_data.get("proposed_filename") or raw_data.get("filename", "")) if isinstance(raw_data, dict) else ""
+                return f"Filename preview: {fn}"
 
     except Exception:
         pass

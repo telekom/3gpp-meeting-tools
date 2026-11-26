@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import re
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.utils.company_sanitizer import CompanySanitizer
-from .common import _parse_csv_list
+from .common import _export_doc_to_markdown, _parse_csv_list
 from .meeting_helpers import (
     _collect_user_tdoc_annotations,
     _load_tdocs_for_meeting_or_db,
@@ -27,6 +29,7 @@ def _handle_meetings_and_tdocs(
     specs_db_path: Path,
     user_tdocs_db_path: Path,
     spec_history_db_path: Optional[Path] = None,
+    _read_only: bool = False,
 ) -> Dict[str, Any]:
     action = str(args.get("action") or "search_tdocs").strip().lower()
     wg = str(args.get("wg") or "").strip().upper() or None
@@ -128,7 +131,7 @@ def _handle_meetings_and_tdocs(
         if not tdoc_id:
             return {"error": "tdoc_id is required for action='read_tdoc_markdown'."}
         from modules.meetings.core.tdocs.tdoc_file_handler import TDocFileHandler
-        from modules.meetings.core.tdocs.tdoc_markdown_converter import convert_document_to_markdown
+        from modules.meetings.core.url_router import URLRouter
 
         matched_rows = _load_tdocs_for_meeting_or_db(
             mdb,
@@ -157,12 +160,12 @@ def _handle_meetings_and_tdocs(
             or f"{eff_wg}_{meeting_number or 'Cache'}"
         )
         docs_ftp = str(mtg.get("docs_folder_url") or "")
-        rev_url = str(mtg.get("revisions_url") or "")
+        main_ftp = docs_ftp.rsplit("/Docs", 1)[0] if "/Docs" in docs_ftp else docs_ftp
         meeting_dir = _resolve_meeting_cache_dir(mtg_folder, wg=eff_wg)
 
         # Check if already extracted on disk before attempting network download
         clean_tdoc = tdoc_id.strip().upper()
-        base_tdoc = clean_tdoc.split("R")[0]
+        base_tdoc = re.sub(r"R\d+$", "", clean_tdoc)
         existing_docs: List[Path] = []
         for candidate_dir in (
             meeting_dir / clean_tdoc,
@@ -177,37 +180,65 @@ def _handle_meetings_and_tdocs(
                         if p.is_file() and p.suffix.lower() in (".docx", ".doc", ".md") and not p.name.startswith("~$")
                     )
                 )
+        if not existing_docs:
+            existing_docs = TDocFileHandler.find_local_tdoc_files(meeting_dir, f"{clean_tdoc}.zip")
         files: List[Path] = existing_docs
-        err = None
         if not files:
-            files, err = TDocFileHandler.download_and_extract_tdoc(
-                tdoc_id=tdoc_id,
-                docs_ftp_url=docs_ftp,
-                meeting_dir=meeting_dir,
+            if _read_only:
+                return {"error": f"Read-only mode enabled: TDoc {tdoc_id} is not cached locally in {meeting_dir}."}
+            target_zip = clean_tdoc if clean_tdoc.lower().endswith(".zip") else f"{clean_tdoc}.zip"
+            base_urls = URLRouter.build_priority_url_list(
                 wg_name=eff_wg,
-                revisions_url=rev_url,
+                folder_name=mtg_folder,
+                main_ftp_url=main_ftp,
+                is_active_sync=True,
+                target_filename=target_zip,
             )
-        if err or not files:
-            return {"error": err or f"Could not locate or download TDoc {tdoc_id}."}
+            for b_url in base_urls:
+                try:
+                    found = TDocFileHandler.download_and_extract_tdoc(
+                        target_filename=target_zip,
+                        base_url=b_url,
+                        tdoc_dir=meeting_dir / base_tdoc,
+                    )
+                    if found:
+                        files = list(found)
+                        break
+                except Exception:
+                    continue
+        if not files:
+            return {"error": f"Could not locate or download TDoc {tdoc_id}."}
 
         existing_md = next((f for f in files if f.suffix.lower() == ".md"), None)
         target_doc = next((f for f in files if f.suffix.lower() in (".docx", ".doc")), files[0])
         rev_mode = str(args.get("revisions") or "markup").strip().lower()
 
-        if target_doc.suffix.lower() in (".docx", ".doc"):
-            if target_doc.suffix.lower() == ".doc":
-                from modules.word_tools.core.word_converter import convert_doc_to_docx
-                conv = convert_doc_to_docx(str(target_doc))
-                if conv and Path(conv).exists():
-                    target_doc = Path(conv)
-            md_path = target_doc.with_suffix(".md")
-            convert_document_to_markdown(target_doc, md_path, revisions=rev_mode)
+        if existing_md is not None and _read_only:
+            md_path = existing_md
+            md_content = md_path.read_text(encoding="utf-8", errors="replace")
+        elif target_doc.suffix.lower() in (".docx", ".doc"):
+            if _read_only:
+                with tempfile.TemporaryDirectory(prefix="tdoc_ro_md_") as tmp_dir:
+                    out_tmp = Path(tmp_dir) / f"{target_doc.stem}.md"
+                    produced, md_content, _ = _export_doc_to_markdown(target_doc, out_tmp, revisions=rev_mode)
+                    md_path = produced or out_tmp
+            else:
+                if target_doc.suffix.lower() == ".doc":
+                    from modules.word_tools.core.word_converter import convert_doc_to_docx
+                    conv = convert_doc_to_docx(str(target_doc))
+                    if conv and Path(conv).exists():
+                        target_doc = Path(conv)
+                md_path = target_doc.with_suffix(".md")
+                produced, md_content, _ = _export_doc_to_markdown(target_doc, md_path, revisions=rev_mode)
+                if produced:
+                    md_path = produced
         elif existing_md is not None:
             md_path = existing_md
+            md_content = md_path.read_text(encoding="utf-8", errors="replace")
         else:
-            md_path = target_doc.with_suffix(".md")
+            md_path = target_doc
+            md_content = md_path.read_text(encoding="utf-8", errors="replace") if md_path.exists() else ""
 
-        md_content = md_path.read_text(encoding="utf-8", errors="replace") if md_path.exists() else ""
         max_chars = int(args.get("max_chars") or 12000)
         return {
             "tdoc_id": tdoc_id,
@@ -231,7 +262,7 @@ def _handle_meetings_and_tdocs(
                 if k in exact_meta
             },
             "source_file": str(target_doc),
-            "markdown_path": str(md_path),
+            "markdown_path": None if _read_only and existing_md is None else str(md_path),
             "char_length": len(md_content),
             "truncated": len(md_content) > max_chars,
             "markdown": md_content[:max_chars],
@@ -294,6 +325,23 @@ def _handle_meetings_and_tdocs(
             "top_work_items": [{"work_item": k, "tdoc_count": v} for k, v in top_wis],
         }
 
+    if action == "list_topics":
+        from modules.meetings.core.topic_manager import MetaTopicManager
+
+        mgr = MetaTopicManager()
+        q_low = query.lower()
+        topics_out = []
+        for t in mgr.list_topics():
+            d = t.to_dict()
+            if q_low and q_low not in f"{d.get('id', '')} {d.get('name', '')} {d.get('description', '')}".lower():
+                continue
+            topics_out.append(d)
+        return {
+            "count": len(topics_out[:limit]),
+            "total_topics": len(topics_out),
+            "topics": topics_out[:limit],
+        }
+
     return {"error": f"Unsupported action '{action}' for meetings_and_tdocs."}
 
 
@@ -319,18 +367,24 @@ def _handle_chair_notes_and_session_plan(
         if not file_path or not Path(file_path).exists():
             return {"error": "Valid file_path to a Chairman's Notes .docx file is required."}
         outcomes = ChairNotesAgreementsParser.parse_chair_notes_file(Path(file_path))
+
+        def _cn_get(obj: Any, key: str, default: Any = "") -> Any:
+            return obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
+
         return {
             "file_path": file_path,
             "outcomes_count": len(outcomes),
             "outcomes": [
                 {
-                    "tdoc_id": o.tdoc_id,
-                    "canonical_status": o.canonical_status,
-                    "raw_outcome": o.raw_outcome,
-                    "ai_number": o.ai_number,
-                    "chair_name": o.chair_name,
-                    "note_version": o.note_version,
-                    "follow_up_tdoc": o.follow_up_tdoc,
+                    "tdoc_id": _cn_get(o, "tdoc_id", ""),
+                    "kind": _cn_get(o, "kind") or _cn_get(o, "canonical_status", ""),
+                    "text": _cn_get(o, "text") or _cn_get(o, "raw_outcome", ""),
+                    "ai": _cn_get(o, "ai") or _cn_get(o, "ai_number", ""),
+                    "ai_title": _cn_get(o, "ai_title", ""),
+                    "wi": _cn_get(o, "wi", ""),
+                    "release": _cn_get(o, "release", ""),
+                    "source_file": _cn_get(o, "source_file", ""),
+                    "is_previous_meeting_recap": bool(_cn_get(o, "is_previous_meeting_recap", False)),
                 }
                 for o in outcomes
             ],
@@ -347,7 +401,7 @@ def _handle_chair_notes_and_session_plan(
                 snapshot_label=str(args.get("snapshot_label") or ""),
             )
         elif args.get("markdown_text"):
-            snap = SessionPlanParser.parse_markdown_or_text(
+            snap = SessionPlanParser.parse_text_or_markdown(
                 str(args["markdown_text"]),
                 meeting_number=meeting_number,
                 tdoc_id=str(args.get("tdoc_id") or ""),
@@ -409,23 +463,58 @@ def _handle_chair_notes_and_session_plan(
         new_snap = sp_db.get_snapshot_by_id(new_id)
         if not old_snap or not new_snap:
             return {"error": "Requested snapshot IDs were not found."}
-        changes = SessionPlanDiffEngine.compare_snapshots(old_snap, new_snap)
+        diff_res = SessionPlanDiffEngine.compare_snapshots(old_snap, new_snap)
+        added_slots = [
+            {
+                "day_name": slot.day_name,
+                "quarter": slot.quarter,
+                "sub_slot": f"TU {slot.sub_slot}" if slot.sub_slot else "Full",
+                "stream": slot.stream_number,
+                "items": [{"ai": it.ai_number, "topic": it.topic_label} for it in items],
+            }
+            for slot, items in getattr(diff_res, "added_slots", [])
+        ]
+        removed_slots = [
+            {
+                "day_name": slot.day_name,
+                "quarter": slot.quarter,
+                "sub_slot": f"TU {slot.sub_slot}" if slot.sub_slot else "Full",
+                "stream": slot.stream_number,
+                "items": [{"ai": it.ai_number, "topic": it.topic_label} for it in items],
+            }
+            for slot, items in getattr(diff_res, "removed_slots", [])
+        ]
+        moved_items = [
+            {
+                "ai_number": m.item.ai_number,
+                "topic_label": m.item.topic_label,
+                "from_slot_desc": m.from_slot_desc,
+                "to_slot_desc": m.to_slot_desc,
+            }
+            for m in getattr(diff_res, "moved_items", [])
+        ]
+        volume_changes = [
+            {
+                "ai_number": v.item.ai_number,
+                "topic_label": v.item.topic_label,
+                "slot_desc": v.slot_desc,
+                "old_count": v.old_count,
+                "new_count": v.new_count,
+            }
+            for v in getattr(diff_res, "volume_changes", [])
+        ]
+        bullets = list(getattr(diff_res, "changelog_bullets", []))
         return {
             "meeting_number": meeting_number,
             "old_snapshot": old_snap.snapshot_label,
             "new_snapshot": new_snap.snapshot_label,
-            "changes_count": len(changes),
-            "changes": [
-                {
-                    "change_type": c.change_type,
-                    "ai_number": c.ai_number,
-                    "topic_label": c.topic_label,
-                    "old_slot_desc": c.old_slot_desc,
-                    "new_slot_desc": c.new_slot_desc,
-                    "details": c.details,
-                }
-                for c in changes
-            ],
+            "has_changes": bool(getattr(diff_res, "has_changes", False)),
+            "changes_count": len(added_slots) + len(removed_slots) + len(moved_items) + len(volume_changes),
+            "changelog_bullets": bullets,
+            "added_slots": added_slots,
+            "removed_slots": removed_slots,
+            "moved_items": moved_items,
+            "volume_changes": volume_changes,
         }
 
     return {"error": f"Unsupported action '{action}' for chair_notes_and_session_plan."}

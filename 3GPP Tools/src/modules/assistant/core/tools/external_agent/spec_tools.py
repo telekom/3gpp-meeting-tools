@@ -14,7 +14,14 @@ from modules.assistant.core.knowledge import (
     SpecificationKnowledgeService,
     SpecSearchKnowledgeService,
 )
-from .common import _COM_LOCK, _disable_faulthandler_for_com, _parse_csv_list
+from .common import (
+    _COM_LOCK,
+    _disable_faulthandler_for_com,
+    _export_doc_to_markdown,
+    _extract_resolved_word_docs,
+    _match_heading_for_clause,
+    _parse_csv_list,
+)
 
 
 # =========================================================================
@@ -34,7 +41,36 @@ def _handle_spec_catalogue_and_files(
     query = str(args.get("query") or "").strip()
     limit = int(args.get("limit") or 10)
 
+    wg = str(args.get("wg") or "").strip().upper()
+
     if action == "search":
+        if wg:
+            from modules.specifications.core.database import SpecsDatabase
+            from modules.assistant.core.knowledge.specifications import _normalize_file_row
+
+            specs_db = SpecsDatabase(spec_service.db_path)
+            raw_rows = specs_db.search_files(spec_number=(query or spec_number or None), group=wg)
+            grouped: Dict[str, Dict[str, Any]] = {}
+            for r in raw_rows or []:
+                norm = _normalize_file_row(r)
+                if not norm:
+                    continue
+                sp = norm["specification"]
+                entry = grouped.setdefault(
+                    sp,
+                    {
+                        "specification": sp,
+                        "type": norm.get("type", "TS"),
+                        "title": norm.get("title", ""),
+                        "primary_group": norm.get("primary_group", wg),
+                        "versions": [],
+                    },
+                )
+                ver = norm.get("version")
+                if ver and ver not in entry["versions"]:
+                    entry["versions"].append(ver)
+            items = list(grouped.values())[:limit]
+            return {"count": len(items), "items": items}
         return spec_service.find_specifications(
             query=query or spec_number,
             limit=limit,
@@ -44,28 +80,55 @@ def _handle_spec_catalogue_and_files(
         if not spec_number:
             return {"error": "spec_number is required for action='get'."}
         res = spec_service.get_specification(specification=spec_number)
-        if isinstance(res.data, dict) and "known_versions" in res.data:
-            res.data.setdefault("versions", res.data["known_versions"])
-            res.data.setdefault("count", len(res.data["known_versions"]))
+        if isinstance(res.data, dict):
+            data_out = dict(res.data)
+            if "known_versions" in data_out:
+                data_out.setdefault("versions", data_out["known_versions"])
+                data_out.setdefault("count", len(data_out["known_versions"]))
+            indexed_versions: List[str] = []
+            try:
+                from modules.spec_search.core.spec_search_db import SpecSearchDatabase
+                clean_spec = str(data_out.get("specification") or spec_number).strip()
+                if spec_search_db_path.exists():
+                    sdb = SpecSearchDatabase(spec_search_db_path)
+                    indexed_versions = [
+                        str(v.get("version") or "")
+                        for v in sdb.get_versions_for_spec(clean_spec)
+                        if v.get("version")
+                    ]
+            except Exception:
+                pass
+            data_out["indexed_versions"] = indexed_versions
+            data_out["is_indexed"] = bool(indexed_versions)
+            from modules.assistant.core.agent_models import ToolResult
+            return ToolResult(res.status, data=data_out, message=res.message, metadata=res.metadata)
         return res
 
     if action == "resolve_files":
         if not spec_number:
             return {"error": "spec_number is required for action='resolve_files'."}
         from modules.spec_search.core.spec_doc_resolver import SpecDocResolver
+        from modules.specifications.core.database import SpecsDatabase
         from modules.specifications.core.spec_history_extractor import SpecHistoryExtractor
 
-        resolved_parts = [str(p) for p in SpecDocResolver.resolve_spec_files(spec_number, version=version)]
+        specs_db = SpecsDatabase(spec_service.db_path) if spec_service.db_path.exists() else None
+        info = SpecDocResolver.resolve_spec_files(spec_number, version=version or "", specs_db=specs_db)
+        resolved_parts = [str(p) for p in _extract_resolved_word_docs(info)]
         terminal_doc = SpecHistoryExtractor.resolve_spec_document(spec_number, version=version)
-        spec_dir = get_specs_root() / spec_number.replace(".", "")
-        alt_dir = get_specs_root() / spec_number
+        spec_dir = Path(info["spec_dir"]) if isinstance(info, dict) and info.get("spec_dir") else (get_specs_root() / spec_number)
+        alt_dir = get_specs_root() / spec_number.replace(".", "")
         zips: List[str] = []
-        for d in (spec_dir, alt_dir):
+        if isinstance(info, dict) and info.get("zip_file"):
+            zips.append(str(info["zip_file"]))
+        for d in dict.fromkeys((spec_dir, alt_dir)):
             if d.exists():
-                zips.extend(str(p) for p in sorted(d.glob("*.zip")))
+                for p in sorted(d.glob("*.zip")):
+                    if str(p) not in zips:
+                        zips.append(str(p))
         return {
             "spec_number": spec_number,
-            "version": version,
+            "version": info.get("version") if isinstance(info, dict) else version,
+            "spec_dir": str(spec_dir),
             "resolved_doc_parts": resolved_parts,
             "terminal_or_history_doc": str(terminal_doc) if terminal_doc else None,
             "cached_zip_archives": zips,
@@ -75,7 +138,7 @@ def _handle_spec_catalogue_and_files(
     if action == "download":
         if not spec_number:
             return {"error": "spec_number is required for action='download'."}
-        from modules.specifications.core.spec_autonomous_downloader import extract_word_from_zip
+        from modules.spec_search.core.spec_doc_resolver import SpecDocResolver
         from modules.specifications.core.database import SpecsDatabase
 
         specs_db = SpecsDatabase(spec_service.db_path)
@@ -111,7 +174,7 @@ def _handle_spec_catalogue_and_files(
             return {"error": f"No 3GPP FTP zip_url recorded for {spec_number} v{chosen.get('version')}."}
 
         clean_num = spec_number.replace(".", "")
-        target_dir = get_specs_root() / clean_num
+        target_dir = get_specs_root() / spec_number
         target_dir.mkdir(parents=True, exist_ok=True)
         zip_name = urllib.parse.unquote(zip_url.split("/")[-1])
         if not zip_name.lower().endswith(".zip"):
@@ -123,71 +186,43 @@ def _handle_spec_catalogue_and_files(
             if not ok or not local_zip.exists():
                 return {"error": f"Failed to download {zip_url}"}
 
-        extracted = extract_word_from_zip(local_zip, target_dir)
-        from modules.spec_search.core.spec_doc_resolver import SpecDocResolver
-        parts = [str(p) for p in SpecDocResolver.resolve_spec_files(spec_number, version=str(chosen.get("version") or ""))]
+        extracted_docs = SpecDocResolver.extract_word_from_zip(local_zip, target_dir)
+        info = SpecDocResolver.resolve_spec_files(spec_number, version=str(chosen.get("version") or ""), specs_db=specs_db)
+        parts = [str(p) for p in _extract_resolved_word_docs(info)]
         return {
             "spec_number": spec_number,
             "version": chosen.get("version"),
             "release": chosen.get("release"),
             "zip_url": zip_url,
             "local_zip": str(local_zip),
-            "extracted_doc": str(extracted) if extracted else None,
+            "extracted_docs": [str(p) for p in (extracted_docs or [])],
             "resolved_doc_parts": parts,
         }
 
     if action == "index_for_search":
         if not spec_number:
             return {"error": "spec_number is required for action='index_for_search'."}
-        from modules.spec_search.core.spec_doc_resolver import SpecDocResolver
+        from modules.spec_search.core.spec_doc_resolver import SpecDocResolver, letter_code_to_version
         from modules.spec_search.core.spec_search_db import SpecSearchDatabase
-        from modules.spec_search.core.spec_search_threads import extract_spec_metadata_from_filename
         from modules.spec_search.core.spec_text_extractor import SpecDocxExtractor
         from modules.specifications.core.database import SpecsDatabase
 
-        parts = SpecDocResolver.resolve_spec_files(spec_number, version=version)
+        specs_db = SpecsDatabase(spec_service.db_path) if spec_service.db_path.exists() else None
+        info = SpecDocResolver.resolve_spec_files(spec_number, version=version or "", specs_db=specs_db)
+        parts = _extract_resolved_word_docs(info)
+        if not parts and isinstance(info, dict) and info.get("zip_file"):
+            parts = SpecDocResolver.extract_word_from_zip(Path(info["zip_file"]), Path(info["spec_dir"]))
         if not parts:
             return {"error": f"No local .docx/.doc files found for {spec_number}. Run action='download' first."}
 
         search_db = SpecSearchDatabase(spec_search_db_path)
-        _, inferred_ver, inferred_rel = extract_spec_metadata_from_filename(parts[0])
-        actual_ver = (version or inferred_ver or "unknown").lstrip("vV")
-        actual_rel = release or inferred_rel or (f"Rel-{actual_ver.split('.')[0]}" if "." in actual_ver else "Unknown")
-
-        all_clauses = []
-        for p in parts:
-            if p.suffix.lower() == ".doc":
-                from modules.word_tools.core.word_converter import convert_doc_to_docx
-                conv = convert_doc_to_docx(str(p))
-                if conv and Path(conv).exists():
-                    p = Path(conv)
-            clauses = SpecDocxExtractor.extract_clauses(p)
-            all_clauses.extend(clauses)
-
-        search_db.insert_parsed_spec(
-            spec_number=spec_number,
-            version=actual_ver,
-            clauses=all_clauses,
-            release_date="",
-        )
-        return {
-            "spec_number": spec_number,
-            "version": actual_ver,
-            "release": actual_rel,
-            "parts_indexed": [str(p) for p in parts],
-            "clause_count": len(all_clauses),
-        }
-
-    if action == "convert_to_md":
-        if not spec_number:
-            return {"error": "spec_number is required for action='convert_to_md'."}
-        from modules.spec_search.core.spec_doc_resolver import SpecDocResolver
-        from modules.specifications.core.spec_markdown_converter import convert_spec_to_markdown
-        from modules.specifications.core.database import SpecsDatabase
-
-        parts = SpecDocResolver.resolve_spec_files(spec_number, version=version)
-        if not parts:
-            return {"error": f"No local Word files found for {spec_number}. Run action='download' first."}
+        resolved_ver = str((info.get("version") if isinstance(info, dict) else "") or "")
+        if not resolved_ver:
+            m_code = re.search(r"[-_\s]([a-z0-9]{3})(?:[-_.]|$)", parts[0].name.lower())
+            if m_code:
+                resolved_ver = letter_code_to_version(m_code.group(1)) or ""
+        actual_ver = (version or resolved_ver or "unknown").lstrip("vV")
+        actual_rel = release or (f"Rel-{actual_ver.split('.')[0]}" if "." in actual_ver else "Unknown")
 
         docx_parts: List[Path] = []
         for p in parts:
@@ -199,30 +234,76 @@ def _handle_spec_catalogue_and_files(
             else:
                 docx_parts.append(p)
 
-        specs_db = SpecsDatabase(spec_service.db_path)
-        info = specs_db.get_spec_details(spec_number) or {}
-        out_dir = Path(args.get("output_dir") or (get_output_root() / "Spec_Markdown" / f"{spec_number}_{version or 'latest'}"))
-        mode = str(args.get("mode") or "single").strip().lower()
-        res = convert_spec_to_markdown(
-            source_paths=docx_parts,
-            output_dir=out_dir,
+        all_clauses = SpecDocxExtractor(docx_parts).extract_clauses()
+
+        search_db.insert_parsed_spec(
             spec_number=spec_number,
-            version=version or "",
-            spec_title=str(info.get("title") or ""),
-            mode=mode if mode in ("single", "split") else "single",
-            include_toc=True,
-            extract_figures=bool(args.get("extract_figures", True)),
+            version=actual_ver,
+            clauses=all_clauses,
+            release_date="",
         )
         return {
-            "spec_number": res.spec_number,
-            "version": res.version,
-            "mode": res.mode,
-            "output_dir": str(res.output_dir),
-            "master_file": str(res.master_file),
-            "generated_files": [str(p) for p in res.generated_files[:50]],
-            "total_clauses": res.total_clauses,
-            "total_tables": res.total_tables,
-            "total_figures": res.total_figures,
+            "spec_number": spec_number,
+            "version": actual_ver,
+            "release": actual_rel,
+            "parts_indexed": [str(p) for p in docx_parts],
+            "clause_count": len(all_clauses),
+        }
+
+    if action == "convert_to_md":
+        if not spec_number:
+            return {"error": "spec_number is required for action='convert_to_md'."}
+        from modules.spec_search.core.spec_doc_resolver import SpecDocResolver
+        from modules.specifications.core.spec_markdown_converter import convert_spec_to_markdown
+        from modules.specifications.core.database import SpecsDatabase
+
+        specs_db = SpecsDatabase(spec_service.db_path)
+        info = SpecDocResolver.resolve_spec_files(spec_number, version=version or "", specs_db=specs_db)
+        parts = _extract_resolved_word_docs(info)
+        if not parts and isinstance(info, dict) and info.get("zip_file"):
+            parts = SpecDocResolver.extract_word_from_zip(Path(info["zip_file"]), Path(info["spec_dir"]))
+        if not parts:
+            return {"error": f"No local Word files found for {spec_number}. Run action='download' first."}
+
+        details = specs_db.get_spec_details(spec_number) or {}
+        mode = str(args.get("mode") or "single").strip().lower()
+        effective_mode = mode if mode in ("single", "split") else "single"
+        spec_dir = Path(info["spec_dir"])
+        stem = str(info.get("stem") or spec_number.replace(".", ""))
+        resolved_ver = str(info.get("version") or version or "")
+        out_md = convert_spec_to_markdown(
+            spec_dir=spec_dir,
+            stem=stem,
+            mode=effective_mode,
+            meta={
+                "spec": spec_number,
+                "version": resolved_ver,
+                "title": str(details.get("title") or ""),
+            },
+        )
+        custom_out_dir = str(args.get("output_dir") or "").strip()
+        if custom_out_dir:
+            import shutil
+            dest_dir = Path(custom_out_dir)
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            if effective_mode == "split" and out_md.parent.is_dir():
+                target_container = dest_dir / out_md.parent.name
+                if target_container.resolve() != out_md.parent.resolve():
+                    shutil.copytree(out_md.parent, target_container, dirs_exist_ok=True)
+                    out_md = target_container / out_md.name
+            elif out_md.is_file():
+                target_file = dest_dir / out_md.name
+                if target_file.resolve() != out_md.resolve():
+                    shutil.copy2(out_md, target_file)
+                    out_md = target_file
+
+        return {
+            "spec_number": spec_number,
+            "version": resolved_ver,
+            "mode": effective_mode,
+            "output_dir": str(out_md.parent),
+            "master_file": str(out_md),
+            "exists": out_md.exists(),
         }
 
     return {"error": f"Unsupported action '{action}' for spec_catalogue_and_files."}
@@ -257,14 +338,33 @@ def _handle_spec_text_and_clauses(
             m = re.search(r"(\d+)", rel_raw)
             if m:
                 rel_int = int(m.group(1))
-        return search_service.search_text(
+        latest_only = bool(args.get("latest_only", False))
+        res = search_service.search_text(
             query=query,
             specification=spec_number or None,
             version=version,
             release=rel_int,
             clause=clause_id or None,
-            limit=limit,
+            limit=limit * 3 if latest_only else limit,
         )
+        if latest_only and isinstance(res.data, list) and res.data:
+            def _v_tup(v_str: Any) -> Tuple[int, ...]:
+                nums = re.findall(r"\d+", str(v_str or ""))
+                return tuple(int(n) for n in nums) if nums else (0,)
+
+            best_ver: Dict[str, Tuple[int, ...]] = {}
+            for item in res.data:
+                sp = str(item.get("specification") or "")
+                vt = _v_tup(item.get("version"))
+                if sp not in best_ver or vt > best_ver[sp]:
+                    best_ver[sp] = vt
+            filtered = [
+                item for item in res.data
+                if _v_tup(item.get("version")) == best_ver.get(str(item.get("specification") or ""))
+            ][:limit]
+            from modules.assistant.core.agent_models import ToolResult
+            return ToolResult(res.status, data=filtered, message=res.message, metadata=res.metadata)
+        return res
 
     if action == "get_clause":
         result_id = str(args.get("result_id") or "").strip()
@@ -373,12 +473,13 @@ def _handle_spec_text_and_clauses(
     if action == "extract_clause":
         if not spec_number or not clause_id:
             return {"error": "spec_number and clause_id are required for action='extract_clause'."}
-        from modules.spec_search.core.spec_clause_exporter import match_heading_for_clause
         from modules.spec_search.core.spec_doc_resolver import SpecDocResolver
-        from modules.meetings.core.tdocs.tdoc_markdown_converter import convert_document_to_markdown
         from modules.word_tools.core.word_excerpt_extractor import WordExcerptEngine, WordHeadingScanner
 
-        parts = SpecDocResolver.resolve_spec_files(spec_number, version=version)
+        info = SpecDocResolver.resolve_spec_files(spec_number, version=version or "")
+        parts = _extract_resolved_word_docs(info)
+        if not parts and isinstance(info, dict) and info.get("zip_file"):
+            parts = SpecDocResolver.extract_word_from_zip(Path(info["zip_file"]), Path(info["spec_dir"]))
         if not parts:
             return {"error": f"No local Word files found for {spec_number}. Download the spec first."}
 
@@ -388,7 +489,7 @@ def _handle_spec_text_and_clauses(
         matched_ids: List[str] = []
         matched_titles: List[str] = []
         for cid in target_clauses:
-            h = match_heading_for_clause(headings, cid)
+            h = _match_heading_for_clause(headings, cid)
             if h:
                 matched_ids.append(h.id)
                 matched_titles.append(h.text)
@@ -407,14 +508,13 @@ def _handle_spec_text_and_clauses(
             engine.extract(matched_ids, str(out_docx))
 
         out_md = out_docx.with_suffix(".md")
-        md_res = convert_document_to_markdown(out_docx, out_md, revisions="accept")
-        md_text = out_md.read_text(encoding="utf-8", errors="replace") if md_res and out_md.exists() else ""
+        md_path, md_text, _ = _export_doc_to_markdown(out_docx, out_md, revisions="accept")
         return {
             "spec_number": spec_number,
             "version": version,
             "clauses_extracted": matched_titles,
             "docx_path": str(out_docx),
-            "markdown_path": str(out_md) if md_res else None,
+            "markdown_path": str(md_path) if md_path else None,
             "markdown_preview": md_text[:4000],
         }
 

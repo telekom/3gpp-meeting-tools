@@ -344,12 +344,12 @@ class TestMcpAndCliTools(unittest.TestCase):
         self.assertEqual(set(names), set(PROFILE_TOOLS["all"]))
 
         # Verify token budget: compact JSON serialization of all 12 MCP tool schemas
-        # should stay well under ~2,500 tokens (~10,000 chars) so Claude/Codex system prompts stay light.
+        # (including full parameter coverage & MCP tool annotations) stays under ~2,800 tokens.
         compact_schema_json = json.dumps(all_tools, separators=(",", ":"))
         estimated_tokens = len(compact_schema_json) // 4
         self.assertLess(
             estimated_tokens,
-            2400,
+            2800,
             f"Tool schema token budget exceeded: ~{estimated_tokens} tokens",
         )
 
@@ -966,6 +966,228 @@ class TestMcpAndCliTools(unittest.TestCase):
                     if fname in actual:
                         desc = str(actual[fname].get("ie_description", "") or "")
                         self.assertNotIn("Clause InterFreqCarrierFreqInfo-v1900", desc)
+
+    def test_static_contracts_imports_schemas_and_presets(self):
+        """Ensure all lazy imports resolve, all args.get keys are declared, and playground presets are valid."""
+        import ast
+        import importlib
+        from core.ui.mcp_monitor.presets import DEFAULT_PLAYGROUND_ARGUMENTS
+
+        ext_dir = src_dir / "modules" / "assistant" / "core" / "tools" / "external_agent"
+        broken_imports = []
+        for pyf in sorted(ext_dir.glob("*.py")):
+            tree = ast.parse(pyf.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                    mod = importlib.import_module(node.module)
+                    for alias in node.names:
+                        if alias.name != "*" and not hasattr(mod, alias.name):
+                            broken_imports.append(f"{pyf.name}:{node.lineno} {node.module}.{alias.name}")
+        self.assertEqual(broken_imports, [])
+
+        reg = build_external_agent_tool_registry(**self.db_kwargs, profile="all", read_only=False)
+        handler_map = {
+            "spec_catalogue_and_files": ("spec_tools.py", "_handle_spec_catalogue_and_files"),
+            "spec_text_and_clauses": ("spec_tools.py", "_handle_spec_text_and_clauses"),
+            "spec_history_and_attribution": ("history_and_protocol_tools.py", "_handle_spec_history_and_attribution"),
+            "protocol_inspector": ("history_and_protocol_tools.py", "_handle_protocol_inspector"),
+            "onsite_meeting_cockpit": ("onsite_tools.py", "_handle_onsite_meeting_cockpit"),
+            "meetings_and_tdocs": ("meetings_tools.py", "_handle_meetings_and_tdocs"),
+            "chair_notes_and_session_plan": ("meetings_tools.py", "_handle_chair_notes_and_session_plan"),
+            "word_markdown_studio": ("word_studio_tools.py", "_handle_word_markdown_studio"),
+            "cr_pcr_generator": ("word_studio_tools.py", "_handle_cr_pcr_generator"),
+            "word_sanitizer_and_compliance": ("word_studio_tools.py", "_handle_word_sanitizer_and_compliance"),
+            "plantuml_office_studio": ("diagram_and_wi_tools.py", "_handle_plantuml_office_studio"),
+            "work_items_and_emails": ("diagram_and_wi_tools.py", "_handle_work_items_and_emails"),
+        }
+        for tool_name, (fname, fn_name) in handler_map.items():
+            defn = reg.get(tool_name)
+            self.assertIsNotNone(defn)
+            declared = {a.name for a in defn.arguments}
+            tree = ast.parse((ext_dir / fname).read_text(encoding="utf-8"))
+            used = set()
+            for node in tree.body:
+                if isinstance(node, ast.FunctionDef) and node.name == fn_name:
+                    for sub in ast.walk(node):
+                        if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute) and sub.func.attr == "get":
+                            if isinstance(sub.func.value, ast.Name) and sub.func.value.id == "args":
+                                if sub.args and isinstance(sub.args[0], ast.Constant) and isinstance(sub.args[0].value, str):
+                                    used.add(sub.args[0].value)
+                        elif isinstance(sub, ast.Subscript) and isinstance(sub.value, ast.Name) and sub.value.id == "args":
+                            if isinstance(sub.slice, ast.Constant) and isinstance(sub.slice.value, str):
+                                used.add(sub.slice.value)
+            self.assertEqual(sorted(used - declared), [], f"Undeclared args in {tool_name}")
+
+        for tname, acts in DEFAULT_PLAYGROUND_ARGUMENTS.items():
+            defn = reg.get(tname)
+            self.assertIsNotNone(defn, f"Unknown preset tool: {tname}")
+            declared_args = {a.name for a in defn.arguments}
+            action_enum = next((set(a.enum) for a in defn.arguments if a.name == "action"), set())
+            for act, preset_args in acts.items():
+                self.assertIn(act, action_enum, f"Invalid preset action {tname}.{act}")
+                self.assertEqual(sorted(set(preset_args) - declared_args), [], f"Invalid preset args in {tname}.{act}")
+
+    def test_mcp_protocol_modernization_and_annotations(self):
+        """Verify 2025-06-18 / 2025-11-25 negotiation, logging capability, annotations, and compact payloads."""
+        ro_reg = build_external_agent_tool_registry(**self.db_kwargs, profile="knowledge", read_only=True)
+        server = MCPServer(ro_reg, profile="knowledge", read_only=True)
+
+        for ver in ("2025-06-18", "2025-11-25"):
+            init_resp = server.handle_message({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": ver, "clientInfo": {"name": "test-client", "version": "2.0"}},
+            })
+            self.assertEqual(init_resp["result"]["protocolVersion"], ver)
+            self.assertIn("logging", init_resp["result"]["capabilities"])
+
+        tools_resp = server.handle_message({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        for t in tools_resp["result"]["tools"]:
+            self.assertTrue(t.get("annotations", {}).get("readOnlyHint"))
+
+        # List payloads are not duplicated 3x
+        search_res = ro_reg.execute("spec_catalogue_and_files", {"action": "search", "query": "23.501"})
+        self.assertTrue(search_res.ok)
+        self.assertIn("items", search_res.data)
+        self.assertNotIn("matches", search_res.data)
+        self.assertNotIn("hits", search_res.data)
+
+        # protocol_inspector(find_message) avoids fields+information_elements duplication & strips HTML
+        msg_res = ro_reg.execute(
+            "protocol_inspector",
+            {"action": "find_message", "version": "18.0.0", "query": "REGISTRATION REQUEST"},
+        )
+        self.assertTrue(msg_res.ok and msg_res.data["ok"])
+        self.assertIn("information_elements", msg_res.data)
+        self.assertNotIn("fields", msg_res.data)
+
+    def test_repaired_actions_end_to_end(self):
+        """Verify repaired handlers, telemetry summaries, and client config snippets."""
+        from unittest.mock import patch
+        from core.ai.mcp_activity import generate_call_summary, get_mcp_client_configurations
+        from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
+
+        reg = build_external_agent_tool_registry(**self.db_kwargs, profile="all", read_only=False)
+
+        # 1. spec_catalogue_and_files(get) includes indexed_versions from spec_search.db
+        get_res = reg.execute("spec_catalogue_and_files", {"action": "get", "spec_number": "23.501"})
+        self.assertTrue(get_res.ok and get_res.data["ok"])
+        self.assertEqual(sorted(get_res.data["indexed_versions"]), ["17.0.0", "18.0.0"])
+        self.assertTrue(get_res.data["is_indexed"])
+
+        # 2. spec_catalogue_and_files(resolve_files) works with SpecDocResolver dict output
+        dummy_doc = self.tmp_path / "23.501" / "23501-i00.docx"
+        dummy_doc.parent.mkdir(parents=True, exist_ok=True)
+        dummy_doc.write_bytes(b"PK")
+        with patch(
+            "modules.spec_search.core.spec_doc_resolver.SpecDocResolver.resolve_spec_files",
+            return_value={
+                "spec_number": "23.501",
+                "version": "18.0.0",
+                "spec_dir": dummy_doc.parent,
+                "stem": "23501-i00",
+                "word_docs": [dummy_doc],
+                "pdf_docs": [],
+                "zip_file": None,
+                "is_downloaded": True,
+            },
+        ):
+            res_files = reg.execute("spec_catalogue_and_files", {"action": "resolve_files", "spec_number": "23.501"})
+            self.assertTrue(res_files.ok and res_files.data["ok"])
+            self.assertTrue(res_files.data["local_ready"])
+            self.assertEqual(len(res_files.data["resolved_doc_parts"]), 1)
+
+        # 3. protocol_inspector(evolution_matrix)
+        evo_md = reg.execute(
+            "protocol_inspector",
+            {"action": "evolution_matrix", "protocol": "5GS_NAS", "query": "REGISTRATION REQUEST", "format": "markdown"},
+        )
+        self.assertTrue(evo_md.ok and evo_md.data["ok"])
+        self.assertIn("5GS registration type", evo_md.data["matrix"])
+        self.assertEqual(evo_md.data["row_count"], 2)
+
+        evo_tsv = reg.execute(
+            "protocol_inspector",
+            {"action": "evolution_matrix", "protocol": "5GS_NAS", "query": "5GS registration type", "target_type": "ie", "format": "tsv"},
+        )
+        self.assertTrue(evo_tsv.ok and evo_tsv.data["ok"])
+        self.assertIn("5GS registration type", evo_tsv.data["matrix"])
+
+        # 4. chair_notes_and_session_plan: parse_chair_notes_file (dict output), ingest & diff
+        dummy_cn = self.tmp_path / "chair_notes.docx"
+        dummy_cn.write_bytes(b"PK")
+        with patch(
+            "modules.meetings.core.tdocs.chair_notes_agreements_parser.ChairNotesAgreementsParser.parse_chair_notes_file",
+            return_value=[{"tdoc_id": "S2-2602001", "kind": "Agreed TDoc / TP / pCR", "text": "Agreed", "ai": "6.1"}],
+        ):
+            cn_res = reg.execute("chair_notes_and_session_plan", {"action": "parse_chair_notes_file", "file_path": str(dummy_cn)})
+            self.assertTrue(cn_res.ok and cn_res.data["ok"])
+            self.assertEqual(cn_res.data["outcomes_count"], 1)
+            self.assertEqual(cn_res.data["outcomes"][0]["tdoc_id"], "S2-2602001")
+
+        sp_md_1 = (
+            "| Q | Time | Stream | Monday | Tuesday |\n"
+            "| --- | --- | --- | --- | --- |\n"
+            "| Q1 | 0900-1030 | Stream 1 | 6.1 Policy (5) | 6.2 Core (3) |\n"
+        )
+        sp_md_2 = (
+            "| Q | Time | Stream | Monday | Tuesday |\n"
+            "| --- | --- | --- | --- | --- |\n"
+            "| Q1 | 0900-1030 | Stream 1 | 6.1 Policy (9) | 6.2 Core (4) |\n"
+            "| Q2 | 1100-1230 | Stream 2 | 6.3 SNPN (6) | - |\n"
+        )
+        ing1 = reg.execute(
+            "chair_notes_and_session_plan",
+            {"action": "ingest_session_plan", "meeting_number": "174", "snapshot_label": "r00", "markdown_text": sp_md_1},
+        )
+        ing2 = reg.execute(
+            "chair_notes_and_session_plan",
+            {"action": "ingest_session_plan", "meeting_number": "174", "snapshot_label": "r01", "markdown_text": sp_md_2},
+        )
+        self.assertTrue(ing1.ok and ing1.data["ok"] and ing2.ok and ing2.data["ok"])
+        diff_sp = reg.execute(
+            "chair_notes_and_session_plan",
+            {"action": "diff_session_plans", "meeting_number": "174"},
+        )
+        self.assertTrue(diff_sp.ok and diff_sp.data["ok"])
+        self.assertIn("changelog_bullets", diff_sp.data)
+
+        # 5. meetings_and_tdocs(list_topics) & work_items_and_emails(search_tracked_threads)
+        topics_res = reg.execute("meetings_and_tdocs", {"action": "list_topics"})
+        self.assertTrue(topics_res.ok and topics_res.data["ok"])
+        self.assertIn("topics", topics_res.data)
+
+        tdb = TrackedThreadsDatabase(self.agenda_dir / "tracked_threads.db")
+        thr_id = tdb.create_or_get_thread(
+            "URSP discussion on S2-2602001",
+            "ursp discussion on s2-2602001",
+            meeting_id="174",
+            linked_tdocs=["S2-2602001"],
+        )
+        with patch(
+            "modules.assistant.core.tools.external_agent_tools._get_meetings_cache_roots",
+            return_value=[self.tmp_path],
+        ):
+            thr_res = reg.execute(
+                "work_items_and_emails",
+                {"action": "search_tracked_threads", "query": "URSP", "meeting_number": "174"},
+            )
+            self.assertTrue(thr_res.ok and thr_res.data["ok"])
+            self.assertEqual(thr_res.data["count"], 1)
+            self.assertEqual(thr_res.data["threads"][0]["thread_id"], thr_id)
+
+        # 6. Telemetry summaries & client config snippets
+        self.assertIn("11 characters", generate_call_summary("spec_text_and_clauses", "get_clause", {"spec_number": "23.501", "clause_id": "5.1"}, {"content": "hello world"}))
+        self.assertIn("2 revisions", generate_call_summary("spec_history_and_attribution", "query_history", {"spec_number": "23.501"}, {"records": [1, 2]}))
+        self.assertIn("1 CRs", generate_call_summary("spec_history_and_attribution", "rank_origin_crs", {"spec_number": "23.501", "query": "URSP"}, {"ranked_origin_crs": [1]}))
+        self.assertIn("pCR_test.docx", generate_call_summary("cr_pcr_generator", "preview_filename", {}, {"proposed_filename": "pCR_test.docx"}))
+        self.assertIn("3 entries", generate_call_summary("onsite_meeting_cockpit", "browse_lan_server", {"subfolder": "Docs"}, {"entries": [1, 2, 3]}))
+
+        cfgs = get_mcp_client_configurations()
+        self.assertIn("[mcp_servers.3gpp-tools]", cfgs["codex_cli"]["config_toml"])
+        self.assertIn("codex mcp add 3gpp-tools --", cfgs["codex_cli"]["cli_command"])
+        self.assertIn("claude mcp add 3gpp-tools --", cfgs["claude_cli"]["cli_command"])
 
 
 if __name__ == "__main__":

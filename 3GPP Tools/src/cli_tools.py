@@ -37,7 +37,7 @@ for _p in (str(_ROOT_DIR), str(_SRC_DIR)):
 
 # Verify required dependencies before importing domain modules
 from core.utils.dependency_checker import check_dependencies_or_exit
-check_dependencies_or_exit(allow_gui=False, interactive=True)
+check_dependencies_or_exit(allow_gui=False, interactive=False, stream=sys.stderr)
 
 from core.utils.paths import ensure_app_data_dirs, get_project_root
 from core.ai.mcp_activity import record_mcp_event
