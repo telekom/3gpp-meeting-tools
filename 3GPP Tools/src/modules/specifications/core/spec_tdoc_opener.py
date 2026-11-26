@@ -199,7 +199,6 @@ class SpecTDocOpener:
             # Fallback 2: Open official 3GU portal view
             logger.info(f"Opening 3GU portal for {clean_tdoc}")
             open_portal_tdoc(clean_tdoc)
-            pass
             return True
 
         # 3. Asynchronous download with modal progress dialog

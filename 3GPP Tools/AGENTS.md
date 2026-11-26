@@ -125,7 +125,8 @@ Full spec in [UI_SHELL_AND_STYLING.md](docs/UI_SHELL_AND_STYLING.md). Mandatory 
 ## 5. Development, Documentation & Local Commit Workflow
 
 1. **Verify Imports & Tests** (`PYTHONPATH=".;src"`):
-   - Lint suite: `python -m unittest tests/test_ui_ampersand_escaping.py tests/test_ui_hex_lint.py tests/test_code_modularity_lint.py`
+   - Lint suite: `python -m unittest tests/test_ui_ampersand_escaping.py tests/test_ui_hex_lint.py tests/test_code_modularity_lint.py tests/test_ruff_lint.py`
+   - Static check: prefer `python -m ruff check src tests` (configured in `pyproject.toml`) when `ruff` is installed; fall back to `python -m pyflakes src tests`.
    - Run targeted tests as applicable (`tests/test_taskbar_icon.py`, `tests/test_session_plan_ui_and_html.py`, etc.).
    - For GUI tab/worker changes, verify `python -m main_tools` starts and closes cleanly without tracebacks or leaked threads.
 2. **Preserve Unrelated Comments/Docstrings** in untouched code.

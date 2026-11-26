@@ -6,7 +6,7 @@ The implementation was split into ``src/modules/meetings/core/exporters/topic_di
 (see ``topic_digest/README.md`` for a submodule map).
 """
 
-from modules.meetings.core.exporters.topic_digest import (  # noqa: F401
+from modules.meetings.core.exporters.topic_digest import (
     DEFAULT_MAX_DIGEST_CHARS,
     STAGE1_DELTA_END,
     STAGE1_DELTA_START,

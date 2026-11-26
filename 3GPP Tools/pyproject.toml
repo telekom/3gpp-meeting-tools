@@ -3,8 +3,11 @@ target-version = "py310"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["F", "E9", "E722", "B", "PIE794", "RUF034"]
+select = ["F", "E9", "E722", "B", "PIE790", "PIE794", "PLC0206", "RUF034", "RUF100", "SIM115"]
 ignore = [
     "B008",  # PyQt idioms like parent=QModelIndex() and lambda default-arg capture
     "B905",  # zip(..., strict=...) requires Python 3.10+, project supports >= 3.8
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"src/modules/meetings/core/exporters/tdoc2md.py" = ["RUF100"]  # Protected upstream drop-in

@@ -54,8 +54,8 @@ class TDocsRevisionsFetcherThread(QThread):
                 if rev_str not in revisions[base_tdoc]:
                     revisions[base_tdoc].append(rev_str)
 
-            for k in revisions:
-                revisions[k].sort()
+            for rev_list in revisions.values():
+                rev_list.sort()
 
             logging.info(
                 f"✅ [Revisions Sync] Discovered revisions for {len(revisions)} base TDocs."

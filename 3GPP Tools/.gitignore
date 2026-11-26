@@ -20,6 +20,7 @@ src/db/3gpp_spec_history.db*
 src/db/*.db*
 .idea/
 .ipynb_checkpoints/
+.ruff_cache/
 
 # User-defined presets & local configurations (not committed to git)
 src/config/*_user.json

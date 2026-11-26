@@ -9,9 +9,9 @@ Note for tests: ``QTimer`` and ``QMessageBox`` are re-exported so patches such
 as ``patch("main_window.QMessageBox.question")`` and
 ``patch("main_window.QTimer.singleShot")`` continue to work seamlessly.
 """
-from PyQt5.QtCore import QTimer  # noqa: F401
-from PyQt5.QtWidgets import QMessageBox  # noqa: F401
+from PyQt5.QtCore import QTimer
+from PyQt5.QtWidgets import QMessageBox
 
-from core.ui.main_window import DragDropUI  # noqa: F401
+from core.ui.main_window import DragDropUI
 
 __all__ = ["DragDropUI", "QMessageBox", "QTimer"]

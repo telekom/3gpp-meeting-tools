@@ -5,7 +5,7 @@ Backward-compatible import shim for the Session Plan Exporter.
 The implementation was split into the ``exporter/`` package (see
 ``exporter/README.md`` for a 'where to edit what' map).
 """
-from modules.meetings.core.session_plan.exporter import (  # noqa: F401
+from modules.meetings.core.session_plan.exporter import (
     SessionPlanExporter,
     logger,
 )

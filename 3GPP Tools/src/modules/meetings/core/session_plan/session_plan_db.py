@@ -6,7 +6,7 @@ The implementation was split into ``src/modules/meetings/core/session_plan/db/``
 (see ``db/README.md`` for a 'where to edit what' map).
 """
 
-from modules.meetings.core.session_plan.db import (  # noqa: F401
+from modules.meetings.core.session_plan.db import (
     SessionPlanDatabase,
     logger,
 )

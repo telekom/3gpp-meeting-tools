@@ -7,7 +7,7 @@ The implementation was split into ``src/modules/meetings/ui/session_plan/dialogs
 
 from __future__ import annotations
 
-from .dialogs import (  # noqa: F401
+from .dialogs import (
     TIMEZONE_PRESETS,
     DelegationImportDialog,
     DelegationMemberDialog,

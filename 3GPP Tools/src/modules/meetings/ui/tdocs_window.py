@@ -10,9 +10,9 @@ Note for tests: patch module globals where they are *used* (e.g.
 has no effect. Class-attribute patches (``QMessageBox.warning``,
 ``OutlookClient.create_email_draft``) still work through this module.
 """
-from PyQt5.QtWidgets import QMessageBox  # noqa: F401  (kept for patch("...tdocs_window.QMessageBox.x"))
+from PyQt5.QtWidgets import QMessageBox
 
-from modules.emails.core.outlook_client import OutlookClient  # noqa: F401
-from modules.meetings.ui.tdocs.window import TDocsWindow  # noqa: F401
+from modules.emails.core.outlook_client import OutlookClient
+from modules.meetings.ui.tdocs.window import TDocsWindow
 
 __all__ = ["TDocsWindow", "QMessageBox", "OutlookClient"]

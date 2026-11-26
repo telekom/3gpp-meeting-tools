@@ -114,7 +114,7 @@ class DelegateOwnerPicker(QToolButton):
         """Returns the current owner string ('' / 'ALL' / 'A, B')."""
         return self._compute_owner_string()
 
-    def currentText(self) -> str:  # noqa: N802 - QComboBox-compatible name used by table filtering
+    def currentText(self) -> str:
         """QComboBox-compatible accessor so existing text filters keep working."""
         return self.text().replace(" ▾", "")
 

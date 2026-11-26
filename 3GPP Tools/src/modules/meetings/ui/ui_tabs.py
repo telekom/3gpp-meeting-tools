@@ -7,6 +7,6 @@ The implementation was split into ``modules.meetings.ui.meetings_tab``
 
 from __future__ import annotations
 
-from .meetings_tab import MeetingsTab  # noqa: F401
+from .meetings_tab import MeetingsTab
 
 __all__ = ["MeetingsTab"]

@@ -86,7 +86,6 @@ class WINTRUST_DATA(ctypes.Structure):
 
 class SecurityIntegrityError(Exception):
     """Raised when a core cryptographic binary fails provenance or signature checks."""
-    pass
 
 
 def redact_sensitive_urls(message: str) -> str:

@@ -112,9 +112,9 @@ class TestTDocsAgendaOrderAndSubItems(unittest.TestCase):
 </body>
 </html>
 """
-        self.temp_file = tempfile.NamedTemporaryFile("w", suffix=".htm", delete=False, encoding="utf-8")
-        self.temp_file.write(self.mock_html)
-        self.temp_file.close()
+        with tempfile.NamedTemporaryFile("w", suffix=".htm", delete=False, encoding="utf-8") as f:
+            f.write(self.mock_html)
+            self.temp_file = f
 
     def tearDown(self):
         try:

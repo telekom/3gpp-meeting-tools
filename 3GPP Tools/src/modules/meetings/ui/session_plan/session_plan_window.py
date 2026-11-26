@@ -5,7 +5,7 @@ Backward-compatible import shim for the Session Plan Studio window.
 The implementation was split into the ``window/`` package (see window/README.md
 for a 'where to edit what' map). Keep importing from here or from the package.
 """
-from modules.meetings.ui.session_plan.window import (  # noqa: F401
+from modules.meetings.ui.session_plan.window import (
     DAY_NAMES,
     QUARTER_ORDER,
     QUARTER_TIMES,

@@ -6,7 +6,7 @@ The implementation was split into ``src/modules/meetings/core/exporters/pre_meet
 (see ``pre_meeting/README.md`` for a 'where to edit what' map).
 """
 
-from modules.meetings.core.exporters.pre_meeting import (  # noqa: F401
+from modules.meetings.core.exporters.pre_meeting import (
     PreMeetingExporterThread,
     logger,
 )

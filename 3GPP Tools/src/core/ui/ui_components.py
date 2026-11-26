@@ -7,7 +7,7 @@ The implementation was split into ``src/core/ui/components/``
 
 from __future__ import annotations
 
-from .components import (  # noqa: F401
+from .components import (
     APP_DISPLAY_NAME,
     APP_USER_MODEL_ID,
     BADGE_STYLE_INFO,

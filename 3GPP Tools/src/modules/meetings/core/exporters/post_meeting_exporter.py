@@ -5,7 +5,7 @@ Backward-compatible import shim for the Post-Meeting Markdown Dossier Exporter.
 The implementation was split into ``src/modules/meetings/core/exporters/post_meeting/``
 (see ``post_meeting/README.md`` for a 'where to edit what' map).
 """
-from modules.meetings.core.exporters.post_meeting import (  # noqa: F401
+from modules.meetings.core.exporters.post_meeting import (
     PostMeetingExporterThread,
     logger,
     quote_markdown_path,
