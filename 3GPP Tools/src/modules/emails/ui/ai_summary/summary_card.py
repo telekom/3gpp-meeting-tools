@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.ai.llm_runner import ModelSpec, resolve_effective_model_spec
+from core.ui.flow_layout import FlowLayout
 from core.ui.font_scale import bind_reader_zoom_settings, scale_px
 from core.ui.theme import C
 from core.ui.toast import notify_info, notify_success
@@ -33,6 +34,7 @@ from modules.emails.core.ai_summary import (
 )
 from modules.emails.core.markdown_export import apply_email_reader_document_style, format_compact_timestamp
 
+from .error_banner import SummaryErrorBanner
 from .model_picker import populate_summary_model_menu
 
 
@@ -65,6 +67,7 @@ class InlineEmailSummaryCard(QFrame):
         self._model_override: Optional[ModelSpec] = None
         self._worker: Optional[EmailSummaryTaskWorker] = None
         self._m365_dialog = None
+        self._last_error: str = ""
         self._stream_chunks: List[str] = []
 
         self.setStyleSheet(
@@ -80,11 +83,15 @@ class InlineEmailSummaryCard(QFrame):
         root.setContentsMargins(8, 5, 8, 6)
         root.setSpacing(4)
 
-        hdr = QHBoxLayout()
-        hdr.setSpacing(6)
+        hdr_bar = QWidget(self)
+        hdr_bar.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        hdr_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        hdr_sp.setHeightForWidth(True)
+        hdr_bar.setSizePolicy(hdr_sp)
+        hdr = FlowLayout(hdr_bar, margin=0, h_spacing=6, v_spacing=4)
         ctrl_h = scale_px(24)
 
-        self.btn_toggle = QPushButton("▾ 🤖 AI Summary", self)
+        self.btn_toggle = QPushButton("▾ 🤖 AI Summary", hdr_bar)
         self.btn_toggle.setCursor(Qt.PointingHandCursor)
         self.btn_toggle.setMinimumHeight(ctrl_h)
         self.btn_toggle.setStyleSheet(
@@ -95,21 +102,21 @@ class InlineEmailSummaryCard(QFrame):
         self.btn_toggle.clicked.connect(self._on_toggle_expand)
         hdr.addWidget(self.btn_toggle)
 
-        self.model_pill = QLabel("", self)
+        self.model_pill = QLabel("", hdr_bar)
+        self.model_pill.setMinimumHeight(ctrl_h)
         self.model_pill.setStyleSheet(
             f"background-color: {C.BG_CARD}; color: {C.TEXT_SECONDARY}; border: 1px solid {C.BORDER_SUBTLE}; "
             f"border-radius: 4px; padding: 1px 6px; font-size: 11px;"
         )
         hdr.addWidget(self.model_pill)
 
-        self.freshness_pill = QLabel("", self)
+        self.freshness_pill = QLabel("", hdr_bar)
+        self.freshness_pill.setMinimumHeight(ctrl_h)
         self.freshness_pill.setStyleSheet(
             f"background-color: {C.INFO_SOFT}; color: {C.INFO}; border: 1px solid {C.INFO_BORDER}; "
             f"border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: bold;"
         )
         hdr.addWidget(self.freshness_pill)
-
-        hdr.addStretch()
 
         btn_qss = (
             f"QPushButton {{ background-color: {C.BG_CARD}; color: {C.TEXT_STRONG}; "
@@ -118,7 +125,7 @@ class InlineEmailSummaryCard(QFrame):
             f"QPushButton:disabled {{ background-color: {C.BG_SURFACE}; color: {C.TEXT_FAINT}; }}"
         )
 
-        self.btn_update = QPushButton("⚡ Update", self)
+        self.btn_update = QPushButton("⚡ Update", hdr_bar)
         self.btn_update.setCursor(Qt.PointingHandCursor)
         self.btn_update.setMinimumHeight(ctrl_h)
         self.btn_update.setStyleSheet(
@@ -130,7 +137,7 @@ class InlineEmailSummaryCard(QFrame):
         self.btn_update.clicked.connect(lambda: self.trigger_summarize(mode="auto"))
         hdr.addWidget(self.btn_update)
 
-        self.btn_rebuild = QPushButton("🔄 Rebuild", self)
+        self.btn_rebuild = QPushButton("🔄 Rebuild", hdr_bar)
         self.btn_rebuild.setCursor(Qt.PointingHandCursor)
         self.btn_rebuild.setMinimumHeight(ctrl_h)
         self.btn_rebuild.setStyleSheet(btn_qss)
@@ -138,7 +145,7 @@ class InlineEmailSummaryCard(QFrame):
         self.btn_rebuild.clicked.connect(lambda: self.trigger_summarize(mode="full"))
         hdr.addWidget(self.btn_rebuild)
 
-        self.btn_model = QPushButton("⚙️ Model ▾", self)
+        self.btn_model = QPushButton("⚙️ Model ▾", hdr_bar)
         self.btn_model.setCursor(Qt.PointingHandCursor)
         self.btn_model.setMinimumHeight(ctrl_h)
         self.btn_model.setStyleSheet(btn_qss)
@@ -147,7 +154,7 @@ class InlineEmailSummaryCard(QFrame):
         self.btn_model.setMenu(self.model_menu)
         hdr.addWidget(self.btn_model)
 
-        self.btn_undo = QPushButton("↩️ Undo", self)
+        self.btn_undo = QPushButton("↩️ Undo", hdr_bar)
         self.btn_undo.setCursor(Qt.PointingHandCursor)
         self.btn_undo.setMinimumHeight(ctrl_h)
         self.btn_undo.setStyleSheet(btn_qss)
@@ -156,14 +163,14 @@ class InlineEmailSummaryCard(QFrame):
         self.btn_undo.setVisible(False)
         hdr.addWidget(self.btn_undo)
 
-        self.btn_copy = QPushButton("📋 Copy", self)
+        self.btn_copy = QPushButton("📋 Copy", hdr_bar)
         self.btn_copy.setCursor(Qt.PointingHandCursor)
         self.btn_copy.setMinimumHeight(ctrl_h)
         self.btn_copy.setStyleSheet(btn_qss)
         self.btn_copy.clicked.connect(self._on_copy_clicked)
         hdr.addWidget(self.btn_copy)
 
-        self.btn_to_notes = QPushButton("📝 → Notes", self)
+        self.btn_to_notes = QPushButton("📝 → Notes", hdr_bar)
         self.btn_to_notes.setCursor(Qt.PointingHandCursor)
         self.btn_to_notes.setMinimumHeight(ctrl_h)
         self.btn_to_notes.setStyleSheet(btn_qss)
@@ -171,7 +178,7 @@ class InlineEmailSummaryCard(QFrame):
         self.btn_to_notes.clicked.connect(self._on_to_notes_clicked)
         hdr.addWidget(self.btn_to_notes)
 
-        self.btn_stop = QPushButton("⏹ Stop", self)
+        self.btn_stop = QPushButton("⏹ Stop", hdr_bar)
         self.btn_stop.setCursor(Qt.PointingHandCursor)
         self.btn_stop.setMinimumHeight(ctrl_h)
         self.btn_stop.setStyleSheet(
@@ -183,7 +190,13 @@ class InlineEmailSummaryCard(QFrame):
         self.btn_stop.setVisible(False)
         hdr.addWidget(self.btn_stop)
 
-        root.addLayout(hdr)
+        root.addWidget(hdr_bar)
+
+        self.error_banner = SummaryErrorBanner(self)
+        self.error_banner.retry_requested.connect(lambda: self.trigger_summarize(mode="auto"))
+        self.error_banner.m365_copilot_requested.connect(lambda: self.open_m365_copilot_handoff(mode="auto", auto_launch=True))
+        self.error_banner.dismiss_requested.connect(self._on_dismiss_error)
+        root.addWidget(self.error_banner)
 
         self.body_browser = QTextBrowser(self)
         self.body_browser.setOpenLinks(False)
@@ -226,6 +239,8 @@ class InlineEmailSummaryCard(QFrame):
         self._messages = []
         self._current_record = None
         self._current_freshness = None
+        self._last_error = ""
+        self.error_banner.clear_error()
         if not self.is_running():
             self.setVisible(False)
 
@@ -247,6 +262,8 @@ class InlineEmailSummaryCard(QFrame):
         self._wg = wg
         self._meeting_id = meeting_id
         self._tdoc_meta = tdoc_meta
+        self._last_error = ""
+        self.error_banner.clear_error()
 
         if store is None or not self._scope.scope_key:
             self.clear_scope()
@@ -280,7 +297,8 @@ class InlineEmailSummaryCard(QFrame):
         self._apply_expand_state()
 
     def _apply_expand_state(self) -> None:
-        self.body_browser.setVisible(self._expanded)
+        has_body = self._current_record is not None or self.is_running()
+        self.body_browser.setVisible(self._expanded and has_body)
         arrow = "▾" if self._expanded else "▸"
         self.btn_toggle.setText(f"{arrow} 🤖 AI Summary")
 
@@ -326,10 +344,21 @@ class InlineEmailSummaryCard(QFrame):
         )
         self.btn_undo.setVisible(can_undo)
 
-        if fresh is not None and has_rec:
+        if self._last_error:
+            self.freshness_pill.setText("⚠️ Summary failed")
+            self.freshness_pill.setToolTip(self._last_error)
+            self.freshness_pill.setStyleSheet(
+                f"background-color: {C.DANGER_SOFT}; color: {C.DANGER}; "
+                f"border: 1px solid {C.DANGER_BORDER_HOVER}; border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: bold;"
+            )
+            self.btn_rebuild.setText("🔁 Retry" if not has_rec else "🔄 Rebuild")
+            self.btn_update.setVisible(False)
+        elif fresh is not None and has_rec:
+            self.btn_rebuild.setText("🔄 Rebuild")
             cutoff_disp = format_compact_timestamp(fresh.cutoff_utc) if fresh.cutoff_utc else "last run"
             if fresh.new_count > 0:
                 self.freshness_pill.setText(f"🟡 +{fresh.new_count} new since {cutoff_disp}")
+                self.freshness_pill.setToolTip("")
                 self.freshness_pill.setStyleSheet(
                     f"background-color: {C.WARNING_SOFT}; color: {C.WARNING_DARK}; "
                     f"border: 1px solid {C.WARNING_BORDER}; border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: bold;"
@@ -340,13 +369,20 @@ class InlineEmailSummaryCard(QFrame):
                 )
             else:
                 self.freshness_pill.setText(f"✅ Up to date ({fresh.covered_count} msgs)")
+                self.freshness_pill.setToolTip("")
                 self.freshness_pill.setStyleSheet(
                     f"background-color: {C.SUCCESS_SOFT}; color: {C.SUCCESS_DARK}; "
                     f"border: 1px solid {C.SUCCESS_BORDER_MEDIUM}; border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: bold;"
                 )
                 self.btn_update.setVisible(False)
         else:
+            self.btn_rebuild.setText("🔄 Rebuild")
             self.freshness_pill.setText("Ready")
+            self.freshness_pill.setToolTip("")
+            self.freshness_pill.setStyleSheet(
+                f"background-color: {C.BG_CARD}; color: {C.TEXT_SECONDARY}; "
+                f"border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px; padding: 1px 6px; font-size: 11px;"
+            )
             self.btn_update.setVisible(False)
 
     def trigger_summarize(
@@ -365,11 +401,13 @@ class InlineEmailSummaryCard(QFrame):
         if model_override is not None:
             self._model_override = model_override
 
+        self._last_error = ""
+        self.error_banner.clear_error()
         self._expanded = True
         self._settings.setValue(self._settings_key, True)
         self.setVisible(True)
-        self._apply_expand_state()
         self._stream_chunks = []
+        self.body_browser.setVisible(True)
         self.body_browser.setPlainText("Initializing summary...")
 
         spec = self._active_spec()
@@ -411,6 +449,8 @@ class InlineEmailSummaryCard(QFrame):
             self.body_browser.ensureCursorVisible()
 
     def _on_worker_completed(self, record: EmailSummaryRecord) -> None:
+        self._last_error = ""
+        self.error_banner.clear_error()
         self._current_record = record
         if self._store is not None and self._scope is not None:
             self._current_freshness = self._store.compute_freshness(
@@ -423,15 +463,22 @@ class InlineEmailSummaryCard(QFrame):
         self.summary_saved.emit(record)
 
     def _on_worker_failed(self, err: str) -> None:
-        self.freshness_pill.setText(f"⚠️ {err[:58]}")
-        self.freshness_pill.setStyleSheet(
-            f"background-color: {C.DANGER_SOFT}; color: {C.DANGER}; border: 1px solid {C.DANGER_BORDER_HOVER}; "
-            f"border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: bold;"
-        )
+        self._last_error = str(err or "Summary generation failed.").strip()
+        self.error_banner.show_error(self._last_error)
         if self._current_record is not None:
             self._render_record()
         else:
-            self.body_browser.setPlainText(f"Summary failed:\n{err}")
+            self._apply_expand_state()
+        self._refresh_header_labels()
+
+    def _on_dismiss_error(self) -> None:
+        self._last_error = ""
+        self.error_banner.clear_error()
+        if self._current_record is None and not self.is_running():
+            self.setVisible(False)
+            return
+        self._render_record()
+        self._refresh_header_labels()
 
     def _on_worker_finished(self) -> None:
         self._worker = None

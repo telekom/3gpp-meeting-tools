@@ -233,22 +233,31 @@ class TDocEmailsUiSetupMixin:
         layout.addWidget(toolbar_widget)
 
         # Row 3: Search, Company, Read/Flag State, Display Order & Compact Scope Pills
-        filter_row = QHBoxLayout()
-        filter_row.setSpacing(5)
-        self.msg_search_edit = QLineEdit()
+        filter_bar = QWidget(self)
+        filter_bar.setStyleSheet(".QWidget { background: transparent; border: none; }")
+        filter_sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        filter_sp.setHeightForWidth(True)
+        filter_bar.setSizePolicy(filter_sp)
+        filter_row = FlowLayout(filter_bar, margin=0, h_spacing=6, v_spacing=4)
+
+        self.msg_search_edit = QLineEdit(filter_bar)
         self.msg_search_edit.setClearButtonEnabled(True)
+        self.msg_search_edit.setMinimumWidth(scale_px(190))
+        self.msg_search_edit.setMinimumHeight(scale_px(26))
         self.msg_search_edit.setPlaceholderText("🔍 Filter messages by keyword, TDoc, or sender...")
         self.msg_search_edit.textChanged.connect(self._render_messages)
-        filter_row.addWidget(self.msg_search_edit, 1)
+        filter_row.addWidget(self.msg_search_edit)
 
         self.company_filter_combo = CheckableComboBox("Company")
         self.company_filter_combo.setMinimumWidth(scale_px(125))
         self.company_filter_combo.setMaximumWidth(scale_px(180))
+        self.company_filter_combo.setMinimumHeight(scale_px(26))
         self.company_filter_combo.setToolTip("Filter messages by one or more sender companies.")
         self.company_filter_combo.selectionChanged.connect(self._render_messages)
         filter_row.addWidget(self.company_filter_combo)
 
-        self.state_filter_combo = QComboBox()
+        self.state_filter_combo = QComboBox(filter_bar)
+        self.state_filter_combo.setMinimumHeight(scale_px(26))
         self.state_filter_combo.addItem("All Messages", "all")
         self.state_filter_combo.addItem("🔵 Unread Only", "unread")
         self.state_filter_combo.addItem("🚩 Flagged Only", "flagged")
@@ -256,7 +265,8 @@ class TDocEmailsUiSetupMixin:
         self.state_filter_combo.currentIndexChanged.connect(self._render_messages)
         filter_row.addWidget(self.state_filter_combo)
 
-        self.order_combo = QComboBox()
+        self.order_combo = QComboBox(filter_bar)
+        self.order_combo.setMinimumHeight(scale_px(26))
         self.order_combo.addItem("⬇️ Newest", True)
         self.order_combo.addItem("⬆️ Oldest", False)
         saved_newest = self._settings.value("newest_first", True, type=bool)
@@ -270,31 +280,36 @@ class TDocEmailsUiSetupMixin:
             f"QPushButton:hover {{ background-color: {C.BG_HOVER}; }} "
             f"QPushButton:checked {{ background-color: {C.INFO_SOFT}; border-color: {C.ACCENT_ALT}; color: {C.INFO}; font-weight: bold; }}"
         )
-        self.chk_family = QPushButton("🔗 Family")
+        pill_h = scale_px(24)
+        self.chk_family = QPushButton("🔗 Family", filter_bar)
         self.chk_family.setCheckable(True)
         self.chk_family.setChecked(True)
+        self.chk_family.setMinimumHeight(pill_h)
         self.chk_family.setStyleSheet(scope_pill_qss)
         self.chk_family.setToolTip("Include emails mentioning any predecessor or revision in this TDoc family.")
         self.chk_family.toggled.connect(self._load_emails)
         filter_row.addWidget(self.chk_family)
 
-        self.chk_include_quoted = QPushButton("💬 Quoted")
+        self.chk_include_quoted = QPushButton("💬 Quoted", filter_bar)
         self.chk_include_quoted.setCheckable(True)
         self.chk_include_quoted.setChecked(True)
+        self.chk_include_quoted.setMinimumHeight(pill_h)
         self.chk_include_quoted.setStyleSheet(scope_pill_qss)
         self.chk_include_quoted.setToolTip("Include emails where the TDoc was only cited inside quoted reply history.")
         self.chk_include_quoted.toggled.connect(self._load_emails)
         filter_row.addWidget(self.chk_include_quoted)
 
-        self.chk_show_ignored = QPushButton("🚫 Ignored")
+        self.chk_show_ignored = QPushButton("🚫 Ignored", filter_bar)
         self.chk_show_ignored.setCheckable(True)
         self.chk_show_ignored.setChecked(False)
+        self.chk_show_ignored.setMinimumHeight(pill_h)
         self.chk_show_ignored.setStyleSheet(scope_pill_qss)
         self.chk_show_ignored.setToolTip("Show emails previously marked as Ignored for this TDoc.")
         self.chk_show_ignored.toggled.connect(self._load_emails)
         filter_row.addWidget(self.chk_show_ignored)
 
-        self.msg_count_lbl = QLabel("")
+        self.msg_count_lbl = QLabel("", filter_bar)
+        self.msg_count_lbl.setMinimumHeight(pill_h)
         self.msg_count_lbl.setStyleSheet(f"color: {C.TEXT_MUTED}; font-size: 11px;")
         filter_row.addWidget(self.msg_count_lbl)
 
@@ -308,7 +323,7 @@ class TDocEmailsUiSetupMixin:
             title="TDoc Emails Tips",
         )
         filter_row.addWidget(self.help_pill_btn)
-        layout.addLayout(filter_row)
+        layout.addWidget(filter_bar)
 
         # Initialize My Status & Comment bar from passed TDoc metadata
         self._populate_tdoc_status_and_note()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -39,19 +40,74 @@ class CancellationFlag:
         return self._event.is_set()
 
 
+_RECONNECT_RE = re.compile(r"(?i)^reconnecting\.\.\.\s*\d+/\d+\s*(?:\(([^)]+)\))?")
+
+_NETWORK_MARKERS = (
+    "workspace routing discovery failed",
+    "reconnecting...",
+    "connection refused",
+    "connection reset",
+    "econnreset",
+    "enotfound",
+    "etimedout",
+    "network is unreachable",
+    "failed to lookup",
+    "proxy",
+    "certificate verify failed",
+    "tls",
+    "ssl",
+    "timed out",
+)
+
+
+def _dedupe_error_lines(text: str) -> str:
+    """Collapse repeated CLI log/retry lines (e.g., `Reconnecting... N/M (...)`) into unique reasons."""
+    seen = []
+    seen_lower = set()
+    reconnect_reasons = []
+    for raw_ln in str(text or "").splitlines():
+        ln = raw_ln.strip()
+        if not ln:
+            continue
+        m = _RECONNECT_RE.match(ln)
+        if m:
+            reason = (m.group(1) or "connection interrupted").strip()
+            rkey = reason.lower()
+            if rkey not in reconnect_reasons:
+                reconnect_reasons.append(reason)
+                seen_lower.add(rkey)
+            continue
+        low = ln.lower()
+        if low not in seen_lower:
+            seen_lower.add(low)
+            seen.append(ln)
+    if reconnect_reasons and not seen:
+        return "; ".join(reconnect_reasons)
+    if reconnect_reasons:
+        return "; ".join(seen + reconnect_reasons)
+    return "\n".join(seen)
+
+
 def _classify_cli_error(provider: str, rc: int, stderr_text: str, stdout_text: str = "") -> str:
     combined = f"{stderr_text}\n{stdout_text}".strip()
-    lower = combined.lower()
+    deduped = _dedupe_error_lines(combined) or combined
+    lower = deduped.lower()
     if "refresh token" in lower or "re-authenticate" in lower or "log out and sign in" in lower or "not logged in" in lower or "unauthorized" in lower:
         login_hint = {
             "codex": "run 'codex login'",
             "claude": "run 'claude auth login' or verify Bedrock credentials",
             "gemini": "run 'gemini' to sign in",
         }.get(provider, "re-authenticate the CLI")
-        return f"{provider} authentication expired or failed ({login_hint}). Details: {combined[:300]}"
+        return f"{provider} authentication expired or failed ({login_hint}). Details: {deduped[:300]}"
     if "model" in lower and ("not found" in lower or "unsupported" in lower or "invalid" in lower):
-        return f"{provider} rejected the selected model/effort: {combined[:300]}"
-    snippet = combined[:500] if combined else f"process exited with code {rc}"
+        return f"{provider} rejected the selected model/effort: {deduped[:300]}"
+    if any(tok in lower for tok in _NETWORK_MARKERS):
+        reason = deduped.splitlines()[0][:220]
+        return (
+            f"{provider} CLI could not reach its backend ({reason}). "
+            "Check network/proxy/VPN, switch provider, or use M365 Copilot."
+        )
+    snippet = deduped[:500] if deduped else f"process exited with code {rc}"
     return f"{provider} CLI failed (exit {rc}): {snippet}"
 
 

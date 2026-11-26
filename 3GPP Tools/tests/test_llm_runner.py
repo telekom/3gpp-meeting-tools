@@ -178,6 +178,33 @@ class TestLlmRunner(unittest.TestCase):
         self.assertFalse(res.ok)
         self.assertIn("codex login", res.error.lower())
 
+    def test_cli_network_routing_error_is_deduplicated_and_actionable(self):
+        repeated = [
+            "Reconnecting... 1/5 (workspace routing discovery failed)\n",
+            "Reconnecting... 2/5 (workspace routing discovery failed)\n",
+            "Reconnecting... 3/5 (workspace routing discovery failed)\n",
+            "Reconnecting... 4/5 (workspace routing discovery failed)\n",
+            "Reconnecting... 5/5 (workspace routing discovery failed)\n",
+        ]
+
+        def fake_popen(_cmd, **_kw):
+            return _FakeProc([], stderr_lines=repeated, returncode=1)
+
+        statuses = {
+            "codex": CliAgentStatus("codex", "Codex CLI", "OpenAI", "🤖", True, "codex.exe", "path", True, ""),
+        }
+        res = CliSubprocessRunner().run(
+            "SYS",
+            "USR",
+            ModelSpec("codex", "gpt-6.2-sol", "low"),
+            popen_fn=fake_popen,
+            statuses=statuses,
+        )
+        self.assertFalse(res.ok)
+        self.assertEqual(res.error.count("workspace routing discovery failed"), 1)
+        self.assertIn("M365 Copilot", res.error)
+        self.assertNotIn("2/5", res.error)
+
     def test_ollama_runner_streaming_and_cancellation(self):
         fake_client = MagicMock()
         fake_client.stream_chat.return_value = iter(["Hello ", "world!"])

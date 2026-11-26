@@ -224,6 +224,57 @@ class TestEmailAiSummaryUi(unittest.TestCase):
             self.assertIn("No Outlook folders", empty_dlg.lbl_folders.text())
             empty_dlg.close()
 
+    def test_inline_summary_card_error_state_and_briefings_no_clipping(self):
+        from modules.emails.ui.briefings.mixins.actions import _compact_ai_nav_label, _natural_ai_sort_key
+
+        card = InlineEmailSummaryCard()
+        msgs = self.tdb.get_thread_messages(self.tid)
+        card.bind_scope(self.store, SummaryScope("thread", self.tid, "URSP rule update"), msgs)
+        card.trigger_summarize = lambda **_kw: None  # Prevent real worker spawn
+        card.setVisible(True)
+
+        # Simulate worker failure + finished -> never displays 'Ready' on error!
+        card._on_worker_failed("codex CLI could not reach its backend (workspace routing discovery failed).")
+        card._on_worker_finished()
+        self.assertTrue(card.error_banner.isVisible())
+        self.assertFalse(card.body_browser.isVisible())
+        self.assertIn("failed", card.freshness_pill.text().lower())
+        self.assertNotEqual(card.freshness_pill.text().strip().lower(), "ready")
+        self.assertIn("Retry", card.btn_rebuild.text())
+
+        # Dismissing error when no summary exists collapses card back to 0 px
+        card.error_banner.btn_dismiss.click()
+        self.assertFalse(card.error_banner.isVisible())
+        self.assertFalse(card.isVisible())
+        card.close()
+
+        # Verify natural sorting (20.6.2 before 20.6.17) and compact nav label
+        codes = ["20.6.17", "20.6.2", "20.6.0"]
+        self.assertEqual(sorted(codes, key=_natural_ai_sort_key), ["20.6.0", "20.6.2", "20.6.17"])
+        self.assertEqual(
+            _compact_ai_nav_label("20.6.0", "20.6.0 — Study on Architecture for 6G System (FS_6G_ARC) — Miscellaneous"),
+            "20.6.0 — Miscellaneous",
+        )
+
+        br_dlg = EmailBriefingsDialog(
+            tracked_db=self.tdb,
+            general_email_db=self.gdb,
+            summary_db_path=self.store.db_path,
+            meeting_id="S2-174",
+            wg="SA2",
+            ai_label_map={"6.1": "6.1 — Very Long Study Title That Should Wrap — Subtopic"},
+            followed_ais={"6.1"},
+            tdoc_ai_lookup={"S2-2602001": "6.1"},
+            initial_ai_code="6.1",
+        )
+        br_dlg.show()
+        self.assertLessEqual(br_dlg.leaves_frame.maximumHeight(), 45)
+        br_dlg._on_worker_failed("codex CLI could not reach its backend (timeout).")
+        self.assertTrue(br_dlg.error_banner.isVisible())
+        br_dlg.error_banner.btn_dismiss.click()
+        self.assertFalse(br_dlg.error_banner.isVisible())
+        br_dlg.close()
+
 
 if __name__ == "__main__":
     unittest.main()

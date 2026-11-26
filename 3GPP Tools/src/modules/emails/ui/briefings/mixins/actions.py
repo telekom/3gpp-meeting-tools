@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Optional
 
 from PyQt5.QtCore import Qt, QUrl
@@ -12,12 +13,14 @@ from PyQt5.QtWidgets import (
     QApplication,
     QFileDialog,
     QMenu,
+    QMessageBox,
     QTreeWidgetItem,
 )
 
 from core.ai.llm_runner import ModelSpec, resolve_effective_model_spec
+from core.ui.font_scale import scale_px
 from core.ui.theme import C
-from core.ui.toast import notify_success
+from core.ui.toast import notify_info, notify_success
 from modules.emails.core.ai_summary import (
     AiBriefingWorker,
     EmailSummaryRecord,
@@ -30,6 +33,21 @@ from modules.emails.core.markdown_export import format_compact_timestamp
 from modules.emails.ui.ai_summary import M365CopilotHandoffDialog, populate_summary_model_menu
 
 from ..buckets import build_meeting_ai_buckets
+
+
+def _natural_ai_sort_key(code: str) -> tuple:
+    return tuple((0, int(tok)) if tok.isdigit() else (1, tok.lower()) for tok in re.split(r"([0-9]+)", str(code or "")))
+
+
+def _compact_ai_nav_label(ai_code: str, raw_label: str) -> str:
+    txt = str(raw_label or ai_code or "").strip()
+    if " — " in txt:
+        code_part, rest = txt.split(" — ", 1)
+        tail = rest.rsplit(" — ", 1)[-1].strip() if " — " in rest else rest.strip()
+        if len(tail) > 26:
+            tail = tail[:24].rstrip() + "…"
+        return f"{code_part} — {tail}"
+    return (txt[:38] + "…") if len(txt) > 40 else txt
 
 
 class BriefingsActionsMixin:
@@ -55,7 +73,7 @@ class BriefingsActionsMixin:
 
         all_ais = sorted(
             set(self._ai_buckets.keys()) | set(ai_recs.keys()),
-            key=lambda a: (0 if a in self.followed_ais else 1, a),
+            key=lambda a: (0 if a in self.followed_ais else 1, _natural_ai_sort_key(a)),
         )
         target_item: Optional[QTreeWidgetItem] = None
 
@@ -71,7 +89,7 @@ class BriefingsActionsMixin:
                 pill = "✅"
             star = "👀 " if ai_code in self.followed_ais else ""
             raw_lbl = self.ai_label_map.get(ai_code, ai_code)
-            short_lbl = (raw_lbl[:38] + "…") if len(raw_lbl) > 40 else raw_lbl
+            short_lbl = _compact_ai_nav_label(ai_code, raw_lbl)
             item = QTreeWidgetItem(ai_root, [f"{pill} {star}{short_lbl} ({len(buckets)})"])
             item.setData(0, Qt.UserRole, ("ai", ai_code))
             item.setToolTip(0, f"{raw_lbl}\nTopics: {len(buckets)} | Emails: {fresh.total_messages}")
@@ -137,6 +155,7 @@ class BriefingsActionsMixin:
         self.btn_export_md.setEnabled(False)
 
     def _load_selected_scope(self) -> None:
+        self.error_banner.clear_error()
         tup = self._active_scope_tuple()
         if tup is None:
             self._render_empty_scope()
@@ -232,6 +251,8 @@ class BriefingsActionsMixin:
     def _on_toggle_leaves_drawer(self) -> None:
         vis = not self.leaves_browser.isVisible()
         self.leaves_browser.setVisible(vis)
+        self.leaves_frame.setMaximumHeight(16777215 if vis else scale_px(34))
+        self.right_vsplit.setSizes([scale_px(420), scale_px(180)] if vis else [scale_px(560), scale_px(34)])
         tup = self._active_scope_tuple()
         cnt = len(self._ai_buckets.get(tup[1], {})) if (tup and tup[0] == "ai") else 0
         arrow = "▾" if vis else "▸"
@@ -334,6 +355,7 @@ class BriefingsActionsMixin:
             return
         kind, key = tup
         focus_txt = self.focus_prompt_edit.text().strip()
+        self.error_banner.clear_error()
         self._stream_chunks = []
         self.briefing_browser.clear()
         self.progress_lbl.setText("⏳ Starting synthesis...")
@@ -391,16 +413,25 @@ class BriefingsActionsMixin:
     def _on_worker_completed(self, record: EmailSummaryRecord) -> None:
         self._worker = None
         self._set_running_ui(False)
+        self.error_banner.clear_error()
         self.refresh_navigation(select_kind=record.scope_type, select_key=record.scope_key)
         self.briefing_saved.emit(record)
 
     def _on_worker_failed(self, err: str) -> None:
         self._worker = None
         self._set_running_ui(False)
-        self.progress_lbl.setVisible(True)
-        self.progress_lbl.setText(f"⚠️ {err}")
+        self.progress_lbl.setVisible(False)
+        self.error_banner.show_error(str(err or "Briefing generation failed."))
         if self._active_record is not None:
             self.briefing_browser.setMarkdown(self._active_record.summary_md)
+        else:
+            self.briefing_browser.setMarkdown(
+                "*Generation did not complete. Click **🔁 Retry** above or try **💠 Try M365 Copilot**.*"
+            )
+
+    def _on_dismiss_error(self) -> None:
+        self.error_banner.clear_error()
+        self._load_selected_scope()
 
     def _cancel_active_worker(self) -> None:
         if self._worker and self._worker.isRunning():
