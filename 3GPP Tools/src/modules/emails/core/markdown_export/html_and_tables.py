@@ -10,7 +10,11 @@ _ALLOWED_HTML_TAGS = {
     "a", "b", "i", "em", "strong", "code", "pre", "br", "hr", "p", "div", "span",
     "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6", "sub", "sup", "mark", "blockquote",
 }
-_ANGLE_HTTP_RE = re.compile(r"\s*<https?://[^>]+>", re.IGNORECASE)
+_ANGLE_HTTP_RE = re.compile(r"\s*<(?:https?|applewebdata|x-apple-[a-z0-9-]+|cid):[^>]+>", re.IGNORECASE)
+_CLIENT_PSEUDO_ANGLE_URL_RE = re.compile(
+    r"[ \t]*<(?:applewebdata|x-apple-[a-z0-9-]+|cid):[^>\n]+>",
+    re.IGNORECASE,
+)
 
 
 def escape_non_html_angles(text: str) -> str:
@@ -18,6 +22,7 @@ def escape_non_html_angles(text: str) -> str:
     if not text:
         return ""
     cleaned = re.sub(r"\s*<mailto:[^>\s]+>\s*", " ", text, flags=re.IGNORECASE)
+    cleaned = _CLIENT_PSEUDO_ANGLE_URL_RE.sub("", cleaned)
 
     def _replace_tag(m: re.Match) -> str:
         inner = m.group(1)

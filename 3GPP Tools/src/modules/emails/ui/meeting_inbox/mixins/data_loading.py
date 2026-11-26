@@ -169,7 +169,11 @@ class InboxDataLoadingMixin:
                 inferred_ais = []
                 inferred_subs = []
                 inferred_wis = []
-                for td in matched_tdocs:
+                raw_subj = str(row.get("subject") or "")
+                from modules.emails.core.tracked_threads.parsing import _TDOC_RE
+                subj_tdocs = {self._clean_tdoc_id(m) for m in _TDOC_RE.findall(raw_subj) if self._clean_tdoc_id(m)}
+                scope_tdocs = [t for t in matched_tdocs if t in subj_tdocs] if subj_tdocs else matched_tdocs
+                for td in scope_tdocs:
                     ai = self.tdoc_ai_lookup.get(td, "")
                     meta = self._tdoc_meta_map.get(td) or {}
                     if not ai:
@@ -179,9 +183,18 @@ class InboxDataLoadingMixin:
                     sub = str(meta.get("sub_item") or "").strip()
                     if sub and sub not in inferred_subs:
                         inferred_subs.append(sub)
+                for td in matched_tdocs:
+                    meta = self._tdoc_meta_map.get(td) or {}
                     for w in (meta.get("wis") or []):
                         if w and w not in inferred_wis:
                             inferred_wis.append(w)
+
+                if not subj_tdocs:
+                    if len(inferred_ais) > 1:
+                        inferred_ais = []
+                        inferred_subs = []
+                    elif len(inferred_subs) > 1:
+                        inferred_subs = []
 
                 if eid in by_id:
                     item = by_id[eid]
@@ -189,9 +202,8 @@ class InboxDataLoadingMixin:
                     for td in matched_tdocs:
                         if td not in item["linked_tdocs"]:
                             item["linked_tdocs"].append(td)
-                    for ai in inferred_ais:
-                        if ai not in item["linked_ais"]:
-                            item["linked_ais"].append(ai)
+                    if not item["linked_ais"] and len(inferred_ais) == 1:
+                        item["linked_ais"].append(inferred_ais[0])
                     if row.get("html_body") and not item.get("html_body"):
                         item["html_body"] = str(row["html_body"])
                     comp_val = str(row.get("company") or row.get("sender_company") or "").strip()

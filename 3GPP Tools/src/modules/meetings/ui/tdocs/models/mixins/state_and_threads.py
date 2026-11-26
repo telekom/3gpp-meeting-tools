@@ -74,22 +74,33 @@ class TDocsStateThreadsMixin:
             if tdocs:
                 remarks_parts.append(f"TDocs: {', '.join(tdocs)}")
 
-            # Use explicit Sub-Topic if assigned, else inherit from an existing TDoc in the same Agenda Item
+            # Use explicit Sub-Topic if assigned, else inherit ONLY if unanimous under primary_ai
             primary_sub = explicit_subs[0] if explicit_subs else ""
             sub_item_order = 0
-            for existing_row in self._data:
-                if existing_row.get("_is_tracked_thread"):
-                    continue
-                ex_ai = str(existing_row.get("Agenda Item", "")).strip()
-                ex_sub = str(existing_row.get("Sub-Item", "")).strip()
-                if primary_sub and ex_sub.lower() == primary_sub.lower():
-                    if not primary_ai or ex_ai == primary_ai:
+            if primary_sub:
+                for existing_row in self._data:
+                    if existing_row.get("_is_tracked_thread"):
+                        continue
+                    ex_ai = str(existing_row.get("Agenda Item", "")).strip()
+                    ex_sub = str(existing_row.get("Sub-Item", "")).strip()
+                    if ex_sub.lower() == primary_sub.lower() and (not primary_ai or ex_ai == primary_ai):
                         sub_item_order = int(existing_row.get("_sub_item_order") or 0)
                         break
-                elif not primary_sub and primary_ai and ex_ai == primary_ai and ex_sub:
-                    primary_sub = ex_sub
-                    sub_item_order = int(existing_row.get("_sub_item_order") or 0)
-                    break
+            elif primary_ai:
+                ai_subs = []
+                first_order = 0
+                for existing_row in self._data:
+                    if existing_row.get("_is_tracked_thread"):
+                        continue
+                    if str(existing_row.get("Agenda Item", "")).strip() == primary_ai:
+                        ex_sub = str(existing_row.get("Sub-Item", "")).strip()
+                        if ex_sub and ex_sub not in ai_subs:
+                            ai_subs.append(ex_sub)
+                            if not first_order:
+                                first_order = int(existing_row.get("_sub_item_order") or 0)
+                if len(ai_subs) == 1:
+                    primary_sub = ai_subs[0]
+                    sub_item_order = first_order
 
             all_subs = set(explicit_subs)
             if primary_sub:

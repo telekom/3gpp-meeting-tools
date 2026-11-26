@@ -19,6 +19,14 @@ _FIREEYE_RE = re.compile(
     r"<?https?://protect\d*\.fireeye\.com/v1/url\?[^\s<>\"\)\]]+>?",
     re.IGNORECASE,
 )
+_CLIENT_PSEUDO_ANGLE_URL_RE = re.compile(
+    r"[ \t]*<(?:applewebdata|x-apple-[a-z0-9-]+|cid):[^>\n]+>",
+    re.IGNORECASE,
+)
+_BARE_APPLE_URL_RE = re.compile(
+    r"\b(?:applewebdata|x-apple-[a-z0-9-]+)://[^\s<>\"\)\]]+",
+    re.IGNORECASE,
+)
 # Matches http(s)://10.10.10.10/... or 10.10.10.10/ftp/... or https://www.3gpp.org/ftp/... that may contain unencoded spaces, '#', '[' or ']' up to a document extension
 _DOC_URL_WITH_SPACES_RE = re.compile(
     r"((?:https?://)?(?:10\.10\.10\.10/ftp|(?:www\.)?3gpp\.org/ftp)/(?:(?!\]\()[^\r\n<>\"\)])+?\.(?:docx|docm|doc|zip|pptx|pdf|xlsx|vsdx))\b",
@@ -76,7 +84,8 @@ def unwrap_outlook_safelinks(text: str) -> str:
     if not text:
         return ""
 
-    cleaned = text
+    cleaned = _CLIENT_PSEUDO_ANGLE_URL_RE.sub("", text)
+    cleaned = _BARE_APPLE_URL_RE.sub("", cleaned)
 
     if "safelinks.protection.outlook.com" in cleaned.lower():
         def _replace_safelink(match: re.Match) -> str:

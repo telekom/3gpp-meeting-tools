@@ -1051,6 +1051,89 @@ class TestEMeetingUnifiedInbox(unittest.TestCase):
             finally:
                 dlg2.close()
 
+    def test_strip_applewebdata_links_and_reconstruct_html_table(self):
+        from modules.emails.core.markdown_export import (
+            escape_non_html_angles,
+            inject_html_tables_into_body,
+            linkify_markdown_urls,
+            linkify_tdoc_tokens,
+            unwrap_outlook_safelinks,
+        )
+
+        raw = "See S2-2609087 <applewebdata://BEFF4D48-AF2C-4934-AD56-00D8455D1A4F/Docs/S2-2609087.zip> and <x-apple-data-detectors://12>."
+        unwrapped = unwrap_outlook_safelinks(raw)
+        self.assertNotIn("applewebdata", unwrapped.lower())
+        self.assertNotIn("x-apple", unwrapped.lower())
+
+        escaped = escape_non_html_angles(raw)
+        self.assertNotIn("applewebdata", escaped.lower())
+        self.assertNotIn("x-apple", escaped.lower())
+
+        rendered = linkify_tdoc_tokens(linkify_markdown_urls(escaped, shorten_long_urls=True))
+        self.assertEqual(rendered, "See [S2-2609087](tdoc:S2-2609087) and.")
+
+        plain_tbl = "Intro line\nSA2#176\n20.6.20\nS2-2609087 <applewebdata://BEFF4D48-AF2C-4934-AD56-00D8455D1A4F/Docs/S2-2609087.zip>\nEnd line"
+        html_tbl = (
+            "<html><body><table><tr><th>Meeting</th><th>AI</th><th>TDoc</th></tr>"
+            '<tr><td>SA2#176</td><td>20.6.20</td><td><a href="applewebdata://BEFF4D48-AF2C-4934-AD56-00D8455D1A4F/Docs/S2-2609087.zip">S2-2609087</a></td></tr>'
+            "</table></body></html>"
+        )
+        # Note plain_tbl contains only data row when header was outside or let's include header row
+        plain_full = "Intro\nMeeting\nAI\nTDoc\nSA2#176\n20.6.20\nS2-2609087 <applewebdata://BEFF4D48-AF2C-4934-AD56-00D8455D1A4F/Docs/S2-2609087.zip>\nEnd"
+        out_tbl = inject_html_tables_into_body(plain_full, html_tbl)
+        self.assertIn("| Meeting | AI | TDoc |", out_tbl)
+        self.assertIn("| SA2#176 | 20.6.20 | S2-2609087 |", out_tbl)
+        self.assertNotIn("applewebdata", out_tbl.lower())
+
+    def test_omnibus_tr_review_does_not_flood_ais_or_random_subitems(self):
+        from PyQt5.QtWidgets import QApplication
+        from modules.emails.core.tracked_threads.parsing import auto_suggest_links
+        from modules.meetings.ui.tdocs_models import TDocsTableModel
+
+        _app = QApplication.instance() or QApplication([])
+        tdoc_meta_map = {
+            "S2-2609087": {"ai": "20.6.20", "sub_item": "KI#20", "wis": ["FS_6G_ARC"]},
+            "S2-2612828": {"ai": "20.6.1", "sub_item": "KI#1.1", "wis": ["FS_6G_ARC"]},
+            "S2-2612864": {"ai": "20.6.4", "sub_item": "KI#4", "wis": ["FS_6G_ARC"]},
+        }
+        # TR-wide email citing TDocs from 3 different AIs in body only -> must NOT flood AIs or pick a random sub_item!
+        sugg_multi = auto_suggest_links(
+            "Re: [FS_6G_ARC] Draft TR 23.801-01 v0.11.0 available for review",
+            "Discussing S2-2609087, S2-2612828, and S2-2612864.",
+            valid_ais=["20.6.1", "20.6.4", "20.6.20"],
+            valid_wis=["FS_6G_ARC"],
+            tdoc_meta_map=tdoc_meta_map,
+        )
+        self.assertEqual(sugg_multi["ais"], [])
+        self.assertEqual(sugg_multi["sub_items"], [])
+        self.assertEqual(sugg_multi["wis"], ["FS_6G_ARC"])
+        self.assertEqual(sugg_multi["tdocs"], ["S2-2609087", "S2-2612828", "S2-2612864"])
+
+        # Body-only TDoc with unanimous AI + Sub-Item DOES inherit cleanly
+        sugg_uni = auto_suggest_links(
+            "Re: [FS_6G_ARC] Question on UE-centric procedures",
+            "Please check S2-2609087.",
+            valid_ais=["20.6.1", "20.6.4", "20.6.20"],
+            valid_wis=["FS_6G_ARC"],
+            tdoc_meta_map=tdoc_meta_map,
+        )
+        self.assertEqual(sugg_uni["ais"], ["20.6.20"])
+        self.assertEqual(sugg_uni["sub_items"], ["KI#20"])
+
+        # TDocsTableModel.sync_tracked_thread_rows must NOT pick a random sub-item when AI has multiple sub-items
+        model = TDocsTableModel(data=[
+            {"TDoc": "S2-1", "Agenda Item": "20.6.1", "Sub-Item": "KI#1.1"},
+            {"TDoc": "S2-2", "Agenda Item": "20.6.1", "Sub-Item": "KI#1.2"},
+            {"TDoc": "S2-3", "Agenda Item": "20.6.20", "Sub-Item": "KI#20"},
+        ])
+        model.sync_tracked_thread_rows([
+            {"thread_id": "THR-MULTI-SUB", "title": "Multi sub", "linked_ais": ["20.6.1"], "linked_sub_items": []},
+            {"thread_id": "THR-UNI-SUB", "title": "Uni sub", "linked_ais": ["20.6.20"], "linked_sub_items": []},
+        ])
+        rows_by_td = {r["TDoc"]: r for r in model._data}
+        self.assertEqual(rows_by_td["THR-MULTI-SUB"]["Sub-Item"], "")
+        self.assertEqual(rows_by_td["THR-UNI-SUB"]["Sub-Item"], "KI#20")
+
 
 if __name__ == "__main__":
     unittest.main()

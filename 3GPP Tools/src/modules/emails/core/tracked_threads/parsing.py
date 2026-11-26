@@ -197,10 +197,15 @@ def auto_suggest_links(
     text_all = f"{text_subj}\n{att_text}\n{(body or '')[:2000]}"
     raw_ais = sorted({re.sub(r"\s+", "", m.upper()) for m in _KI_AI_RE.findall(text_subj)})
     raw_wis = _extract_wi_tokens(text_subj)
-    tdocs = sorted(
-        {m.upper() for m in _TDOC_RE.findall(text_all)}
+    primary_tdocs = (
+        {m.upper() for m in _TDOC_RE.findall(f"{text_subj}\n{att_text}")}
         | {str(t).strip().upper() for t in (extra_tdocs or []) if str(t).strip()}
     )
+    tdocs = sorted(
+        {m.upper() for m in _TDOC_RE.findall(text_all)}
+        | primary_tdocs
+    )
+    body_only_tdocs = sorted(set(tdocs) - primary_tdocs)
 
     if agenda_map is not None or valid_ais is not None:
         ais = _resolve_ais_against_agenda(raw_ais, raw_wis, agenda_map, valid_ais)
@@ -225,25 +230,75 @@ def auto_suggest_links(
             if valid_wis is not None
             else None
         )
-        for td in tdocs:
-            base_td = re.sub(r"(?:R|REV)\d{1,2}[A-Z]?$", "", td, flags=re.IGNORECASE)
-            meta = tdoc_meta_map.get(td) or tdoc_meta_map.get(base_td)
-            if not isinstance(meta, dict):
-                continue
-            ai_val = str(meta.get("ai") or "").strip()
-            if ai_val and ai_val not in ("N/A", "-", "None") and ai_val not in ais:
-                ais.append(ai_val)
-            sub_val = str(meta.get("sub_item") or "").strip()
-            if sub_val and sub_val not in ("N/A", "-", "None") and sub_val not in sub_items:
-                sub_items.append(sub_val)
-            for w in (meta.get("wis") or []):
-                wc = str(w).strip()
-                if not wc or wc.lower() in ("(no wi)", "none", "nan", "-"):
+
+        def _collect_meta_for(td_list: Sequence[str]):
+            found_ais: List[str] = []
+            found_subs: List[str] = []
+            found_wis: List[str] = []
+            for td in td_list:
+                base_td = re.sub(r"(?:R|REV)\d{1,2}[A-Z]?$", "", td, flags=re.IGNORECASE)
+                meta = tdoc_meta_map.get(td) or tdoc_meta_map.get(base_td)
+                if not isinstance(meta, dict):
                     continue
-                if wi_by_lower is not None:
-                    wc = wi_by_lower.get(wc.lower(), wc)
-                if wc not in wis:
-                    wis.append(wc)
+                ai_val = str(meta.get("ai") or "").strip()
+                if ai_val and ai_val not in ("N/A", "-", "None") and ai_val not in found_ais:
+                    found_ais.append(ai_val)
+                sub_val = str(meta.get("sub_item") or "").strip()
+                if sub_val and sub_val not in ("N/A", "-", "None") and sub_val not in found_subs:
+                    found_subs.append(sub_val)
+                for w in (meta.get("wis") or []):
+                    wc = str(w or "").strip()
+                    if not wc or wc.lower() in ("(no wi)", "none", "nan", "-"):
+                        continue
+                    if wi_by_lower is not None:
+                        wc = wi_by_lower.get(wc.lower(), wc)
+                    if wc not in found_wis:
+                        found_wis.append(wc)
+            return found_ais, found_subs, found_wis
+
+        p_ais, p_subs, p_wis = _collect_meta_for(sorted(primary_tdocs))
+        b_ais, b_subs, b_wis = _collect_meta_for(body_only_tdocs)
+        subject_ais_set = set(ais)
+
+        if primary_tdocs:
+            for ai_val in p_ais:
+                if (not subject_ais_set or ai_val in subject_ais_set) and ai_val not in ais:
+                    ais.append(ai_val)
+            if len(p_subs) <= 2:
+                for sub_val in p_subs:
+                    if sub_val not in sub_items:
+                        sub_items.append(sub_val)
+            for w in p_wis:
+                if w not in wis:
+                    wis.append(w)
+        elif not subject_ais_set:
+            # Body-only TDocs without subject AI/TDoc: only inherit AI/Sub-Topic if unanimous
+            if len(b_ais) == 1 and b_ais[0] not in ais:
+                ais.append(b_ais[0])
+                if len(b_subs) == 1:
+                    sub_items.append(b_subs[0])
+            if 1 <= len(b_wis) <= 2:
+                for w in b_wis:
+                    if w not in wis:
+                        wis.append(w)
+        else:
+            # Subject AI already known: never flood unrelated AIs from body quotes/tables
+            matching_subs: List[str] = []
+            for td in body_only_tdocs:
+                base_td = re.sub(r"(?:R|REV)\d{1,2}[A-Z]?$", "", td, flags=re.IGNORECASE)
+                meta = tdoc_meta_map.get(td) or tdoc_meta_map.get(base_td)
+                if not isinstance(meta, dict):
+                    continue
+                if str(meta.get("ai") or "").strip() in subject_ais_set:
+                    sub_val = str(meta.get("sub_item") or "").strip()
+                    if sub_val and sub_val not in ("N/A", "-", "None") and sub_val not in matching_subs:
+                        matching_subs.append(sub_val)
+            if len(matching_subs) == 1:
+                sub_items.append(matching_subs[0])
+            if 1 <= len(b_wis) <= 2:
+                for w in b_wis:
+                    if w not in wis:
+                        wis.append(w)
 
     for w in infer_wis_for_ais(ais, agenda_map=agenda_map, tdoc_meta_map=tdoc_meta_map, valid_wis=valid_wis):
         if w not in wis:
