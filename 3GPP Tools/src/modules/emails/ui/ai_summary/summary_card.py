@@ -29,6 +29,7 @@ from modules.emails.core.ai_summary import (
     EmailSummaryTaskWorker,
     SummaryFreshness,
     SummaryScope,
+    build_leaf_handoff_packet,
 )
 from modules.emails.core.markdown_export import apply_email_reader_document_style, format_compact_timestamp
 
@@ -63,6 +64,7 @@ class InlineEmailSummaryCard(QFrame):
         self._current_freshness: Optional[SummaryFreshness] = None
         self._model_override: Optional[ModelSpec] = None
         self._worker: Optional[EmailSummaryTaskWorker] = None
+        self._m365_dialog = None
         self._stream_chunks: List[str] = []
 
         self.setStyleSheet(
@@ -205,6 +207,15 @@ class InlineEmailSummaryCard(QFrame):
             on_defaults_saved=self._refresh_header_labels,
             parent=self,
         )
+        self.model_menu.addSeparator()
+        act_m365_send = self.model_menu.addAction("💠 Send to M365 Copilot...")
+        act_m365_send.setToolTip(
+            "Prepare full or incremental Markdown prompt on clipboard, open M365 Copilot, and paste the summary back."
+        )
+        act_m365_send.triggered.connect(lambda _=False: self.open_m365_copilot_handoff(mode="auto", auto_launch=True))
+        act_m365_paste = self.model_menu.addAction("📋 Paste M365 / External Summary...")
+        act_m365_paste.setToolTip("Paste a summary generated externally in M365 Copilot and store it inline.")
+        act_m365_paste.triggered.connect(lambda _=False: self.open_m365_copilot_handoff(mode="auto", auto_launch=False))
 
     def _on_model_selected(self, spec: ModelSpec) -> None:
         self._model_override = spec
@@ -431,10 +442,69 @@ class InlineEmailSummaryCard(QFrame):
             self._worker.request_cancel()
             self.freshness_pill.setText("Cancelling...")
 
+    def open_m365_copilot_handoff(
+        self,
+        *,
+        mode: str = "auto",
+        auto_launch: bool = True,
+    ):
+        """Open the modeless Send & Paste-Back dialog for Microsoft 365 Copilot."""
+        if self._store is None or self._scope is None:
+            return None
+        if not self._messages:
+            notify_info(self, "No Messages", "There are no messages in this scope to send to M365 Copilot.")
+            return None
+
+        from .m365_copilot_dialog import M365CopilotHandoffDialog
+
+        if self._m365_dialog is not None:
+            try:
+                self._m365_dialog.close()
+            except Exception:
+                pass
+            self._m365_dialog = None
+
+        packet = build_leaf_handoff_packet(
+            self._store,
+            self._scope,
+            self._messages,
+            meeting_dir=self._meeting_dir,
+            wg=self._wg,
+            meeting_id=self._meeting_id,
+            mode=mode,
+            tdoc_meta=self._tdoc_meta,
+        )
+        dlg = M365CopilotHandoffDialog(
+            self._store,
+            packet,
+            auto_launch=auto_launch,
+            meeting_dir=self._meeting_dir,
+            owner=self.window(),
+        )
+        dlg.summary_saved.connect(self._on_external_summary_saved)
+        dlg.destroyed.connect(lambda _=None: setattr(self, "_m365_dialog", None))
+        self._m365_dialog = dlg
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+        return dlg
+
+    def _on_external_summary_saved(self, record: EmailSummaryRecord) -> None:
+        self._expanded = True
+        self._settings.setValue(self._settings_key, True)
+        self.setVisible(True)
+        self._on_worker_completed(record)
+
     def shutdown_worker(self) -> None:
         if self._worker and self._worker.isRunning():
             self._worker.request_cancel()
             self._worker.wait(1000)
+        if self._m365_dialog is not None:
+            try:
+                self._m365_dialog.close()
+            except Exception:
+                pass
+            self._m365_dialog = None
 
     def _on_undo_clicked(self) -> None:
         if self._store is None or self._scope is None:

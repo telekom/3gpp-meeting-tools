@@ -73,6 +73,7 @@ class EmailBriefingsDialog(BriefingsUiSetupMixin, BriefingsActionsMixin, QDialog
         self._active_record: Optional[EmailSummaryRecord] = None
         self._synth_model_override: Optional[ModelSpec] = None
         self._worker = None
+        self._m365_dialog = None
         self._stream_chunks: List[str] = []
 
         self._pending_selection_key = ""
@@ -150,6 +151,9 @@ class EmailBriefingsDialog(BriefingsUiSetupMixin, BriefingsActionsMixin, QDialog
             if self._worker and self._worker.isRunning():
                 self._worker.request_cancel()
                 self._worker.wait(1000)
+            if self._m365_dialog is not None:
+                self._m365_dialog.close()
+                self._m365_dialog = None
             self._settings.setValue("geometry", self.saveGeometry())
         except Exception:
             pass

@@ -168,6 +168,10 @@ class TDocEmailsActionsMixin:
                 on_selected=lambda s: setattr(self.summary_card, "_model_override", s),
                 parent=self,
             )
+            act_m365 = menu.addAction("💠 Send to M365 Copilot...")
+            act_m365.triggered.connect(lambda _=False: self.summary_card.open_m365_copilot_handoff(mode="auto", auto_launch=True))
+            act_m365_paste = menu.addAction("📋 Paste M365 / External Summary...")
+            act_m365_paste.triggered.connect(lambda _=False: self.summary_card.open_m365_copilot_handoff(mode="auto", auto_launch=False))
         else:
             act_ai_sum = menu.addAction("🤖 AI Summarize Discussion (Ollama)...")
             act_ai_sum.setToolTip("Generate a structured stance summary using local Ollama and optionally append it to TDoc My Notes.")

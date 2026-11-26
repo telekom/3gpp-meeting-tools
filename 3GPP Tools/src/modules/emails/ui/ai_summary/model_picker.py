@@ -24,8 +24,10 @@ from core.ai.llm_runner import (
     ProviderModelEntry,
     discover_all_runner_models,
     get_default_model_spec,
+    get_m365_copilot_target,
     resolve_effective_model_spec,
     set_default_model_spec,
+    set_m365_copilot_target,
 )
 from core.ui.font_scale import scale_px
 from core.ui.theme import C
@@ -292,6 +294,26 @@ class SummaryModelDefaultsDialog(QDialog):
         )
         layout.addWidget(self.synth_card)
 
+        m365_card = QFrame(self)
+        m365_card.setObjectName("m365TargetCard")
+        m365_card.setStyleSheet(
+            f"#m365TargetCard {{ background-color: {C.BG_SURFACE}; border: 1px solid {C.BORDER_SUBTLE}; border-radius: 6px; }}"
+        )
+        m365_lay = QFormLayout(m365_card)
+        m365_lay.setContentsMargins(10, 8, 10, 8)
+        m365_lay.setSpacing(6)
+        self.m365_target_combo = QComboBox(m365_card)
+        self.m365_target_combo.setMinimumHeight(scale_px(26))
+        self.m365_target_combo.addItem("🌐 Web (copilot.cloud.microsoft)", "web")
+        self.m365_target_combo.addItem("🪟 Windows App (ms-copilot:)", "app")
+        self.m365_target_combo.addItem("📋 Clipboard Only (No Launch)", "clipboard_only")
+        cur_target = get_m365_copilot_target()
+        t_idx = self.m365_target_combo.findData(cur_target)
+        if t_idx >= 0:
+            self.m365_target_combo.setCurrentIndex(t_idx)
+        m365_lay.addRow("💠 M365 Copilot Launch:", self.m365_target_combo)
+        layout.addWidget(m365_card)
+
         btn_row = QHBoxLayout()
         self.rescan_btn = QPushButton("🔄 Re-scan Providers", self)
         self.rescan_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
@@ -322,4 +344,5 @@ class SummaryModelDefaultsDialog(QDialog):
     def _on_save(self) -> None:
         set_default_model_spec("leaf", self.leaf_card.get_model_spec())
         set_default_model_spec("synthesis", self.synth_card.get_model_spec())
+        set_m365_copilot_target(str(self.m365_target_combo.currentData() or "web"))
         self.accept()

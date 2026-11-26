@@ -23,9 +23,11 @@ from modules.emails.core.ai_summary import (
     EmailSummaryRecord,
     EmailSummaryTaskWorker,
     SummaryScope,
+    build_ai_handoff_packet,
+    build_leaf_handoff_packet,
 )
 from modules.emails.core.markdown_export import format_compact_timestamp
-from modules.emails.ui.ai_summary import populate_summary_model_menu
+from modules.emails.ui.ai_summary import M365CopilotHandoffDialog, populate_summary_model_menu
 
 from ..buckets import build_meeting_ai_buckets
 
@@ -130,6 +132,7 @@ class BriefingsActionsMixin:
         )
         self.btn_update.setEnabled(False)
         self.btn_rebuild.setEnabled(False)
+        self.btn_m365_copilot.setEnabled(False)
         self.btn_copy.setEnabled(False)
         self.btn_export_md.setEnabled(False)
 
@@ -150,6 +153,7 @@ class BriefingsActionsMixin:
             self.scope_title_lbl.setText(f"🧭 {ai_label}")
             self.btn_update.setEnabled(bool(buckets) and not self._is_running())
             self.btn_rebuild.setEnabled(bool(buckets) and not self._is_running())
+            self.btn_m365_copilot.setEnabled(bool(buckets) and not self._is_running())
             if rec and rec.focus_prompt:
                 self.focus_prompt_edit.setText(rec.focus_prompt)
             if not self.btn_focus_toggle.isChecked():
@@ -163,6 +167,7 @@ class BriefingsActionsMixin:
             can_run = bool(all_msgs) and not self._is_running()
             self.btn_update.setEnabled(can_run)
             self.btn_rebuild.setEnabled(can_run)
+            self.btn_m365_copilot.setEnabled(can_run)
             self.focus_row_widget.setVisible(True)
             self.btn_focus_toggle.setChecked(True)
             if rec and rec.focus_prompt:
@@ -257,7 +262,69 @@ class BriefingsActionsMixin:
         self.btn_update.setEnabled(not running)
         self.btn_rebuild.setEnabled(not running)
         self.btn_model.setEnabled(not running)
+        self.btn_m365_copilot.setEnabled(not running)
         self.progress_lbl.setVisible(running)
+
+    def _open_m365_copilot_handoff(self, *, auto_launch: bool = True):
+        tup = self._active_scope_tuple()
+        if tup is None:
+            return None
+        kind, key = tup
+        focus_txt = self.focus_prompt_edit.text().strip()
+        if kind == "ai":
+            buckets = self._ai_buckets.get(key, {})
+            if not buckets:
+                notify_info(self, "No Emails", f"No email discussions found under AI {key}.")
+                return None
+            ai_label = self.ai_label_map.get(key, f"AI {key}")
+            packet = build_ai_handoff_packet(
+                self.summary_store,
+                key,
+                ai_label,
+                buckets,
+                meeting_dir=self.meeting_dir,
+                wg=self.wg,
+                meeting_id=self.meeting_id,
+                tdoc_meta_map=self.tdoc_meta_map,
+                focus_prompt=focus_txt,
+            )
+        else:
+            msgs = self._pending_selection_messages if key == self._pending_selection_key else []
+            if not msgs:
+                notify_info(self, "Selection Messages Unavailable", "Re-select those rows from the Unified Inbox to rebuild the selection prompt.")
+                return None
+            title = self._pending_selection_title or (self._active_record.title if self._active_record else key)
+            packet = build_leaf_handoff_packet(
+                self.summary_store,
+                SummaryScope(scope_type="selection", scope_key=key, title=title, focus_prompt=focus_txt),
+                msgs,
+                meeting_dir=self.meeting_dir,
+                wg=self.wg,
+                meeting_id=self.meeting_id,
+                mode="full",
+            )
+
+        if self._m365_dialog is not None:
+            try:
+                self._m365_dialog.close()
+            except Exception:
+                pass
+            self._m365_dialog = None
+
+        dlg = M365CopilotHandoffDialog(
+            self.summary_store,
+            packet,
+            auto_launch=auto_launch,
+            meeting_dir=self.meeting_dir,
+            owner=self,
+        )
+        dlg.summary_saved.connect(self._on_worker_completed)
+        dlg.destroyed.connect(lambda _=None: setattr(self, "_m365_dialog", None))
+        self._m365_dialog = dlg
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+        return dlg
 
     def _run_active_briefing(self, *, mode: str = "auto") -> None:
         if self._is_running():

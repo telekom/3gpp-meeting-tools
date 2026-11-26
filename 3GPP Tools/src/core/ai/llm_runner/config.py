@@ -18,10 +18,12 @@ logger = logging.getLogger(__name__)
 CONFIG_PATH: Path = get_project_root() / "config" / "email_summary_config.json"
 
 VALID_ROLES = ("leaf", "synthesis")
+VALID_M365_TARGETS = ("web", "app", "clipboard_only")
 
 DEFAULT_SUMMARY_RUNNER_CONFIG: Dict[str, Any] = {
     "leaf": {"provider": "", "model": "", "reasoning_effort": ""},
     "synthesis": {"provider": "", "model": "", "reasoning_effort": ""},
+    "m365_copilot_target": "web",
 }
 
 
@@ -31,6 +33,7 @@ def load_summary_runner_config(config_path: Optional[Path] = None) -> Dict[str, 
     cfg: Dict[str, Any] = {
         role: dict(DEFAULT_SUMMARY_RUNNER_CONFIG[role]) for role in VALID_ROLES
     }
+    cfg["m365_copilot_target"] = DEFAULT_SUMMARY_RUNNER_CONFIG["m365_copilot_target"]
     if path.is_file():
         try:
             loaded = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
@@ -46,6 +49,9 @@ def load_summary_runner_config(config_path: Optional[Path] = None) -> Dict[str, 
                             "model": str(raw_role.get("model") or "").strip(),
                             "reasoning_effort": str(raw_role.get("reasoning_effort") or "").strip().lower(),
                         }
+                raw_target = str(loaded.get("m365_copilot_target") or "").strip().lower()
+                if raw_target in VALID_M365_TARGETS:
+                    cfg["m365_copilot_target"] = raw_target
         except Exception as exc:
             logger.debug("Could not load %s: %s", path, exc)
     return cfg
@@ -88,6 +94,23 @@ def set_default_model_spec(
         cfg[clean_role] = {"provider": "", "model": "", "reasoning_effort": ""}
     else:
         cfg[clean_role] = spec.normalized().to_dict()
+    save_summary_runner_config(cfg, config_path)
+
+
+def get_m365_copilot_target(config_path: Optional[Path] = None) -> str:
+    """Return persisted M365 Copilot launch target ('web', 'app', or 'clipboard_only')."""
+    cfg = load_summary_runner_config(config_path)
+    target = str(cfg.get("m365_copilot_target") or "web").strip().lower()
+    return target if target in VALID_M365_TARGETS else "web"
+
+
+def set_m365_copilot_target(target: str, config_path: Optional[Path] = None) -> None:
+    """Persist M365 Copilot launch target ('web', 'app', or 'clipboard_only')."""
+    clean = str(target or "web").strip().lower()
+    if clean not in VALID_M365_TARGETS:
+        clean = "web"
+    cfg = load_summary_runner_config(config_path)
+    cfg["m365_copilot_target"] = clean
     save_summary_runner_config(cfg, config_path)
 
 

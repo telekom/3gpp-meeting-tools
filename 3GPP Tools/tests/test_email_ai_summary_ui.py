@@ -150,7 +150,38 @@ class TestEmailAiSummaryUi(unittest.TestCase):
         self.assertEqual(br_dlg.windowModality(), Qt.NonModal)
         self.assertTrue(bool(br_dlg.windowFlags() & Qt.Window))
         self.assertIn("6.1", br_dlg.scope_title_lbl.text())
+        self.assertTrue(hasattr(br_dlg, "btn_m365_copilot"))
         br_dlg.close()
+
+    def test_m365_copilot_handoff_dialog_modeless_and_roundtrip_save(self):
+        card = InlineEmailSummaryCard()
+        msgs = self.tdb.get_thread_messages(self.tid)
+        card.bind_scope(self.store, SummaryScope("thread", self.tid, "URSP rule update"), msgs)
+        self.assertFalse(card.isVisible())
+
+        with patch("modules.emails.core.ai_summary.m365_handoff.webbrowser.open", return_value=True) as mock_web, patch(
+            "modules.emails.ui.ai_summary.m365_copilot_dialog.get_m365_copilot_target", return_value="web"
+        ):
+            handoff_dlg = card.open_m365_copilot_handoff(mode="auto", auto_launch=True)
+
+        self.assertIsNotNone(handoff_dlg)
+        self.assertIsNone(handoff_dlg.parent())
+        self.assertEqual(handoff_dlg.windowModality(), Qt.NonModal)
+        self.assertTrue(bool(handoff_dlg.windowFlags() & Qt.Window))
+        self.assertTrue(mock_web.called)
+        self.assertIn("URSP rule update", QApplication.clipboard().text())
+
+        handoff_dlg.response_edit.setPlainText("### 1. Core Contention\n- M365 Copilot summary [Msg #1](jump://msg/1)")
+        handoff_dlg._on_save_clicked()
+
+        saved = self.store.get_summary("thread", self.tid)
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved.provider, "m365-copilot")
+        self.assertEqual(set(saved.covered_message_ids), {"M1", "M2"})
+        self.assertTrue(card.isVisible())
+        self.assertIn("M365 Copilot summary", card.body_browser.toPlainText())
+        card.shutdown_worker()
+        card.close()
 
 
 if __name__ == "__main__":

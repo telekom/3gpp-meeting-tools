@@ -19,7 +19,10 @@ from modules.emails.core.ai_summary import (
     EmailSummaryRecord,
     EmailSummaryStore,
     SummaryScope,
+    build_ai_handoff_packet,
+    build_leaf_handoff_packet,
     parse_summary_output,
+    save_external_summary_from_handoff,
 )
 from modules.emails.core.email_summary_worker import clean_email_body_for_summary
 from modules.emails.core.general_email_db import GeneralEmailDatabase
@@ -223,6 +226,99 @@ class TestEmailAiSummaryCore(unittest.TestCase):
                 "summary_md": "Blocked",
             })
             self.assertFalse(blocked.data["ok"])
+
+    def test_m365_handoff_leaf_incremental_staging_and_paste_back(self):
+        store = EmailSummaryStore(self.agenda_dir / "email_summaries.db")
+        msgs_v1 = [
+            {"id": f"M{i}", "sender_name": "Alice", "company": "Ericsson", "date_sent": f"2026-04-14 1{i}:00:00", "subject": "S2-2602001", "body_text": f"Initial URSP point {i}"}
+            for i in range(1, 6)
+        ]
+        pkt1 = build_leaf_handoff_packet(
+            store,
+            SummaryScope("tdoc", "S2-2602001", "URSP Update"),
+            msgs_v1,
+            meeting_dir=self.agenda_dir.parent,
+            wg="SA2",
+            meeting_id="S2-174",
+            clipboard_threshold=20,  # Force .md file staging for long prompt test
+        )
+        self.assertEqual(pkt1.mode, "full")
+        self.assertIsNotNone(pkt1.attached_file)
+        self.assertTrue(pkt1.attached_file.exists())
+        self.assertIn("Analyze the attached Markdown file", pkt1.clipboard_prompt)
+        self.assertEqual(pkt1.covered_message_ids, ["M1", "M2", "M3", "M4", "M5"])
+
+        rec1, err1 = save_external_summary_from_handoff(
+            store,
+            pkt1,
+            "\u200b### 1. Core Technical Contention\n- M1..M5 discussion [Msg #1](jump://msg/1)\n```summary-meta\n{\"open_issues\": 1}\n```",
+        )
+        self.assertEqual(err1, "")
+        self.assertEqual(rec1.provider, "m365-copilot")
+        self.assertEqual(rec1.covered_message_ids, ["M1", "M2", "M3", "M4", "M5"])
+        self.assertEqual(rec1.structured_meta.get("open_issues"), 1)
+
+        # Backfill older M0 + add newer M6 -> incremental delta packet includes M0 (#1) and M6 (#7)!
+        msgs_v2 = [
+            {"id": "M0", "sender_name": "Zoe", "company": "Samsung", "date_sent": "2026-04-14 09:00:00", "subject": "Earlier email", "body_text": "Early point"},
+            *msgs_v1,
+            {"id": "M6", "sender_name": "Bob", "company": "Nokia", "date_sent": "2026-04-14 18:30:00", "subject": "Re: S2-2602001", "body_text": "Support with comment"},
+        ]
+        pkt2 = build_leaf_handoff_packet(
+            store,
+            SummaryScope("tdoc", "S2-2602001", "URSP Update"),
+            msgs_v2,
+            meeting_dir=self.agenda_dir.parent,
+        )
+        self.assertEqual(pkt2.mode, "incremental")
+        self.assertEqual(pkt2.new_message_count, 2)
+        self.assertIn("[Msg #1]", pkt2.prompt_text)  # Chronological M0
+        self.assertIn("[Msg #7]", pkt2.prompt_text)  # Chronological M6
+        self.assertNotIn("Initial URSP point 2", pkt2.prompt_text)
+
+    def test_m365_handoff_ai_reuses_fresh_leaves_and_embeds_raw_unsummarized(self):
+        store = EmailSummaryStore(self.agenda_dir / "email_summaries.db")
+        store.upsert_summary(
+            EmailSummaryRecord(
+                scope_type="tdoc",
+                scope_key="S2-2602001",
+                title="Topic A",
+                summary_md="### 1. Topic\nFresh M365 leaf for A",
+                covered_message_ids=["A1"],
+                cutoff_utc="2026-04-14 10:00:00",
+                provider="m365-copilot",
+            )
+        )
+        buckets = {
+            "tdoc:S2-2602001": {
+                "scope_type": "tdoc",
+                "scope_key": "S2-2602001",
+                "title": "Topic A",
+                "messages": [{"id": "A1", "sender_name": "Alice", "company": "Ericsson", "date_sent": "2026-04-14 10:00:00", "body_text": "Raw body A"}],
+            },
+            "tdoc:S2-2602002": {
+                "scope_type": "tdoc",
+                "scope_key": "S2-2602002",
+                "title": "Topic B",
+                "messages": [{"id": "B1", "sender_name": "Bob", "company": "Nokia", "date_sent": "2026-04-14 11:00:00", "body_text": "Raw body B"}],
+            },
+        }
+        pkt = build_ai_handoff_packet(
+            store,
+            "6.1",
+            "6.1 — 5GS Policy",
+            buckets,
+            meeting_dir=self.agenda_dir.parent,
+            wg="SA2",
+            meeting_id="S2-174",
+            focus_prompt="Highlight roaming conflict",
+        )
+        self.assertEqual(pkt.mode, "ai_briefing")
+        self.assertEqual(pkt.leaf_summary_reused_count, 1)
+        self.assertEqual(pkt.leaf_raw_count, 1)
+        self.assertIn("Fresh M365 leaf for A", pkt.prompt_text)
+        self.assertIn("Raw body B", pkt.prompt_text)
+        self.assertEqual(set(pkt.covered_message_ids), {"A1", "B1"})
 
 
 if __name__ == "__main__":

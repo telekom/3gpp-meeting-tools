@@ -133,6 +133,20 @@ class BriefingsUiSetupMixin:
         self.btn_model.setMenu(self.model_menu)
         ctrl_row.addWidget(self.btn_model)
 
+        self.btn_m365_copilot = QPushButton("💠 M365 Copilot ▾", hdr_card)
+        self.btn_m365_copilot.setMinimumHeight(ctrl_h)
+        self.btn_m365_copilot.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
+        self.btn_m365_copilot.setToolTip(
+            "Prepare Per-AI or Selection briefing pack for Microsoft 365 Copilot and paste the response back."
+        )
+        m365_menu = QMenu(self)
+        act_m365_send = m365_menu.addAction("🚀 Send Briefing Pack to M365 Copilot...")
+        act_m365_send.triggered.connect(lambda _=False: self._open_m365_copilot_handoff(auto_launch=True))
+        act_m365_paste = m365_menu.addAction("📋 Paste M365 / External Briefing...")
+        act_m365_paste.triggered.connect(lambda _=False: self._open_m365_copilot_handoff(auto_launch=False))
+        self.btn_m365_copilot.setMenu(m365_menu)
+        ctrl_row.addWidget(self.btn_m365_copilot)
+
         self.btn_focus_toggle = QPushButton("🎯 Focus", hdr_card)
         self.btn_focus_toggle.setCheckable(True)
         self.btn_focus_toggle.setMinimumHeight(ctrl_h)

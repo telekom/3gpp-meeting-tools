@@ -22,8 +22,10 @@ from core.ai.llm_runner import (
     OllamaTextRunner,
     build_headless_cli_command,
     get_default_model_spec,
+    get_m365_copilot_target,
     resolve_effective_model_spec,
     set_default_model_spec,
+    set_m365_copilot_target,
 )
 
 
@@ -207,6 +209,17 @@ class TestLlmRunner(unittest.TestCase):
         )
         self.assertFalse(res_cancel.ok)
         self.assertTrue(res_cancel.cancelled)
+
+    def test_m365_copilot_target_config_roundtrip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg_p = Path(tmp) / "summary_cfg.json"
+            self.assertEqual(get_m365_copilot_target(config_path=cfg_p), "web")
+            set_default_model_spec("leaf", ModelSpec("ollama", "qwen2.5:7b"), config_path=cfg_p)
+            set_m365_copilot_target("app", config_path=cfg_p)
+            self.assertEqual(get_m365_copilot_target(config_path=cfg_p), "app")
+            self.assertEqual(get_default_model_spec("leaf", config_path=cfg_p).model, "qwen2.5:7b")
+            set_m365_copilot_target("invalid-target", config_path=cfg_p)
+            self.assertEqual(get_m365_copilot_target(config_path=cfg_p), "web")
 
 
 if __name__ == "__main__":

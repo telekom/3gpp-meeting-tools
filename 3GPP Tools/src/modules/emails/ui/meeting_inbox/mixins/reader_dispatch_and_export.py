@@ -373,6 +373,12 @@ class InboxReaderDispatchMixin:
             parent=self,
         )
         menu.addSeparator()
+        act_m365_send = menu.addAction("💠 Send to M365 Copilot...")
+        act_m365_send.setToolTip(
+            "Prepare full or incremental Markdown prompt on clipboard, open M365 Copilot, and paste summary back."
+        )
+        act_m365_paste = menu.addAction("📋 Paste M365 / External Summary...")
+        menu.addSeparator()
         act_copy_md = menu.addAction("📋 Copy Pure Markdown (for ChatGPT / Claude / Codex)")
         chosen = menu.exec_(QCursor.pos())
         if chosen == act_copy_md:
@@ -384,6 +390,10 @@ class InboxReaderDispatchMixin:
             self.summary_card.trigger_summarize(mode="auto")
         elif act_rebuild is not None and chosen == act_rebuild and hasattr(self, "summary_card"):
             self.summary_card.trigger_summarize(mode="full")
+        elif chosen == act_m365_send and hasattr(self, "summary_card"):
+            self.summary_card.open_m365_copilot_handoff(mode="auto", auto_launch=True)
+        elif chosen == act_m365_paste and hasattr(self, "summary_card"):
+            self.summary_card.open_m365_copilot_handoff(mode="auto", auto_launch=False)
 
     def _on_generate_email_statistics(self):
         if not self._all_items:

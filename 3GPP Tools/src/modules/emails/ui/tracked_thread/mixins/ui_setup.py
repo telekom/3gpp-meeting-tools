@@ -348,6 +348,10 @@ class TrackedThreadUiSetupMixin:
                 on_selected=lambda s: setattr(self.summary_card, "_model_override", s),
                 parent=self,
             )
+            act_m365 = menu.addAction("💠 Send to M365 Copilot...")
+            act_m365.triggered.connect(lambda _=False: self.summary_card.open_m365_copilot_handoff(mode="auto", auto_launch=True))
+            act_m365_paste = menu.addAction("📋 Paste M365 / External Summary...")
+            act_m365_paste.triggered.connect(lambda _=False: self.summary_card.open_m365_copilot_handoff(mode="auto", auto_launch=False))
             menu.addSeparator()
 
         try:
