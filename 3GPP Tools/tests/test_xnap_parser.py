@@ -3,8 +3,6 @@ from pathlib import Path
 
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
 from modules.nas.core.parsing.xnap_asn1_parser import XnAPAsn1Parser
-from modules.nas.core.parsing.ran3_asn1_parser import RAN3Asn1Parser
-from modules.nas.core.parsing.rrc_asn1_parser import RRCAsn1Parser
 
 
 class TestXnAPParser(unittest.TestCase):

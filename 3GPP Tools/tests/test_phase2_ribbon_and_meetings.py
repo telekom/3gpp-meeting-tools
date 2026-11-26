@@ -2,7 +2,6 @@
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QSizePolicy
 

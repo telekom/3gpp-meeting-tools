@@ -5,7 +5,6 @@ live scanning for running meetings, and inclusion in Markdown exports (Post-Meet
 """
 import json
 import os
-import shutil
 import sys
 import tempfile
 import unittest
@@ -22,7 +21,7 @@ if str(_root) not in sys.path:
 import docx
 from PyQt5.QtWidgets import QApplication
 
-from modules.meetings.core.exporters.markdown_exporter import MarkdownExporterThread, natural_ai_sort_key
+from modules.meetings.core.exporters.markdown_exporter import MarkdownExporterThread
 from modules.meetings.core.exporters.post_meeting_exporter import PostMeetingExporterThread
 from modules.meetings.core.tdocs.chair_notes_agreements_parser import ChairNotesAgreementsParser
 from modules.meetings.ui.dialogs.post_meeting_export_dialog import PostMeetingExportDialog

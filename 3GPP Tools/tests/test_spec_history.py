@@ -3,7 +3,6 @@
 Unit tests for Specification Change History, p-CR tracking, and TDoc opener engines.
 """
 
-import os
 import sys
 import tempfile
 import unittest

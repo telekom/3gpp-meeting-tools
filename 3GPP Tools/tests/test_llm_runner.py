@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 project_root = Path(__file__).resolve().parent.parent
 src_dir = project_root / "src"

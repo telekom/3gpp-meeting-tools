@@ -14,7 +14,6 @@ except ImportError:
 
 from modules.nas.core.nas_db import NASDatabase
 from modules.nas.core.parsing.gtpu_parser import GTPUDocxParser
-from modules.nas.core.parsing.protocol_parser_constants import W_NS
 
 LIVE_TS_29281_DOCX = Path(r"C:\Users\colomikunoj\3GPP_Delegate_Helper\specs\29.281\29281-j20.docx")
 W_URL = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"

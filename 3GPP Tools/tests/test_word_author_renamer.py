@@ -1,5 +1,4 @@
 # --- File: tests/test_word_author_renamer.py ---
-import io
 import shutil
 import tempfile
 import unittest
@@ -8,7 +7,6 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from modules.word_tools.core.author_renamer import (
-    AuthorStats,
     inspect_authors,
     replace_authors,
     W_NS,

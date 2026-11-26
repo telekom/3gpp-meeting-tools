@@ -1,8 +1,6 @@
 """Tests for Word clause excerpt export to Markdown and figures."""
 
-import os
 from pathlib import Path
-import sys
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -12,10 +10,7 @@ from PyQt5.QtWidgets import QApplication
 # Ensure QApplication exists for UI tests
 app = QApplication.instance() or QApplication([])
 
-from modules.word_tools.core.word_excerpt_extractor import (
-    HeadingInfo,
-    WordExcerptThread,
-)
+from modules.word_tools.core.word_excerpt_extractor import WordExcerptThread
 from modules.word_tools.ui.cards.excerpt_card import WordExcerptCard
 from modules.word_tools.ui.word_tabs import WordExtractorTab
 from modules.specifications.ui.spec_clause_dialog import SpecClauseDialog

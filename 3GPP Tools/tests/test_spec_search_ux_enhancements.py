@@ -258,7 +258,6 @@ class TestSpecSearchUXEnhancements(unittest.TestCase):
             root = Path(tmp_dir)
             search_db_path = root / "search.db"
             specs_db_path = root / "specs.db"
-            cfg_path = root / "spec_search_config.json"
 
             s_db = SpecSearchDatabase(search_db_path)
             s_db.insert_parsed_spec(

@@ -12,11 +12,9 @@ if app is None:
     app = QApplication([])
 
 from modules.assistant.core.agent_models import (
-    AgentResult,
     Evidence,
     EvidenceSourceType,
     ResearchActivity,
-    ResearchOutcome,
 )
 from modules.assistant.ui.assistant_components import (
     ActivityTimelineWidget,
@@ -26,7 +24,6 @@ from modules.assistant.ui.assistant_components import (
     StarterChipsWidget,
     render_assistant_message_card,
     render_markdown_to_html,
-    render_system_message_card,
     render_user_message_card,
 )
 from modules.assistant.ui.assistant_tab import AssistantTab

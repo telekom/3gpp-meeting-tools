@@ -8,7 +8,7 @@ SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from PyQt5.QtCore import QPoint, QRect, QSettings, Qt
+from PyQt5.QtCore import QPoint, QSettings, Qt
 from PyQt5.QtWidgets import QApplication, QMainWindow, QSplitter, QTabWidget, QVBoxLayout, QWidget
 
 from core.ui.nav_rail import NavRail

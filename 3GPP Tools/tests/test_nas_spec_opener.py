@@ -2,10 +2,9 @@
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from PyQt5.QtCore import QPoint, Qt
-from PyQt5.QtWidgets import QApplication, QAction
+from PyQt5.QtWidgets import QApplication
 
 from modules.nas.ui.nas_components import (
     NASInspectorWidget,
@@ -13,7 +12,6 @@ from modules.nas.ui.nas_components import (
 )
 from modules.nas.ui.nas_tabs import NASTab
 from modules.spec_search.core.spec_doc_resolver import (
-    SpecDocResolver,
     letter_code_to_version,
     match_multipart_document_for_clause,
     version_to_letter_code,

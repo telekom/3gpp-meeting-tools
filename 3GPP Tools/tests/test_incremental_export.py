@@ -1,5 +1,4 @@
 # --- File: tests/test_incremental_export.py ---
-import os
 import shutil
 import sys
 import tempfile
@@ -18,10 +17,6 @@ from modules.meetings.core.exporters.post_meeting_exporter import PostMeetingExp
 from modules.meetings.core.exporters.export_manifest import (
     load_manifest,
     load_or_reconstruct_manifest,
-    plan_incremental_session,
-    merge_manifest_into_tree,
-    save_manifest,
-    ExportManifest,
     MANIFEST_FILENAME,
 )
 

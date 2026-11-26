@@ -11,7 +11,6 @@ from modules.nas.core.nas_exporter import (
     copy_matrix_to_clipboard,
     build_definition_word_html,
     build_definition_markdown,
-    build_definition_plain_text,
     copy_definition_to_clipboard,
     html_table_to_markdown,
 )

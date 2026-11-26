@@ -3,7 +3,6 @@
 Unit tests for core.utils.office_printer_guard.
 """
 
-import os
 import sys
 import unittest
 from pathlib import Path

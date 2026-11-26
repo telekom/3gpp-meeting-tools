@@ -1,5 +1,4 @@
 # --- File: tests/test_document_sanitizer.py ---
-import io
 import shutil
 import tempfile
 import unittest
@@ -8,8 +7,6 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from modules.word_tools.core.document_sanitizer import (
-    LanguageStats,
-    DocumentHygieneAudit,
     SanitizeConfig,
     inspect_document,
     sanitize_document,

@@ -4,11 +4,10 @@ import sys
 import unittest
 from pathlib import Path
 
-from PyQt5.QtCore import QSize, Qt
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QDialog, QMainWindow, QWidget
 
 from core.ui.ui_components import (
-    APP_USER_MODEL_ID,
     apply_native_window_icon,
     create_app_icon,
     get_app_icon_path,

@@ -1,5 +1,3 @@
-import io
-import os
 import shutil
 import tempfile
 import unittest
@@ -9,7 +7,6 @@ from lxml import etree
 
 from modules.word_tools.core.styles_3gpp import (
     W_NS,
-    TABLE_GRID_XML,
     promote_3gpp_styles_in_xml,
     merge_and_promote_3gpp_styles,
     ensure_3gpp_package_styles,

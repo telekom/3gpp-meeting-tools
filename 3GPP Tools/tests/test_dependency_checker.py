@@ -9,7 +9,7 @@ import io
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from core.utils.dependency_checker import (
     DEFAULT_REQUIREMENTS,
@@ -17,7 +17,6 @@ from core.utils.dependency_checker import (
     Requirement,
     check_dependencies,
     check_dependencies_or_exit,
-    check_missing_dependencies,
     find_requirements_file,
     format_dependency_report,
     is_module_available,

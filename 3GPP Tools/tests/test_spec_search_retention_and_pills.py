@@ -2,19 +2,13 @@ import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 
 from modules.spec_search.core.spec_search_db import (
     SpecSearchDatabase,
     extract_major_release,
-    parse_version_tuple,
 )
-from modules.spec_search.ui.spec_search_components import (
-    ReleasePillWidget,
-    SpecCardWidget,
-    SpecSearchVersionCardsWidget,
-)
+from modules.spec_search.ui.spec_search_components import SpecSearchVersionCardsWidget
 from modules.spec_search.ui.spec_search_dialogs import SpecSearchPruneDialog
 
 app = QApplication.instance() or QApplication(sys.argv)

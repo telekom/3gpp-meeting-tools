@@ -1,13 +1,12 @@
 import unittest
 from pathlib import Path
 
-from modules.nas.core.parsing.protocol_parser_constants import extract_part_index, RE_PART_INDEX
+from modules.nas.core.parsing.protocol_parser_constants import extract_part_index
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
 from modules.nas.core.parsing.asn1_base_parser import BaseAsn1DocxParser
 from modules.nas.core.parsing.gtpu_parser import GTPUDocxParser
 from modules.nas.core.parsing.pdu_session_up_parser import PDUSessionUPDocxParser
 from modules.nas.core.parsing.pfcp_parser import PFCPDocxParser
-from modules.spec_search.core.spec_text_extractor import SpecDocxExtractor
 
 
 class TestSpecPartIndexing(unittest.TestCase):

@@ -2,7 +2,6 @@
 
 import sys
 import unittest
-from pathlib import Path
 from PyQt5.QtWidgets import QApplication, QLineEdit, QTableWidget
 
 from core.ui.ui_components import InteractiveDropLabel

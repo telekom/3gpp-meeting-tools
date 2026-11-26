@@ -2,8 +2,6 @@
 Unit tests for PowerPoint Presentation to Markdown Converter (presentation_to_markdown.py).
 """
 
-import os
-import posixpath
 import shutil
 import tempfile
 import unittest
@@ -22,7 +20,6 @@ from modules.meetings.core.exporters.export_manifest import (
 from modules.meetings.core.tdocs.tdoc_markdown_converter import is_conversion_stale, CONVERTER_VERSION
 from modules.meetings.core.exporters.post_meeting_exporter import PostMeetingExporterThread
 from modules.word_tools.core.presentation_to_markdown import (
-    ExtractedSlide,
     _format_markdown_table,
     _extract_via_openxml,
     _clean_tdoc_prefix,
@@ -270,7 +267,7 @@ class TestPresentationToMarkdown(unittest.TestCase):
         import sys
         from PyQt5.QtWidgets import QApplication
 
-        app = QApplication.instance() or QApplication(sys.argv)
+        QApplication._kept_instance = QApplication.instance() or QApplication(sys.argv)
         pane = DocumentSelectorPane(
             "Test Selector",
             accepted_extensions=[".docx", ".doc", ".pptx", ".ppt", ".md"],

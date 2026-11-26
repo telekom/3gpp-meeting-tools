@@ -2,13 +2,11 @@
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from PyQt5.QtCore import Qt, QPoint
-from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QMenu
 
-from modules.meetings.ui.tdocs_menus import build_quick_copy_menu, populate_quick_copy_menu
+from modules.meetings.ui.tdocs_menus import populate_quick_copy_menu
 from modules.meetings.ui.ui_tabs import MeetingsTab
 
 

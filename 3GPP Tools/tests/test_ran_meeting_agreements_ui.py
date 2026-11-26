@@ -3,11 +3,9 @@
 Comprehensive unit tests for RAN Chairman's Notes Agreements UI visualization,
 table model roles, proxy filtering, and the dedicated MeetingAgreementsDialog.
 """
-import os
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 # Ensure src is on sys.path
 _root = Path(__file__).resolve().parent.parent
@@ -17,16 +15,12 @@ if str(_src) not in sys.path:
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
-from PyQt5.QtCore import Qt, QModelIndex
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QApplication
 
 from modules.meetings.ui.tdocs_models import TDocsTableModel, TDocsFilterProxyModel
-from modules.meetings.ui.meeting_agreements_dialog import (
-    MeetingAgreementsDialog,
-    AgreementsTableModel,
-    _clean_agreement_preview,
-)
+from modules.meetings.ui.meeting_agreements_dialog import MeetingAgreementsDialog
 
 
 class TestRanMeetingAgreementsUI(unittest.TestCase):

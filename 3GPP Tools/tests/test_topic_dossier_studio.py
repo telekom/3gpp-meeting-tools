@@ -31,10 +31,7 @@ from modules.meetings.core.cohort_resolver import (
     parse_cohort_key,
     compare_cohort_keys,
 )
-from modules.meetings.core.cross_wg_ls_tracker import (
-    CrossWgLiaisonTracker,
-    LiaisonThreadNode,
-)
+from modules.meetings.core.cross_wg_ls_tracker import CrossWgLiaisonTracker
 from modules.meetings.core.topic_decision import (
     TopicDecision,
     classify_tdoc_decision_type,
@@ -44,7 +41,6 @@ from modules.meetings.core.topic_manager import (
     MetaTopicDefinition,
     MetaTopicManager,
     MetaTopicRules,
-    _extract_base_tokens,
 )
 from modules.meetings.core.exporters.export_manifest import ExportManifest
 
@@ -334,7 +330,6 @@ class TestTopicDossierExporterIncremental(unittest.TestCase):
 
     def test_incremental_export_and_deltas(self):
         from unittest.mock import MagicMock, patch
-        from PyQt5.QtWidgets import QApplication
         from modules.meetings.core.exporters.topic_dossier_exporter import TopicDossierExporterThread
 
         topic = MetaTopicDefinition(
@@ -427,7 +422,7 @@ class TestTopicDossierExporterIncremental(unittest.TestCase):
 class TestAgendaItemSuggester(unittest.TestCase):
     def setUp(self):
         from unittest.mock import MagicMock
-        from modules.meetings.core.ai_suggester import AgendaItemSuggester, DiscoveredAi
+        from modules.meetings.core.ai_suggester import AgendaItemSuggester
 
         self.mock_db = MagicMock()
         self.suggester = AgendaItemSuggester(self.mock_db)
@@ -599,7 +594,7 @@ class TestConsideredInputsAndMeetingRounds(unittest.TestCase):
         from unittest.mock import MagicMock
         from modules.meetings.ui.dialogs.topic_inputs_dialog import TopicInputsViewerDialog
 
-        app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
 
         mock_db = MagicMock()
         topic = MetaTopicDefinition(
@@ -634,7 +629,7 @@ class TestTopicPillWidgets(unittest.TestCase):
         from PyQt5.QtWidgets import QApplication
         from modules.meetings.ui.topic_pills import WgTogglePill
 
-        app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
         pill = WgTogglePill("SA2", checked=False)
         self.assertFalse(pill.isChecked())
         self.assertIn("+ SA2", pill.text())
@@ -647,7 +642,7 @@ class TestTopicPillWidgets(unittest.TestCase):
         from PyQt5.QtWidgets import QApplication
         from modules.meetings.ui.topic_pills import TagCloudWidget
 
-        app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
         cloud = TagCloudWidget()
         cloud.setText("ambientiot, ambientiot_ph2, fs_ambientiot")
         self.assertEqual(cloud.tags(), ["ambientiot", "ambientiot_ph2", "fs_ambientiot"])
@@ -663,7 +658,7 @@ class TestTopicPillWidgets(unittest.TestCase):
         from PyQt5.QtWidgets import QApplication
         from modules.meetings.ui.topic_pills import AgendaItemPillsWidget
 
-        app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
         ai_widget = AgendaItemPillsWidget()
         ai_widget.setText("SA2: 20.6.21*, 5.14*; RAN2: 9.3.3.1*")
         pats = ai_widget.patterns_map()
@@ -680,7 +675,7 @@ class TestTopicPillWidgets(unittest.TestCase):
         from PyQt5.QtWidgets import QApplication
         from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicEditorDialog
 
-        app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
         topic = MetaTopicDefinition(
             id="test_ambient",
             name="Ambient IoT",
@@ -706,7 +701,7 @@ class TestTopicPillWidgets(unittest.TestCase):
         from PyQt5.QtWidgets import QApplication
         from modules.meetings.ui.topic_pills import FilterPillButton
 
-        app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
         pill = FilterPillButton("RAN2", "RAN2", count=15)
         self.assertIn("RAN2 (15)", pill.text())
         pill.set_count(25)
@@ -719,7 +714,7 @@ class TestTopicPillWidgets(unittest.TestCase):
         from unittest.mock import MagicMock
         from modules.meetings.ui.dialogs.topic_inputs_dialog import TopicInputsViewerDialog
 
-        app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
         mock_db = MagicMock()
         topic = MetaTopicDefinition(
             id="test_filter_pills",
@@ -825,7 +820,7 @@ class TestTopicPillWidgets(unittest.TestCase):
         from unittest.mock import MagicMock
         from modules.meetings.ui.dialogs.topic_inputs_dialog import TopicInputsViewerDialog
 
-        app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
         mock_db = MagicMock()
         topic = MetaTopicDefinition(id="t_prov", name="Topic Provenance Test", target_wgs=["RAN2", "SA2"])
         round_1 = MeetingCohort(
@@ -943,7 +938,7 @@ class TestTopicPillWidgets(unittest.TestCase):
         from unittest.mock import MagicMock
         from modules.meetings.ui.dialogs.topic_inputs_dialog import TopicInputsViewerDialog
 
-        app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
         mock_db = MagicMock()
         topic = MetaTopicDefinition(id="t_tab_switch", name="Tab Switch Test", target_wgs=["RAN2"])
         round_1 = MeetingCohort(
@@ -1019,7 +1014,7 @@ class TestTopicPillWidgets(unittest.TestCase):
         self.assertTrue(exp.allow_network_download, "Exporter should default allow_network_download to True")
 
         # 2. TopicDossierDialog default
-        app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
         dlg = TopicDossierDialog(meetings_db=mock_db, parent=None)
         self.assertTrue(dlg.chk_download.isChecked(), "TopicDossierDialog checkbox should be checked by default")
         dlg.close()
@@ -1319,7 +1314,7 @@ class TestTopicDossierRefactorAndDigests(unittest.TestCase):
         from PyQt5.QtWidgets import QApplication
         from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
 
-        app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
         dlg = TopicDossierDialog(meetings_db=MagicMock(), parent=None)
 
         # Nonexistent folder -> disabled
@@ -1346,7 +1341,7 @@ class TestTopicDossierRefactorAndDigests(unittest.TestCase):
         from PyQt5.QtWidgets import QApplication
         from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
 
-        app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
         dlg = TopicDossierDialog(meetings_db=MagicMock(), parent=None)
         self.assertFalse(hasattr(dlg, "btn_mode_pre"))
         self.assertFalse(hasattr(dlg, "btn_mode_post"))
@@ -1564,7 +1559,7 @@ class TestTopicDossierRefactorAndDigests(unittest.TestCase):
         from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
         from modules.meetings.ui.dialogs.topic_inputs_dialog import TopicInputsViewerDialog
 
-        app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
         topic_def = MetaTopicDefinition(
             id="t_eq",
             name="Data Framework",
@@ -1820,7 +1815,7 @@ class TestTopicDossierRefactorAndDigests(unittest.TestCase):
         self.assertIn("✅ Current", idx_txt)
 
     def test_pre_to_post_meeting_stale_delta_and_pruning(self):
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
         from modules.meetings.core.exporters.export_manifest import load_manifest
         from modules.meetings.core.exporters.topic_digest_builder import (
             STAGE1_DELTA_START,
@@ -2026,7 +2021,7 @@ class TestTopicDossierRefactorAndDigests(unittest.TestCase):
         from modules.meetings.core.exporters.export_manifest import save_manifest
         from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
 
-        app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
         dlg = TopicDossierDialog(meetings_db=MagicMock(), parent=None)
 
         new_dir = self.temp_dir / "BrandNewDir"
@@ -2237,7 +2232,7 @@ class TestTopicDossierRefactorAndDigests(unittest.TestCase):
         self.assertEqual(res_r2["synthesis_state"]["baseline_package_id"], "DF-DT-20261115-stage2-r1")
 
         # 5. UI displays dated Stage-2 info and uses visible "⏳" instead of "⬜"
-        app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
         dlg = TopicDossierDialog(meetings_db=MagicMock(), parent=None)
         dlg.edit_dest_folder.setText(str(dossier_dir))
         self.assertNotIn("⬜", dlg.lbl_inc_status.text())
@@ -2279,7 +2274,7 @@ class TestTopicDialogsVisualRegression(unittest.TestCase):
         from PyQt5.QtWidgets import QGridLayout
         from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
 
-        app = self._ensure_qapp()
+        self._qapp = self._ensure_qapp()
         mdb = MagicMock()
         mdb.list_meetings.return_value = []
         dlg = TopicDossierDialog(meetings_db=mdb, parent=None)
@@ -2295,7 +2290,7 @@ class TestTopicDialogsVisualRegression(unittest.TestCase):
         from PyQt5.QtWidgets import QScrollArea
         from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicEditorDialog
 
-        app = self._ensure_qapp()
+        self._qapp = self._ensure_qapp()
         topic = MetaTopicDefinition(
             id="scroll_test",
             name="6G Architecture",
@@ -2366,7 +2361,7 @@ class TestTopicDialogsVisualRegression(unittest.TestCase):
         from PyQt5.QtWidgets import QFrame
         from modules.meetings.ui.dialogs.ai_suggestion_dialog import AiSuggestionDialog
 
-        app = self._ensure_qapp()
+        self._qapp = self._ensure_qapp()
         with patch.object(AiSuggestionDialog, "_trigger_scan"):
             dlg = AiSuggestionDialog(
                 meetings_db=MagicMock(),
@@ -2386,7 +2381,7 @@ class TestTopicDialogsVisualRegression(unittest.TestCase):
         from PyQt5.QtWidgets import QFrame
         from modules.meetings.ui.session_plan.session_plan_dialogs import SessionPlanTrackedTopicsDialog
 
-        app = self._ensure_qapp()
+        self._qapp = self._ensure_qapp()
 
         class _FakeAI:
             def __init__(self, d, ac=None):
@@ -2504,7 +2499,7 @@ class TestOpenEndedTimeframeAndFreshness(unittest.TestCase):
         from modules.meetings.core.exporters.export_manifest import save_manifest
         from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicDossierDialog
 
-        self._ensure_qapp()
+        self._qapp = self._ensure_qapp()
         tmp_dir = Path(tempfile.mkdtemp())
         try:
             topic_dir = tmp_dir / "Topic_Data Framework & Data Transfer (Rel-20)"
@@ -2637,7 +2632,7 @@ class TestOpenEndedTimeframeAndFreshness(unittest.TestCase):
         from PyQt5.QtCore import QDate
         from modules.meetings.ui.dialogs.topic_dossier_dialog import TopicEditorDialog
 
-        self._ensure_qapp()
+        self._qapp = self._ensure_qapp()
         dlg = TopicEditorDialog(parent=None)
         dlg.edit_name.setText("Open Ended Topic")
         dlg.chk_open_start.setChecked(True)
@@ -2850,7 +2845,7 @@ class TestCheckupResponsivenessAndStatusDialog(unittest.TestCase):
         from PyQt5.QtCore import Qt
         from modules.meetings.ui.dialogs.topic_dossier_dialog import CorpusStatusReportDialog
 
-        self._ensure_qapp()
+        self._qapp = self._ensure_qapp()
         dlg = CorpusStatusReportDialog(parent=None)
         self.assertEqual(dlg.windowModality(), Qt.NonModal)
         self.assertFalse(dlg.table_breakdown.isVisible())
@@ -3002,7 +2997,7 @@ class TestCheckupResponsivenessAndStatusDialog(unittest.TestCase):
             TopicDossierDialog,
         )
 
-        self._ensure_qapp()
+        self._qapp = self._ensure_qapp()
         tmp_dir = Path(tempfile.mkdtemp())
         try:
             topic = MetaTopicDefinition(

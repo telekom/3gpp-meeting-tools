@@ -1,4 +1,3 @@
-import os
 import sys
 import tempfile
 import time
@@ -17,7 +16,6 @@ from modules.meetings.core.meeting_wi_enricher import (
     is_enrichment_needed,
     write_enrichment_marker,
 )
-from modules.meetings.core.settings import MeetingsSettings
 from modules.work_items.core.wi_database import WorkItemsDatabase
 
 

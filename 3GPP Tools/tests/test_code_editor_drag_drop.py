@@ -1,10 +1,9 @@
 """Unit tests for PlantUML Editor drag & drop and file loading capabilities."""
 
-import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from PyQt5.QtCore import QMimeData, QPoint, Qt, QUrl
 from PyQt5.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent
@@ -15,12 +14,7 @@ app = QApplication.instance()
 if app is None:
     app = QApplication([])
 
-from modules.puml2visio.ui.ui_components import (
-    PUML_EXTENSIONS,
-    SUPPORTED_EDITOR_EXTENSIONS,
-    VISIO_EXTENSIONS,
-    CodeDropTextEdit,
-)
+from modules.puml2visio.ui.ui_components import CodeDropTextEdit
 from modules.puml2visio.ui.ui_tabs import CodeEditorTab
 from modules.puml2visio.ui.svg_preview_widget import EmbeddedSvgPreview
 

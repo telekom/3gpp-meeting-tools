@@ -244,7 +244,7 @@ def test_safelinks_unwrapping_and_clickable_links():
 
 def test_newest_first_ordering_filters_and_llm_workspace(tmp_path):
     from PyQt5.QtWidgets import QApplication
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
 
     from modules.emails.core.tracked_threads_service import prepare_thread_llm_workspace
     from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
@@ -337,7 +337,7 @@ def test_ctrl_wheel_reader_zoom_on_thread_browser(tmp_path):
     from PyQt5.QtCore import QEvent, QPoint, QPointF, Qt
     from PyQt5.QtGui import QKeyEvent, QWheelEvent
     from PyQt5.QtWidgets import QApplication
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
 
     from core.ui.font_scale import install_reader_zoom
     from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
@@ -438,7 +438,7 @@ def test_ctrl_wheel_reader_zoom_on_thread_browser(tmp_path):
 def test_unified_notes_status_and_tags_for_tdocs_and_threads(tmp_path):
     import sqlite3
     from PyQt5.QtWidgets import QApplication
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
 
     from modules.meetings.core.tdocs.tdocs_db import TDocsDatabase
     from modules.meetings.ui.tdocs_dialogs import InteractiveNotesDialog
@@ -882,7 +882,7 @@ def test_strict_dropdown_cascading_subitems_and_ki_resolution(tmp_path):
 def test_async_thread_sync_workers_and_progress_bar(tmp_path):
     from unittest.mock import patch
     from PyQt5.QtWidgets import QApplication
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
 
     from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
     from modules.emails.core.tracked_threads_workers import (
@@ -920,7 +920,7 @@ def test_async_thread_sync_workers_and_progress_bar(tmp_path):
     db_path = tmp_path / "threads.db"
     db = TrackedThreadsDatabase(db_path)
     t1 = db.create_or_get_thread("Thread One", "Thread One", meeting_id="SA2#178", outlook_folders=["Inbox"])
-    t2 = db.create_or_get_thread("Thread Two", "Thread Two", meeting_id="SA2#178", outlook_folders=["Inbox"])
+    db.create_or_get_thread("Thread Two", "Thread Two", meeting_id="SA2#178", outlook_folders=["Inbox"])
 
     progress_events = []
     finished_events = []
@@ -962,7 +962,7 @@ def test_html_table_injection_and_list_normalization():
         inject_html_tables_into_body,
     )
 
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
     plain_body = (
         "Hi all,\n"
         "1.\xa0\xa0\xa0\xa0\xa0\xa0\xa0\xa0Regarding the NF Set concept:\n"
@@ -1273,7 +1273,7 @@ def test_discovery_classification_config_and_ignore(tmp_path):
     )
     from modules.emails.ui.tracked_thread_dialog import PinFromOutlookDialog
 
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
     mtg_dir = tmp_path / "SA2_178"
     (mtg_dir / "Agenda").mkdir(parents=True, exist_ok=True)
 
@@ -1433,7 +1433,7 @@ def test_tdocs_email_state_quick_filters():
     from PyQt5.QtWidgets import QApplication
     from modules.meetings.ui.tdocs_models import TDocsFilterProxyModel, TDocsTableModel
 
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
     rows = [
         {"TDoc": "S2-2610001", "Title": "Unread TDoc", "Source": "Nokia", "Type": "CR", "For": "Action", "Agenda Item": "20.1"},
         {"TDoc": "S2-2610002", "Title": "Flagged TDoc", "Source": "Samsung", "Type": "pCR", "For": "Discussion", "Agenda Item": "20.1"},
@@ -1531,7 +1531,7 @@ def test_meeting_email_inbox_dialog_triage(tmp_path):
     from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
     from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
 
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     tdb = TrackedThreadsDatabase(tmp_path / "threads.db")
@@ -1794,7 +1794,7 @@ def test_inbox_unassigned_filters_grouping_and_inline_assignment(tmp_path):
     from modules.emails.core.tracked_threads_service import auto_suggest_links
     from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
 
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
     tdoc_meta = {
         "S2-2612711": {"ai": "20.6.1", "sub_item": "KI#4 Bullet 3", "wis": ["FS_6G_ARC"]},
         "S2-2612999": {"ai": "", "sub_item": "", "wis": []},
@@ -1974,7 +1974,7 @@ def test_meeting_inbox_filter_persistence_per_meeting(tmp_path):
     from PyQt5.QtCore import QSettings
     from PyQt5.QtWidgets import QApplication
 
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
     from modules.emails.core.general_email_db import GeneralEmailDatabase
     from modules.emails.core.outlook_client import OutlookClient
     from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
@@ -2071,7 +2071,7 @@ def test_inbox_multi_select_batch_ai_wi_assignment(tmp_path):
     from PyQt5.QtCore import QItemSelectionModel, QSettings
     from PyQt5.QtWidgets import QAbstractItemView, QApplication
 
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
     from modules.emails.core.general_email_db import GeneralEmailDatabase
     from modules.emails.core.outlook_client import OutlookClient
     from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
@@ -2210,7 +2210,7 @@ def test_live_inbox_sync_and_outlook_bidirectional_updates(tmp_path):
     from PyQt5.QtCore import QSettings
     from PyQt5.QtWidgets import QApplication
 
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
     from modules.emails.core.general_email_db import GeneralEmailDatabase
     from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
     from modules.emails.core.tracked_threads_workers import InboxOutlookSyncWorker
@@ -2318,7 +2318,7 @@ def test_reader_formatting_cleanup_and_compact_inbox_header(tmp_path):
     from PyQt5.QtCore import QSettings
     from PyQt5.QtWidgets import QApplication
 
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
     from modules.emails.core.general_email_db import GeneralEmailDatabase
     from modules.emails.core.thread_markdown_exporter import (
         clean_tdoc_id,
@@ -2506,11 +2506,11 @@ def test_batch_folder_sync_fast_skip_and_filter_scoped_sync(tmp_path):
     from modules.emails.core.general_email_db import GeneralEmailDatabase
     from modules.emails.core.general_email_sync import GeneralEmailSyncThread
     from modules.emails.core.outlook_client import OutlookClient, PR_FLAG_STATUS_PROP
-    from modules.emails.core.tracked_threads_service import refresh_meeting_threads, sync_scoped_inbox_items
+    from modules.emails.core.tracked_threads_service import refresh_meeting_threads
     from modules.emails.core.tracked_threads_workers import InboxOutlookSyncWorker
     from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
 
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
     tdb = TrackedThreadsDatabase(tmp_path / "threads.db")
     gdb = GeneralEmailDatabase(tmp_path / "gen.db")
 
@@ -2881,7 +2881,7 @@ def test_auto_cache_drafts_folder_documents_and_open_sensitivity(tmp_path):
     from unittest.mock import patch
     from modules.emails.core.general_email_db import GeneralEmailDatabase
     from modules.emails.core.general_email_sync import GeneralEmailSyncThread
-    from modules.emails.core.outlook_client import OutlookClient, PR_FLAG_STATUS_PROP
+    from modules.emails.core.outlook_client import OutlookClient
     from modules.emails.core.thread_markdown_exporter import extract_drafts_document_urls, is_drafts_document_url
     from modules.emails.core.tracked_threads_service import (
         cache_and_open_thread_document_url,
@@ -3012,7 +3012,7 @@ def test_merge_threads_preserves_annotations_and_dialog_search(tmp_path):
         score_thread_similarity,
     )
 
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
     db = TrackedThreadsDatabase(tmp_path / "merge_test.db")
     t1 = db.create_or_get_thread(
         title="Interim conclusion for KI#4 bullet 1",
@@ -3084,14 +3084,14 @@ def test_merge_threads_preserves_annotations_and_dialog_search(tmp_path):
 def test_tdocs_menu_and_inbox_multi_select_merge(tmp_path):
     from types import SimpleNamespace
     from unittest.mock import patch
-    from PyQt5.QtCore import QModelIndex, QPoint, Qt
+    from PyQt5.QtCore import QPoint
     from PyQt5.QtWidgets import QApplication, QDialog, QTableView
     from modules.emails.core.general_email_db import GeneralEmailDatabase
     from modules.emails.ui.meeting_email_inbox_dialog import MeetingEmailInboxDialog
     from modules.emails.ui.merge_threads_dialog import MergeThreadsDialog
     from modules.meetings.ui.tdocs_menu import handle_table_context_menu
 
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
     tdb = TrackedThreadsDatabase(tmp_path / "menu_merge.db")
     t1 = tdb.create_or_get_thread(
         title="KI#4 bullet 1 part A",
@@ -3156,7 +3156,7 @@ def test_tdocs_menu_and_inbox_multi_select_merge(tmp_path):
     )
 
     seen_actions = []
-    with patch("PyQt5.QtWidgets.QMenu.exec_", side_effect=lambda *a, **kw: None) as _exec_mock:
+    with patch("PyQt5.QtWidgets.QMenu.exec_", side_effect=lambda *a, **kw: None):
         orig_add = __import__("PyQt5.QtWidgets").QtWidgets.QMenu.addAction
         def _capture_add(self_menu, *args, **kwargs):
             act = orig_add(self_menu, *args, **kwargs)
@@ -3226,7 +3226,7 @@ def test_compact_tag_cloud_overflow_clear_and_live_toggle_summaries(tmp_path):
     from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
     from modules.meetings.ui.topic_pills import TagCloudWidget, TagPillItem
 
-    app = QApplication.instance() or QApplication([])
+    QApplication._kept_instance = QApplication.instance() or QApplication([])
 
     # 1. Compact TagCloudWidget: inline prefix, +N more overflow collapse/expand, Clear button & setText reset
     cloud = TagCloudWidget(

@@ -6,8 +6,6 @@ italic abstract, and boxed blue 14pt change separators matching S3-263735
 and the official 3GPP template (Pseudo-CR-Form-v0-1.docx).
 """
 
-import io
-import os
 import shutil
 import tempfile
 import unittest

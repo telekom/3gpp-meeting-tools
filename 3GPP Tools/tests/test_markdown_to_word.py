@@ -4,14 +4,12 @@ Verifies Markdown parsing, OpenXML synthesis, media/image embedding,
 PlantUML diagram compilation, 3GPP styles, and Studio UI integration.
 """
 
-import os
 import shutil
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
 
-from PyQt5.QtCore import QEventLoop
 from PyQt5.QtWidgets import QApplication
 
 # Ensure QApplication exists for UI tests
@@ -24,7 +22,6 @@ from core.queue_manager import _TASK_REGISTRY
 from modules.word_tools.core.markdown_to_docx import (
     MarkdownToWordThread,
     convert_markdown_to_docx,
-    render_plantuml_to_png,
     render_svg_to_png,
     resolve_image_path,
 )

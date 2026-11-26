@@ -10,8 +10,6 @@ Verifies:
 """
 
 import json
-from pathlib import Path
-import tempfile
 import unittest
 
 from modules.puml2visio.templates.plantuml_snippets import (
@@ -20,15 +18,10 @@ from modules.puml2visio.templates.plantuml_snippets import (
     PlantUMLSnippet,
     add_user_snippet,
     delete_user_snippet,
-    extract_participants,
     get_default_presets_path,
     get_user_presets_path,
-    load_snippets_from_file,
     load_user_snippets_from_file,
-    reload_snippets,
     resolve_snippet_text,
-    save_snippets_to_file,
-    save_user_snippets_to_file,
 )
 from modules.puml2visio.templates.plantuml_templates import PLANTUML_TYPES
 
@@ -39,7 +32,6 @@ class TestPlantUMLPresetsConfig(unittest.TestCase):
     def test_ue_presets_presence(self):
         """Verify that UE is now available as standalone presets and variants."""
         snippet_ids = {s.id for s in PLANTUML_SNIPPETS}
-        snippet_labels = {s.label for s in PLANTUML_SNIPPETS}
 
         # 1. Standard UE participant
         self.assertIn("part_3gpp_ue", snippet_ids, "Standard UE participant snippet must exist")
@@ -226,7 +218,7 @@ class TestPlantUMLPresetsConfig(unittest.TestCase):
         """Verify BatchConvertTab initializes without errors and Card 4 stencils search edit is configured."""
         import sys
         from PyQt5.QtWidgets import QApplication, QLineEdit
-        app = QApplication.instance() or QApplication(sys.argv)
+        QApplication._kept_instance = QApplication.instance() or QApplication(sys.argv)
         from modules.puml2visio.ui.batch_convert_tab import BatchConvertTab
         tab = BatchConvertTab()
         self.assertIsNotNone(tab)

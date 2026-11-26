@@ -5,7 +5,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from PyQt5.QtCore import QPoint, Qt
 from PyQt5.QtWidgets import QApplication, QAction, QMessageBox, QWidget
 
 from modules.nas.ui.nas_components import NASVersionTreeWidget
@@ -15,7 +14,6 @@ from modules.nas.ui.nas_ingest_controller import (
     reload_checked_versions,
     reload_single_version,
     reload_spec_group,
-    start_batch_ingestion,
 )
 from modules.specifications.core.database import SpecsDatabase
 

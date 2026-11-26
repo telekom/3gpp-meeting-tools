@@ -5,7 +5,6 @@ and CheckableComboBox checklist popup indicator rendering under Fusion style.
 
 from __future__ import annotations
 
-import os
 import sys
 import tempfile
 import unittest
@@ -16,13 +15,12 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from PyQt5.QtCore import Qt, QRect, QSettings
-from PyQt5.QtGui import QColor, QImage, QPainter, QPixmap
+from PyQt5.QtGui import QColor, QImage, QPainter
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QStyle, QStyleOptionViewItem, QWidget
 
 from core.ui.font_scale import apply_font_scale, install_font_scaling, scale_px
 from core.ui.theme import C
 from core.ui.ui_components import GLOBAL_STYLE, SPEC_FILTER_COMBO_STYLE
-from modules.meetings.ui.tdoc_delegates import HtmlDelegate
 from modules.meetings.ui.tdocs_components import CheckableComboBox, CheckableComboItemDelegate
 from modules.meetings.ui.tdocs_window import TDocsWindow
 

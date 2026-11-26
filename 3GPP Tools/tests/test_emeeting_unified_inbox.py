@@ -11,8 +11,6 @@ from PyQt5.QtCore import QSettings, QUrl
 from PyQt5.QtWidgets import QApplication
 
 from modules.emails.core.emeeting_signals import (
-    analyze_message_signals,
-    build_message_jump_strip_html,
     compute_group_signals,
     detect_objection_in_text,
     extract_revisions_from_text,
@@ -25,11 +23,6 @@ from modules.emails.core.stats.dataset_builder import build_unified_email_stats_
 from modules.emails.core.thread_markdown_exporter import format_emeeting_body_with_callouts
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.emails.ui.meeting_inbox.dialog import MeetingEmailInboxDialog
-from modules.emails.ui.meeting_inbox.tdoc_grouping import (
-    build_grouped_tdoc_items,
-    is_item_effectively_parked,
-    is_priority_item,
-)
 from modules.meetings.core.tdocs.tdocs_db import TDocsDatabase
 
 
@@ -1072,7 +1065,6 @@ class TestEMeetingUnifiedInbox(unittest.TestCase):
         rendered = linkify_tdoc_tokens(linkify_markdown_urls(escaped, shorten_long_urls=True))
         self.assertEqual(rendered, "See [S2-2609087](tdoc:S2-2609087) and.")
 
-        plain_tbl = "Intro line\nSA2#176\n20.6.20\nS2-2609087 <applewebdata://BEFF4D48-AF2C-4934-AD56-00D8455D1A4F/Docs/S2-2609087.zip>\nEnd line"
         html_tbl = (
             "<html><body><table><tr><th>Meeting</th><th>AI</th><th>TDoc</th></tr>"
             '<tr><td>SA2#176</td><td>20.6.20</td><td><a href="applewebdata://BEFF4D48-AF2C-4934-AD56-00D8455D1A4F/Docs/S2-2609087.zip">S2-2609087</a></td></tr>'
@@ -1090,7 +1082,7 @@ class TestEMeetingUnifiedInbox(unittest.TestCase):
         from modules.emails.core.tracked_threads.parsing import auto_suggest_links
         from modules.meetings.ui.tdocs_models import TDocsTableModel
 
-        _app = QApplication.instance() or QApplication([])
+        QApplication._kept_instance = QApplication.instance() or QApplication([])
         tdoc_meta_map = {
             "S2-2609087": {"ai": "20.6.20", "sub_item": "KI#20", "wis": ["FS_6G_ARC"]},
             "S2-2612828": {"ai": "20.6.1", "sub_item": "KI#1.1", "wis": ["FS_6G_ARC"]},

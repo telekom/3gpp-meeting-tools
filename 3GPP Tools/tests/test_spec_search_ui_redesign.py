@@ -1,12 +1,11 @@
 import sys
 import unittest
 from pathlib import Path
-from PyQt5.QtCore import QDate, Qt
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 
 from modules.spec_search.ui.spec_search_components import (
     SpecClauseInspector,
-    SpecEvolutionStatusDelegate,
     SpecSearchVersionTreeWidget,
 )
 from modules.spec_search.ui.spec_search_models import SpecEvolutionMatrixModel
@@ -192,7 +191,7 @@ class TestSpecSearchUIRedesign(unittest.TestCase):
             search_db_path = tmp_path / "search.db"
             specs_db_path = tmp_path / "specs.db"
 
-            s_db = SpecSearchDatabase(search_db_path)
+            SpecSearchDatabase(search_db_path)
             sp_db = SpecsDatabase(specs_db_path)
 
             # Insert sample spec into specs database

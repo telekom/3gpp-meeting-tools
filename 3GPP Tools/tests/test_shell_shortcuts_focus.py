@@ -7,7 +7,7 @@ import unittest
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QShortcut, QSplitter, QTabWidget, QWidget
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QSplitter, QTabWidget, QWidget
 
 from core.ui.bottom_drawer import BottomDrawer
 from core.ui.nav_rail import DEFAULT_NAV_ITEMS, NavRail

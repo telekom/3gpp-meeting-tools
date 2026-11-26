@@ -10,9 +10,6 @@ Verifies:
   5. SpecVersionHistoryDialog pre-setting search filter, clause filter, and relevance sorting.
 """
 
-import io
-import os
-import sqlite3
 import sys
 import unittest
 import zipfile
@@ -24,14 +21,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from modules.specifications.core.spec_history_db import SpecHistoryDatabase
-from modules.specifications.core.spec_history_extractor import (
-    extract_cr_cover_sheet_metadata,
-    SpecHistoryExtractor,
-)
-from modules.specifications.core.spec_clause_attribution import (
-    SpecClauseAttributionEngine,
-    SpecFeatureOriginRankingThread,
-)
+from modules.specifications.core.spec_history_extractor import extract_cr_cover_sheet_metadata
+from modules.specifications.core.spec_clause_attribution import SpecClauseAttributionEngine
 
 
 class TestCoverSheetExtractor(unittest.TestCase):

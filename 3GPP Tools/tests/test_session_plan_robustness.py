@@ -654,7 +654,6 @@ class TestSessionPlanRobustness(unittest.TestCase):
         from modules.meetings.core.session_plan.session_plan_models import (
             DelegationMember,
             DelegationPlan,
-            SessionAppointment,
             SessionPlanSnapshot,
             SessionSlot,
             TopicOwnership,

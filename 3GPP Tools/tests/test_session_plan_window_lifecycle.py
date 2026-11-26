@@ -220,7 +220,6 @@ class TestSessionPlanWindowLifecycle(unittest.TestCase):
         cells and labels must not cascade an unscoped `background: transparent` rule
         into Qt's QTipLabel tooltip window (which otherwise renders solid black #000000).
         """
-        from PyQt5.QtCore import QPoint
         from PyQt5.QtWidgets import QLabel, QToolTip
         from core.ui.theme import C
         from core.ui.ui_components import GLOBAL_STYLE

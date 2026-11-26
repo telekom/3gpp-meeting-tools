@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import QApplication
 
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.specifications.core.database import SpecsDatabase
-from modules.specifications.ui.ui_tabs import SpecificationsTab, USEFUL_WGS, ACTIVE_WG_ORDER, FULL_WG_ORDER
+from modules.specifications.ui.ui_tabs import SpecificationsTab, ACTIVE_WG_ORDER, FULL_WG_ORDER
 
 
 class TestSpecWgTechFilters(unittest.TestCase):

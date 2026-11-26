@@ -25,7 +25,6 @@ from modules.emails.core.ai_summary import (
     save_external_summary_from_handoff,
 )
 from modules.emails.core.email_summary_worker import clean_email_body_for_summary
-from modules.emails.core.general_email_db import GeneralEmailDatabase
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.meetings.core.meetings_db import MeetingsDatabase
 from modules.specifications.core.database import SpecsDatabase

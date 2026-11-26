@@ -1,8 +1,6 @@
 import unittest
 import sys
-from pathlib import Path
 from PyQt5.QtWidgets import QApplication
-from PyQt5.QtCore import QTimer
 
 from core.utils.paths import get_project_root
 from modules.specifications.core.database import SpecsDatabase

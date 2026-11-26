@@ -11,14 +11,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 SRC_DIR = Path(__file__).resolve().parent.parent / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QImage, QPainter
 from PyQt5.QtWidgets import QApplication, QLabel
 
@@ -32,7 +31,6 @@ from modules.meetings.core.session_plan.session_plan_models import (
     MeetingStreamInfo,
     SessionPlanSnapshot,
     SessionSlot,
-    TopicOwnership,
 )
 from modules.meetings.core.session_plan.session_plan_timezone import SessionPlanTimezone
 from modules.meetings.ui.session_plan.session_plan_window import (

@@ -2,13 +2,11 @@ import sys
 import unittest
 from pathlib import Path
 import tempfile
-import sqlite3
 from PyQt5.QtWidgets import QApplication
 
 from modules.spec_search.core.spec_search_db import SpecSearchDatabase
 from modules.specifications.core.database import SpecsDatabase
 from modules.specifications.ui.ui_tabs import SpecificationsTab
-from modules.specifications.ui.spec_menu import show_spec_context_menu
 
 
 class TestSpecVersionSearchIndex(unittest.TestCase):
@@ -73,7 +71,6 @@ class TestSpecVersionSearchIndex(unittest.TestCase):
 
             # Emulate single-item context menu invocation
             # Using show_spec_context_menu without crashing
-            from PyQt5.QtCore import QPoint
             # Ensure menu creation works cleanly
             cell_widget = tab.table.cellWidget(0, 2)
             self.assertIsNotNone(cell_widget)

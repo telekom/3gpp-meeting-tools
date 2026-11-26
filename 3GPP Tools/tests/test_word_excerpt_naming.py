@@ -1,14 +1,11 @@
 """Unit and regression tests for Word and specification clause excerpt differentiated naming."""
 
 import unittest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from modules.word_tools.core.word_config import WordConfig
 from modules.word_tools.core.word_excerpt_extractor import HeadingInfo
 from modules.word_tools.core.word_excerpt_naming import (
-    NAMING_SCHEMES,
-    CR_NAMING_SCHEMES,
     CR_SCHEME_STANDARD,
     CR_SCHEME_NO_TIMESTAMP,
     CR_SCHEME_WITH_TOPIC,

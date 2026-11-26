@@ -850,7 +850,7 @@ class TestMcpAndCliTools(unittest.TestCase):
             self.assertEqual(len(get_active_mcp_sessions()), 0)
 
             # 2. Test McpMonitorDialog GUI in Qt environment
-            app = QApplication.instance() or QApplication([])
+            QApplication._kept_instance = QApplication.instance() or QApplication([])
             dialog = McpMonitorDialog(parent=None)
             self.assertIsNotNone(dialog)
             self.assertEqual(dialog.tabs.count(), 3)
@@ -888,7 +888,6 @@ class TestMcpAndCliTools(unittest.TestCase):
         - APP-08: SIB2 description lookup preserves owning context (no InterFreqCarrierFreqInfo attribution)
         - APP-09: Embedded JSON has no NaN/Infinity and strict serialization succeeds
         """
-        import math
         from mcp_server import _safe_json_dumps, _sanitize_for_json
         from modules.nas.core.parsing.asn1_base_parser import BaseAsn1DocxParser
         from modules.assistant.core.agent_models import ToolStatus

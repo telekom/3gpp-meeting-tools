@@ -1,11 +1,10 @@
-import io
 import os
 import shutil
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from modules.word_tools.core.styles_3gpp import ensure_3gpp_package_styles
 from modules.word_tools.core.word_excerpt_extractor import WordExcerptEngine, HeadingInfo

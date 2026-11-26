@@ -1,4 +1,3 @@
-import os
 import shutil
 import tempfile
 import unittest
@@ -13,7 +12,6 @@ from modules.meetings.core.tdocs.tdoc_url_resolver import (
 from modules.meetings.core.tdocs.tdoc_markdown_converter import (
     write_index,
     ExportedDoc,
-    CONVERTER_VERSION,
 )
 
 

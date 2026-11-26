@@ -3,7 +3,6 @@
 import sys
 import unittest
 from PyQt5.QtWidgets import QApplication
-from PyQt5.QtCore import Qt
 
 from modules.puml2visio.ui.select_presentation_dialog import (
     SelectPresentationDialog,

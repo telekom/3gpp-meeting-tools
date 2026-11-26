@@ -1,6 +1,6 @@
 import sys
 import unittest
-from PyQt5.QtCore import QPoint, QRect, Qt
+from PyQt5.QtCore import QPoint, Qt
 from PyQt5.QtGui import QCursor, QMouseEvent
 from PyQt5.QtWidgets import QApplication, QMenu, QWidget
 

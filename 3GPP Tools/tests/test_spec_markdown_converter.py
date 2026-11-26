@@ -1,8 +1,6 @@
-import os
 import shutil
 import tempfile
 import unittest
-import zipfile
 from pathlib import Path
 
 import docx
@@ -11,9 +9,6 @@ from core.utils.paths import to_extended_path
 from modules.specifications.core.spec_markdown_converter import (
     convert_spec_to_markdown,
     discover_spec_parts,
-    extract_spec_archive,
-    get_part_sort_key,
-    build_spec_metadata_header,
 )
 
 
@@ -140,7 +135,7 @@ class TestSpecMarkdownConverter(unittest.TestCase):
         self.assertIn("RRC connection establishment procedures", content)
 
         # Test Mode 2 (Split across parts)
-        index_file = convert_spec_to_markdown(self.spec_dir, stem, mode="split", meta=meta)
+        convert_spec_to_markdown(self.spec_dir, stem, mode="split", meta=meta)
         clauses_dir = self.spec_dir / f"{stem}_clauses"
         self.assertTrue((clauses_dir / "01_Scope.md").exists())
         self.assertTrue((clauses_dir / "05_Procedures.md").exists())
@@ -156,8 +151,8 @@ class TestSpecMarkdownConverter(unittest.TestCase):
         self._create_sample_docx(doc2, [("1 Scope", 1, "Version 18 text")])
 
         # Convert both in single mode
-        res1 = convert_spec_to_markdown(self.spec_dir, v1_stem, mode="single")
-        res2 = convert_spec_to_markdown(self.spec_dir, v2_stem, mode="single")
+        convert_spec_to_markdown(self.spec_dir, v1_stem, mode="single")
+        convert_spec_to_markdown(self.spec_dir, v2_stem, mode="single")
 
         # Media folders must be strictly separated
         v1_media = self.spec_dir / f"{v1_stem}_media"
@@ -168,8 +163,8 @@ class TestSpecMarkdownConverter(unittest.TestCase):
         self.assertNotEqual(v1_media, v2_media)
 
         # Convert both in split mode
-        split_res1 = convert_spec_to_markdown(self.spec_dir, v1_stem, mode="split")
-        split_res2 = convert_spec_to_markdown(self.spec_dir, v2_stem, mode="split")
+        convert_spec_to_markdown(self.spec_dir, v1_stem, mode="split")
+        convert_spec_to_markdown(self.spec_dir, v2_stem, mode="split")
 
         v1_clauses_media = self.spec_dir / f"{v1_stem}_clauses" / "media"
         v2_clauses_media = self.spec_dir / f"{v2_stem}_clauses" / "media"

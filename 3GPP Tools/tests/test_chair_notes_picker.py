@@ -3,13 +3,11 @@
 Unit and UI test suite for multi-chair / multi-track Chairman's Notes classification,
 the interactive ChairNotesPickerDialog, and Chairman's Notes download flows across SA and RAN.
 """
-import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 
 from modules.meetings.core.chair_notes_classifier import (
@@ -222,8 +220,6 @@ class TestChairNotesPicker(unittest.TestCase):
 
     def test_download_files_sync_uses_part_file_and_streaming_progress(self):
         """Verifies atomic .part staging, streaming progress updates, and .part cleanup on error."""
-        from unittest.mock import MagicMock, patch
-        import time as _time
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             target_dir = Path(tmp_dir)
@@ -280,7 +276,6 @@ class TestChairNotesPicker(unittest.TestCase):
 
     def test_controller_refresh_btn_unlock_and_seq_guard(self):
         """Verifies on_chair_notes_finished & safety fallback re-enable refresh_btn and guard stale timers."""
-        from unittest.mock import patch
         from PyQt5.QtWidgets import QMainWindow, QPushButton
         from modules.meetings.ui.tdocs_agenda_controller import (
             _ensure_refresh_btn_unlocked,

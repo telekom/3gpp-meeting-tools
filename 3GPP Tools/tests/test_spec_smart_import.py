@@ -6,10 +6,7 @@ from unittest.mock import MagicMock
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 
-from modules.spec_search.core.spec_search_db import (
-    SpecSearchDatabase,
-    extract_major_release,
-)
+from modules.spec_search.core.spec_search_db import SpecSearchDatabase
 from modules.spec_search.ui.spec_search_components import (
     SpecCardWidget,
     SpecSearchVersionCardsWidget,

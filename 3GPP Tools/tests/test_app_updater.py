@@ -6,7 +6,6 @@ import json
 import os
 import sys
 import tempfile
-import time
 import unittest
 import zipfile
 from pathlib import Path
@@ -22,9 +21,7 @@ from PyQt5.QtWidgets import QApplication
 
 from core.ui.update_dialog import AppUpdateDialog
 from core.updater.app_updater import (
-    CommitInfo,
     LocalInstallInfo,
-    UpdateCheckResult,
     _inspect_git_state,
     _parse_porcelain_rel_paths,
     _safe_extract_zip,

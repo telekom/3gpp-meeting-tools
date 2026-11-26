@@ -6,9 +6,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 
 from modules.nas.ui.nas_dialogs import (
-    PROTOCOL_SPEC_CATALOG,
     get_spec_metadata,
-    get_spec_title,
     get_spec_tooltip,
 )
 from modules.nas.ui.nas_models import NASEvolutionMatrixModel
@@ -341,7 +339,6 @@ class TestNASUiVisuals(unittest.TestCase):
         """Verifies 2-line NASMessageItemDelegate sizing and interactive diff filter pills."""
         import tempfile
         from PyQt5.QtWidgets import QStyleOptionViewItem
-        from modules.nas.core.nas_db import NASDatabase
         from modules.nas.ui.nas_tabs import NASTab
 
         delegate = NASMessageItemDelegate()

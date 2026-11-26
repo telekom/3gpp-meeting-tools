@@ -13,7 +13,6 @@ from PyQt5.QtWidgets import (
     QApplication,
     QFileDialog,
     QMenu,
-    QMessageBox,
     QTreeWidgetItem,
 )
 
