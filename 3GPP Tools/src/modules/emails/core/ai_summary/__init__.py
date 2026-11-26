@@ -1,5 +1,10 @@
 """Persistent incremental AI email summary store, Map-Reduce orchestrator, and workers."""
 
+from .copilot_sanitizer import (
+    copilot_html_to_markdown,
+    normalize_summary_for_display,
+    sanitize_copilot_markdown,
+)
 from .formatting import (
     extract_clean_direct_body,
     extract_deterministic_facts,
@@ -37,13 +42,16 @@ __all__ = [
     "VALID_SCOPE_TYPES",
     "build_ai_handoff_packet",
     "build_leaf_handoff_packet",
+    "copilot_html_to_markdown",
     "extract_clean_direct_body",
     "extract_deterministic_facts",
     "format_messages_for_llm",
     "get_message_timestamp_str",
     "launch_m365_copilot",
     "load_summary_prompt",
+    "normalize_summary_for_display",
     "parse_summary_output",
+    "sanitize_copilot_markdown",
     "save_external_summary_from_handoff",
     "sort_messages_chronologically",
     "stage_handoff_markdown",

@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
 from core.ui.font_scale import bind_reader_zoom_settings, scale_px
 from core.ui.theme import C
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
+from modules.emails.core.ai_summary import normalize_summary_for_display
 from modules.emails.core.markdown_export import apply_email_reader_document_style
 
 VALID_SUMMARY_LAYOUT_MODES = ("split_v", "split_h", "summary_only", "thread_only", "popout")
@@ -163,9 +164,10 @@ class PopoutSummaryWindow(QDialog):
             txt = card.body_browser.toPlainText()
             self.browser.setPlainText(txt or "Generating AI summary...")
         elif getattr(card, "_last_error", ""):
-            self.browser.setMarkdown(f"### ⚠️ Summary Failed\n\n{card._last_error}" + (f"\n\n---\n\n{rec.summary_md}" if rec else ""))
+            prev_md = normalize_summary_for_display(rec.summary_md, rec.provider) if rec else ""
+            self.browser.setMarkdown(f"### ⚠️ Summary Failed\n\n{card._last_error}" + (f"\n\n---\n\n{prev_md}" if prev_md else ""))
         elif rec is not None:
-            self.browser.setMarkdown(rec.summary_md)
+            self.browser.setMarkdown(normalize_summary_for_display(rec.summary_md, rec.provider))
         else:
             self.browser.setMarkdown("*No AI summary generated yet for this discussion.*")
 

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import subprocess
 from typing import Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QMimeData, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
     QComboBox,
@@ -30,10 +31,38 @@ from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
 from modules.emails.core.ai_summary import (
     EmailSummaryStore,
     M365HandoffPacket,
+    copilot_html_to_markdown,
     launch_m365_copilot,
+    sanitize_copilot_markdown,
     save_external_summary_from_handoff,
     stage_handoff_markdown,
 )
+
+_RICH_HTML_TAG_RE = re.compile(r"<(?:h[1-6]|ul|ol|li|table|tr|th|td|strong|b|p|style)\b", re.IGNORECASE)
+
+
+def extract_clean_markdown_from_mime(source: Optional[QMimeData]) -> str:
+    """Prefer Copilot rich HTML -> GFM conversion when available, else sanitize plain text."""
+    if source is None:
+        return ""
+    if source.hasHtml():
+        html_str = str(source.html() or "")
+        if _RICH_HTML_TAG_RE.search(html_str):
+            converted = copilot_html_to_markdown(html_str)
+            if converted:
+                return converted
+    return sanitize_copilot_markdown(source.text() if source.hasText() else "")
+
+
+class _CopilotResponseEdit(QPlainTextEdit):
+    """QPlainTextEdit that converts pasted M365 Copilot HTML/text directly into clean Markdown."""
+
+    def insertFromMimeData(self, source: Optional[QMimeData]) -> None:
+        cleaned = extract_clean_markdown_from_mime(source)
+        if cleaned:
+            self.insertPlainText(cleaned)
+        elif source is not None:
+            super().insertFromMimeData(source)
 
 _TARGET_CHOICES = (
     ("🌐 Web (copilot.cloud.microsoft)", "web"),
@@ -186,9 +215,9 @@ class M365CopilotHandoffDialog(QDialog):
         s2_title.setWordWrap(True)
         s2_lay.addWidget(s2_title)
 
-        self.response_edit = QPlainTextEdit(step2)
+        self.response_edit = _CopilotResponseEdit(step2)
         self.response_edit.setPlaceholderText(
-            "Paste the Markdown response copied from Microsoft 365 Copilot here, then click 'Save & Show Inline'..."
+            "Paste the response copied from Microsoft 365 Copilot here (HTML or Markdown auto-cleaned), then click 'Save & Show Inline'..."
         )
         self.response_edit.setMinimumHeight(scale_px(210))
         s2_lay.addWidget(self.response_edit, 1)
@@ -285,11 +314,12 @@ class M365CopilotHandoffDialog(QDialog):
             notify_info(self, "Staged File", f"Saved at {target_path}")
 
     def _on_paste_from_clipboard(self) -> None:
-        text = QApplication.clipboard().text()
-        if not str(text or "").strip():
+        cb = QApplication.clipboard()
+        cleaned = extract_clean_markdown_from_mime(cb.mimeData()) or sanitize_copilot_markdown(cb.text())
+        if not cleaned.strip():
             notify_toast(self, "Clipboard Empty", "No text found on the clipboard.", variant="warning")
             return
-        self.response_edit.setPlainText(text)
+        self.response_edit.setPlainText(cleaned)
 
     def _on_save_clicked(self) -> None:
         raw = self.response_edit.toPlainText()

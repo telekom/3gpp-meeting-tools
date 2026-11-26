@@ -27,6 +27,7 @@ from modules.emails.core.ai_summary import (
     SummaryScope,
     build_ai_handoff_packet,
     build_leaf_handoff_packet,
+    normalize_summary_for_display,
 )
 from modules.emails.core.markdown_export import format_compact_timestamp
 from modules.emails.ui.ai_summary import M365CopilotHandoffDialog, populate_summary_model_menu
@@ -194,7 +195,13 @@ class BriefingsActionsMixin:
 
         if rec is not None:
             cutoff_disp = format_compact_timestamp(rec.cutoff_utc) if rec.cutoff_utc else "unknown"
-            prov = f"{rec.provider} · {rec.model or 'default'}" + (f" · {rec.reasoning_effort}" if rec.reasoning_effort else "")
+            prov_norm = str(rec.provider or "").strip().lower().replace("_", "-")
+            if prov_norm == "m365-copilot":
+                prov = "💠 M365 Copilot"
+            else:
+                prov = f"{rec.provider} · {rec.model or 'default'}" + (
+                    f" · {rec.reasoning_effort}" if rec.reasoning_effort else ""
+                )
             if fresh and fresh.new_count > 0:
                 self.freshness_lbl.setText(f"🟡 +{fresh.new_count} new since {cutoff_disp} · {prov}")
                 self.freshness_lbl.setStyleSheet(
@@ -209,7 +216,7 @@ class BriefingsActionsMixin:
                     f"border: 1px solid {C.SUCCESS_BORDER_MEDIUM}; border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: bold;"
                 )
                 self.btn_update.setText("⚡ Refresh Briefing")
-            self.briefing_browser.setMarkdown(rec.summary_md)
+            self.briefing_browser.setMarkdown(normalize_summary_for_display(rec.summary_md, rec.provider))
             self.btn_copy.setEnabled(True)
             self.btn_export_md.setEnabled(True)
         else:
@@ -422,7 +429,9 @@ class BriefingsActionsMixin:
         self.progress_lbl.setVisible(False)
         self.error_banner.show_error(str(err or "Briefing generation failed."))
         if self._active_record is not None:
-            self.briefing_browser.setMarkdown(self._active_record.summary_md)
+            self.briefing_browser.setMarkdown(
+                normalize_summary_for_display(self._active_record.summary_md, self._active_record.provider)
+            )
         else:
             self.briefing_browser.setMarkdown(
                 "*Generation did not complete. Click **🔁 Retry** above or try **💠 Try M365 Copilot**.*"
@@ -452,7 +461,8 @@ class BriefingsActionsMixin:
 
     def _on_copy_briefing(self) -> None:
         if self._active_record and self._active_record.summary_md:
-            QApplication.clipboard().setText(self._active_record.summary_md)
+            clean_md = normalize_summary_for_display(self._active_record.summary_md, self._active_record.provider)
+            QApplication.clipboard().setText(clean_md)
             notify_success(self, "Briefing Copied", "Copied briefing Markdown to clipboard.")
 
     def _on_export_briefing_md(self) -> None:
@@ -466,7 +476,8 @@ class BriefingsActionsMixin:
             "Markdown (*.md)",
         )
         if path:
-            Path(path).write_text(self._active_record.summary_md, encoding="utf-8")
+            clean_md = normalize_summary_for_display(self._active_record.summary_md, self._active_record.provider)
+            Path(path).write_text(clean_md, encoding="utf-8")
             notify_success(self, "Briefing Exported", f"Saved to {Path(path).name}")
 
     def _on_anchor_clicked(self, url: QUrl) -> None:

@@ -445,6 +445,121 @@ class TestEmailAiSummaryUi(unittest.TestCase):
             td_dlg.close()
             QApplication.processEvents()
 
+    def test_copilot_sanitizer_html_paste_and_retroactive_briefing_display(self):
+        from PyQt5.QtCore import QMimeData
+        from modules.emails.core.ai_summary import (
+            build_leaf_handoff_packet,
+            copilot_html_to_markdown,
+            sanitize_copilot_markdown,
+        )
+        from modules.emails.ui.ai_summary.m365_copilot_dialog import M365CopilotHandoffDialog
+
+        raw_copilot = (
+            "a { text-decoration: none; color: #464feb; } "
+            "tr th, tr td { border: 1px solid #e6e6e6; } "
+            "tr th { background-color: #f5f5f5; } "
+            "The five TDoc entries repeat the same draft-review exchange. "
+            "I'll separate confirmed outcomes from architecture positions.### 1. 🧭 Agenda Item Overview & Issue Landscape\n"
+            "AI 20.6.0 has two tracks. Overall 6G architecture · jump://msg/2 · Draft TR review jump://msg/1 "
+            "[\\[magentaaus...epoint.com\\]](https://magentaaustria-my.sharepoint.com/personal/u/Documents/Microsoft%20Copilot%20Chat%20Files/ai_20.6.0_copilot.md)\n"
+            "Evidence boundary: The entries in "
+            "[ai_20.6.0_copilot.md](https://magentaaustria-my.sharepoint.com/personal/u/Documents/Microsoft%20Copilot%20Chat%20Files/ai_20.6.0_copilot.md?EntityRepresentationId=123) "
+            "repeat the same exchange.\n"
+            "At SA2#178, tdoc:S2-2612864 was block approved. jump://msg/6 "
+            "[\\[magentaaus...epoint.com\\]](https://magentaaustria-my.sharepoint.com/personal/u/Documents/Microsoft%20Copilot%20Chat%20Files/ai_20.6.0_copilot.md)\n"
+            "2. 🏢 Cross-TDoc Company Alliances & Fault Lines\n"
+            "NTT DoCoMo and Orange align on phased architecture. jump://msg/3\n"
+            "3. 🔄 Convergence, Agreements & Bottlenecks\n"
+            "Agreed: tdoc:S2-2612864 was block approved.\n"
+            "4. 🎯 Delegate Watchlist & Recommended Next Actions\n"
+            "tdoc:S2-2613018 | KI#2, resolve placement."
+        )
+
+        cleaned = sanitize_copilot_markdown(raw_copilot)
+        self.assertNotIn("text-decoration:", cleaned)
+        self.assertNotIn("sharepoint.com", cleaned)
+        self.assertNotIn("epoint.com", cleaned)
+        self.assertIn("\n\n### 1. 🧭 Agenda Item Overview & Issue Landscape\n\n", cleaned)
+        self.assertIn("\n\n### 2. 🏢 Cross-TDoc Company Alliances & Fault Lines\n\n", cleaned)
+        self.assertIn("\n\n### 3. 🔄 Convergence, Agreements & Bottlenecks\n\n", cleaned)
+        self.assertIn("\n\n### 4. 🎯 Delegate Watchlist & Recommended Next Actions\n\n", cleaned)
+        self.assertIn("[S2-2612864](tdoc:S2-2612864)", cleaned)
+        self.assertIn("[S2-2613018](tdoc:S2-2613018)", cleaned)
+        self.assertIn("[Msg #2](jump://msg/2)", cleaned)
+        self.assertIn("[Msg #6](jump://msg/6)", cleaned)
+        self.assertIn("`ai_20.6.0_copilot.md`", cleaned)
+        # Single-newline paragraphs separated into proper Markdown paragraphs
+        self.assertIn("repeat the same exchange.\n\nAt SA2#178,", cleaned)
+        # Strictly idempotent
+        self.assertEqual(sanitize_copilot_markdown(cleaned), cleaned)
+
+        # Rich Copilot HTML clipboard -> clean GFM Markdown + table, dropping <style> & SharePoint citation chips
+        sample_html = (
+            "<html><head><style>a { text-decoration: none; color: #464feb; }</style></head><body>"
+            "<h3>1. 🧭 Overview</h3>"
+            "<p>Discussed <a href='tdoc:S2-2612864'>S2-2612864</a> "
+            "<a href='https://contoso.sharepoint.com/Microsoft%20Copilot%20Chat%20Files/a.md'>[contoso...epoint.com]</a></p>"
+            "<ul><li><strong>Nokia</strong> supports baseline</li></ul>"
+            "<table><tr><th>Company</th><th>Stance</th></tr><tr><td>Nokia</td><td>Support</td></tr></table>"
+            "</body></html>"
+        )
+        from_html = copilot_html_to_markdown(sample_html)
+        self.assertNotIn("text-decoration", from_html)
+        self.assertNotIn("sharepoint.com", from_html)
+        self.assertIn("### 1. 🧭 Overview", from_html)
+        self.assertIn("[S2-2612864](tdoc:S2-2612864)", from_html)
+        self.assertIn("- **Nokia** supports baseline", from_html)
+        self.assertIn("| Company | Stance |", from_html)
+        self.assertIn("| Nokia | Support |", from_html)
+
+        # M365CopilotHandoffDialog smart paste converts QMimeData HTML directly in response_edit
+        msgs = self.tdb.get_thread_messages(self.tid)
+        pkt = build_leaf_handoff_packet(self.store, SummaryScope("thread", self.tid, "URSP rule update"), msgs)
+        hdlg = M365CopilotHandoffDialog(self.store, pkt, auto_launch=False, meeting_dir=self.tmp_path)
+        mime = QMimeData()
+        mime.setHtml(sample_html)
+        mime.setText("fallback raw text")
+        hdlg.response_edit.insertFromMimeData(mime)
+        pasted = hdlg.response_edit.toPlainText()
+        self.assertIn("### 1. 🧭 Overview", pasted)
+        self.assertIn("| Company | Stance |", pasted)
+        self.assertNotIn("text-decoration", pasted)
+        hdlg.close()
+
+        # EmailBriefingsDialog retroactively cleans already-saved raw Copilot summary & renders clean badge
+        self.store.upsert_summary(
+            EmailSummaryRecord(
+                scope_type="ai",
+                scope_key="6.1",
+                title="6.1 — 5GS Policy",
+                summary_md=raw_copilot,
+                covered_message_ids=["M1", "M2"],
+                cutoff_utc="2026-04-14 11:00:00",
+                provider="m365-copilot",
+                model="M365 Copilot",
+            )
+        )
+        br_dlg = EmailBriefingsDialog(
+            tracked_db=self.tdb,
+            general_email_db=self.gdb,
+            summary_db_path=self.store.db_path,
+            meeting_id="S2-174",
+            wg="SA2",
+            ai_label_map={"6.1": "6.1 — 5GS Policy"},
+            followed_ais={"6.1"},
+            tdoc_ai_lookup={"S2-2602001": "6.1"},
+            initial_ai_code="6.1",
+        )
+        self.assertIn("💠 M365 Copilot", br_dlg.freshness_lbl.text())
+        self.assertNotIn("m365-copilot · M365 Copilot", br_dlg.freshness_lbl.text())
+        rendered_html = br_dlg.briefing_browser.toHtml()
+        rendered_txt = br_dlg.briefing_browser.toPlainText()
+        self.assertNotIn("text-decoration", rendered_txt)
+        self.assertNotIn("positions.###", rendered_txt)
+        self.assertIn('href="tdoc:S2-2612864"', rendered_html)
+        self.assertIn('href="jump://msg/6"', rendered_html)
+        br_dlg.close()
+
 
 if __name__ == "__main__":
     unittest.main()

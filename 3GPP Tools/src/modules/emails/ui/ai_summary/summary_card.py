@@ -19,6 +19,7 @@ from core.ui.toast import notify_info, notify_success
 from modules.emails.core.ai_summary import (
     EmailSummaryRecord, EmailSummaryStore, EmailSummaryTaskWorker,
     SummaryFreshness, SummaryScope, build_leaf_handoff_packet,
+    normalize_summary_for_display,
 )
 from modules.emails.core.markdown_export import apply_email_reader_document_style, format_compact_timestamp
 
@@ -320,7 +321,9 @@ class InlineEmailSummaryCard(QFrame):
         if self._current_record is None:
             self.body_browser.setMarkdown("*No AI summary generated yet.*")
             return
-        self.body_browser.setMarkdown(self._current_record.summary_md)
+        self.body_browser.setMarkdown(
+            normalize_summary_for_display(self._current_record.summary_md, self._current_record.provider)
+        )
 
     def _refresh_header_labels(self) -> None:
         running = self.is_running()

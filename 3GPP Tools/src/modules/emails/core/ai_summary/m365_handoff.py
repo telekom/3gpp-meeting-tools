@@ -12,6 +12,7 @@ import webbrowser
 
 from core.ai.cli_launch import load_standing_cli_context
 
+from .copilot_sanitizer import sanitize_copilot_markdown
 from .formatting import (
     extract_deterministic_facts,
     format_messages_for_llm,
@@ -98,7 +99,7 @@ def _finalize_clipboard_and_file(
             f"=== INSTRUCTIONS ===\n{sys_prompt}\n\n"
             f"=== ATTACHED FILE ===\n"
             f"Analyze the attached Markdown file (`{attached_file.name}`) containing `{scope.scope_key}` — {scope.title} ({mode_desc}).\n"
-            f"Preserve exact `[Msg #N](jump://msg/N)` and `[TDOC](tdoc:TDOC)` citation links in clean Markdown so I can paste your response back into 3GPP Tools."
+            f"Preserve exact `[Msg #N](jump://msg/N)` and `[TDOC](tdoc:TDOC)` citation links in clean Markdown with blank lines between headings and paragraphs (omit SharePoint file citation links) so I can paste your response back into 3GPP Tools."
         )
     else:
         clip_prompt = full_prompt
@@ -367,7 +368,7 @@ def save_external_summary_from_handoff(
     model: str = "M365 Copilot",
 ) -> Tuple[Optional[EmailSummaryRecord], str]:
     """Parse and persist an externally generated M365 Copilot summary into `EmailSummaryStore`."""
-    cleaned = re.sub(r"[\u200b\ufeff]+", "", str(raw_response_text or "")).strip()
+    cleaned = sanitize_copilot_markdown(raw_response_text)
     if not cleaned:
         return None, "Pasted summary text is empty."
 
