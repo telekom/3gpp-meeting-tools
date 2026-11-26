@@ -51,10 +51,11 @@ src/modules/nas/
 - **Evolution Matrix & Exports (`nas_models.py`, `nas_exporter.py`):**
   - Checkable header diff filter pills (`diff_counts` + `diff_filter`), `NASMatrixTreeDelegate` guide lines, `depth_combo` (`max_depth`), auto-hidden empty `IEI / ID` columns (excluded from exports when hidden), `Rel-20\nv20.0.0` headers, unclipped `NASInspectorWidget` header (`TS XX.YYY · RNN (v...)`, hidden `usage_btn` when 0 refs), Message Context Banner (`⇄ Direction: ...`, `msg_meta_badge`: `SRB`, `RLC`, `Ch`).
   - **📋 Copy Table ▾** (Word/Outlook styled HTML `#E8F5E9`/`#FFF9C4`/`#FFEBEE`, Markdown, TSV) & **📋 Copy Definition ▾** (Word HTML, Markdown ````asn1 ````, Plain Text, Citation).
-- **Full Packet Stack & Flexible Layout (`core/packet_stack/`, `packet_stack_widget.py`, `layout_controller.py`, [`docs/PROTOCOL_PACKET_STACK.md`](../../../docs/PROTOCOL_PACKET_STACK.md)):**
+- **Full Packet Stack & Flexible Layout (`core/packet_stack/`, `packet_stack_widget.py`, `packet_ie_side_panel.py`, `packet_ie_resolver.py`, `layout_controller.py`, [`docs/PROTOCOL_PACKET_STACK.md`](../../../docs/PROTOCOL_PACKET_STACK.md)):**
   - When a `TS 29.281` / `TS 38.415` (5G UP) or `TS 38.413` / `TS 38.412` (N2 NGAP) message or IE is inspected, `NASInspectorWidget` exposes `[ 📖 Definition | 📦 Full Packet ]`:
     - **5G UP:** Outer IP/UDP + GTPv1-U + chained Extension Headers (`0x03`, `0x84`, `0x85`, `0x04`) with automatic 4-octet `Padding` calculation and flag/scenario toggles.
     - **N2 NGAP:** Outer IP + SCTP Common/DATA/SACK (`Port 38412`, `PPID=60`, Stream `0` vs `≠0`) + NGAP APER envelope + Mandatory/Optional `ProtocolIE-Field` toggles + optional inline `TS 24.501` `NAS-PDU` (`5GMM` Security Header + NAS fields).
+    - **Inline IE Side Panel & Non-Blocking Rule:** `PacketIESidePanel` embeds inside `PacketStackWidget`'s `body_splitter` (Right $\leftrightarrow$ Bottom toggle); **packet table clicks never launch Word directly** — table links resolve inline in the Side Panel, while explicit `📝 Word` uses `open_document_async`.
     - Exports to Word/Outlook HTML, Markdown, Plain Text, and PlantUML `@startpacketdiag` (+ PlantUML IDE handoff).
   - `ProtocolWorkspaceLayoutController` provides `⬒`/`◫`/`⤢`/`⧉` (reparented modeless pop-out) Matrix–Inspector modes (`Ctrl+L`), collapsible left sidebar (`◀`/`▶`, `Ctrl+[`), collapsible `Indexed Protocols` 1-line summary bar, and auto-compact single-row `All IEs` matrices.
 - **Spec Document Resolution & Reloading (`nas_ingest_controller.py`, `spec_doc_resolver.py`):**

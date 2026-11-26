@@ -32,7 +32,7 @@ Architectural blueprint and extension guide for assembling end-to-end on-the-wir
 
 4. **Multi-Format Exporters ([`exporters.py`](../src/modules/nas/core/packet_stack/exporters.py)):**
    - `_pack_layer_rows()` packs contiguous sub-octet bitfields into 8-bit visual rows and computes continuous 1-based wire octet offsets across all layers.
-   - **Interactive HTML (`render_packet_html(..., interactive_links=True)`):** Uses `core.ui.theme.C` tokens and `action:packet_field:` / `action:open_spec:` links for click-to-inspect and Word opening.
+   - **Interactive HTML (`render_packet_html(..., interactive_links=True)`):** Uses `core.ui.theme.C` tokens, explicit HTML `<table width="100%">` + percentage `<th width="...">` attributes (required because Qt `QTextDocument` ignores CSS `width: 100%`), and `action:packet_field:` links that inspect fields/clauses in the embedded Side Panel without blocking the GUI.
    - **Word / Outlook HTML (`interactive_links=False`):** Strips `action:` links for clean pasting into TDocs, slides, and emails.
    - **PlantUML `packetdiag` (`render_packet_plantuml_packetdiag()`):** Emits verified `@startpacketdiag ... @endpacketdiag` source with contiguous bit offsets (`0-2:`, `3:`, ...), `rotate = 270` for narrow multi-char flags, and `colheight = 2` for wide/payload blocks — both clipboard-copyable and 1-click loadable into the **PlantUML IDE** tab.
    - **Markdown & Plain Text:** GFM tables and aligned monospace wire maps.
@@ -54,6 +54,12 @@ Implemented via [`ngap_catalog.py`](../src/modules/nas/core/packet_stack/ngap_ca
 - **Outer IP + SCTP (`RFC 9260` + `TS 38.412` Cl. 7):** Outer IPv4/IPv6 (`Proto/Next = 132 [SCTP]`), 12-octet SCTP Common Header (`Dst Port = 38412`), optional bundled 16-octet `SACK` chunk, and 16-octet `DATA` chunk (`Stream 0` for non-UE vs `Stream ≠ 0` for UE-associated signalling, `PPID = 60`).
 - **Bit-Exact APER Envelope + Variable IE Values (`TS 38.413` Cl. 9.4 + `ITU-T X.691`):** Models the deterministic APER PDU header (`CHOICE`, `procedureCode`, `criticality`, `Open-Type Length`, `protocolIEs` count) and each `ProtocolIE-Field` header (`IE ID [16b]`, `Criticality`, `Length`) bit-accurately while marking ASN.1 APER IE payloads cleanly as variable APER-encoded blocks.
 - **Interactive Optional IE Pills & Inline `NAS-PDU` Expansion:** Mandatory (`M`) IEs are always present; Optional/Conditional (`O`/`C`) top-level IEs can be toggled via pills. Messages carrying `NAS-PDU` (`IE ID 38`) can expand any sample `TS 24.501` 5GS NAS message (with optional 7-octet `5GMM` Security Protected Header) inline.
+
+### 2.3. Inline IE Definition Side Panel (`packet_ie_side_panel.py`, `packet_ie_resolver.py`)
+- **Responsive Splitter Layout:** `PacketStackWidget` pairs the packet table `QTextBrowser` and [`PacketIESidePanel`](../src/modules/nas/ui/components/packet_ie_side_panel.py) inside `body_splitter` (Right-docked by default, with a `⬓` / `◫` Right $\leftrightarrow$ Bottom toggle persisted in `QSettings`).
+- **Qt Width Rule:** `render_packet_html()` sets both HTML `width="100%"` on `<table>` and percentage `width` attributes on `<th>` columns (`Octet` `7%`, 8 bit columns `8.5%`, `Size` `9%`, `Spec / Clause` `16%`) because Qt 5 `QTextDocument` ignores CSS `style="width: 100%"`, allowing the packet table to reflow dynamically as the Side Panel opens or resizes.
+- **Non-Blocking Click Routing:** Every link inside the packet table (field cells and `Spec / Clause` cells) routes to the Side Panel rather than leaving Packet mode or invoking Word COM. Explicit Word launch (`📝 Word`) uses [`open_document_async`](../src/modules/word_tools/core/document_opener_async.py) off the GUI thread.
+- **Resolution & Candidate Rules (`resolve_packet_field()`):** Resolves `PacketField.def_name` / `ie_clause` (mapped from `type_reference` / `ie_definitions` in `ngap_catalog.py`), then probes ordered candidates (`def_name`, `"Criticality"` for criticality flags, stripped `" Value"`/`" Value Length"`/`" Len"`, embedded `IE ID = N (Name)`, and hyphen $\leftrightarrow$ space variants). Pure wire/external fields (e.g. `RFC 9260`, `X.691`) render a compact wire-field summary card. Reusable across future CP stacks (RRC / SDAP / PDCP still to-do).
 
 ---
 

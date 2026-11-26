@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 from typing import Dict, List, Tuple
+from urllib.parse import quote
 
 from PyQt5.QtCore import QMimeData
 from PyQt5.QtWidgets import QApplication
@@ -122,6 +123,9 @@ def _is_highlighted(fld: PacketField, highlight_name: str) -> bool:
 def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -> str:
     """Render unified octet/bit stack table in HTML (`C` tokens only; interactive links optional)."""
     hl = packet.config.highlight_field
+    is_ngap = packet.config.stack_family == "ngap"
+    ov_lbl = "N2 / NGAP" if is_ngap else "3GPP UP"
+    chain_lbl = "NGAP Summary" if is_ngap else "Ext Header Chain"
     parts: List[str] = [
         f'<div style="font-family: Segoe UI, Calibri, Arial, sans-serif; color: {C.TEXT_PRIMARY};">'
     ]
@@ -140,11 +144,11 @@ def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -
         chain_txt = " &nbsp;→&nbsp; ".join(html.escape(s) for s in packet.ext_header_summaries)
         parts.append(
             f'<div style="font-size: 10.5px; color: {C.SUCCESS_DARK}; margin-top: 4px;">'
-            f'<b>Ext Header Chain:</b> {chain_txt}</div>'
+            f'<b>{chain_lbl}:</b> {chain_txt}</div>'
         )
     parts.append(
         f'<div style="font-size: 10.5px; color: {C.TEXT_SECONDARY}; margin-top: 3px;">'
-        f'<b>Fixed Overhead:</b> 3GPP UP = <b>{packet.overhead_3gpp_octets} octets</b>'
+        f'<b>Fixed Overhead:</b> {ov_lbl} = <b>{packet.overhead_3gpp_octets} octets</b>'
         + (
             f' &nbsp;|&nbsp; Transport = <b>{packet.overhead_transport_octets} octets</b>'
             f' &nbsp;|&nbsp; Total Header = <b>{packet.overhead_total_octets} octets</b>'
@@ -154,20 +158,20 @@ def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -
         + "</div></div>"
     )
 
-    # Bit-Grid Table
+    # Bit-Grid Table (HTML width="100%" required so Qt QTextDocument expands cleanly to available viewport width)
     parts.append(
-        f'<table border="1" cellspacing="0" cellpadding="4" style="border-collapse: collapse; '
+        f'<table width="100%" border="1" cellspacing="0" cellpadding="4" style="border-collapse: collapse; '
         f'width: 100%; border: 1px solid {C.BORDER_STRONG}; font-family: Consolas, \'Courier New\', monospace; font-size: 11px;">'
         f'<thead>'
         f'<tr style="background-color: {C.BG_CANVAS}; color: {C.TEXT_PRIMARY};">'
-        f'<th rowspan="2" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; text-align: center; white-space: nowrap;">Octet</th>'
+        f'<th rowspan="2" width="7%" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; text-align: center; white-space: nowrap; width: 7%;">Octet</th>'
         f'<th colspan="8" style="border: 1px solid {C.BORDER_STRONG}; padding: 3px 6px; text-align: center;">Bits</th>'
-        f'<th rowspan="2" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; text-align: center; white-space: nowrap;">Size</th>'
-        f'<th rowspan="2" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; text-align: left; white-space: nowrap;">Spec / Clause</th>'
+        f'<th rowspan="2" width="9%" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; text-align: center; white-space: nowrap; width: 9%;">Size</th>'
+        f'<th rowspan="2" width="16%" style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; text-align: left; white-space: nowrap; width: 16%;">Spec / Clause</th>'
         f'</tr>'
         f'<tr style="background-color: {C.BG_SURFACE}; color: {C.TEXT_SECONDARY};">'
         + "".join(
-            f'<th style="border: 1px solid {C.BORDER_STRONG}; padding: 2px 4px; text-align: center; width: 8.5%;">{b}</th>'
+            f'<th width="8.5%" style="border: 1px solid {C.BORDER_STRONG}; padding: 2px 4px; text-align: center; width: 8.5%;">{b}</th>'
             for b in range(7, -1, -1)
         )
         + "</tr></thead><tbody>"
@@ -201,7 +205,10 @@ def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -
                     fg = C.TEXT_PRIMARY if not fld.is_spare else C.TEXT_MUTED
                     lbl = html.escape(fld.short_label)
                     if interactive_links and not fld.is_spare:
-                        href = f"action:packet_field:{html.escape(fld.spec_number)}:{html.escape(fld.clause)}:{html.escape(fld.name)}"
+                        href = (
+                            f"action:packet_field:{quote(fld.spec_number, safe='')}:"
+                            f"{quote(fld.clause, safe='')}:{quote(fld.name, safe='')}"
+                        )
                         lbl_html = f'<a href="{href}" style="color: {fg}; text-decoration: none; font-weight: 600;">{lbl}</a>'
                     else:
                         lbl_html = f'<span style="font-weight: 600;">{lbl}</span>'
@@ -221,7 +228,10 @@ def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -
                 fg = C.ORANGE_DARK if fld.is_padding else C.TEXT_PRIMARY
                 lbl = html.escape(fld.short_label)
                 if interactive_links and not fld.is_spare and not fld.is_padding:
-                    href = f"action:packet_field:{html.escape(fld.spec_number)}:{html.escape(fld.clause)}:{html.escape(fld.name)}"
+                    href = (
+                        f"action:packet_field:{quote(fld.spec_number, safe='')}:"
+                        f"{quote(fld.clause, safe='')}:{quote(fld.name, safe='')}"
+                    )
                     lbl_html = f'<a href="{href}" style="color: {fg}; text-decoration: none; font-weight: 600;">{lbl}</a>'
                 else:
                     lbl_html = f'<span style="font-weight: 600;">{lbl}</span>'
@@ -237,8 +247,12 @@ def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -
             spec_ref_txt = str(row["spec_ref"])
             if interactive_links and row["kind"] == "full" and _is_3gpp_spec(row["field"].spec_number):  # type: ignore[union-attr]
                 f_obj = row["field"]  # type: ignore[assignment]
+                spec_href = (
+                    f"action:packet_field:{quote(f_obj.spec_number, safe='')}:"
+                    f"{quote(f_obj.clause, safe='')}:{quote(f_obj.name, safe='')}"
+                )
                 spec_cell = (
-                    f'<a href="action:open_spec:{html.escape(f_obj.spec_number)}::{html.escape(f_obj.clause)}" '
+                    f'<a href="{spec_href}" '
                     f'style="color: {C.ACCENT_SKY_DARK}; text-decoration: underline;">{html.escape(spec_ref_txt)}</a>'
                 )
             else:
@@ -255,18 +269,21 @@ def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -
 
 def render_packet_markdown(packet: ComposedPacket) -> str:
     """Render packet stack as GitHub-Flavored Markdown."""
+    is_ngap = packet.config.stack_family == "ngap"
+    ov_lbl = "N2 / NGAP" if is_ngap else "3GPP UP"
+    chain_lbl = "NGAP Summary" if is_ngap else "Extension Header Chain"
     lines = [
         f"### {packet.title}",
         "",
         f"- **Direction:** {packet.direction}",
         f"- **Interface:** {packet.interface}",
         f"- **Specs:** {', '.join(packet.spec_refs)}",
-        f"- **Fixed 3GPP UP Overhead:** {packet.overhead_3gpp_octets} octets",
+        f"- **Fixed {ov_lbl} Overhead:** {packet.overhead_3gpp_octets} octets",
     ]
     if packet.overhead_transport_octets > 0:
         lines.append(f"- **Transport Overhead:** {packet.overhead_transport_octets} octets (Total = {packet.overhead_total_octets} octets)")
     if packet.ext_header_summaries:
-        lines.append(f"- **Extension Header Chain:** {' -> '.join(packet.ext_header_summaries)}")
+        lines.append(f"- **{chain_lbl}:** {' -> '.join(packet.ext_header_summaries)}")
     lines.extend(["", "| Octet | Layer / Field | Size | Presence | Spec / Clause |", "| --- | --- | --- | --- | --- |"])
 
     cur_octet = 1
@@ -288,13 +305,14 @@ def render_packet_markdown(packet: ComposedPacket) -> str:
 
 def render_packet_plain_text(packet: ComposedPacket) -> str:
     """Render clean plain-text packet stack summary."""
+    ov_lbl = "N2 / NGAP" if packet.config.stack_family == "ngap" else "3GPP UP"
     lines = [
         packet.title,
         "=" * len(packet.title),
         f"Direction : {packet.direction}",
         f"Interface : {packet.interface}",
         f"Specs     : {', '.join(packet.spec_refs)}",
-        f"Overhead  : 3GPP UP = {packet.overhead_3gpp_octets} octets"
+        f"Overhead  : {ov_lbl} = {packet.overhead_3gpp_octets} octets"
         + (f" (+ {packet.overhead_transport_octets} transport = {packet.overhead_total_octets} octets)" if packet.overhead_transport_octets else ""),
         "",
     ]

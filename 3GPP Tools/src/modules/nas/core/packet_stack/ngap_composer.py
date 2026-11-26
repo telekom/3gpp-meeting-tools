@@ -175,6 +175,8 @@ def _ie_header_fields(ie: Dict[str, str], msg_clause: str) -> List[PacketField]:
     name = ie["name"]
     crit = ie.get("criticality", "ignore")
     pres = ie.get("presence", "M")
+    ie_clause = ie.get("ie_clause") or msg_clause
+    def_name = ie.get("def_name") or name
     return [
         PacketField(
             name=name,
@@ -183,8 +185,9 @@ def _ie_header_fields(ie: Dict[str, str], msg_clause: str) -> List[PacketField]:
             presence=pres,
             value_hint=ie_id,
             spec_number="38.413",
-            clause=msg_clause,
+            clause=ie_clause,
             description=ie.get("field_description") or f"ProtocolIE-ID {ie_id} ({name}, {ie.get('type_reference', name)}).",
+            def_name=def_name,
         ),
         PacketField(
             name=f"{name} Criticality",
@@ -194,6 +197,7 @@ def _ie_header_fields(ie: Dict[str, str], msg_clause: str) -> List[PacketField]:
             value_hint=crit,
             spec_number="38.413",
             clause="9.4",
+            def_name="Criticality",
         ),
         PacketField("APER Pad", "Pad", 6, pres, "0", "X.691", "-", is_spare=True),
         PacketField(
@@ -300,6 +304,8 @@ def build_ngap_pdu_layers(
                 )
             )
         else:
+            ie_clause = ie.get("ie_clause") or msg_clause
+            def_name = ie.get("def_name") or ie["name"]
             ie_fields.append(
                 PacketField(
                     name=f"{ie['name']} Value",
@@ -308,10 +314,11 @@ def build_ngap_pdu_layers(
                     presence=ie.get("presence", "M"),
                     value_hint="APER",
                     spec_number="38.413",
-                    clause=msg_clause,
+                    clause=ie_clause,
                     is_variable=True,
                     variable_display_octets=4,
                     description=ie.get("field_description") or f"ASN.1 APER-encoded {ie.get('type_reference', ie['name'])}.",
+                    def_name=def_name,
                 )
             )
 

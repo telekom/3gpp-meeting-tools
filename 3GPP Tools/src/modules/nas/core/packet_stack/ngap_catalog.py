@@ -168,10 +168,23 @@ def _normalize_direction(raw_dir: str, pdu_choice: int) -> str:
     clean = re.sub(r"\s+", " ", (raw_dir or "").strip())
     if "→" in clean or "↔" in clean:
         return clean
-    if re.match(r"^AMF\s+NG-RAN", clean, re.IGNORECASE):
-        return "AMF → NG-RAN node"
-    if re.match(r"^NG-RAN(?:\s+node)?\s+AMF", clean, re.IGNORECASE):
-        return "NG-RAN node → AMF"
+    m_dir = re.match(
+        r"^(A-IoT CN node|NG-RAN node|NG-RAN|AMF)\s+(A-IoT CN node|NG-RAN node|NG-RAN|AMF)$",
+        clean,
+        re.IGNORECASE,
+    )
+    if m_dir:
+        def _canon(ep: str) -> str:
+            low = ep.strip().lower()
+            if low == "amf":
+                return "AMF"
+            if low in ("ng-ran", "ng-ran node"):
+                return "NG-RAN node"
+            if low == "a-iot cn node":
+                return "A-IoT CN node"
+            return ep.strip()
+
+        return f"{_canon(m_dir.group(1))} → {_canon(m_dir.group(2))}"
     if clean:
         return clean
     return "NG-RAN node → AMF" if pdu_choice == 1 else "AMF ↔ NG-RAN node"
@@ -243,7 +256,7 @@ def load_ngap_message_from_db(
                 if version_38413:
                     row = cur.execute(
                         """
-                        SELECT m.id, m.clause, m.message_name, m.direction, sv.version
+                        SELECT m.id, m.version_id, m.clause, m.message_name, m.direction, sv.version
                         FROM nas_messages m JOIN spec_versions sv ON m.version_id = sv.id
                         WHERE sv.spec_number = '38.413' AND sv.version = ? AND LOWER(m.message_name) = LOWER(?)
                         LIMIT 1
@@ -255,7 +268,7 @@ def load_ngap_message_from_db(
                 if not row:
                     row = cur.execute(
                         """
-                        SELECT m.id, m.clause, m.message_name, m.direction, sv.version
+                        SELECT m.id, m.version_id, m.clause, m.message_name, m.direction, sv.version
                         FROM nas_messages m JOIN spec_versions sv ON m.version_id = sv.id
                         WHERE sv.spec_number = '38.413' AND LOWER(m.message_name) = LOWER(?)
                         ORDER BY sv.id DESC LIMIT 1
@@ -272,6 +285,19 @@ def load_ngap_message_from_db(
                         """,
                         (row["id"],),
                     ).fetchall()
+                    ie_clauses_by_name: Dict[str, str] = {}
+                    try:
+                        def_rows = cur.execute(
+                            "SELECT ie_name, clause FROM ie_definitions WHERE version_id = ?",
+                            (row["version_id"],),
+                        ).fetchall()
+                        for dr in def_rows:
+                            k = str(dr["ie_name"] or "").strip().lower()
+                            cl_val = str(dr["clause"] or "").strip()
+                            if k and cl_val:
+                                ie_clauses_by_name[k] = cl_val
+                    except Exception:
+                        ie_clauses_by_name = {}
                     proc_code = "0"
                     msg_crit = "reject"
                     ies: List[Dict[str, str]] = []
@@ -281,13 +307,27 @@ def load_ngap_message_from_db(
                             proc_code = str(r["iei"] or "0").strip() or "0"
                             msg_crit = str(r["length"] or "reject").strip() or "reject"
                             continue
+                        tref_raw = str(r["type_reference"] or name).strip()
+                        tref = re.sub(r"\s*\(.*?\)\s*$", "", tref_raw).strip()
+                        ie_clause = ""
+                        def_name = ""
+                        if tref and tref.lower() in ie_clauses_by_name:
+                            ie_clause = ie_clauses_by_name[tref.lower()]
+                            def_name = tref
+                        elif name and name.lower() in ie_clauses_by_name:
+                            ie_clause = ie_clauses_by_name[name.lower()]
+                            def_name = name
+                        else:
+                            def_name = tref or name
                         ies.append({
                             "id": str(r["iei"] or "").strip(),
                             "name": name,
-                            "type_reference": str(r["type_reference"] or name).strip(),
+                            "type_reference": tref_raw,
                             "presence": str(r["presence"] or "M").strip() or "M",
                             "criticality": str(r["length"] or "ignore").strip() or "ignore",
                             "field_description": str(r["field_description"] or "").strip(),
+                            "ie_clause": ie_clause,
+                            "def_name": def_name,
                         })
                     choice = infer_ngap_pdu_choice(row["message_name"])
                     return {

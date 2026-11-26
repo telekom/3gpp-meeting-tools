@@ -5,6 +5,8 @@ from __future__ import annotations
 from .delegates import NASMatrixTreeDelegate, NASMessageItemDelegate
 from .inspector import NASInspectorWidget
 from .inspector_render import RE_EXPLICIT_SPEC_REF, RE_NAS_CROSS_REF
+from .packet_ie_resolver import FieldDefinitionResult, field_lookup_candidates, resolve_packet_field
+from .packet_ie_side_panel import PacketIESidePanel
 from .packet_stack_widget import PacketStackWidget
 from .spec_card import (
     NASReleasePillWidget,
@@ -19,6 +21,7 @@ from .version_cards import (
 from .version_tree import NASVersionTreeWidget
 
 __all__ = [
+    "FieldDefinitionResult",
     "NASInspectorWidget",
     "NASMatrixTreeDelegate",
     "NASMessageItemDelegate",
@@ -26,10 +29,13 @@ __all__ = [
     "NASSpecCardWidget",
     "NASVersionCardsWidget",
     "NASVersionTreeWidget",
+    "PacketIESidePanel",
     "PacketStackWidget",
     "RE_EXPLICIT_SPEC_REF",
     "RE_NAS_CROSS_REF",
     "_NASCardCompatChild",
     "_NASCardCompatSpec",
     "_extract_major_release",
+    "field_lookup_candidates",
+    "resolve_packet_field",
 ]

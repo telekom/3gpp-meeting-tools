@@ -49,6 +49,7 @@ src/modules/word_tools/
 
 ## 3. Word COM Automation, Comparison & Active Polling
 
+- **Word COM Automation, Comparison & Active Polling:** `document_opener_async.open_document_async` is the GUI-safe way to open Word docs from UI handlers.
 - **Document Comparison (`word_comparator.py`, `word_tabs.py`):** Uses Word COM Track Changes with 1-click **"⇄ Swap A ↔ B"**, `get_active_word_document`, non-destructive snapshotting (`SaveCopyAs` with `shutil.copy2` disk fallback on OLE error `0x800a1704`, and `doc.SaveAs2(..., AddToRecentFiles=False)` for headless instances), formatting diff toggle, and keep-open options.
 - **Foreground Word Status Polling (`_poll_active_word` in `word_tabs.py`, `document_opener.py`):**
   - **Must** pass `allow_unsaved_snapshot=False` (never write disk snapshots during background polling).

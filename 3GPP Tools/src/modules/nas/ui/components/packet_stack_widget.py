@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+from urllib.parse import unquote
 
 from PyQt5.QtCore import QSettings, Qt, QTimer, QUrl, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -12,6 +13,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
+    QSplitter,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -35,23 +37,22 @@ from modules.nas.core.packet_stack import (
     render_packet_plantuml_packetdiag,
     resolve_packet_target,
 )
+from .packet_ie_resolver import resolve_packet_field
+from .packet_ie_side_panel import PacketIESidePanel
 from .packet_stack_styles import (
-    build_packet_copy_menu,
-    build_scenarios_guide_html,
-    clear_flow_layout,
-    flag_pill_qss,
-    quick_btn_qss,
+    build_packet_copy_menu, build_scenarios_guide_html,
+    clear_flow_layout, flag_pill_qss, quick_btn_qss,
 )
 
 
 class PacketStackWidget(QWidget):
-    """Interactive octet-by-octet Full Packet Stack view for User Plane protocols."""
+    """Interactive octet-by-octet Full Packet Stack view with inline IE definition Side Panel."""
 
     open_spec_requested = pyqtSignal(str, str, str, str)
     inspect_field_requested = pyqtSignal(str, str, str)  # spec_number, clause, field_name
     send_plantuml_to_editor_requested = pyqtSignal(str)
 
-    def __init__(self, db: Any = None, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, db: Any = None, parent: Optional[QWidget] = None, *, settings: Optional[QSettings] = None) -> None:
         super().__init__(parent)
         self.db = db
         self._base_target_frame: str = "dl_pdu_session"
@@ -60,7 +61,7 @@ class PacketStackWidget(QWidget):
         self._composed: Optional[ComposedPacket] = None
         self._flag_buttons: Dict[str, QPushButton] = {}
         self._updating_ui = False
-        self._settings = QSettings("3GPP_Tools", "ProtocolsWorkspaceLayout")
+        self._settings = settings if settings is not None else QSettings("3GPP_Tools", "ProtocolsWorkspaceLayout")
         self._setup_ui()
 
     def set_database(self, db: Any) -> None:
@@ -233,8 +234,14 @@ class PacketStackWidget(QWidget):
         ctrl_lay.addWidget(self.frame_flags_row_widget)
         root.addWidget(controls)
 
-        # Packet diagram HTML browser
-        self.browser = QTextBrowser(self)
+        # Packet diagram HTML browser + collapsible IE Definition Side Panel
+        orient_val = str(self._settings.value("packet_stack/side_panel_orientation", "h") or "h").lower()
+        initial_orient = Qt.Vertical if orient_val == "v" else Qt.Horizontal
+        self.body_splitter = QSplitter(initial_orient, self)
+        self.body_splitter.setChildrenCollapsible(False)
+        self.body_splitter.splitterMoved.connect(self._on_body_splitter_moved)
+
+        self.browser = QTextBrowser(self.body_splitter)
         self.browser.setReadOnly(True)
         self.browser.setOpenLinks(False)
         self.browser.setOpenExternalLinks(False)
@@ -244,38 +251,21 @@ class PacketStackWidget(QWidget):
             f"padding: 6px; background-color: {C.BG_CARD}; }}"
         )
         bind_reader_zoom_settings(self.browser, self._settings, key="packet_stack/zoom_steps")
-        root.addWidget(self.browser, 1)
+        self.body_splitter.addWidget(self.browser)
 
-        # Slim Field Quick-Detail Bar (shown when clicking a field inside the packet)
-        self.detail_bar = QFrame(self)
-        self.detail_bar.setObjectName("packetFieldDetailBar")
-        self.detail_bar.setStyleSheet(
-            f"#packetFieldDetailBar {{ background-color: {C.SKY_SURFACE}; "
-            f"border: 1px solid {C.SKY_BORDER}; border-radius: 5px; }}"
+        self.side_panel = PacketIESidePanel(self.body_splitter, settings=self._settings)
+        self.side_panel.set_docked_bottom(initial_orient == Qt.Vertical)
+        self.side_panel.setVisible(False)
+        self.side_panel.open_spec_requested.connect(self.open_spec_requested.emit)
+        self.side_panel.expand_requested.connect(self.inspect_field_requested.emit)
+        self.side_panel.navigate_field_requested.connect(
+            lambda sp, cl, fn: self.show_field_in_side_panel(sp, cl, fn, push_history=True)
         )
-        det_lay = QHBoxLayout(self.detail_bar)
-        det_lay.setContentsMargins(8, 4, 8, 4)
-        det_lay.setSpacing(8)
-        self.detail_lbl = QLabel("", self.detail_bar)
-        self.detail_lbl.setWordWrap(True)
-        self.detail_lbl.setStyleSheet(f"font-size: 11px; color: {C.TEXT_STRONG};")
-        det_lay.addWidget(self.detail_lbl, 1)
+        self.side_panel.close_requested.connect(self.hide_side_panel)
+        self.side_panel.dock_toggle_requested.connect(self.toggle_side_panel_dock)
+        self.body_splitter.addWidget(self.side_panel)
 
-        self.btn_open_field_def = QPushButton("📖 Open Definition", self.detail_bar)
-        self.btn_open_field_def.setCursor(Qt.PointingHandCursor)
-        self.btn_open_field_def.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
-        self.btn_open_field_def.clicked.connect(self._on_open_selected_field_def)
-        det_lay.addWidget(self.btn_open_field_def)
-
-        self.btn_close_detail = QPushButton("✕", self.detail_bar)
-        self.btn_close_detail.setCursor(Qt.PointingHandCursor)
-        self.btn_close_detail.setStyleSheet(q_btn_qss)
-        self.btn_close_detail.clicked.connect(lambda: self.detail_bar.setVisible(False))
-        det_lay.addWidget(self.btn_close_detail)
-
-        self.detail_bar.setVisible(False)
-        self._selected_field_ref: Optional[tuple[str, str, str]] = None
-        root.addWidget(self.detail_bar)
+        root.addWidget(self.body_splitter, 1)
         self._populate_family_controls("up")
 
     def _populate_family_controls(self, stack_family: str) -> None:
@@ -372,7 +362,8 @@ class PacketStackWidget(QWidget):
             spec_version_38413=ver_38413,
             highlight_field=target.get("highlight_field", ""),
         )
-        self.detail_bar.setVisible(False)
+        self.side_panel.setVisible(False)
+        self.side_panel.clear()
         self.refresh_packet()
         return True
 
@@ -513,33 +504,85 @@ class PacketStackWidget(QWidget):
             return
         self.send_plantuml_to_editor_requested.emit(render_packet_plantuml_packetdiag(self._composed))
 
+    def _version_hint_for_spec(self, spec_number: str) -> str:
+        clean = (spec_number or "").replace("TS", "").strip()
+        if clean == "38.415":
+            return self._config.spec_version_38415
+        if clean == "29.281":
+            return self._config.spec_version_29281
+        if clean == "38.413":
+            return self._config.spec_version_38413
+        return ""
+
+    def _apply_initial_splitter_sizes(self) -> None:
+        raw = self._settings.value("packet_stack/side_panel_sizes")
+        if isinstance(raw, list) and len(raw) == 2:
+            try:
+                sizes = [int(raw[0]), int(raw[1])]
+                if sizes[0] > 80 and sizes[1] > 80:
+                    self.body_splitter.setSizes(sizes)
+                    return
+            except (TypeError, ValueError):
+                pass
+        span = self.body_splitter.width() if self.body_splitter.orientation() == Qt.Horizontal else self.body_splitter.height()
+        total = max(600, span)
+        self.body_splitter.setSizes([int(total * 0.6), int(total * 0.4)])
+
+    def _on_body_splitter_moved(self, _pos: int, _index: int) -> None:
+        if not self.side_panel.isVisible():
+            return
+        sizes = self.body_splitter.sizes()
+        if len(sizes) == 2 and sizes[0] > 0 and sizes[1] > 0:
+            self._settings.setValue("packet_stack/side_panel_sizes", sizes)
+
+    def show_field_in_side_panel(
+        self,
+        spec_number: str,
+        clause: str,
+        field_name: str,
+        *,
+        push_history: bool = False,
+    ) -> None:
+        """Resolve and display a packet field/IE inline in the collapsible Side Panel."""
+        res = resolve_packet_field(
+            self.db,
+            self._composed,
+            spec_number,
+            clause,
+            field_name,
+            version_hint=self._version_hint_for_spec(spec_number),
+        )
+        self.side_panel.show_result(res, push_history=push_history)
+        if self.side_panel.isHidden():
+            self.side_panel.setVisible(True)
+            self._apply_initial_splitter_sizes()
+
+    def hide_side_panel(self) -> None:
+        self.side_panel.setVisible(False)
+
+    def toggle_side_panel_dock(self) -> None:
+        is_horiz = self.body_splitter.orientation() == Qt.Horizontal
+        new_orient = Qt.Vertical if is_horiz else Qt.Horizontal
+        self.body_splitter.setOrientation(new_orient)
+        self.side_panel.set_docked_bottom(new_orient == Qt.Vertical)
+        self._settings.setValue("packet_stack/side_panel_orientation", "v" if new_orient == Qt.Vertical else "h")
+        if self.side_panel.isVisible():
+            span = self.body_splitter.width() if new_orient == Qt.Horizontal else self.body_splitter.height()
+            total = max(600, span)
+            self.body_splitter.setSizes([int(total * 0.58), int(total * 0.42)])
+
     def _on_anchor_clicked(self, url: QUrl) -> None:
         url_str = url.toString()
         if url_str.startswith("action:open_spec:"):
-            parts = url_str.replace("action:open_spec:", "").split(":")
-            self.open_spec_requested.emit(
-                parts[0],
-                parts[1] if len(parts) > 1 else "",
-                parts[2] if len(parts) > 2 else "",
-                "word",
-            )
+            parts = [unquote(p) for p in url_str.replace("action:open_spec:", "").split(":")]
+            spec_num = parts[0] if len(parts) > 0 else ""
+            clause = parts[2] if len(parts) > 2 else ""
+            self.show_field_in_side_panel(spec_num, clause, "")
             return
 
         if url_str.startswith("action:packet_field:"):
-            parts = url_str.replace("action:packet_field:", "").split(":", 2)
+            parts = [unquote(p) for p in url_str.replace("action:packet_field:", "").split(":", 2)]
             spec_num = parts[0] if len(parts) > 0 else ""
             clause = parts[1] if len(parts) > 1 else ""
             field_name = parts[2] if len(parts) > 2 else ""
-            fld = self._composed.find_field(field_name) if self._composed else None
-            desc = fld.description if fld and fld.description else (f"Condition: {fld.condition}" if fld and fld.condition else "")
-            size_txt = f" · {fld.size_label}" if fld else ""
-            spec_txt = f"TS {spec_num} Cl. {clause}" if spec_num else ""
-            self.detail_lbl.setText(f"<b>{field_name}</b> ({spec_txt}{size_txt})" + (f" — {desc}" if desc else ""))
-            self._selected_field_ref = (spec_num, clause, field_name)
-            self.btn_open_field_def.setVisible(spec_num in ("29.281", "38.415", "38.413", "38.412", "24.501"))
-            self.detail_bar.setVisible(True)
-
-    def _on_open_selected_field_def(self) -> None:
-        if self._selected_field_ref:
-            spec_num, clause, field_name = self._selected_field_ref
-            self.inspect_field_requested.emit(spec_num, clause, field_name)
+            self.show_field_in_side_panel(spec_num, clause, field_name)

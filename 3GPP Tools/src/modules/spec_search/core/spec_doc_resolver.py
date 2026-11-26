@@ -23,7 +23,7 @@ from modules.spec_search.core.spec_pdf_converter import (
     open_pdf_with_feedback,
 )
 from modules.spec_search.core.spec_search_threads import is_change_mark_file
-from modules.word_tools.core.document_opener import open_document
+from modules.word_tools.core.document_opener_async import open_document_async
 
 logger = logging.getLogger(__name__)
 
@@ -384,9 +384,8 @@ class SpecDocResolver:
             if clipboard and clause_number:
                 clipboard.setText(clause_number.strip())
 
-            try:
-                open_document(target_doc)
-                msg = f"Opening '{target_doc.name}'"
+            def _on_word_opened(path_str: str) -> None:
+                msg = f"Opening '{Path(path_str).name}'"
                 if clause_number:
                     msg += f" — '{clause_number}' copied to clipboard (press Ctrl+F in Word to jump directly)."
                 logger.info(f"✅ {msg}")
@@ -395,12 +394,19 @@ class SpecDocResolver:
                     parent_widget.matrix_title.setText(f"📖 {msg}")
 
                 if on_opened_callback:
-                    on_opened_callback(target_doc)
-                return True
-            except Exception as e:
-                logger.error(f"Failed to open document {target_doc}: {e}")
-                QMessageBox.critical(parent_widget, "Word Open Error", f"Could not launch Microsoft Word:\n{e}")
-                return False
+                    on_opened_callback(Path(path_str))
+
+            def _on_word_error(err_str: str) -> None:
+                logger.error(f"Failed to open document {target_doc}: {err_str}")
+                QMessageBox.critical(parent_widget, "Word Open Error", f"Could not launch Microsoft Word:\n{err_str}")
+
+            open_document_async(
+                target_doc,
+                on_opened=_on_word_opened,
+                on_error=_on_word_error,
+                parent=parent_widget,
+            )
+            return True
 
         # --- 4. FILE NOT PRESENT: OFFER DOWNLOAD ---
         if not info["url"]:
@@ -440,8 +446,12 @@ class SpecDocResolver:
                 if final_doc:
                     if clause_number:
                         QApplication.clipboard().setText(clause_number.strip())
-                    open_document(final_doc)
-                    logger.info(f"✅ Downloaded and opened '{final_doc.name}'")
+                    open_document_async(
+                        final_doc,
+                        on_opened=lambda p: logger.info(f"✅ Downloaded and opened '{Path(p).name}'"),
+                        on_error=lambda err: QMessageBox.critical(parent_widget, "Word Open Error", f"Could not launch Microsoft Word:\n{err}"),
+                        parent=parent_widget,
+                    )
             else:
                 QMessageBox.warning(parent_widget, "Extraction Issue", "Downloaded ZIP did not contain clean Word documents.")
 

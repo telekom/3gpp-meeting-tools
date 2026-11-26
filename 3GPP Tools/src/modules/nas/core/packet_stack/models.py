@@ -24,6 +24,7 @@ class PacketField:
     is_spare: bool = False
     is_variable: bool = False
     variable_display_octets: int = 0
+    def_name: str = ""
 
     @property
     def is_octet_aligned(self) -> bool:
