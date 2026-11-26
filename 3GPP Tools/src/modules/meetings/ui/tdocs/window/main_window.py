@@ -356,6 +356,13 @@ class TDocsWindow(
                 pass
             self._inbox_dialog = None
 
+        if getattr(self, '_briefings_dialog', None):
+            try:
+                self._briefings_dialog.close()
+            except Exception:
+                pass
+            self._briefings_dialog = None
+
         if getattr(self, '_agreement_tracker_dlg', None):
             try:
                 self._agreement_tracker_dlg.close()

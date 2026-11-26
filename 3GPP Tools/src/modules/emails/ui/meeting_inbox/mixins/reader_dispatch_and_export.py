@@ -7,12 +7,15 @@ from pathlib import Path
 import urllib.parse
 import webbrowser
 
-from PyQt5.QtCore import QUrl
+from PyQt5.QtCore import Qt, QUrl
 from PyQt5.QtGui import QCursor, QDesktopServices
 from PyQt5.QtWidgets import QApplication, QMenu, QMessageBox
 
+from core.ai.llm_runner import ModelSpec, resolve_effective_model_spec
 from core.ui.toast import notify_info, notify_success, notify_toast
+from modules.emails.core.ai_summary import SummaryScope
 from modules.emails.core.emeeting_signals import extract_base_tdoc_id
+from modules.emails.ui.ai_summary import populate_summary_model_menu
 from modules.emails.core.thread_markdown_exporter import (
     export_thread_to_markdown,
     find_heading_block_for_message_index,
@@ -138,51 +141,249 @@ class InboxReaderDispatchMixin:
             include_metadata=True,
         )
 
+    def _resolve_item_summary_scope(self, it: dict) -> tuple:
+        """Resolve `(SummaryScope, scope_messages, tdoc_meta)` for any Inbox row item."""
+        is_tdoc_bucket = it.get("_group_kind") == "TDOC" and bool(it.get("_primary_tdoc"))
+        primary_tdoc = str(it.get("_primary_tdoc") or "").strip().upper()
+        if not primary_tdoc and it.get("linked_tdocs"):
+            primary_tdoc = extract_base_tdoc_id(it["linked_tdocs"][0])
+        tmeta = self._tdoc_meta_map.get(primary_tdoc) if primary_tdoc else None
+
+        if is_tdoc_bucket and primary_tdoc:
+            scope = SummaryScope(
+                scope_type="tdoc",
+                scope_key=primary_tdoc,
+                title=str(it.get("subject") or primary_tdoc),
+            )
+            msgs = list(it.get("_group_messages") or [])
+        elif it.get("thread_id"):
+            tid = str(it["thread_id"])
+            msgs = list(it.get("_group_messages") or [m for m in self._all_items if m.get("thread_id") == tid] or [it])
+            scope = SummaryScope(
+                scope_type="thread",
+                scope_key=tid,
+                title=str(it.get("thread_title") or it.get("subject") or tid),
+            )
+        elif primary_tdoc:
+            msgs = list(it.get("_group_messages") or [it])
+            scope = SummaryScope(
+                scope_type="tdoc",
+                scope_key=primary_tdoc,
+                title=str(it.get("subject") or primary_tdoc),
+            )
+        else:
+            norm = normalize_subject(it.get("subject") or "").lower()
+            skey = f"UNPIN::{norm or it.get('id', 'msg')}"
+            msgs = list(it.get("_group_messages") or [it])
+            scope = SummaryScope(
+                scope_type="thread",
+                scope_key=skey,
+                title=str(it.get("subject") or "Email Discussion"),
+            )
+        return scope, msgs, tmeta
+
+    def _refresh_summary_freshness_cache(self, dataset: list) -> None:
+        store = getattr(self, "_summary_store", None)
+        if store is None:
+            self._summary_freshness_cache = {}
+            return
+        buckets_by_type: dict = {"thread": {}, "tdoc": {}}
+        for it in dataset:
+            if not it.get("_is_group"):
+                continue
+            scope, msgs, _ = self._resolve_item_summary_scope(it)
+            if scope.scope_type in buckets_by_type:
+                buckets_by_type[scope.scope_type][scope.scope_key] = msgs
+        cache = {}
+        for stype, smap in buckets_by_type.items():
+            if smap:
+                for skey, fresh in store.get_freshness_map(stype, smap).items():
+                    cache[f"{stype}:{skey}"] = fresh
+        self._summary_freshness_cache = cache
+
+    def _update_ai_briefing_strip(self, selected_ais: set) -> None:
+        strip = getattr(self, "ai_briefing_strip", None)
+        if strip is None:
+            return
+        concrete = [a for a in selected_ais if a and a != "__UNASSIGNED__"]
+        if len(concrete) != 1:
+            strip.setVisible(False)
+            self._strip_ai_code = ""
+            return
+        ai_code = concrete[0]
+        self._strip_ai_code = ai_code
+        ai_lbl = self._ai_label_map.get(ai_code, f"AI {ai_code}")
+        ai_short = (ai_lbl[:48] + "…") if len(ai_lbl) > 50 else ai_lbl
+        store = getattr(self, "_summary_store", None)
+        rec = store.get_summary("ai", ai_code) if store is not None else None
+        ai_msgs = [m for m in self._all_items if ai_code in (m.get("linked_ais") or [])]
+        fresh = store.compute_freshness("ai", ai_code, ai_msgs) if store is not None else None
+        if rec is None:
+            status_txt = f"🤖 AI {ai_short}: No briefing yet ({len(ai_msgs)} msgs)"
+            self.btn_ai_strip_run.setText("✨ Generate")
+        elif fresh is not None and fresh.new_count > 0:
+            status_txt = f"🤖 AI {ai_short}: 🟡 +{fresh.new_count} new message(s)"
+            self.btn_ai_strip_run.setText(f"⚡ Update (+{fresh.new_count})")
+        else:
+            status_txt = f"🤖 AI {ai_short}: ✅ Briefing up to date"
+            self.btn_ai_strip_run.setText("🔄 Refresh")
+        self.ai_briefing_strip_lbl.setText(status_txt)
+        strip.setVisible(True)
+
+    def _on_ai_strip_action(self, *, auto_run: bool = False) -> None:
+        ai_code = str(getattr(self, "_strip_ai_code", "") or "").strip()
+        if ai_code:
+            self._open_briefings_dialog(ai_code=ai_code, auto_run=auto_run)
+
+    def _open_briefings_dialog(
+        self,
+        *,
+        ai_code: str = "",
+        selection_payload: dict = None,
+        auto_run: bool = False,
+    ) -> None:
+        from modules.emails.ui.briefings import EmailBriefingsDialog
+
+        existing = getattr(self, "_briefings_dialog", None)
+        if existing is not None:
+            try:
+                if selection_payload and selection_payload.get("messages"):
+                    existing.start_selection_briefing(
+                        title=str(selection_payload.get("title") or "Custom Selection"),
+                        messages=selection_payload.get("messages") or [],
+                        focus_prompt=str(selection_payload.get("focus_prompt") or ""),
+                        auto_run=auto_run,
+                    )
+                elif ai_code:
+                    existing.focus_ai(ai_code, auto_run=auto_run)
+                else:
+                    existing.refresh_navigation()
+                existing.setWindowState(existing.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+                existing.raise_()
+                existing.activateWindow()
+                return
+            except RuntimeError:
+                self._briefings_dialog = None
+
+        dlg = EmailBriefingsDialog(
+            tracked_db=self.tracked_db,
+            general_email_db=self.general_email_db,
+            summary_db_path=self._summary_store.db_path if getattr(self, "_summary_store", None) else None,
+            meeting_id=self.meeting_id,
+            wg=self.wg,
+            ai_label_map=self._ai_label_map,
+            followed_ais=getattr(self, "_followed_ais", set()),
+            tdoc_ai_lookup=self.tdoc_ai_lookup,
+            tdoc_meta_map=self._tdoc_meta_map,
+            open_tdoc_callback=self._open_tdoc_callback,
+            open_thread_callback=self._open_thread_callback,
+            jump_tdoc_callback=getattr(self, "_jump_tdoc_callback", None),
+            initial_ai_code=ai_code,
+            initial_selection=selection_payload,
+            auto_run_initial=auto_run,
+            parent=None,
+        )
+        dlg.briefing_saved.connect(lambda _rec: self._apply_filters())
+        self._briefings_dialog = dlg
+        dlg.finished.connect(lambda _=None: setattr(self, "_briefings_dialog", None))
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
+    def _summarize_selected_items(self, selected: list) -> None:
+        if not selected:
+            return
+        dedup: dict = {}
+        titles: list = []
+        for it in selected:
+            t = str(it.get("_primary_tdoc") or it.get("thread_title") or it.get("subject") or "").strip()
+            if t and t not in titles:
+                titles.append(t)
+            msgs = it.get("_group_messages") if it.get("_is_group") else [it]
+            for m in (msgs or []):
+                mid = str(m.get("id") or "").strip()
+                if mid:
+                    dedup[mid] = m
+        title_str = ", ".join(titles[:3]) + (f" (+{len(titles) - 3})" if len(titles) > 3 else "")
+        self._open_briefings_dialog(
+            selection_payload={
+                "title": title_str or f"{len(selected)} Selected Items",
+                "messages": list(dedup.values()),
+                "focus_prompt": "",
+            },
+            auto_run=False,
+        )
+
+    def _on_append_summary_to_notes(self, block: str) -> None:
+        if not block or not hasattr(self, "note_edit"):
+            return
+        curr = self.note_edit.toPlainText().strip()
+        merged = f"{curr}\n\n{block}" if curr else block
+        if hasattr(self, "note_frame"):
+            self.note_frame.setVisible(True)
+        if hasattr(self, "btn_toggle_note"):
+            self.btn_toggle_note.setChecked(True)
+        self.note_edit.setPlainText(merged)
+        self._note_dirty = True
+        self._flush_pending_note_save(reload_view=False)
+        notify_success(self, "Saved to Notes", "Appended AI summary to delegate notes.")
+
+    def _on_inline_summary_saved(self, _record) -> None:
+        if hasattr(self, "_refresh_summary_freshness_cache"):
+            self._refresh_summary_freshness_cache(self._active_dataset())
+        # Refresh current table badges without losing active reader state
+        for r, it in enumerate(getattr(self, "_visible_items", [])):
+            if it.get("_is_group"):
+                st_txt, st_tip = self._format_row_state_cell_text_and_tip(it)
+                cell = self.table.item(r, 0)
+                if cell is not None:
+                    cell.setText(st_txt)
+                    if st_tip:
+                        cell.setToolTip(st_tip)
+
     def _on_llm_export_clicked(self):
+        selected = list(getattr(self, "_selected_items", []) or [])
+        if len(selected) > 1:
+            self._summarize_selected_items(selected)
+            return
         it = self._current_item
         if not it:
             return
         menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+        spec = self.summary_card._active_spec() if hasattr(self, "summary_card") else resolve_effective_model_spec("leaf")
+        fresh = self.summary_card.current_freshness() if hasattr(self, "summary_card") else None
+        if fresh and fresh.has_summary and fresh.new_count > 0:
+            sum_lbl = f"⚡ Update Summary (+{fresh.new_count}) [{spec.short_badge()}]"
+        elif fresh and fresh.has_summary:
+            sum_lbl = f"🔄 Refresh Summary [{spec.short_badge()}]"
+        else:
+            sum_lbl = f"✨ Summarize Discussion [{spec.short_badge()}]"
+        act_ai_sum = menu.addAction(sum_lbl)
+        act_rebuild = None
+        if fresh and fresh.has_summary:
+            act_rebuild = menu.addAction("🔄 Full Rebuild Summary")
+
+        model_sub = menu.addMenu("⚙️ Summary Model")
+        populate_summary_model_menu(
+            model_sub,
+            role="leaf",
+            active_spec=spec,
+            on_selected=lambda s: setattr(self.summary_card, "_model_override", s) if hasattr(self, "summary_card") else None,
+            parent=self,
+        )
+        menu.addSeparator()
         act_copy_md = menu.addAction("📋 Copy Pure Markdown (for ChatGPT / Claude / Codex)")
-        act_ai_sum = menu.addAction("🤖 Summarize Discussion with Local AI (Ollama)...")
         chosen = menu.exec_(QCursor.pos())
         if chosen == act_copy_md:
             md = self._build_current_item_pure_markdown()
             if md:
                 QApplication.clipboard().setText(md)
                 notify_success(self, "Markdown Copied", "Copied clean thread Markdown to clipboard.")
-        elif chosen == act_ai_sum:
-            primary_tdoc = str(it.get("_primary_tdoc") or "").strip().upper()
-            if not primary_tdoc and it.get("linked_tdocs"):
-                primary_tdoc = extract_base_tdoc_id(it["linked_tdocs"][0])
-            label = primary_tdoc or str(it.get("thread_title") or it.get("subject") or "Thread")
-            raw_msgs = it.get("_group_messages") if it.get("_is_group") else [it]
-            emails_payload = [
-                {
-                    "id": m.get("id", ""),
-                    "subject": m.get("subject", ""),
-                    "sender_name": m.get("sender_name", ""),
-                    "company": m.get("company", ""),
-                    "date_received": m.get("date_str", ""),
-                    "body_text": m.get("clean_body") or m.get("body_text", ""),
-                }
-                for m in (raw_msgs or [])
-            ]
-            from modules.emails.ui.email_summary_dialog import EmailSummaryDialog
-
-            dlg = EmailSummaryDialog(
-                tdoc_id=label,
-                emails_data=emails_payload,
-                wg=self.wg,
-                save_callback=lambda tid, st, notes: self._sync_tdoc_user_data(
-                    tid, new_status=st, new_notes=notes
-                ),
-                parent=None,
-            )
-            self._summary_dlg = dlg
-            dlg.show()
-            dlg.raise_()
-            dlg.activateWindow()
+        elif chosen == act_ai_sum and hasattr(self, "summary_card"):
+            self.summary_card.trigger_summarize(mode="auto")
+        elif act_rebuild is not None and chosen == act_rebuild and hasattr(self, "summary_card"):
+            self.summary_card.trigger_summarize(mode="full")
 
     def _on_generate_email_statistics(self):
         if not self._all_items:

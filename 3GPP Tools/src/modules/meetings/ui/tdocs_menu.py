@@ -177,4 +177,5 @@ def handle_table_context_menu(window: Any, pos: QPoint) -> None:
         selected_rows=selected_rows,
         send_tdoc_email_callback=getattr(window, "_send_tdoc_via_email", None),
         edit_notes_callback=lambda r=row_data: window._open_interactive_notes_for_row(r),
+        open_ai_briefing_callback=getattr(window, "_open_email_briefings_dialog", None),
     )

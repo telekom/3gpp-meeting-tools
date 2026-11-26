@@ -19,10 +19,13 @@ src/modules/emails/
 │   ├── general_email_db.py / general_email_sync.py    # Unpinned WG folder + Sent Items sync (`sync_metadata` + Table.Restrict cache)
 │   ├── tracked_threads/               # Modular MAPI sync, scoped_sync, discovery & Drafts package (see tracked_threads/README.md)
 │   ├── tracked_threads_db.py / tracked_threads_service.py (shim) / tracked_threads_workers.py
+│   ├── ai_summary/                    # Incremental multi-scope `email_summaries.db` store & 2-stage Per-AI Map-Reduce (see ai_summary/README.md)
 │   ├── markdown_export/               # Modular Option A cards, Safelinks, HTML tables & quote stripping package (see markdown_export/README.md)
 │   ├── thread_markdown_exporter.py    # Re-export shim -> core/markdown_export/ package
 │   └── stats/                         # Unified email analytics (dataset_builder, plot_agenda, plot_companies, plot_delegates, plot_timeline)
 └── ui/
+    ├── ai_summary/                    # Shared `InlineEmailSummaryCard`, unified `llm_runner` model picker & defaults dialog
+    ├── briefings/                     # Modeless `EmailBriefingsDialog` for Per-AI cross-thinking & saved selections
     ├── manager_window/                # Modular EmailManagerWindow package (see manager_window/README.md)
     ├── email_window.py                # Re-export shim -> manager_window/ package
     ├── general_email_dialog.py / email_dialogs.py / email_summary_dialog.py
@@ -62,6 +65,10 @@ src/modules/emails/
   - *Row 2 (Search & Scope Filters):* `🔍 Search`, `👀 Followed AIs` (`followed_ais_helper.py`, auto-inherited from Followed/Starred WIs, Session Plan assignments, and `🔵 My TDoc` rows with per-meeting override & right-click reset), `🛑 Hide Objected`, and `AI`/`Company`/`Status`/`Source` filters.
   - *e-Meeting Signal Engine & Smart Parking (`emeeting_signals.py`, `tdoc_grouping.py`):* Extracts `<<START>>...<<END>>` blocks (`📋`), shorthand/full revision mentions (`🆕 r01/r02`), and direct-body 3GPP objection phrases (`⚠️`). Marking a Thread or TDoc `🛑 Objected` records `objected_at_rev` (`tracked_threads.db` & `user_tdocs.db`), parking it out of `🔥 Priority` unless a strictly newer revision (`r02` > `r01`) arrives (`🛑→🆕r02`).
   - *`📄 By TDoc` Mode & 2-Way `user_tdocs.db` Sync:* Groups all meeting emails by Base TDoc ID (`S2-26xxxx`) displaying `State / Signals | TDoc & Author | AI / WI | TDoc Title & Context | Email Contributors | Latest`, synchronizing `My Status`, `🛑 Objected`, and `📝 Note` live with `TDocsWindow`, alongside `📋 <<START>>` template copy, `🎯 Table` jump, `🤖 LLM && Export`, and clickable In-Thread Message Jump Strip (`jump://msg/<idx>`).
+- **Incremental Multi-Scope AI Summaries & Per-AI Briefings (`core/ai_summary/`, `ui/ai_summary/`, `ui/briefings/`):**
+  - *Unified Runner (`core.ai.llm_runner`):* Executes local Ollama and headless external CLIs (`codex exec`, `claude -p`, `gemini`) identically via `ModelSpec(provider, model, reasoning_effort)` with persisted `leaf` (fast) and `synthesis` (deep) defaults (`src/config/email_summary_config.json`).
+  - *Watermark + Covered-ID Store (`email_summaries.db`):* Tracks `cutoff_utc` + `covered_message_ids` JSON set (catching backfilled/merged messages), `incremental_hops`, optional parsed `summary-meta`, and 5-deep undo history across `thread`, `tdoc`, `selection`, and `ai` scopes.
+  - *2-Stage Per-AI Map-Reduce & Inline UI:* `EmailBriefingsDialog` reuses fresh leaf summaries and refreshes only stale leaves before cross-thinking synthesis (`Stage 2`), while `InlineEmailSummaryCard` embeds directly inside `MeetingEmailInboxDialog`, `TrackedThreadDialog`, and `TDocEmailsDialog` alongside Inbox freshness badges (`✨` / `✨+N`), contextual 1-AI strip, and multi-select summarization.
 
 ## 4. URL Safety, Drafts Caching, Quote Stripping & Viewer Ergonomics
 

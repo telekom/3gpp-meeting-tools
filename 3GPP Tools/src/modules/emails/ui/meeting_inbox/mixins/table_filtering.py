@@ -149,6 +149,19 @@ class InboxTableFilteringMixin:
         if sig.get("has_objection"):
             snips = sig.get("objection_snippets") or ([sig["objection_snippet"]] if sig.get("objection_snippet") else [])
             st_tip.append("⚠️ Objection keyword(s) detected in email body" + (":\n  " + "\n  ".join(snips[:3]) if snips else ""))
+        if it.get("_is_group") and hasattr(self, "_resolve_item_summary_scope") and getattr(self, "_summary_store", None) is not None:
+            scope, scope_msgs, _ = self._resolve_item_summary_scope(it)
+            cache = getattr(self, "_summary_freshness_cache", {})
+            ckey = f"{scope.scope_type}:{scope.scope_key}"
+            fresh = cache.get(ckey)
+            if fresh is not None and fresh.has_summary:
+                sum_badge = f"✨+{fresh.new_count}" if fresh.new_count > 0 else "✨"
+                state_txt = f"{state_txt} {sum_badge}".strip()
+                st_tip.append(
+                    f"✨ AI Summary: +{fresh.new_count} new message(s)"
+                    if fresh.new_count > 0
+                    else f"✨ AI Summary: Up to date ({fresh.covered_count} msgs)"
+                )
         if u_notes:
             preview_n = (u_notes[:180] + "…") if len(u_notes) > 180 else u_notes
             st_tip.append(f"Comment: {preview_n}")
@@ -188,6 +201,8 @@ class InboxTableFilteringMixin:
         source_filter = (self.source_combo.currentData() or "").strip()
 
         dataset = self._active_dataset()
+        if hasattr(self, "_refresh_summary_freshness_cache"):
+            self._refresh_summary_freshness_cache(dataset)
         visible: List[dict] = []
         for it in dataset:
             if not self._item_matches_mode(it, mode, cutoff):
@@ -389,4 +404,6 @@ class InboxTableFilteringMixin:
                 or mode in ("FLAGGED", "PRIORITY")
             ),
         )
+        if hasattr(self, "_update_ai_briefing_strip"):
+            self._update_ai_briefing_strip(selected_ais if filter_ai else set())
         self._on_selection_changed()

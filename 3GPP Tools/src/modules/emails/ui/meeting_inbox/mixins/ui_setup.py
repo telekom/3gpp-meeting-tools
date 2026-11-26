@@ -22,6 +22,7 @@ from core.ui.flow_layout import FlowLayout
 from core.ui.font_scale import bind_reader_zoom_settings, scale_px
 from core.ui.theme import C
 from modules.emails.core.thread_markdown_exporter import apply_email_reader_document_style
+from modules.emails.ui.ai_summary import InlineEmailSummaryCard
 from modules.meetings.ui.tdocs_dialogs import MY_STATUS_OPTIONS
 from modules.meetings.ui.topic_pills import TagCloudWidget
 from ..widgets import (
@@ -83,6 +84,31 @@ class InboxUiSetupMixin:
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(4)
+
+        # Slim Contextual Per-AI Briefing Strip (visible ONLY when exactly 1 concrete AI is filtered)
+        self.ai_briefing_strip = QFrame(left_widget)
+        self.ai_briefing_strip.setObjectName("InboxAiBriefingStrip")
+        self.ai_briefing_strip.setStyleSheet(
+            f"#InboxAiBriefingStrip {{ background-color: {C.INFO_SOFT}; border: 1px solid {C.INFO_BORDER}; border-radius: 5px; }}"
+        )
+        ai_strip_lay = QHBoxLayout(self.ai_briefing_strip)
+        ai_strip_lay.setContentsMargins(8, 3, 8, 3)
+        ai_strip_lay.setSpacing(6)
+        self.ai_briefing_strip_lbl = QLabel("", self.ai_briefing_strip)
+        self.ai_briefing_strip_lbl.setStyleSheet(f"color: {C.INFO_DARK}; font-size: 11px; font-weight: 600;")
+        ai_strip_lay.addWidget(self.ai_briefing_strip_lbl, 1)
+        self.btn_ai_strip_open = QPushButton("📖 Open", self.ai_briefing_strip)
+        self.btn_ai_strip_open.setCursor(Qt.PointingHandCursor)
+        self.btn_ai_strip_open.setStyleSheet(get_inbox_toolbar_button_qss(compact=True))
+        self.btn_ai_strip_open.clicked.connect(lambda _=False: self._on_ai_strip_action(auto_run=False))
+        ai_strip_lay.addWidget(self.btn_ai_strip_open)
+        self.btn_ai_strip_run = QPushButton("⚡ Update", self.ai_briefing_strip)
+        self.btn_ai_strip_run.setCursor(Qt.PointingHandCursor)
+        self.btn_ai_strip_run.setStyleSheet(get_inbox_toolbar_button_qss(compact=True))
+        self.btn_ai_strip_run.clicked.connect(lambda _=False: self._on_ai_strip_action(auto_run=True))
+        ai_strip_lay.addWidget(self.btn_ai_strip_run)
+        self.ai_briefing_strip.setVisible(False)
+        left_layout.addWidget(self.ai_briefing_strip)
 
         self.table = _InboxTableWidget(0, 6, left_widget)
         self.table.setHorizontalHeaderLabels([
@@ -405,12 +431,21 @@ class InboxUiSetupMixin:
 
         right_layout.addWidget(act_widget)
 
-        self.preview_browser = QTextBrowser()
+        self.detail_reader_splitter = QSplitter(Qt.Vertical, right_widget)
+        self.detail_reader_splitter.setChildrenCollapsible(False)
+
+        self.summary_card = InlineEmailSummaryCard(self.detail_reader_splitter, settings_key="inbox_summary_expanded")
+        self.summary_card.anchor_clicked.connect(self._on_anchor_clicked)
+        self.summary_card.append_to_notes_requested.connect(self._on_append_summary_to_notes)
+        self.summary_card.summary_saved.connect(self._on_inline_summary_saved)
+
+        self.preview_browser = QTextBrowser(self.detail_reader_splitter)
         self.preview_browser.setOpenLinks(False)
         apply_email_reader_document_style(self.preview_browser)
         self.preview_browser.anchorClicked.connect(self._on_anchor_clicked)
         bind_reader_zoom_settings(self.preview_browser, self._settings, key="zoom_steps")
-        right_layout.addWidget(self.preview_browser, 1)
+        self.detail_reader_splitter.setSizes([190, 420])
+        right_layout.addWidget(self.detail_reader_splitter, 1)
 
         self.splitter.addWidget(left_widget)
         self.splitter.addWidget(right_widget)

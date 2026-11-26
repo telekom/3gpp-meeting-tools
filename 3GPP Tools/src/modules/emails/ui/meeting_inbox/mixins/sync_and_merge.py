@@ -106,6 +106,12 @@ class InboxSyncAndMergeMixin:
             menu.addSeparator()
             act_ctx = menu.addAction(self.btn_open_context.text())
             act_ctx.triggered.connect(self._on_open_context)
+        if len(targets) > 1:
+            act_sum_sel = menu.addAction(f"🤖 Summarize Selection ({len(targets)})...")
+            act_sum_sel.triggered.connect(lambda _=False: self._summarize_selected_items(targets))
+        elif len(targets) == 1:
+            act_sum_one = menu.addAction("✨ Summarize / Update AI Summary")
+            act_sum_one.triggered.connect(lambda _=False: self.summary_card.trigger_summarize(mode="auto") if hasattr(self, "summary_card") else None)
         if hasattr(self, "btn_jump_tdoc_table") and self.btn_jump_tdoc_table.isEnabled():
             act_jmp = menu.addAction("🎯 Show TDoc in Meeting Table")
             act_jmp.triggered.connect(self._on_jump_tdoc_table_clicked)

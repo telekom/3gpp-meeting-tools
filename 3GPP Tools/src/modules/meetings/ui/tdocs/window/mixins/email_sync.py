@@ -29,6 +29,10 @@ class EmailSyncMixin:
         act.setToolTip(
             "Open the unified Email Triage Cockpit combining all unread, flagged, and recent emails across Tracked Threads and TDoc Emails."
         )
+        act_brief = email_menu.addAction("🤖 AI Email Briefings...", lambda: self._open_email_briefings_dialog())
+        act_brief.setToolTip(
+            "Open Per-AI cross-thinking email briefings and saved selection summaries for this meeting."
+        )
         email_menu.addSeparator()
         act = email_menu.addAction(
             "⚡ Sync New Emails Now",

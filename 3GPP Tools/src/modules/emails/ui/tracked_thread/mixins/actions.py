@@ -17,7 +17,9 @@ from core.ai.cli_launcher import (
 from core.ui.toast import notify_info, notify_success, notify_toast
 from modules.emails.core.thread_markdown_exporter import (
     export_thread_to_markdown,
+    find_heading_block_for_message_index,
     is_cacheable_document_url,
+    scroll_browser_to_block,
 )
 from modules.emails.core.tracked_threads_service import (
     cache_all_thread_documents_and_attachments,
@@ -70,8 +72,35 @@ class TrackedThreadActionsMixin:
         if hasattr(os, "startfile"):
             os.startfile(str(folder.resolve()))
 
+    def _on_append_summary_to_notes(self, block: str):
+        if not block:
+            return
+        thread = self.db.get_thread(self.thread_id) or {}
+        curr = str(thread.get("user_notes") or "").strip()
+        merged = f"{curr}\n\n{block}" if curr else block
+        self.db.update_thread_annotations(
+            self.thread_id,
+            user_status=str(thread.get("user_status") or "⚪ Neutral"),
+            user_notes=merged,
+            user_tags=list(thread.get("user_tags") or []),
+        )
+        self._load_data()
+        self.thread_changed.emit()
+        notify_success(self, "Saved to Notes", "Appended AI summary to thread delegate notes.")
+
     def _on_anchor_clicked(self, url: QUrl):
         scheme = url.scheme().lower()
+        if scheme == "jump":
+            path_parts = [p for p in url.path().strip("/").split("/") if p]
+            raw_idx = path_parts[0] if path_parts else url.host()
+            try:
+                msg_idx = int(raw_idx)
+                blk = find_heading_block_for_message_index(self.browser, msg_idx)
+                if blk is not None:
+                    scroll_browser_to_block(self.browser, blk)
+            except Exception:
+                pass
+            return
         if scheme == "tdoc" and self._open_tdoc_callback:
             target_tdoc = url.path().strip() or url.toString().split(":", 1)[1].strip()
             if target_tdoc:

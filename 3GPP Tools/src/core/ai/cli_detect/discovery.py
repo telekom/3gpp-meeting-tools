@@ -255,6 +255,8 @@ def discover_cli_models(
     if cid == "claude":
         default_model = ""
         default_effort = ""
+        use_bedrock = False
+        bedrock_targets: dict = {}
         cfg_file = home / ".claude" / "settings.json"
         if cfg_file.is_file():
             try:
@@ -262,11 +264,34 @@ def discover_cli_models(
                 if isinstance(data, dict):
                     default_model = str(data.get("model") or "").strip()
                     default_effort = str(data.get("effortLevel") or data.get("effort") or "").strip().lower()
+                    env_map = data.get("env") if isinstance(data.get("env"), dict) else {}
+                    use_bedrock = str(env_map.get("CLAUDE_CODE_USE_BEDROCK") or "").strip() in ("1", "true", "yes")
+                    for alias, env_key in (
+                        ("sonnet", "ANTHROPIC_DEFAULT_SONNET_MODEL"),
+                        ("opus", "ANTHROPIC_DEFAULT_OPUS_MODEL"),
+                        ("haiku", "ANTHROPIC_DEFAULT_HAIKU_MODEL"),
+                    ):
+                        target = str(env_map.get(env_key) or "").strip()
+                        if target:
+                            bedrock_targets[alias] = target
+                            use_bedrock = True
             except Exception:
                 pass
-        models = [CliModelOption(s, d, lvls, deff) for s, d, lvls, deff in _CURATED_CLAUDE_MODELS]
+        if use_bedrock:
+            alias_defs = (
+                ("sonnet", "Claude Sonnet", ("low", "medium", "high", "xhigh", "max"), "medium"),
+                ("opus", "Claude Opus", ("low", "medium", "high", "xhigh", "max"), "medium"),
+                ("haiku", "Claude Haiku", ("low", "medium", "high"), "low"),
+            )
+            models = []
+            for slug, base_disp, lvls, deff in alias_defs:
+                target = bedrock_targets.get(slug, "")
+                disp = f"{base_disp} ({slug} → {target})" if target else f"{base_disp} (alias)"
+                models.append(CliModelOption(slug, disp, lvls, deff))
+        else:
+            models = [CliModelOption(s, d, lvls, deff) for s, d, lvls, deff in _CURATED_CLAUDE_MODELS]
         if default_model and not any(m.slug == default_model for m in models):
-            models.insert(0, CliModelOption(default_model, default_model, ("low", "medium", "high"), default_effort))
+            models.insert(0, CliModelOption(default_model, default_model, ("low", "medium", "high", "xhigh", "max"), default_effort))
         return models, default_model, default_effort
 
     if cid == "gemini":

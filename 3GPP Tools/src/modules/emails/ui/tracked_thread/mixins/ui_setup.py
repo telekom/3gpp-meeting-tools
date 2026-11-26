@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QMenu,
     QPushButton,
     QSizePolicy,
+    QSplitter,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -19,9 +20,11 @@ from PyQt5.QtWidgets import (
 
 from core.ai.cli_detector import detect_cli_agents, format_active_model_badge
 from core.ai.cli_launcher import open_mcp_agent_setup_dialog
+from core.ai.llm_runner import resolve_effective_model_spec
 from core.ui.flow_layout import FlowLayout
 from core.ui.font_scale import bind_reader_zoom_settings, create_help_tips_pill, scale_px
 from modules.emails.core.thread_markdown_exporter import apply_email_reader_document_style
+from modules.emails.ui.ai_summary import InlineEmailSummaryCard, populate_summary_model_menu
 from modules.emails.ui.sync_progress_bar import AsyncSyncProgressBar
 from modules.meetings.ui.tdocs_components import CheckableComboBox
 from modules.meetings.ui.topic_pills import TagCloudWidget
@@ -266,13 +269,21 @@ class TrackedThreadUiSetupMixin:
         filter_row.addWidget(self.help_pill_btn)
         layout.addLayout(filter_row)
 
-        # Timeline browser (supports Ctrl+Wheel zoom and Ctrl+0 reset)
-        self.browser = QTextBrowser()
+        # Collapsible AI Summary Card + Timeline browser in vertical splitter
+        self.reader_splitter = QSplitter(Qt.Vertical, self)
+        self.reader_splitter.setChildrenCollapsible(False)
+
+        self.summary_card = InlineEmailSummaryCard(self.reader_splitter, settings_key="tracked_thread_summary_expanded")
+        self.summary_card.anchor_clicked.connect(self._on_anchor_clicked)
+        self.summary_card.append_to_notes_requested.connect(self._on_append_summary_to_notes)
+
+        self.browser = QTextBrowser(self.reader_splitter)
         self.browser.setOpenLinks(False)
         apply_email_reader_document_style(self.browser)
         self.browser.anchorClicked.connect(self._on_anchor_clicked)
         bind_reader_zoom_settings(self.browser, self._settings, key="zoom_steps")
-        layout.addWidget(self.browser, 1)
+        self.reader_splitter.setSizes([190, 480])
+        layout.addWidget(self.reader_splitter, 1)
 
     def _on_order_changed(self):
         self._settings.setValue("newest_first", bool(self.order_combo.currentData()))
@@ -315,6 +326,31 @@ class TrackedThreadUiSetupMixin:
         menu = self.llm_export_menu
         menu.clear()
         menu.setToolTipsVisible(True)
+
+        if hasattr(self, "summary_card"):
+            spec = self.summary_card._active_spec()
+            fresh = self.summary_card.current_freshness()
+            if fresh and fresh.has_summary and fresh.new_count > 0:
+                sum_lbl = f"⚡ Update Summary (+{fresh.new_count}) [{spec.short_badge()}]"
+            elif fresh and fresh.has_summary:
+                sum_lbl = f"🔄 Refresh Summary [{spec.short_badge()}]"
+            else:
+                sum_lbl = f"✨ Summarize Thread [{spec.short_badge()}]"
+            act_sum = menu.addAction(sum_lbl)
+            act_sum.triggered.connect(lambda _=False: self.summary_card.trigger_summarize(mode="auto"))
+            if fresh and fresh.has_summary:
+                act_reb = menu.addAction("🔄 Full Rebuild Summary")
+                act_reb.triggered.connect(lambda _=False: self.summary_card.trigger_summarize(mode="full"))
+            model_sub = menu.addMenu("⚙️ Summary Model")
+            populate_summary_model_menu(
+                model_sub,
+                role="leaf",
+                active_spec=spec,
+                on_selected=lambda s: setattr(self.summary_card, "_model_override", s),
+                parent=self,
+            )
+            menu.addSeparator()
+
         try:
             statuses = detect_cli_agents()
         except Exception:

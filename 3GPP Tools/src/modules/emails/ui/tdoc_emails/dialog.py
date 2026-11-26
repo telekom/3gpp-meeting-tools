@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional
 from PyQt5.QtCore import QSettings, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QDialog
 
+from modules.emails.core.ai_summary import EmailSummaryStore
 from modules.emails.core.general_email_db import GeneralEmailDatabase
 from modules.emails.ui.tdoc_emails.mixins import (
     TDocEmailsActionsMixin,
@@ -68,6 +69,10 @@ class TDocEmailsDialog(
         self._note_save_timer.setInterval(450)
         self._note_save_timer.timeout.connect(self._flush_pending_note_save)
         self.db = GeneralEmailDatabase(db_path)
+        db_p = getattr(self.db, "db_path", None)
+        self._summary_store: Optional[EmailSummaryStore] = (
+            EmailSummaryStore(Path(db_p).parent / "email_summaries.db") if db_p else None
+        )
         self._summary_dialog = None
         self.emails: List[dict] = []
         self._filtered_emails: List[dict] = []
@@ -105,6 +110,11 @@ class TDocEmailsDialog(
                 self._settings.setValue("zoom_steps", int(self.browser.property("_reader_zoom_steps") or 0))
         except Exception:
             pass
+        if hasattr(self, "summary_card"):
+            try:
+                self.summary_card.shutdown_worker()
+            except Exception:
+                pass
         if getattr(self, "_summary_dialog", None):
             try:
                 self._summary_dialog.close()

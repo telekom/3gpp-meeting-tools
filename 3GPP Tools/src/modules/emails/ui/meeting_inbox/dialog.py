@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from PyQt5.QtCore import QSettings, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QDialog, QWidget
 
+from modules.emails.core.ai_summary import EmailSummaryStore, SummaryFreshness
 from modules.emails.core.sync_watermark import (
     DEFAULT_LIVE_SYNC_INTERVAL_MS,
     load_meeting_live_sync_enabled,
@@ -73,6 +75,13 @@ class MeetingEmailInboxDialog(
         self._meeting_end = str(meeting_end or "").strip()
         self._sync_worker = None
         self._stats_thread = None
+        self._briefings_dialog = None
+        self._summary_freshness_cache: Dict[str, SummaryFreshness] = {}
+        self._summary_model_override = None
+        base_db_path = getattr(tracked_db, "db_path", None) or getattr(general_email_db, "db_path", None)
+        self._summary_store: Optional[EmailSummaryStore] = (
+            EmailSummaryStore(Path(base_db_path).parent / "email_summaries.db") if base_db_path else None
+        )
         self.tdoc_ai_lookup = {str(k).upper(): str(v) for k, v in (tdoc_ai_lookup or {}).items()}
         self._tdoc_meta_map = tdoc_meta_map or {}
         self._agenda_map = agenda_map

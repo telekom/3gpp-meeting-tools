@@ -346,6 +346,14 @@ def build_inbox_top_toolbar(dialog) -> QFrame:
     dialog.btn_stats.clicked.connect(dialog._on_generate_email_statistics)
     tools_lay.addWidget(dialog.btn_stats)
 
+    dialog.btn_briefings = QPushButton("🤖 Briefings", tools_box)
+    dialog.btn_briefings.setCursor(Qt.PointingHandCursor)
+    dialog.btn_briefings.setMinimumHeight(ctrl_h)
+    dialog.btn_briefings.setStyleSheet(get_inbox_toolbar_button_qss())
+    dialog.btn_briefings.setToolTip("Open Per-AI cross-thinking briefings and saved selection summaries.")
+    dialog.btn_briefings.clicked.connect(lambda _=False: dialog._open_briefings_dialog())
+    tools_lay.addWidget(dialog.btn_briefings)
+
     dialog.btn_layout_toggle = QPushButton("⬒ List on Top", tools_box)
     dialog.btn_layout_toggle.setCursor(Qt.PointingHandCursor)
     dialog.btn_layout_toggle.setMinimumHeight(ctrl_h)

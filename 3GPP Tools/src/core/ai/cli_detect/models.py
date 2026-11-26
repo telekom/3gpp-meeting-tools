@@ -20,19 +20,19 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 }
 
 _FALLBACK_CODEX_MODELS: Tuple[Tuple[str, str, Tuple[str, ...], str], ...] = (
+    ("gpt-6.2-sol", "GPT-6.2-Sol", ("low", "medium", "high", "xhigh", "max", "ultra"), "medium"),
+    ("gpt-6.2-astra", "GPT-6.2-Astra", ("low", "medium", "high", "xhigh", "max", "ultra"), "low"),
     ("gpt-6.1-sol", "GPT-6.1-Sol", ("low", "medium", "high", "xhigh", "max", "ultra"), "medium"),
     ("gpt-6-astra", "GPT-6-Astra", ("low", "medium", "high", "xhigh", "max", "ultra"), "low"),
     ("gpt-6.1-terra", "GPT-6.1 Terra", ("low", "medium", "high", "xhigh", "max", "ultra"), "low"),
-    ("gpt-6-sol", "GPT-6-Sol", ("low", "medium", "high", "xhigh", "max", "ultra"), "medium"),
-    ("gpt-5.6-sol", "GPT-5.6-Sol", ("low", "medium", "high", "xhigh", "max", "ultra"), "medium"),
 )
 
 _CURATED_CLAUDE_MODELS: Tuple[Tuple[str, str, Tuple[str, ...], str], ...] = (
-    ("sonnet", "Claude Sonnet (alias)", ("low", "medium", "high"), "medium"),
-    ("opus", "Claude Opus (alias)", ("low", "medium", "high"), "medium"),
-    ("haiku", "Claude Haiku (alias)", ("low", "medium"), "low"),
-    ("claude-sonnet-4-5", "Claude Sonnet 4.5", ("low", "medium", "high"), "medium"),
-    ("claude-opus-4-5", "Claude Opus 4.5", ("low", "medium", "high"), "medium"),
+    ("sonnet", "Claude Sonnet (alias)", ("low", "medium", "high", "xhigh", "max"), "medium"),
+    ("opus", "Claude Opus (alias)", ("low", "medium", "high", "xhigh", "max"), "medium"),
+    ("haiku", "Claude Haiku (alias)", ("low", "medium", "high"), "low"),
+    ("claude-sonnet-4-5", "Claude Sonnet 4.5", ("low", "medium", "high", "xhigh", "max"), "medium"),
+    ("claude-opus-4-5", "Claude Opus 4.5", ("low", "medium", "high", "xhigh", "max"), "medium"),
 )
 
 _CURATED_GEMINI_MODELS: Tuple[Tuple[str, str, Tuple[str, ...], str], ...] = (
@@ -92,7 +92,7 @@ def _build_codex_args(
     if model:
         args.extend(["-m", model])
     if reasoning_effort:
-        args.extend(["-c", f"model_reasoning_effort={reasoning_effort}"])
+        args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
     if prompt:
         args.append(prompt)
     return args

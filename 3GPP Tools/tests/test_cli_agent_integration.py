@@ -113,7 +113,7 @@ class TestCliDetector(unittest.TestCase):
 
             self.assertEqual(
                 build_interactive_cli_args("codex", "codex.exe", "hello", model="gpt-6.1-sol", reasoning_effort="low"),
-                ["codex.exe", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=low", "hello"],
+                ["codex.exe", "-m", "gpt-6.1-sol", "-c", 'model_reasoning_effort="low"', "hello"],
             )
             self.assertEqual(
                 build_interactive_cli_args("claude", "claude.exe", "hello", model="sonnet", reasoning_effort="high"),
@@ -187,6 +187,30 @@ class TestCliDetector(unittest.TestCase):
         self.assertTrue(check_mcp_configured("codex", home_dir=self.tmp_path))
         self.assertTrue(check_mcp_configured("gemini", home_dir=self.tmp_path))
         self.assertFalse(check_mcp_configured("claude", home_dir=self.tmp_path))
+
+    def test_discover_claude_bedrock_models_from_settings(self):
+        claude_dir = self.tmp_path / ".claude"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / "settings.json").write_text(
+            json.dumps({
+                "model": "sonnet",
+                "effortLevel": "medium",
+                "env": {
+                    "CLAUDE_CODE_USE_BEDROCK": "1",
+                    "ANTHROPIC_DEFAULT_SONNET_MODEL": "eu.anthropic.claude-sonnet-5-5",
+                    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "eu.anthropic.claude-haiku-5-5",
+                },
+            }),
+            encoding="utf-8",
+        )
+        models, def_model, def_effort = cli_detector.discover_cli_models("claude", home_dir=self.tmp_path)
+        slugs = [m.slug for m in models]
+        self.assertEqual(slugs, ["sonnet", "opus", "haiku"])
+        self.assertNotIn("claude-sonnet-4-5", slugs)
+        self.assertIn("eu.anthropic.claude-sonnet-5-5", models[0].display_name)
+        self.assertIn("xhigh", models[0].reasoning_levels)
+        self.assertEqual(def_model, "sonnet")
+        self.assertEqual(def_effort, "medium")
 
 
 class TestCliLauncher(unittest.TestCase):

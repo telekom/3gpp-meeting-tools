@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (
     QMenu,
     QPushButton,
     QSizePolicy,
+    QSplitter,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -23,6 +24,7 @@ from core.ui.flow_layout import FlowLayout
 from core.ui.font_scale import bind_reader_zoom_settings, create_help_tips_pill, scale_px
 from core.ui.theme import C
 from modules.emails.core.thread_markdown_exporter import apply_email_reader_document_style
+from modules.emails.ui.ai_summary import InlineEmailSummaryCard
 from modules.emails.ui.meeting_email_inbox_dialog import (
     _NotePlainTextEdit,
     get_compact_action_bar_qss,
@@ -311,10 +313,18 @@ class TDocEmailsUiSetupMixin:
         # Initialize My Status & Comment bar from passed TDoc metadata
         self._populate_tdoc_status_and_note()
 
-        # Row 4: Continuous Timeline Browser
-        self.browser = QTextBrowser()
+        # Row 4: Collapsible AI Summary Card + Continuous Timeline Browser
+        self.reader_splitter = QSplitter(Qt.Vertical, self)
+        self.reader_splitter.setChildrenCollapsible(False)
+
+        self.summary_card = InlineEmailSummaryCard(self.reader_splitter, settings_key="tdoc_emails_summary_expanded")
+        self.summary_card.anchor_clicked.connect(self._on_anchor_clicked)
+        self.summary_card.append_to_notes_requested.connect(self._on_append_summary_to_notes)
+
+        self.browser = QTextBrowser(self.reader_splitter)
         self.browser.setOpenLinks(False)
         apply_email_reader_document_style(self.browser)
         self.browser.anchorClicked.connect(self._on_anchor_clicked)
         bind_reader_zoom_settings(self.browser, self._settings, key="zoom_steps")
-        layout.addWidget(self.browser, 1)
+        self.reader_splitter.setSizes([190, 480])
+        layout.addWidget(self.reader_splitter, 1)

@@ -1,5 +1,8 @@
 """Data loading, filtering, Markdown timeline rendering, and unread navigation mixin."""
 
+from pathlib import Path
+
+from modules.emails.core.ai_summary import SummaryScope
 from modules.emails.core.thread_markdown_exporter import (
     export_thread_to_markdown,
     find_unread_heading_blocks,
@@ -54,6 +57,22 @@ class TrackedThreadRenderingMixin:
         finally:
             self._loading = False
         self._render_messages()
+        if hasattr(self, "summary_card"):
+            msgs = self.db.get_thread_messages(self.thread_id)
+            store = getattr(self, "_summary_store", None)
+            mdir = store.db_path.parent.parent if store is not None else None
+            self.summary_card.bind_scope(
+                store,
+                SummaryScope(
+                    scope_type="thread",
+                    scope_key=self.thread_id,
+                    title=str(thread.get("title") or self.thread_id),
+                ),
+                msgs,
+                meeting_dir=mdir,
+                wg=str(thread.get("wg") or ""),
+                meeting_id=str(thread.get("meeting_id") or ""),
+            )
 
     def _render_messages(self):
         thread = self.db.get_thread(self.thread_id)

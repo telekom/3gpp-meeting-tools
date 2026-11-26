@@ -25,7 +25,9 @@ from modules.emails.core.outlook_client import OutlookClient
 from modules.emails.core.thread_markdown_exporter import (
     export_thread_to_markdown,
     extract_thread_document_urls,
+    find_heading_block_for_message_index,
     is_cacheable_document_url,
+    scroll_browser_to_block,
 )
 from modules.emails.core.tracked_threads_service import (
     cache_and_open_thread_document_url,
@@ -34,6 +36,7 @@ from modules.emails.core.tracked_threads_service import (
     open_outlook_message,
     reply_to_outlook_message,
 )
+from modules.emails.ui.ai_summary import populate_summary_model_menu
 from modules.emails.ui.email_summary_dialog import EmailSummaryDialog
 
 
@@ -142,9 +145,33 @@ class TDocEmailsActionsMixin:
         menu.clear()
         menu.setToolTipsVisible(True)
 
-        act_ai_sum = menu.addAction("🤖 AI Summarize Discussion (Ollama)...")
-        act_ai_sum.setToolTip("Generate a structured stance summary using local Ollama and optionally append it to TDoc My Notes.")
-        act_ai_sum.triggered.connect(self._on_ai_summarize_clicked)
+        if hasattr(self, "summary_card"):
+            spec = self.summary_card._active_spec()
+            fresh = self.summary_card.current_freshness()
+            if fresh and fresh.has_summary and fresh.new_count > 0:
+                sum_lbl = f"⚡ Update Summary (+{fresh.new_count}) [{spec.short_badge()}]"
+            elif fresh and fresh.has_summary:
+                sum_lbl = f"🔄 Refresh Summary [{spec.short_badge()}]"
+            else:
+                sum_lbl = f"✨ Summarize TDoc Emails [{spec.short_badge()}]"
+            act_ai_sum = menu.addAction(sum_lbl)
+            act_ai_sum.setToolTip("Generate or incrementally update an AI summary right inside this viewer.")
+            act_ai_sum.triggered.connect(lambda _=False: self.summary_card.trigger_summarize(mode="auto"))
+            if fresh and fresh.has_summary:
+                act_reb = menu.addAction("🔄 Full Rebuild Summary")
+                act_reb.triggered.connect(lambda _=False: self.summary_card.trigger_summarize(mode="full"))
+            model_sub = menu.addMenu("⚙️ Summary Model")
+            populate_summary_model_menu(
+                model_sub,
+                role="leaf",
+                active_spec=spec,
+                on_selected=lambda s: setattr(self.summary_card, "_model_override", s),
+                parent=self,
+            )
+        else:
+            act_ai_sum = menu.addAction("🤖 AI Summarize Discussion (Ollama)...")
+            act_ai_sum.setToolTip("Generate a structured stance summary using local Ollama and optionally append it to TDoc My Notes.")
+            act_ai_sum.triggered.connect(self._on_ai_summarize_clicked)
 
         menu.addSeparator()
         try:
@@ -269,8 +296,33 @@ class TDocEmailsActionsMixin:
         )
         self._summary_dialog.show()
 
+    def _on_append_summary_to_notes(self, block: str):
+        if not block or not hasattr(self, "note_edit"):
+            return
+        curr = self.note_edit.toPlainText().strip()
+        merged = f"{curr}\n\n{block}" if curr else block
+        if hasattr(self, "note_frame"):
+            self.note_frame.setVisible(True)
+        if hasattr(self, "btn_toggle_note"):
+            self.btn_toggle_note.setChecked(True)
+        self.note_edit.setPlainText(merged)
+        self._note_dirty = True
+        self._flush_pending_note_save()
+        notify_success(self, "Saved to Notes", "Appended AI summary to TDoc delegate notes.")
+
     def _on_anchor_clicked(self, url: QUrl):
         scheme = url.scheme().lower()
+        if scheme == "jump":
+            path_parts = [p for p in url.path().strip("/").split("/") if p]
+            raw_idx = path_parts[0] if path_parts else url.host()
+            try:
+                msg_idx = int(raw_idx)
+                blk = find_heading_block_for_message_index(self.browser, msg_idx)
+                if blk is not None:
+                    scroll_browser_to_block(self.browser, blk)
+            except Exception:
+                pass
+            return
         if scheme == "tdoc":
             target_tdoc = url.path().strip() or url.toString().split(":", 1)[1].strip()
             if target_tdoc:

@@ -280,6 +280,14 @@ class InboxLayoutAndSettingsMixin:
             if getattr(self, "_stats_thread", None) and self._stats_thread.isRunning():
                 self._stats_thread.requestInterruption()
                 self._stats_thread.wait(500)
+            if hasattr(self, "summary_card"):
+                self.summary_card.shutdown_worker()
+            if getattr(self, "_briefings_dialog", None) is not None:
+                try:
+                    self._briefings_dialog.close()
+                except Exception:
+                    pass
+                self._briefings_dialog = None
             self._settings.setValue("geometry", self.saveGeometry())
             self._settings.setValue("layout_orientation", self._layout_orientation)
             if hasattr(self, "splitter"):

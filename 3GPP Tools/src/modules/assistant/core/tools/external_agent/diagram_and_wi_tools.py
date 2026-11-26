@@ -396,4 +396,9 @@ def _handle_work_items_and_emails(
             "emails": results[:limit],
         }
 
+    if action in ("list_email_summaries", "get_email_summary", "save_email_summary"):
+        from .email_summary_tools import handle_email_summary_mcp_action
+
+        return handle_email_summary_mcp_action(action, args, specs_db_path=specs_db_path)
+
     return {"error": f"Unsupported action '{action}' for work_items_and_emails."}

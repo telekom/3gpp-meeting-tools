@@ -77,6 +77,8 @@ class InboxDetailRenderingMixin:
             self.btn_jump_tdoc_table.setVisible(False)
         if hasattr(self, "detail_status_combo"):
             self.detail_status_combo.setEnabled(False)
+        if hasattr(self, "summary_card"):
+            self.summary_card.clear_scope()
         self._update_selected_sync_controls(0)
 
     def _on_toggle_assign_bar(self, checked: bool):
@@ -204,11 +206,17 @@ class InboxDetailRenderingMixin:
         self._populate_status_and_note_bars(selected)
 
         self.btn_mark_next.setEnabled(False)
-        for bname in ("btn_reply", "btn_copy_start_template", "btn_open_outlook", "btn_open_context", "btn_jump_tdoc_table", "btn_llm_export"):
+        for bname in ("btn_reply", "btn_copy_start_template", "btn_open_outlook", "btn_open_context", "btn_jump_tdoc_table"):
             b = getattr(self, bname, None)
             if b is not None:
                 b.setEnabled(False)
                 b.setVisible(False)
+        if hasattr(self, "btn_llm_export"):
+            self.btn_llm_export.setEnabled(True)
+            self.btn_llm_export.setVisible(True)
+            self.btn_llm_export.setText(f"🤖 Summarize ({len(selected)})")
+        if hasattr(self, "summary_card"):
+            self.summary_card.clear_scope()
         self.btn_toggle_read.setEnabled(True)
         self.btn_toggle_read.setText(
             f"✓ Read ({unread_cnt})" if unread_cnt > 0 else f"🔵 Unread ({len(selected)})"
@@ -373,6 +381,24 @@ class InboxDetailRenderingMixin:
         if hasattr(self, "btn_llm_export"):
             self.btn_llm_export.setEnabled(True)
             self.btn_llm_export.setVisible(True)
+            self.btn_llm_export.setText("🤖 LLM && Export")
+
+        if hasattr(self, "summary_card") and hasattr(self, "_resolve_item_summary_scope"):
+            scope, scope_msgs, tmeta = self._resolve_item_summary_scope(it)
+            mdir = (
+                self._summary_store.db_path.parent.parent
+                if getattr(self, "_summary_store", None) is not None
+                else None
+            )
+            self.summary_card.bind_scope(
+                getattr(self, "_summary_store", None),
+                scope,
+                scope_msgs,
+                meeting_dir=mdir,
+                wg=self.wg,
+                meeting_id=self.meeting_id,
+                tdoc_meta=tmeta,
+            )
 
         self.btn_open_context.setEnabled(has_context)
         self.btn_open_context.setVisible(has_context)

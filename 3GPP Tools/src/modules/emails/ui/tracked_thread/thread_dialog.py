@@ -1,10 +1,12 @@
 """Main TrackedThreadDialog composition and lifecycle handlers."""
 
+from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from PyQt5.QtCore import QSettings, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QDialog, QWidget
 
+from modules.emails.core.ai_summary import EmailSummaryStore
 from modules.emails.core.tracked_threads_db import TrackedThreadsDatabase
 from modules.emails.core.tracked_threads_workers import SingleThreadRefreshWorker
 
@@ -64,6 +66,10 @@ class TrackedThreadDialog(
         self._unread_blocks: List[object] = []
         self._unread_cursor: int = -1
         self._initial_scroll_done: bool = False
+        db_p = getattr(db, "db_path", None)
+        self._summary_store: Optional[EmailSummaryStore] = (
+            EmailSummaryStore(Path(db_p).parent / "email_summaries.db") if db_p else None
+        )
         self._settings = QSettings("3GPP_Tools", "TrackedThreadDialog")
         self.setWindowFlags(Qt.Window)
         self.setSizeGripEnabled(True)
@@ -87,6 +93,8 @@ class TrackedThreadDialog(
 
     def closeEvent(self, event):
         try:
+            if hasattr(self, "summary_card"):
+                self.summary_card.shutdown_worker()
             if getattr(self, "_refresh_worker", None) and self._refresh_worker.isRunning():
                 self._refresh_worker.request_cancel()
                 self._refresh_worker.wait(1500)

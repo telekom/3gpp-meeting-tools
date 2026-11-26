@@ -35,13 +35,12 @@ def clean_email_body_for_summary(raw_body: str) -> Tuple[str, int]:
     original_len = len(raw_body)
     text = raw_body.replace("\x00", "").replace("\r\n", "\n").replace("\r", "\n")
 
-    # 1. Truncate at reply headers and historical boundaries
+    # 1. Truncate at reply headers and historical boundaries (preserve <<START>>..<<END>> e-Meeting blocks)
     quote_boundary_regex = re.compile(
         r'\n(?:\s*[-_]{5,}\s*|'
         r'\s*(?:Von|From|De|Gesendet|Sent|Betreff|Subject):\s*.+|'
         r'\s*On\s+.+wrote:\s*|'
-        r'\s*Am\s+.+schrieb.*:\s*|'
-        r'\s*<<START>>|\s*<<END>>)',
+        r'\s*Am\s+.+schrieb.*:\s*)',
         re.IGNORECASE
     )
     split_match = quote_boundary_regex.search(text)

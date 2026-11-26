@@ -2,6 +2,8 @@
 
 from typing import List
 
+from modules.emails.core.ai_summary import SummaryScope
+from modules.emails.core.emeeting_signals import extract_base_tdoc_id
 from modules.emails.core.thread_markdown_exporter import (
     export_thread_to_markdown,
     find_unread_heading_blocks,
@@ -82,6 +84,29 @@ class TDocEmailsRenderingMixin:
         finally:
             self._loading = False
         self._render_messages()
+        if hasattr(self, "summary_card"):
+            base_tdoc = extract_base_tdoc_id(self.target_tdoc)
+            store = getattr(self, "_summary_store", None)
+            mdir = store.db_path.parent.parent if store is not None else None
+            tmeta = {
+                "title": str(self._tdoc_info.get("Title") or "").strip(),
+                "source": str(self._tdoc_info.get("Source") or "").strip(),
+                "ai": str(self._tdoc_info.get("Agenda Item") or "").strip(),
+                "tdoc_status": str(self._tdoc_info.get("TDoc Status") or "").strip(),
+                "my_status": str(self._tdoc_info.get("My Status") or "⚪ Neutral").strip(),
+            }
+            self.summary_card.bind_scope(
+                store,
+                SummaryScope(
+                    scope_type="tdoc",
+                    scope_key=base_tdoc,
+                    title=str(self._tdoc_info.get("Title") or base_tdoc),
+                ),
+                self.emails,
+                meeting_dir=mdir,
+                wg=self.wg,
+                tdoc_meta=tmeta,
+            )
 
     def _update_unread_count_label(self):
         unread = sum(1 for e in self.emails if int(e.get("is_read", 0) or 0) == 0 and int(e.get("is_ignored", 0) or 0) == 0)

@@ -497,3 +497,70 @@ class TrackedThreadsMixin:
         self._inbox_dialog = dlg
         dlg.finished.connect(lambda _=None: setattr(self, "_inbox_dialog", None))
         dlg.show()
+
+    def _open_email_briefings_dialog(self, initial_ai_code: str = ""):
+        """Opens the modeless Per-AI & Saved Selections AI Email Briefings window."""
+        from modules.emails.ui.briefings import EmailBriefingsDialog
+        from modules.emails.ui.meeting_inbox.followed_ais_helper import load_effective_followed_ais
+
+        existing = getattr(self, "_briefings_dialog", None)
+        if existing is not None:
+            try:
+                if initial_ai_code:
+                    existing.focus_ai(initial_ai_code, auto_run=False)
+                else:
+                    existing.refresh_navigation()
+                existing.setWindowState(existing.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+                existing.raise_()
+                existing.activateWindow()
+                return
+            except RuntimeError:
+                self._briefings_dialog = None
+
+        tdoc_ai_lookup = {}
+        if hasattr(self, "model") and hasattr(self.model, "_data"):
+            for r in self.model._data:
+                if r.get("_is_tracked_thread"):
+                    continue
+                td = str(r.get("TDoc") or "").strip().upper()
+                ai = str(r.get("Agenda Item") or "").strip()
+                if td and ai:
+                    tdoc_ai_lookup[td] = ai
+
+        wg = str(self.mtg_info.get("wg_name", "SA2")).strip().upper()
+        ai_sugg, _wi_sugg, _tdoc_sugg, _sub_sugg, _ai_to_sub = self._build_thread_autocomplete_suggestions()
+        ai_label_map = {}
+        for item in ai_sugg:
+            code = str(item).split(" — ", 1)[0].strip()
+            if code and code not in ai_label_map:
+                ai_label_map[code] = str(item)
+        meta_map = self._build_tdoc_meta_map()
+        gdb = getattr(self, "general_email_db", None)
+        followed_ais, _inherited, _cust = load_effective_followed_ais(
+            meeting_id=self._get_meeting_id_label(),
+            tdoc_meta_map=meta_map,
+            general_email_db_path=getattr(gdb, "db_path", None) if gdb else None,
+        )
+        tdb = getattr(self, "tracked_threads_db", None)
+        base_p = getattr(tdb, "db_path", None) or getattr(gdb, "db_path", None)
+        sum_db_p = (Path(base_p).parent / "email_summaries.db") if base_p else (self.meeting_dir / "Agenda" / "email_summaries.db")
+
+        dlg = EmailBriefingsDialog(
+            tracked_db=tdb,
+            general_email_db=gdb,
+            summary_db_path=sum_db_p,
+            meeting_id=self._get_meeting_id_label(),
+            wg=wg,
+            ai_label_map=ai_label_map,
+            followed_ais=followed_ais,
+            tdoc_ai_lookup=tdoc_ai_lookup,
+            tdoc_meta_map=meta_map,
+            open_tdoc_callback=getattr(self, "_open_tdoc_document_directly", None),
+            open_thread_callback=getattr(self, "_open_tracked_thread_dialog", None),
+            jump_tdoc_callback=getattr(self, "_jump_to_tdoc_from_signal", None),
+            initial_ai_code=initial_ai_code,
+            parent=None,
+        )
+        self._briefings_dialog = dlg
+        dlg.finished.connect(lambda _=None: setattr(self, "_briefings_dialog", None))
+        dlg.show()

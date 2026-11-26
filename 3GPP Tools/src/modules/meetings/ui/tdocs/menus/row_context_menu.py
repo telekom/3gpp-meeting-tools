@@ -43,6 +43,7 @@ def build_row_context_menu(
     selected_rows=None,
     send_tdoc_email_callback=None,
     edit_notes_callback=None,
+    open_ai_briefing_callback=None,
 ):
     """Complete command center menu for row-level operations."""
     menu = QMenu(parent)
@@ -230,6 +231,12 @@ def build_row_context_menu(
     act_view_emails = email_sub.addAction(email_label)
     act_view_emails.setToolTip("Open locally indexed emails associated with this TDoc family.")
     act_view_emails.triggered.connect(lambda: open_emails_callback(tdoc_id))
+
+    row_ai = str(row_data.get("Agenda Item") or "").strip()
+    if open_ai_briefing_callback and row_ai and row_ai not in ("-", "N/A", "None"):
+        act_ai_brief = email_sub.addAction(f"🤖 AI Briefing for AI {row_ai}...")
+        act_ai_brief.setToolTip(f"Open the Per-AI email cross-thinking briefing for Agenda Item {row_ai}.")
+        act_ai_brief.triggered.connect(lambda _=False, ai=row_ai: open_ai_briefing_callback(ai))
 
     act_draft_email = email_sub.addAction("✉️ Draft Email with Subject...")
     act_draft_email.setToolTip("Create a new email draft with meeting, AI and TDoc information in the subject.")

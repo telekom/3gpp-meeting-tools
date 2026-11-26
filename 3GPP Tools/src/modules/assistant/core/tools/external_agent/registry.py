@@ -310,14 +310,21 @@ def build_external_agent_tool_registry(
         ),
         ToolDefinition(
             name="work_items_and_emails",
-            description="Search 3GPP Work Items (with starred/following status), fetch live WI details from 3GPP Portal, toggle WI tracking, or search WG reflector emails.",
+            description="Search 3GPP Work Items, fetch WI details from Portal, toggle tracking, search WG emails, or read/save incremental email summaries.",
             permission=ToolPermission.KNOWLEDGE_READ,
             arguments=(
-                ToolArgumentSpec("action", "string", "", required=True, enum=("search_work_items", "fetch_wi_from_portal", "toggle_wi_tracking", "search_emails")),
+                ToolArgumentSpec("action", "string", "", required=True, enum=("search_work_items", "fetch_wi_from_portal", "toggle_wi_tracking", "search_emails", "list_email_summaries", "get_email_summary", "save_email_summary")),
                 ToolArgumentSpec("query", "string", ""),
                 ToolArgumentSpec("wi_code", "string", ""),
                 ToolArgumentSpec("wg", "string", ""),
                 ToolArgumentSpec("release", "string", ""),
+                ToolArgumentSpec("meeting_number", "string", ""),
+                ToolArgumentSpec("scope_type", "string", "'thread'|'tdoc'|'ai'|'selection'"),
+                ToolArgumentSpec("scope_key", "string", ""),
+                ToolArgumentSpec("summary_md", "string", ""),
+                ToolArgumentSpec("covered_ids", "string", "Comma-separated message IDs"),
+                ToolArgumentSpec("cutoff_utc", "string", ""),
+                ToolArgumentSpec("include_delta", "boolean", ""),
                 ToolArgumentSpec("tracked_only", "boolean", ""),
                 ToolArgumentSpec("starred", "boolean", ""),
                 ToolArgumentSpec("following", "boolean", ""),
@@ -354,6 +361,7 @@ def build_external_agent_tool_registry(
                 "tdoc_dossier",
                 "ingest_session_plan",
                 "toggle_wi_tracking",
+                "save_email_summary",
             }
             def _ro_guard(orig=orig_handler, tname=tool.name, **kw: Any) -> ToolResult:
                 act = str(kw.get("action") or "").strip().lower()
