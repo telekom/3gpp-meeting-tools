@@ -147,7 +147,7 @@ class EmailControlToolbar(QFrame):
         )
         self.btn_filter_star.toggled.connect(self.filters_changed.emit)
 
-        self.btn_filter_follow = QPushButton("👀 Followed AIs")
+        self.btn_filter_follow = QPushButton("★ Followed AIs")
         self.btn_filter_follow.setCheckable(True)
         self.btn_filter_follow.setToolTip("Filter left panel to only show threads belonging to a Followed Agenda Item.")
         self.btn_filter_follow.setStyleSheet(

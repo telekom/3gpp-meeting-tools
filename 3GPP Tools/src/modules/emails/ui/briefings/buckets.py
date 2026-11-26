@@ -56,8 +56,11 @@ def build_meeting_ai_buckets(
             eid = str(row.get("id") or "").strip()
             if not eid:
                 continue
+            raw_tds = row.get("linked_tdocs")
+            if not raw_tds and row.get("matched_tdocs"):
+                raw_tds = [x.strip() for x in str(row.get("matched_tdocs") or "").split(",") if x.strip()]
             linked_tdocs = list(
-                dict.fromkeys(extract_base_tdoc_id(t) for t in (row.get("linked_tdocs") or []) if extract_base_tdoc_id(t))
+                dict.fromkeys(extract_base_tdoc_id(t) for t in (raw_tds or []) if extract_base_tdoc_id(t))
             )
             inferred_ais = list(dict.fromkeys(ai_lookup.get(t, "") for t in linked_tdocs if ai_lookup.get(t, "")))
             if eid in by_id:
@@ -146,9 +149,71 @@ def build_meeting_ai_buckets(
                     msg=msg,
                 )
 
-    for per_ai in ai_buckets.values():
+    for ai_code, per_ai in list(ai_buckets.items()):
         for bucket in per_ai.values():
             bucket.pop("_seen_ids", None)
             bucket["messages"] = sort_messages_chronologically(bucket["messages"])
+        ai_buckets[ai_code] = _deduplicate_identical_message_buckets(per_ai)
 
     return ai_buckets
+
+
+def _deduplicate_identical_message_buckets(
+    per_ai: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Collapse duplicate TDoc buckets within an AI that share the exact same email set
+    (e.g. an omnibus Draft TR review thread) into one discussion carrying `alias_tdocs`.
+    """
+    grouped_keys: Dict[tuple, list] = {}
+    passthrough: Dict[str, Dict[str, Any]] = {}
+    for bkey, bucket in per_ai.items():
+        msg_sig = tuple(sorted(str(m.get("id") or "") for m in bucket.get("messages") or [] if m.get("id")))
+        if not msg_sig:
+            passthrough[bkey] = bucket
+            continue
+        grouped_keys.setdefault(msg_sig, []).append((bkey, bucket))
+
+    merged: Dict[str, Dict[str, Any]] = {}
+    for _sig, items in grouped_keys.items():
+        if len(items) == 1:
+            bkey, bucket = items[0]
+            merged[bkey] = bucket
+            continue
+
+        tdoc_keys = [
+            str(b.get("scope_key") or "")
+            for _, b in items
+            if str(b.get("scope_type") or "") == "tdoc" and str(b.get("scope_key") or "")
+        ]
+        thread_item = next(((k, b) for k, b in items if str(b.get("scope_type") or "") == "thread"), None)
+        if thread_item is not None:
+            chosen_key, chosen = thread_item[0], dict(thread_item[1])
+            chosen["alias_tdocs"] = list(dict.fromkeys(tdoc_keys))
+            merged[chosen_key] = chosen
+            continue
+
+        sample_msgs = items[0][1].get("messages") or []
+        common_tids = {str(m.get("thread_id") or "").strip() for m in sample_msgs if str(m.get("thread_id") or "").strip()}
+        if len(common_tids) == 1:
+            tid = next(iter(common_tids))
+            th_title = next(
+                (str(m.get("thread_title") or "").strip() for m in sample_msgs if str(m.get("thread_title") or "").strip()),
+                items[0][1].get("title") or tid,
+            )
+            merged[f"THR::{tid}"] = {
+                "scope_type": "thread",
+                "scope_key": tid,
+                "title": th_title,
+                "messages": list(sample_msgs),
+                "tdoc_meta": items[0][1].get("tdoc_meta"),
+                "alias_tdocs": list(dict.fromkeys(tdoc_keys)),
+            }
+        else:
+            primary_key, primary_bucket = items[0]
+            chosen = dict(primary_bucket)
+            chosen["alias_tdocs"] = list(dict.fromkeys(tdoc_keys))
+            merged[primary_key] = chosen
+
+    merged.update(passthrough)
+    return merged

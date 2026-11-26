@@ -8,13 +8,8 @@ import re
 from typing import Any, Dict, List, Optional
 
 from PyQt5.QtCore import Qt, QUrl
-from PyQt5.QtGui import QCursor
-from PyQt5.QtWidgets import (
-    QApplication,
-    QFileDialog,
-    QMenu,
-    QTreeWidgetItem,
-)
+from PyQt5.QtGui import QColor, QCursor
+from PyQt5.QtWidgets import QApplication, QFileDialog, QMenu, QTreeWidgetItem
 
 from core.ai.llm_runner import ModelSpec, resolve_effective_model_spec
 from core.ui.font_scale import scale_px
@@ -43,7 +38,8 @@ def _compact_ai_nav_label(ai_code: str, raw_label: str) -> str:
     txt = str(raw_label or ai_code or "").strip()
     if " — " in txt:
         code_part, rest = txt.split(" — ", 1)
-        tail = rest.rsplit(" — ", 1)[-1].strip() if " — " in rest else rest.strip()
+        parts = [p.strip() for p in re.split(r"\s+[—–-]\s+", rest) if p.strip()]
+        tail = parts[-1] if parts else rest.strip()
         if len(tail) > 26:
             tail = tail[:24].rstrip() + "…"
         return f"{code_part} — {tail}"
@@ -52,6 +48,32 @@ def _compact_ai_nav_label(ai_code: str, raw_label: str) -> str:
 
 class BriefingsActionsMixin:
     """Handles AI/Selection tree loading, Map-Reduce workers, exports, and drill-down links."""
+
+    def _populate_ai_nav_item(self, parent_node: QTreeWidgetItem, ai_code: str, *, is_followed: bool, select_kind: str, select_key: str) -> Optional[QTreeWidgetItem]:
+        buckets = self._ai_buckets.get(ai_code, {})
+        all_msgs = [m for b in buckets.values() for m in b.get("messages", [])]
+        fresh = self.summary_store.compute_freshness("ai", ai_code, all_msgs)
+        if not fresh.has_summary:
+            dot, color, status_desc = "○", C.TEXT_MUTED, "Not generated yet"
+        elif fresh.new_count > 0:
+            dot, color, status_desc = f"◐ +{fresh.new_count}", C.WARNING_DARK, f"{fresh.new_count} new email(s) since last briefing"
+        else:
+            dot, color, status_desc = "●", C.SUCCESS_DARK, "Up to date"
+        raw_lbl = self.ai_label_map.get(ai_code, ai_code)
+        short_lbl = _compact_ai_nav_label(ai_code, raw_lbl)
+        item = QTreeWidgetItem(parent_node, [f"{dot}  {short_lbl} ({len(buckets)})"])
+        item.setData(0, Qt.UserRole, ("ai", ai_code))
+        item.setForeground(0, QColor(color))
+        if is_followed:
+            f = item.font(0)
+            f.setBold(True)
+            item.setFont(0, f)
+        item.setToolTip(
+            0,
+            f"{raw_lbl}\n{len(buckets)} discussion(s) · {fresh.total_messages} email(s)\n"
+            f"Status: {status_desc}\nClick to view or synthesize briefing.",
+        )
+        return item if (select_kind == "ai" and select_key == ai_code) else None
 
     def refresh_navigation(self, select_kind: str = "", select_key: str = "") -> None:
         self._ai_buckets = build_meeting_ai_buckets(
@@ -67,49 +89,49 @@ class BriefingsActionsMixin:
         self.nav_tree.blockSignals(True)
         self.nav_tree.clear()
 
-        ai_root = QTreeWidgetItem(self.nav_tree, ["📌 Agenda Items"])
-        ai_root.setFlags(ai_root.flags() & ~Qt.ItemIsSelectable)
-        ai_root.setExpanded(True)
+        all_ais = set(self._ai_buckets.keys()) | set(ai_recs.keys())
+        followed_list = sorted([a for a in all_ais if a in self.followed_ais], key=_natural_ai_sort_key)
+        other_list = sorted([a for a in all_ais if a not in self.followed_ais], key=_natural_ai_sort_key)
 
-        all_ais = sorted(
-            set(self._ai_buckets.keys()) | set(ai_recs.keys()),
-            key=lambda a: (0 if a in self.followed_ais else 1, _natural_ai_sort_key(a)),
-        )
         target_item: Optional[QTreeWidgetItem] = None
+        first_ai_item: Optional[QTreeWidgetItem] = None
 
-        for ai_code in all_ais:
-            buckets = self._ai_buckets.get(ai_code, {})
-            all_msgs = [m for b in buckets.values() for m in b.get("messages", [])]
-            fresh = self.summary_store.compute_freshness("ai", ai_code, all_msgs)
-            if not fresh.has_summary:
-                pill = "⚪"
-            elif fresh.new_count > 0:
-                pill = f"🟡+{fresh.new_count}"
-            else:
-                pill = "✅"
-            star = "👀 " if ai_code in self.followed_ais else ""
-            raw_lbl = self.ai_label_map.get(ai_code, ai_code)
-            short_lbl = _compact_ai_nav_label(ai_code, raw_lbl)
-            item = QTreeWidgetItem(ai_root, [f"{pill} {star}{short_lbl} ({len(buckets)})"])
-            item.setData(0, Qt.UserRole, ("ai", ai_code))
-            item.setToolTip(0, f"{raw_lbl}\nTopics: {len(buckets)} | Emails: {fresh.total_messages}")
-            if select_kind == "ai" and select_key == ai_code:
-                target_item = item
+        if followed_list:
+            f_root = QTreeWidgetItem(self.nav_tree, [f"★ Followed AIs ({len(followed_list)})"])
+            f_root.setFlags(f_root.flags() & ~Qt.ItemIsSelectable)
+            f_root.setExpanded(True)
+            for ai_code in followed_list:
+                matched = self._populate_ai_nav_item(f_root, ai_code, is_followed=True, select_kind=select_kind, select_key=select_key)
+                if matched is not None:
+                    target_item = matched
+                if first_ai_item is None:
+                    first_ai_item = f_root.child(f_root.childCount() - 1)
 
-        sel_root = QTreeWidgetItem(self.nav_tree, ["📑 Saved Selections"])
+        if other_list or not followed_list:
+            o_title = f"Other Agenda Items ({len(other_list)})" if followed_list else f"Agenda Items ({len(other_list)})"
+            o_root = QTreeWidgetItem(self.nav_tree, [o_title])
+            o_root.setFlags(o_root.flags() & ~Qt.ItemIsSelectable)
+            o_root.setExpanded(True)
+            for ai_code in other_list:
+                matched = self._populate_ai_nav_item(o_root, ai_code, is_followed=False, select_kind=select_kind, select_key=select_key)
+                if matched is not None:
+                    target_item = matched
+                if first_ai_item is None:
+                    first_ai_item = o_root.child(o_root.childCount() - 1)
+
+        sel_root = QTreeWidgetItem(self.nav_tree, [f"Saved Selections ({len(sel_recs)})"])
         sel_root.setFlags(sel_root.flags() & ~Qt.ItemIsSelectable)
         sel_root.setExpanded(True)
+        self._sel_root = sel_root
         for rec in sel_recs:
-            item = QTreeWidgetItem(sel_root, [f"📑 {rec.title} ({rec.message_count})"])
+            item = QTreeWidgetItem(sel_root, [f"• {rec.title} ({rec.message_count})"])
             item.setData(0, Qt.UserRole, ("selection", rec.scope_key))
             item.setToolTip(0, f"{rec.title}\nUpdated: {rec.updated_at}\nFocus: {rec.focus_prompt or '(none)'}")
             if select_kind == "selection" and select_key == rec.scope_key:
                 target_item = item
 
-        if target_item is None and ai_root.childCount() > 0:
-            target_item = ai_root.child(0)
-        elif target_item is None and sel_root.childCount() > 0:
-            target_item = sel_root.child(0)
+        if target_item is None:
+            target_item = first_ai_item or (sel_root.child(0) if sel_root.childCount() > 0 else None)
 
         self.nav_tree.blockSignals(False)
         if target_item is not None:
@@ -221,17 +243,32 @@ class BriefingsActionsMixin:
             self.btn_export_md.setEnabled(True)
         else:
             spec = self._active_synthesis_spec()
-            self.freshness_lbl.setText(f"⚪ Not generated · {spec.short_badge()}")
+            disc_cnt = len(self._ai_buckets.get(key, {})) if kind == "ai" else 0
+            msg_cnt = fresh.total_messages if fresh else 0
+            self.freshness_lbl.setText(f"○ Not generated · {spec.short_badge()}")
             self.freshness_lbl.setStyleSheet(
                 f"background-color: {C.BG_CARD}; color: {C.TEXT_SECONDARY}; "
                 f"border: 1px solid {C.BORDER_SUBTLE}; border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: bold;"
             )
             self.btn_update.setText("✨ Generate Briefing")
             self.briefing_browser.setMarkdown(
-                "*No briefing saved for this scope yet. Click **✨ Generate Briefing** above to synthesize across all underlying discussions.*"
+                f"### No Briefing Generated Yet\n\n"
+                f"**{disc_cnt} deduplicated discussion(s)** ({msg_cnt} emails) are indexed under this scope.\n\n"
+                f"- **⚡ Generate Briefing** — runs local Ollama / CLI synthesis in-app (updates stale threads first).\n"
+                f"- **💠 M365 Copilot ▾** — prepares a clean, uncut `.md` pack for Copilot in browser and lets you paste the result back.\n"
+                f"- Expand **Underlying Discussions ({disc_cnt})** below to read individual TDoc or Tracked Thread emails directly."
             )
             self.btn_copy.setEnabled(False)
             self.btn_export_md.setEnabled(False)
+
+    def _on_toggle_sidebar(self, visible: bool) -> None:
+        vis = bool(visible)
+        if hasattr(self, "_left_panel"):
+            self._left_panel.setVisible(vis)
+        if hasattr(self, "btn_toggle_sidebar"):
+            self.btn_toggle_sidebar.setText("◀ AIs" if vis else "▶ AIs")
+        if hasattr(self, "_settings"):
+            self._settings.setValue("sidebar_visible", vis)
 
     def _render_ai_leaves_drawer(self, buckets: Dict[str, Dict[str, Any]]) -> None:
         if not buckets:
@@ -239,18 +276,29 @@ class BriefingsActionsMixin:
             return
         self.leaves_frame.setVisible(True)
         arrow = "▾" if self.leaves_browser.isVisible() else "▸"
-        self.btn_toggle_leaves.setText(f"{arrow} Underlying Thread / TDoc Summaries ({len(buckets)})")
+        self.btn_toggle_leaves.setText(f"{arrow} Underlying Discussions ({len(buckets)})")
         lines: List[str] = []
         for b in buckets.values():
             stype = str(b.get("scope_type") or "thread")
             skey = str(b.get("scope_key") or "")
             msgs = b.get("messages") or []
+            alias_tdocs = [str(t).strip().upper() for t in (b.get("alias_tdocs") or []) if str(t).strip()]
             fresh = self.summary_store.compute_freshness(stype, skey, msgs)
-            badge = "⚪ none" if not fresh.has_summary else (f"🟡 +{fresh.new_count}" if fresh.new_count > 0 else "✅ current")
-            href = f"tdoc:{html.escape(skey)}" if stype == "tdoc" else f"thread:{html.escape(skey)}"
+            badge = "○ none" if not fresh.has_summary else (f"◐ +{fresh.new_count} new" if fresh.new_count > 0 else "● current")
+            if stype == "tdoc":
+                primary_link = f"[{html.escape(skey)}](tdoc-emails:{html.escape(skey)})"
+                table_part = f" · [Table ↗](tdoc-table:{html.escape(skey)})" if self._jump_tdoc_callback else ""
+            else:
+                primary_link = f"[{html.escape(skey)}](thread:{html.escape(skey)})"
+                if alias_tdocs:
+                    shown_tds = ", ".join(f"[{html.escape(td)}](tdoc-emails:{html.escape(td)})" for td in alias_tdocs[:4])
+                    extra_td = f" (+{len(alias_tdocs) - 4})" if len(alias_tdocs) > 4 else ""
+                    table_part = f" · TDocs: {shown_tds}{extra_td}"
+                else:
+                    table_part = ""
             lines.append(
-                f"- [{html.escape(skey)}]({href}) — {html.escape(str(b.get('title') or skey))} "
-                f"*({len(msgs)} msgs · {badge})*"
+                f"- {primary_link} — {html.escape(str(b.get('title') or skey))} "
+                f"*({len(msgs)} msgs · {badge})*{table_part}"
             )
         self.leaves_browser.setMarkdown("\n".join(lines))
 
@@ -262,7 +310,7 @@ class BriefingsActionsMixin:
         tup = self._active_scope_tuple()
         cnt = len(self._ai_buckets.get(tup[1], {})) if (tup and tup[0] == "ai") else 0
         arrow = "▾" if vis else "▸"
-        self.btn_toggle_leaves.setText(f"{arrow} Underlying Thread / TDoc Summaries ({cnt})")
+        self.btn_toggle_leaves.setText(f"{arrow} Underlying Discussions ({cnt})")
 
     def _active_synthesis_spec(self) -> ModelSpec:
         return resolve_effective_model_spec(role="synthesis", override=self._synth_model_override)
@@ -298,23 +346,28 @@ class BriefingsActionsMixin:
             return None
         kind, key = tup
         focus_txt = self.focus_prompt_edit.text().strip()
+        packet_builder = None
         if kind == "ai":
             buckets = self._ai_buckets.get(key, {})
             if not buckets:
                 notify_info(self, "No Emails", f"No email discussions found under AI {key}.")
                 return None
             ai_label = self.ai_label_map.get(key, f"AI {key}")
-            packet = build_ai_handoff_packet(
-                self.summary_store,
-                key,
-                ai_label,
-                buckets,
-                meeting_dir=self.meeting_dir,
-                wg=self.wg,
-                meeting_id=self.meeting_id,
-                tdoc_meta_map=self.tdoc_meta_map,
-                focus_prompt=focus_txt,
-            )
+            def _make_ai_pkt(pm: str):
+                return build_ai_handoff_packet(
+                    self.summary_store,
+                    key,
+                    ai_label,
+                    buckets,
+                    meeting_dir=self.meeting_dir,
+                    wg=self.wg,
+                    meeting_id=self.meeting_id,
+                    tdoc_meta_map=self.tdoc_meta_map,
+                    focus_prompt=focus_txt,
+                    pack_mode=pm,
+                )
+            packet_builder = _make_ai_pkt
+            packet = packet_builder("full_uncut")
         else:
             msgs = self._pending_selection_messages if key == self._pending_selection_key else []
             if not msgs:
@@ -344,6 +397,7 @@ class BriefingsActionsMixin:
             auto_launch=auto_launch,
             meeting_dir=self.meeting_dir,
             owner=self,
+            packet_builder=packet_builder,
         )
         dlg.summary_saved.connect(self._on_worker_completed)
         dlg.destroyed.connect(lambda _=None: setattr(self, "_m365_dialog", None))
@@ -480,16 +534,59 @@ class BriefingsActionsMixin:
             Path(path).write_text(clean_md, encoding="utf-8")
             notify_success(self, "Briefing Exported", f"Saved to {Path(path).name}")
 
+    def _open_tdoc_emails_for_tdoc(self, tdoc_id: str) -> None:
+        clean_td = str(tdoc_id or "").strip().upper()
+        if not clean_td:
+            return
+        cb = getattr(self, "_open_tdoc_emails_callback", None)
+        if cb is not None:
+            cb(clean_td)
+            return
+        gdb_p = getattr(self.general_email_db, "db_path", None) if self.general_email_db is not None else None
+        if gdb_p:
+            existing = self._child_email_dialogs.get(clean_td)
+            if existing is not None:
+                try:
+                    existing.setWindowState(existing.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+                    existing.raise_()
+                    existing.activateWindow()
+                    return
+                except RuntimeError:
+                    self._child_email_dialogs.pop(clean_td, None)
+            from modules.emails.ui.tdoc_emails_dialog import TDocEmailsDialog
+            tmeta = (self.tdoc_meta_map or {}).get(clean_td) or {}
+            dlg = TDocEmailsDialog(
+                clean_td, [clean_td], gdb_p, wg=self.wg, parent=None,
+                tdoc_info=tmeta or None, open_tdoc_callback=self._open_tdoc_callback,
+            )
+            self._child_email_dialogs[clean_td] = dlg
+            dlg.finished.connect(lambda _=None, k=clean_td: self._child_email_dialogs.pop(k, None))
+            dlg.show(); dlg.raise_(); dlg.activateWindow()
+            return
+        if self._jump_tdoc_callback:
+            self._jump_tdoc_callback(clean_td)
+        elif self._open_tdoc_callback:
+            self._open_tdoc_callback(clean_td)
+
     def _on_anchor_clicked(self, url: QUrl) -> None:
         scheme = url.scheme().lower()
         target = url.path().strip() or url.toString().split(":", 1)[1].strip()
-        if scheme == "tdoc" and target:
+        if scheme in ("tdoc-emails", "tdoc") and target:
+            self._open_tdoc_emails_for_tdoc(target.upper())
+        elif scheme == "tdoc-table" and target:
             if self._jump_tdoc_callback:
                 self._jump_tdoc_callback(target.upper())
             elif self._open_tdoc_callback:
                 self._open_tdoc_callback(target.upper())
-        elif scheme == "thread" and target and self._open_thread_callback:
-            self._open_thread_callback(target)
+        elif scheme == "thread" and target:
+            if self._open_thread_callback:
+                self._open_thread_callback(target)
+            elif self.tracked_db is not None:
+                from modules.emails.ui.tracked_thread_dialog import TrackedThreadDialog
+                dlg = TrackedThreadDialog(self.tracked_db, target, parent=None, open_tdoc_callback=self._open_tdoc_callback)
+                self._child_email_dialogs[f"THR::{target}"] = dlg
+                dlg.finished.connect(lambda _=None, k=f"THR::{target}": self._child_email_dialogs.pop(k, None))
+                dlg.show(); dlg.raise_(); dlg.activateWindow()
         elif scheme in ("http", "https"):
             from PyQt5.QtGui import QDesktopServices
             QDesktopServices.openUrl(url)

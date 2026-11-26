@@ -589,6 +589,106 @@ class TestEmailAiSummaryUi(unittest.TestCase):
         fake_win._briefings_dialog.close()
         QApplication.processEvents()
 
+    def test_briefings_ux_revamp_star_dedup_tdoc_emails_sidebar_and_pack_mode(self):
+        from PyQt5.QtCore import QUrl
+        from modules.emails.core.ai_summary import build_ai_handoff_packet
+        from modules.emails.ui.ai_summary import M365CopilotHandoffDialog
+        from modules.emails.ui.briefings import build_meeting_ai_buckets
+        from modules.emails.ui.briefings.mixins.actions import _compact_ai_nav_label
+
+        # 1. Sub-topic label extraction works on both em-dash and ASCII hyphen
+        self.assertEqual(
+            _compact_ai_nav_label(
+                "20.6.4",
+                "20.6.4 — Study on Architecture for 6G System (FS_6G_ARC) - User Plane Architecture",
+            ),
+            "20.6.4 — User Plane Architecture",
+        )
+
+        # 2. Shared-thread bucket deduplication collapses duplicate TDoc entries into 1 discussion
+        self.gdb.save_emails_batch(
+            [
+                {"id": "TR-1", "folder_tag": "SA2", "subject": "Draft TR 23.801-01 review", "sender_name": "Stefan", "company": "Ericsson", "date_received": "2026-04-15 10:00:00", "body_text": "Review comments", "is_read": 0},
+            ],
+            [
+                {"email_id": "TR-1", "tdoc_id": "S2-2609087", "rev_matched": "", "match_location": "Body"},
+                {"email_id": "TR-1", "tdoc_id": "S2-2609636", "rev_matched": "", "match_location": "Body"},
+            ],
+        )
+        buckets = build_meeting_ai_buckets(
+            tracked_db=self.tdb,
+            general_email_db=self.gdb,
+            meeting_id="S2-174",
+            tdoc_ai_lookup={"S2-2609087": "20.6.0", "S2-2609636": "20.6.0", "S2-2602001": "6.1"},
+        )
+        self.assertEqual(len(buckets["20.6.0"]), 1)
+        merged_bucket = next(iter(buckets["20.6.0"].values()))
+        self.assertEqual(set(merged_bucket.get("alias_tdocs") or []), {"S2-2609087", "S2-2609636"})
+
+        # 3. EmailBriefingsDialog uses ★ grouping, no 👀, collapsible sidebar, and opens TDoc emails directly
+        opened_tdoc_emails = []
+        jumped_tables = []
+        br_dlg = EmailBriefingsDialog(
+            tracked_db=self.tdb,
+            general_email_db=self.gdb,
+            summary_db_path=self.store.db_path,
+            meeting_id="S2-174",
+            wg="SA2",
+            ai_label_map={"6.1": "6.1 — Study on 6G - Policy Control", "20.6.0": "20.6.0 — Study - Miscellaneous"},
+            followed_ais={"6.1"},
+            tdoc_ai_lookup={"S2-2602001": "6.1", "S2-2609087": "20.6.0", "S2-2609636": "20.6.0"},
+            jump_tdoc_callback=jumped_tables.append,
+            open_tdoc_emails_callback=opened_tdoc_emails.append,
+            initial_ai_code="6.1",
+        )
+        br_dlg.show()
+        QApplication.processEvents()
+
+        top_labels = [br_dlg.nav_tree.topLevelItem(i).text(0) for i in range(br_dlg.nav_tree.topLevelItemCount())]
+        self.assertTrue(any("★ Followed AIs" in lbl for lbl in top_labels))
+        for i in range(br_dlg.nav_tree.topLevelItemCount()):
+            grp = br_dlg.nav_tree.topLevelItem(i)
+            self.assertNotIn("👀", grp.text(0))
+            for j in range(grp.childCount()):
+                self.assertNotIn("👀", grp.child(j).text(0))
+
+        # Collapsible sidebar button hides and restores left panel
+        self.assertTrue(br_dlg._left_panel.isVisible())
+        br_dlg.btn_toggle_sidebar.click()
+        self.assertFalse(br_dlg._left_panel.isVisible())
+        br_dlg.btn_toggle_sidebar.click()
+        self.assertTrue(br_dlg._left_panel.isVisible())
+
+        # Underlying discussions render [Table ↗] + tdoc-emails: click opens TDoc emails, tdoc-table: jumps table
+        leaves_html = br_dlg.leaves_browser.toHtml()
+        self.assertIn("tdoc-emails:S2-2602001", leaves_html)
+        self.assertIn("tdoc-table:S2-2602001", leaves_html)
+        br_dlg._on_anchor_clicked(QUrl("tdoc-emails:S2-2602001"))
+        br_dlg._on_anchor_clicked(QUrl("tdoc-table:S2-2602001"))
+        self.assertEqual(opened_tdoc_emails, ["S2-2602001"])
+        self.assertEqual(jumped_tables, ["S2-2602001"])
+        br_dlg.close()
+
+        # 4. M365CopilotHandoffDialog pack_mode switcher swaps full_uncut <-> compact live
+        ai_buckets = buckets["6.1"]
+        pkt_full = build_ai_handoff_packet(
+            self.store, "6.1", "6.1 — Policy Control", ai_buckets,
+            meeting_dir=self.tmp_path, pack_mode="full_uncut",
+        )
+        hdlg = M365CopilotHandoffDialog(
+            self.store, pkt_full, auto_launch=False, meeting_dir=self.tmp_path,
+            packet_builder=lambda pm: build_ai_handoff_packet(
+                self.store, "6.1", "6.1 — Policy Control", ai_buckets,
+                meeting_dir=self.tmp_path, pack_mode=pm,
+            ),
+        )
+        self.assertIsNotNone(hdlg.pack_mode_combo)
+        self.assertEqual(hdlg._packet.pack_mode, "full_uncut")
+        hdlg.pack_mode_combo.setCurrentIndex(1)
+        self.assertEqual(hdlg._packet.pack_mode, "compact")
+        hdlg.close()
+        QApplication.processEvents()
+
 
 if __name__ == "__main__":
     unittest.main()

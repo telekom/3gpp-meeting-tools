@@ -46,6 +46,8 @@ class M365HandoffPacket:
     deterministic_facts: Dict[str, Any] = field(default_factory=dict)
     leaf_summary_reused_count: int = 0
     leaf_raw_count: int = 0
+    pack_mode: str = "full_uncut"
+    was_truncated: bool = False
 
 
 def _sanitize_filename_part(value: str) -> str:
@@ -150,7 +152,8 @@ def build_leaf_handoff_packet(
             "email_summary_incremental_system.txt",
             "Update the previous 3GPP email summary using the new messages. Output ### 🆕 What Changed Since Last Cutoff followed by the full updated 4-section summary.",
         )
-        delta_block, _ = format_messages_for_llm(delta_msgs, max_chars=240000)
+        delta_block, included_ids = format_messages_for_llm(delta_msgs, max_chars=500000, per_msg_char_cap=40000)
+        was_trunc = len(included_ids) < len(delta_msgs) or "...[truncated]..." in delta_block
         body_payload = (
             f"Scope: {norm_scope.scope_type.upper()} `{norm_scope.scope_key}` — {norm_scope.title}\n"
             f"Previous Cutoff: {existing.cutoff_utc or 'unknown'}\n"
@@ -179,7 +182,8 @@ def build_leaf_handoff_packet(
                 "email_summary_thread_system.txt",
                 "Summarize the 3GPP email discussion into Core Contention, Company Positions, Revisions/Open Issues, and Consensus/Next Steps.",
             )
-        msgs_block, _ = format_messages_for_llm(sorted_msgs, max_chars=240000)
+        msgs_block, included_ids = format_messages_for_llm(sorted_msgs, max_chars=500000, per_msg_char_cap=40000)
+        was_trunc = len(included_ids) < len(sorted_msgs) or "...[truncated]..." in msgs_block
         meta_lines = [
             f"Scope: {norm_scope.scope_type.upper()} `{norm_scope.scope_key}`",
             f"Title: {norm_scope.title}",
@@ -221,6 +225,8 @@ def build_leaf_handoff_packet(
         new_message_count=new_cnt,
         incremental_hops=next_hops,
         deterministic_facts=facts,
+        pack_mode="full_uncut",
+        was_truncated=was_trunc,
     )
 
 
@@ -237,9 +243,15 @@ def build_ai_handoff_packet(
     focus_prompt: str = "",
     clipboard_threshold: int = M365_CLIPBOARD_CHAR_THRESHOLD,
     force_file: bool = False,
+    pack_mode: str = "compact",
 ) -> M365HandoffPacket:
-    """Build a Per-AI cross-thinking M365 Copilot packet reusing fresh leaves + raw fallback."""
+    """
+    Build a Per-AI cross-thinking M365 Copilot packet.
+    - `pack_mode="full_uncut"`: embeds full uncut deduplicated emails (ideal for Copilot file uploads).
+    - `pack_mode="compact"`: reuses fresh saved leaf summaries and embeds uncut raw/delta messages for the rest.
+    """
     clean_ai = str(ai_code or "").strip()
+    clean_pack_mode = "full_uncut" if str(pack_mode or "").strip().lower() == "full_uncut" else "compact"
     norm_scope = SummaryScope(
         scope_type="ai",
         scope_key=clean_ai,
@@ -257,17 +269,31 @@ def build_ai_handoff_packet(
     all_msgs_for_ai: List[Dict[str, Any]] = []
     reused_cnt = 0
     raw_cnt = 0
+    was_truncated = False
     leaf_keys: List[str] = []
-    per_bucket_cap = 22000 if len(leaf_buckets) > 4 else 45000
+    per_bucket_cap = 500000 if clean_pack_mode == "full_uncut" else 250000
+    per_msg_cap = 40000
 
-    for idx, (bkey, bucket) in enumerate(leaf_buckets.items(), 1):
+    seen_sigs: set = set()
+    dedup_buckets: List[Tuple[str, Dict[str, Any]]] = []
+    for bkey, bucket in leaf_buckets.items():
         msgs = list(bucket.get("messages") or [])
         if not msgs:
             continue
+        sig = tuple(sorted(str(m.get("id") or m.get("email_id") or "") for m in msgs if (m.get("id") or m.get("email_id"))))
+        if sig and sig in seen_sigs:
+            continue
+        if sig:
+            seen_sigs.add(sig)
+        dedup_buckets.append((bkey, bucket))
+
+    for idx, (bkey, bucket) in enumerate(dedup_buckets, 1):
+        msgs = list(bucket.get("messages") or [])
         all_msgs_for_ai.extend(msgs)
         stype = str(bucket.get("scope_type") or "thread").lower()
         skey = str(bucket.get("scope_key") or bkey)
         btitle = str(bucket.get("title") or skey)
+        alias_tdocs = [str(t).strip().upper() for t in (bucket.get("alias_tdocs") or []) if str(t).strip()]
         tmeta = bucket.get("tdoc_meta") or ((tdoc_meta_map or {}).get(skey.upper()) if stype == "tdoc" else None)
         leaf_keys.append(f"{stype}:{skey}")
 
@@ -276,19 +302,22 @@ def build_ai_handoff_packet(
         link_tag = f"[{skey}](tdoc:{skey})" if stype == "tdoc" else f"[{btitle}](thread:{skey})"
 
         item_lines = [f"## Item {idx}: {link_tag} — {btitle}", f"- **Scope:** `{stype}:{skey}` | **Messages:** {len(msgs)}"]
+        if alias_tdocs:
+            td_links = ", ".join(f"[{td}](tdoc:{td})" for td in alias_tdocs)
+            item_lines.append(f"- **Associated TDocs:** {td_links}")
         if tmeta and (tmeta.get("tdoc_status") or tmeta.get("my_status")):
             item_lines.append(
                 f"- **TDoc Status:** {tmeta.get('tdoc_status') or 'N/A'} | **My Status:** {tmeta.get('my_status') or 'Neutral'}"
             )
 
-        if existing_leaf is not None and not fresh.is_stale:
+        if clean_pack_mode == "compact" and existing_leaf is not None and not fresh.is_stale:
             reused_cnt += 1
             item_lines.append("- **Source:** Saved up-to-date AI Leaf Summary")
             item_lines.append("")
             item_lines.append(existing_leaf.summary_md)
         else:
             raw_cnt += 1
-            if existing_leaf is not None and fresh.new_count > 0:
+            if clean_pack_mode == "compact" and existing_leaf is not None and fresh.new_count > 0:
                 new_id_set = set(fresh.new_message_ids)
                 sorted_msgs = sort_messages_chronologically(msgs)
                 delta_msgs = []
@@ -298,14 +327,18 @@ def build_ai_handoff_packet(
                         mc = dict(msg)
                         mc["_msg_idx"] = pos
                         delta_msgs.append(mc)
-                delta_txt, _ = format_messages_for_llm(delta_msgs, max_chars=per_bucket_cap)
+                delta_txt, inc_ids = format_messages_for_llm(delta_msgs, max_chars=per_bucket_cap, per_msg_char_cap=per_msg_cap)
+                if len(inc_ids) < len(delta_msgs) or "...[truncated]..." in delta_txt:
+                    was_truncated = True
                 item_lines.append(f"- **Source:** Saved Leaf Summary + {len(delta_msgs)} New Message(s)")
                 item_lines.append("")
                 item_lines.append(existing_leaf.summary_md)
                 item_lines.append(f"\n### New Messages (+{len(delta_msgs)})\n{delta_txt}")
             else:
-                raw_txt, _ = format_messages_for_llm(msgs, max_chars=per_bucket_cap)
-                item_lines.append("- **Source:** Cleaned Chronological Messages")
+                raw_txt, inc_ids = format_messages_for_llm(msgs, max_chars=per_bucket_cap, per_msg_char_cap=per_msg_cap)
+                if len(inc_ids) < len(msgs) or "...[truncated]..." in raw_txt:
+                    was_truncated = True
+                item_lines.append("- **Source:** Full Cleaned Chronological Messages")
                 item_lines.append("")
                 item_lines.append(raw_txt)
         sections.append("\n".join(item_lines))
@@ -320,10 +353,11 @@ def build_ai_handoff_packet(
     ai_facts["leaf_count"] = len(leaf_keys)
     ai_facts["leaf_keys"] = leaf_keys
 
+    mode_label = "Full Uncut Emails" if clean_pack_mode == "full_uncut" else f"Compact ({reused_cnt} pre-summarized, {raw_cnt} raw/delta)"
     header_parts = [
         f"Agenda Item: {ai_label or clean_ai}",
         f"Meeting: {meeting_id or 'N/A'} ({wg or 'N/A'})",
-        f"Topics Included: {len(sections)} ({reused_cnt} pre-summarized, {raw_cnt} raw/delta)",
+        f"Topics Included: {len(sections)} ({mode_label})",
         f"Total Messages Covered: {len(ai_msgs)}",
     ]
     if norm_scope.focus_prompt:
@@ -356,6 +390,8 @@ def build_ai_handoff_packet(
         deterministic_facts=ai_facts,
         leaf_summary_reused_count=reused_cnt,
         leaf_raw_count=raw_cnt,
+        pack_mode=clean_pack_mode,
+        was_truncated=was_truncated,
     )
 
 

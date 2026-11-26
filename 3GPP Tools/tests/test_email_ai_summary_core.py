@@ -319,6 +319,56 @@ class TestEmailAiSummaryCore(unittest.TestCase):
         self.assertIn("Raw body B", pkt.prompt_text)
         self.assertEqual(set(pkt.covered_message_ids), {"A1", "B1"})
 
+    def test_m365_handoff_ai_full_uncut_and_shared_bucket_dedup(self):
+        store = EmailSummaryStore(self.agenda_dir / "email_summaries.db")
+        long_body = "Detailed technical point " + ("X" * 12000)
+        shared_msgs = [
+            {"id": "SH1", "sender_name": "Alice", "company": "Nokia", "date_sent": "2026-04-14 10:00:00", "body_text": long_body},
+        ]
+        store.upsert_summary(
+            EmailSummaryRecord(
+                scope_type="tdoc",
+                scope_key="S2-2603001",
+                title="Shared Doc 1",
+                summary_md="Short leaf summary",
+                covered_message_ids=["SH1"],
+                cutoff_utc="2026-04-14 10:00:00",
+                provider="m365-copilot",
+            )
+        )
+        buckets = {
+            "tdoc:S2-2603001": {
+                "scope_type": "tdoc",
+                "scope_key": "S2-2603001",
+                "title": "Shared Doc 1",
+                "messages": list(shared_msgs),
+                "alias_tdocs": ["S2-2603001", "S2-2603002"],
+            },
+            # Duplicate bucket with identical message set (same thread)
+            "tdoc:S2-2603002": {
+                "scope_type": "tdoc",
+                "scope_key": "S2-2603002",
+                "title": "Shared Doc 2",
+                "messages": list(shared_msgs),
+            },
+        }
+        pkt = build_ai_handoff_packet(
+            store,
+            "20.6.0",
+            "20.6.0 — User Plane Architecture",
+            buckets,
+            meeting_dir=self.agenda_dir.parent,
+            pack_mode="full_uncut",
+        )
+        self.assertEqual(pkt.pack_mode, "full_uncut")
+        self.assertFalse(pkt.was_truncated)
+        # Shared thread embedded only ONCE, with full >8k body intact & alias TDocs listed
+        self.assertEqual(pkt.prompt_text.count("## Item "), 1)
+        self.assertEqual(pkt.prompt_text.count("Detailed technical point"), 1)
+        self.assertIn(long_body, pkt.prompt_text)
+        self.assertIn("[S2-2603002](tdoc:S2-2603002)", pkt.prompt_text)
+        self.assertNotIn("Short leaf summary", pkt.prompt_text)
+
 
 if __name__ == "__main__":
     unittest.main()

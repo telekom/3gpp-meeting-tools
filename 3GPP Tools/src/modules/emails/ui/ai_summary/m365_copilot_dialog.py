@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
-from typing import Optional
+from typing import Callable, Optional
 
 from PyQt5.QtCore import QMimeData, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -84,6 +84,7 @@ class M365CopilotHandoffDialog(QDialog):
         auto_launch: bool = True,
         meeting_dir: Optional[Path] = None,
         owner: Optional[QWidget] = None,
+        packet_builder: Optional[Callable[[str], M365HandoffPacket]] = None,
     ) -> None:
         super().__init__(None)  # None avoids Win32 GW_OWNER pinning
         if owner is not None:
@@ -94,6 +95,7 @@ class M365CopilotHandoffDialog(QDialog):
 
         self._store = store
         self._packet = packet
+        self._packet_builder = packet_builder
         self._meeting_dir = Path(meeting_dir) if meeting_dir else store.db_path.parent.parent
 
         self.setWindowFlags(Qt.Window)
@@ -167,6 +169,27 @@ class M365CopilotHandoffDialog(QDialog):
         self.step1_info_lbl.setWordWrap(True)
         self.step1_info_lbl.setStyleSheet(f"color: {C.TEXT_SECONDARY}; font-size: 11px;")
         s1_lay.addWidget(self.step1_info_lbl)
+
+        self.pack_mode_combo: Optional[QComboBox] = None
+        if self._packet_builder is not None:
+            pm_row = QHBoxLayout()
+            pm_row.setSpacing(6)
+            pm_row.addWidget(QLabel("<b>Pack Detail:</b>", step1))
+            self.pack_mode_combo = QComboBox(step1)
+            self.pack_mode_combo.setMinimumHeight(scale_px(25))
+            self.pack_mode_combo.addItem("📄 Full Uncut Emails (recommended for Copilot)", "full_uncut")
+            self.pack_mode_combo.addItem("🗜️ Compact (Reuse Saved Thread Summaries)", "compact")
+            cur_pm = getattr(self._packet, "pack_mode", "full_uncut")
+            p_idx = self.pack_mode_combo.findData(cur_pm)
+            if p_idx >= 0:
+                self.pack_mode_combo.setCurrentIndex(p_idx)
+            self.pack_mode_combo.setToolTip(
+                "Full Uncut: embeds every deduplicated email without truncating.\n"
+                "Compact: reuses up-to-date thread summaries to prevent attention dilution on huge AIs."
+            )
+            self.pack_mode_combo.currentIndexChanged.connect(self._on_pack_mode_changed)
+            pm_row.addWidget(self.pack_mode_combo, 1)
+            s1_lay.addLayout(pm_row)
 
         s1_btns = QHBoxLayout()
         s1_btns.setSpacing(6)
@@ -253,19 +276,28 @@ class M365CopilotHandoffDialog(QDialog):
         root.addWidget(step2, 1)
 
     def _refresh_step1_status(self) -> None:
+        trunc_note = " ⚠️ truncated at 500k cap" if getattr(self._packet, "was_truncated", False) else " · no truncation"
         if self._packet.attached_file is not None:
             fname = self._packet.attached_file.name
             self.step1_info_lbl.setText(
-                f"Prompt is sized for file attachment ({len(self._packet.prompt_text):,} chars). "
+                f"Prepared file pack ({len(self._packet.prompt_text):,} chars{trunc_note}). "
                 f"Staged file: <b>{fname}</b> — upload or drag-and-drop it into M365 Copilot, then press Ctrl+V."
             )
             self.btn_stage_or_reveal.setText("📂 Reveal .md File")
         else:
             self.step1_info_lbl.setText(
-                f"Self-contained prompt ready ({len(self._packet.clipboard_prompt):,} chars). "
+                f"Self-contained prompt ready ({len(self._packet.clipboard_prompt):,} chars{trunc_note}). "
                 "Paste directly into M365 Copilot with Ctrl+V -> Enter (no Entra ID / Graph permission needed)."
             )
             self.btn_stage_or_reveal.setText("💾 Save Prompt as .md File")
+
+    def _on_pack_mode_changed(self) -> None:
+        if self._packet_builder is None or self.pack_mode_combo is None:
+            return
+        mode = str(self.pack_mode_combo.currentData() or "full_uncut")
+        self._packet = self._packet_builder(mode)
+        QApplication.clipboard().setText(self._packet.clipboard_prompt)
+        self._refresh_step1_status()
 
     def _on_target_changed(self) -> None:
         target = str(self.target_combo.currentData() or "web")

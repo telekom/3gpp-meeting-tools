@@ -38,7 +38,7 @@ class EmailTableModel(QAbstractTableModel):
             if col_name == "TDoc": return row.get("tdoc_id", "")
             if col_name == "AI":
                 ai = row.get("agenda_item", "")
-                return f"👀 {ai}" if ai in self.followed_ais else ai
+                return f"★ {ai}" if ai in self.followed_ais else ai
             if col_name == "Company": return row.get("company", "")
             if col_name == "Sender": return row.get("sender_name", "")
             if col_name == "Rev":

@@ -564,6 +564,7 @@ class TrackedThreadsMixin:
             open_tdoc_callback=getattr(self, "_open_tdoc_document_directly", None),
             open_thread_callback=getattr(self, "_open_tracked_thread_dialog", None),
             jump_tdoc_callback=getattr(self, "_jump_to_tdoc_from_signal", None),
+            open_tdoc_emails_callback=getattr(self, "_open_tdoc_emails", None),
             initial_ai_code=initial_ai_code,
             parent=None,
         )

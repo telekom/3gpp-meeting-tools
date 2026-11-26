@@ -35,6 +35,7 @@ class EmailBriefingsDialog(BriefingsUiSetupMixin, BriefingsActionsMixin, QDialog
         open_tdoc_callback: Optional[Callable[[str], None]] = None,
         open_thread_callback: Optional[Callable[[str], None]] = None,
         jump_tdoc_callback: Optional[Callable[[str], None]] = None,
+        open_tdoc_emails_callback: Optional[Callable[[str], None]] = None,
         initial_ai_code: str = "",
         initial_selection: Optional[Dict[str, Any]] = None,
         auto_run_initial: bool = False,
@@ -58,6 +59,9 @@ class EmailBriefingsDialog(BriefingsUiSetupMixin, BriefingsActionsMixin, QDialog
         self._open_tdoc_callback = open_tdoc_callback
         self._open_thread_callback = open_thread_callback
         self._jump_tdoc_callback = jump_tdoc_callback
+        self._open_tdoc_emails_callback = open_tdoc_emails_callback
+        self._child_email_dialogs: Dict[str, Any] = {}
+        self._sel_root: Optional[QTreeWidgetItem] = None
 
         resolved_db = summary_db_path
         if resolved_db is None:
@@ -135,7 +139,7 @@ class EmailBriefingsDialog(BriefingsUiSetupMixin, BriefingsActionsMixin, QDialog
         # If not yet persisted, inject temporary selection item & select it
         if not self.summary_store.get_summary("selection", sel_key):
             root = self.nav_tree.invisibleRootItem()
-            sel_root = root.child(1) if root.childCount() > 1 else None
+            sel_root = getattr(self, "_sel_root", None) or (root.child(root.childCount() - 1) if root.childCount() > 0 else None)
             if sel_root is not None:
                 item = QTreeWidgetItem(sel_root, [f"✨ {self._pending_selection_title} ({len(self._pending_selection_messages)})"])
                 item.setData(0, Qt.UserRole, ("selection", sel_key))
@@ -154,6 +158,12 @@ class EmailBriefingsDialog(BriefingsUiSetupMixin, BriefingsActionsMixin, QDialog
             if self._m365_dialog is not None:
                 self._m365_dialog.close()
                 self._m365_dialog = None
+            for child in list(getattr(self, "_child_email_dialogs", {}).values()):
+                try:
+                    child.close()
+                except Exception:
+                    pass
+            self._child_email_dialogs.clear()
             self._settings.setValue("geometry", self.saveGeometry())
         except Exception:
             pass

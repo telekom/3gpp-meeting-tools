@@ -80,7 +80,7 @@ class EmailManagerActionsAndWorkersMixin:
         self.tdoc_proxy.invalidateFilter()
 
         ai_display = self.current_agenda_item or "Unknown AI"
-        self.btn_toggle_follow.setText(f"❌ Unfollow {ai_display}" if new_status else f"👀 Follow {ai_display}")
+        self.btn_toggle_follow.setText(f"❌ Unfollow {ai_display}" if new_status else f"★ Follow {ai_display}")
 
     def _open_current_msg(self):
         if self.current_msg_path and Path(self.current_msg_path).exists():

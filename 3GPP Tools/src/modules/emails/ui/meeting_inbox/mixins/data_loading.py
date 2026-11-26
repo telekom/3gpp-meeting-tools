@@ -277,7 +277,7 @@ class InboxDataLoadingMixin:
                 inh_tag = " (inherited)" if ai in inh else ""
                 tips[ai] = f"{full}{inh_tag}"
                 short = (full[:42] + "...") if len(full) > 45 else full
-                labels[ai] = f"👀 {short}" if ai in inh else short
+                labels[ai] = f"★ {short}" if ai in inh else short
             self.followed_ais_combo.blockSignals(True)
             self.followed_ais_combo.updateItems(all_ais, display_labels=labels, item_tooltips=tips)
             if eff and len(eff) < len(all_ais):

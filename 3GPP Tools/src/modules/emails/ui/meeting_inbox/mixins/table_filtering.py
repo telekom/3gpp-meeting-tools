@@ -290,7 +290,7 @@ class InboxTableFilteringMixin:
             ais = it.get("linked_ais") or []
             wis = it.get("linked_wis") or []
             is_followed_ai = bool(followed_ais and (set(ais) & followed_ais))
-            ai_prefix = "👀 " if is_followed_ai else ""
+            ai_prefix = "★ " if is_followed_ai else ""
             if is_tdoc_view and ais and wis:
                 ai_disp = f"{ai_prefix}{', '.join(ais)} • {wis[0]}"
             else:
@@ -304,7 +304,7 @@ class InboxTableFilteringMixin:
                 if wis:
                     tip_lines.append("WIs: " + ", ".join(wis))
                 if is_followed_ai:
-                    tip_lines.append("👀 Followed AI (on your Priority Radar)")
+                    tip_lines.append("★ Followed AI (on your Priority Radar)")
                 ai_item.setToolTip("\n".join(tip_lines))
 
             subj_full = str(it.get("subject") or "")

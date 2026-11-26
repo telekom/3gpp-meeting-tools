@@ -58,7 +58,7 @@ class SessionPlanNoteDialog(QDialog):
         self.badge_combo.addItem("Normal / Unmarked", "normal")
         self.badge_combo.addItem("⭐ Must Attend (Priority)", "must_attend")
         self.badge_combo.addItem("👥 Colleague Covering", "colleague")
-        self.badge_combo.addItem("👀 Monitor on TOHRU", "tohru")
+        self.badge_combo.addItem("📡 Monitor on TOHRU", "tohru")
         self.badge_combo.addItem("✅ Done / Handled", "done")
 
         if ann:

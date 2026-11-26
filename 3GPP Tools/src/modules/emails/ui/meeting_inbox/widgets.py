@@ -421,7 +421,7 @@ def build_inbox_filter_bar(dialog) -> QFrame:
 
     # Group 2: Radar & Objection Scope
     radar_box, radar_lay = make_inbox_toolbar_group(row2_frame, spacing=4)
-    dialog.followed_ais_combo = CheckableComboBox("👀 Followed AIs", radar_box)
+    dialog.followed_ais_combo = CheckableComboBox("★ Followed AIs", radar_box)
     dialog.followed_ais_combo.setMinimumHeight(ctrl_h)
     dialog.followed_ais_combo.setMinimumWidth(scale_px(145))
     dialog.followed_ais_combo.setMaximumWidth(scale_px(210))

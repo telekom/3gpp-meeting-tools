@@ -236,7 +236,7 @@ class EmailManagerUiSetupMixin:
         self.btn_toggle_star.setEnabled(False)
         self.btn_toggle_star.clicked.connect(self._toggle_current_star)
 
-        self.btn_toggle_follow = QPushButton("👀 Follow AI")
+        self.btn_toggle_follow = QPushButton("★ Follow AI")
         self.btn_toggle_follow.setToolTip("Toggle the Follow status for this Agenda Item globally.")
         self.btn_toggle_follow.setEnabled(False)
         self.btn_toggle_follow.clicked.connect(self._toggle_current_ai_follow)

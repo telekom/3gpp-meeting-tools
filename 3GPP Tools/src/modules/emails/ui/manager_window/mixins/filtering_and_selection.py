@@ -138,7 +138,7 @@ class EmailManagerFilteringAndSelectionMixin:
 
         is_followed = self.current_agenda_item in self.email_model.followed_ais
         ai_display = self.current_agenda_item or "Unknown AI"
-        self.btn_toggle_follow.setText(f"❌ Unfollow {ai_display}" if is_followed else f"👀 Follow {ai_display}")
+        self.btn_toggle_follow.setText(f"❌ Unfollow {ai_display}" if is_followed else f"★ Follow {ai_display}")
 
         real_email = row_data.get("sender_email", "")
         html_body = f"""
