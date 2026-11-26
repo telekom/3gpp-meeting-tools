@@ -15,9 +15,14 @@ from .models import ComposedPacket, PacketField, PacketLayer
 _ROLE_COLORS: Dict[str, Tuple[str, str, str]] = {
     # (banner_bg, banner_fg, cell_tint)
     "transport": (C.BG_MUTED, C.TEXT_STRONG, C.BG_SURFACE),
+    "sctp_chunk": (C.TEAL_SOFT, C.TEAL_DARK, C.TEAL_SURFACE),
     "gtpu_header": (C.SKY_SOFT, C.ACCENT_SKY_DARK, C.SKY_SURFACE),
     "gtpu_ext_wrapper": (C.SUCCESS_SOFT_ALT, C.SUCCESS_DARK, C.SUCCESS_SOFT),
     "up_frame": (C.WARNING_YELLOW_SOFT, C.WARNING_YELLOW_TEXT, C.WARNING_SOFT),
+    "ngap_envelope": (C.SKY_SOFT, C.ACCENT_SKY_DARK, C.SKY_SURFACE),
+    "ngap_ie": (C.INFO_SOFT, C.INFO_DARK, C.BLUE_TINT_SOFT),
+    "nas_security": (C.ORANGE_SOFT, C.ORANGE_DARK, C.WARNING_SOFT),
+    "nas_message": (C.WARNING_YELLOW_SOFT, C.WARNING_YELLOW_TEXT, C.WARNING_SOFT),
     "ran_container": (C.VIOLET_SOFT, C.VIOLET_DARK, C.VIOLET_SURFACE),
     "payload": (C.BG_CANVAS, C.TEXT_SECONDARY, C.BG_ALT_LIGHT),
 }

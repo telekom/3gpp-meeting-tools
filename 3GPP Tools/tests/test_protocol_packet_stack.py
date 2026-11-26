@@ -17,12 +17,15 @@ from modules.nas.core.nas_db import NASDatabase
 from modules.nas.core.packet_stack import (
     UP_SCENARIO_PRESETS,
     PacketConfig,
+    compose_ngap_packet,
+    compose_packet,
     compose_up_packet,
     copy_packet_to_clipboard,
     render_packet_html,
     render_packet_markdown,
     render_packet_plain_text,
     render_packet_plantuml_packetdiag,
+    resolve_packet_target,
     resolve_up_packet_target,
 )
 from modules.nas.ui.nas_components import NASInspectorWidget
@@ -248,6 +251,131 @@ class TestUPPacketStackEngine(unittest.TestCase):
                 self.assertEqual(col_sum, 11, f"{mode} row had {col_sum} columns instead of 11: {tr}")
 
 
+class TestNGAPPacketStackEngine(unittest.TestCase):
+    """Tests N2 NGAP (TS 38.412 SCTP + TS 38.413 APER + optional TS 24.501 NAS-PDU) packet stacks."""
+
+    def test_resolve_ngap_targets(self):
+        self.assertIsNone(resolve_packet_target("24.501", "8.2.1", "REGISTRATION REQUEST"))
+        self.assertIsNone(resolve_packet_target("38.331", "6.2.2", "RRCReconfiguration"))
+
+        res_dl = resolve_packet_target("38.413", "9.2.5.2", "DownlinkNASTransport", "DownlinkNASTransport")
+        self.assertEqual(res_dl["stack_family"], "ngap")
+        self.assertEqual(res_dl["preset_id"], "n2_ue_signalling")
+        self.assertEqual(res_dl["highlight_field"], "")
+
+        res_ie = resolve_packet_target("38.413", "9.2.5.2", "AMF-UE-NGAP-ID", "DownlinkNASTransport")
+        self.assertEqual(res_ie["stack_family"], "ngap")
+        self.assertEqual(res_ie["highlight_field"], "AMF-UE-NGAP-ID")
+
+        res_setup = resolve_packet_target("38.413", "9.2.6.1", "NGSetupRequest", "NGSetupRequest")
+        self.assertEqual(res_setup["preset_id"], "n2_non_ue")
+        self.assertTrue(res_setup["auto_enable_flags"]["sctp_non_ue_stream"])
+
+        res_sctp = resolve_packet_target("38.412", "7", "SCTP")
+        self.assertEqual(res_sctp["stack_family"], "ngap")
+
+    def test_ngap_presets_html_11_columns_and_plantuml(self):
+        from bs4 import BeautifulSoup
+
+        for mode in ("ipv4_sctp", "ipv6_sctp", "sctp_only"):
+            pkt = compose_ngap_packet(
+                PacketConfig(
+                    stack_family="ngap",
+                    target_frame="ngap_pdu",
+                    preset_id="n2_ue_with_nas",
+                    transport_mode=mode,
+                    message_name="DownlinkNASTransport",
+                    nas_message_name="DL NAS TRANSPORT",
+                    flags={"expand_nas_pdu": True, "nas_security_hdr": True, "sctp_sack": True},
+                )
+            )
+            self.assertIn("DownlinkNASTransport", pkt.title)
+            self.assertIn("DL NAS TRANSPORT", pkt.title)
+            self.assertIsNotNone(pkt.find_field("Payload Protocol Identifier (PPID)"))
+            self.assertIsNotNone(pkt.find_field("Message authentication code"))
+            self.assertIsNotNone(pkt.find_field("DL NAS TRANSPORT message identity"))
+            self.assertIsNotNone(pkt.find_field("Chunk Type (SACK)"))
+
+            html_out = render_packet_html(pkt, interactive_links=True)
+            self.assertNotIn("TS RFC", html_out)
+            soup = BeautifulSoup(html_out, "html.parser")
+            for tr in soup.find("tbody").find_all("tr"):
+                col_sum = sum(int(c.get("colspan", "1")) for c in tr.find_all(["td", "th"]))
+                self.assertEqual(col_sum, 11, f"NGAP {mode} row had {col_sum} columns: {tr}")
+
+        # PlantUML packetdiag compilation check on full IPv6 + SCTP + NGAP + NAS-PDU
+        puml = render_packet_plantuml_packetdiag(pkt)
+        self.assertTrue(puml.startswith("@startpacketdiag"))
+        self.assertTrue(puml.endswith("@endpacketdiag"))
+        self.assertIn("PPID = 60", puml)
+
+        jar_path = Path("src/assets/plantuml.jar")
+        java_exe, _ = get_best_java()
+        if jar_path.exists() and java_exe:
+            res = subprocess.run(
+                [java_exe, "-jar", str(jar_path), "-pipe", "-tsvg", "-charset", "UTF-8"],
+                input=puml,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            self.assertEqual(res.returncode, 0, f"PlantUML NGAP failed: {res.stderr}")
+            self.assertIn("<svg", res.stdout)
+
+    def test_ngap_db_loading_and_optional_ie_toggle(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = NASDatabase(Path(tmpdir) / "ngap_test.db")
+            db.insert_parsed_spec(
+                "38.413",
+                "19.3.0",
+                messages=[{
+                    "clause": "9.2.5.2",
+                    "message_name": "DownlinkNASTransport",
+                    "direction": "AMF NG-RAN node",
+                    "ies": [
+                        {"iei": "4", "information_element": "MessageType", "field_path": "MessageType", "depth": 0, "type_reference": "MessageType (9.3.1.1)", "presence": "M", "format": "IE", "length": "ignore"},
+                        {"iei": "10", "information_element": "AMF-UE-NGAP-ID", "field_path": "AMF-UE-NGAP-ID", "depth": 0, "type_reference": "AMF-UE-NGAP-ID", "presence": "M", "format": "IE", "length": "reject"},
+                        {"iei": "38", "information_element": "NAS-PDU", "field_path": "NAS-PDU", "depth": 0, "type_reference": "NAS-PDU", "presence": "M", "format": "IE", "length": "reject"},
+                        {"iei": "36", "information_element": "MobilityRestrictionList", "field_path": "MobilityRestrictionList", "depth": 0, "type_reference": "MobilityRestrictionList", "presence": "O", "format": "IE", "length": "ignore"},
+                    ],
+                }],
+                ie_defs=[],
+            )
+            db.insert_parsed_spec(
+                "24.501",
+                "19.7.0",
+                messages=[{
+                    "clause": "8.2.11.1.1",
+                    "message_name": "DL NAS TRANSPORT",
+                    "ies": [
+                        {"information_element": "Extended protocol discriminator", "depth": 0, "presence": "M", "format": "V", "length": "1", "type_reference": "9.2"},
+                        {"information_element": "Security header type", "depth": 0, "presence": "M", "format": "V", "length": "1/2", "type_reference": "9.3"},
+                        {"information_element": "Spare half octet", "depth": 0, "presence": "M", "format": "V", "length": "1/2", "type_reference": "9.5"},
+                        {"information_element": "DL NAS TRANSPORT message identity", "depth": 0, "presence": "M", "format": "V", "length": "1", "type_reference": "9.7"},
+                    ],
+                }],
+                ie_defs=[],
+            )
+
+            pkt_no_opt = compose_packet(
+                PacketConfig(stack_family="ngap", target_frame="ngap_pdu", message_name="DownlinkNASTransport"),
+                db=db,
+            )
+            self.assertIsNone(pkt_no_opt.find_field("MobilityRestrictionList"))
+
+            pkt_with_opt = compose_packet(
+                PacketConfig(
+                    stack_family="ngap",
+                    target_frame="ngap_pdu",
+                    message_name="DownlinkNASTransport",
+                    flags={"ie_36": True, "expand_nas_pdu": True},
+                ),
+                db=db,
+            )
+            self.assertIsNotNone(pkt_with_opt.find_field("MobilityRestrictionList"))
+            self.assertIsNotNone(pkt_with_opt.find_field("DL NAS TRANSPORT message identity"))
+
+
 class TestProtocolsFlexibleUI(unittest.TestCase):
     """Tests NASInspectorWidget mode toggle and ProtocolWorkspaceLayoutController ergonomics."""
 
@@ -307,6 +435,22 @@ class TestProtocolsFlexibleUI(unittest.TestCase):
         self.assertTrue(psw.scenarios_guide_panel.isHidden())
         psw.btn_scenarios_help.setChecked(True)
         self.assertFalse(psw.scenarios_guide_panel.isHidden())
+
+        # Switch Inspector cleanly from UP (38.415) -> NGAP (38.413 DownlinkNASTransport)
+        inspector.display_definitions(
+            clause="9.2.5.2",
+            ie_name="DownlinkNASTransport",
+            spec_number="38.413",
+            defs=[{"ie_name": "DownlinkNASTransport", "spec_number": "38.413", "version": "19.3.0", "raw_description": "<p>NGAP</p>"}],
+            containing_msgs=[],
+            message_name="DownlinkNASTransport",
+        )
+        self.assertFalse(inspector.mode_segment.isHidden())
+        self.assertEqual(psw.current_packet().config.stack_family, "ngap")
+        idx_nas_preset = psw.scenario_combo.findData("n2_ue_with_nas")
+        psw.scenario_combo.setCurrentIndex(idx_nas_preset)
+        self.assertFalse(psw.nas_msg_combo.isHidden())
+        self.assertIn("DL NAS TRANSPORT", psw.current_packet().title)
 
     def test_layout_controller_modes_popout_collapse_and_autocompact(self):
         settings = QSettings("3GPP_Tools_Test", "ProtocolsLayoutTest")

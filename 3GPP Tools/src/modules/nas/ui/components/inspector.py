@@ -149,7 +149,9 @@ class NASInspectorWidget(NASInspectorRenderMixin, QFrame):
         self.btn_mode_packet.setCheckable(True)
         self.btn_mode_packet.setChecked(False)
         self.btn_mode_packet.setCursor(Qt.PointingHandCursor)
-        self.btn_mode_packet.setToolTip("Inspect full multi-layer User Plane packet stack (TS 29.281 + TS 38.415)")
+        self.btn_mode_packet.setToolTip(
+            "Inspect full multi-layer packet stack (5G UP: TS 29.281 + TS 38.415; N2 CP: TS 38.413 NGAP + TS 38.412 SCTP + TS 24.501 NAS)"
+        )
         self.btn_mode_packet.setStyleSheet(seg_qss)
         self.btn_mode_packet.clicked.connect(lambda: self.set_inspector_mode("packet"))
         mode_lay.addWidget(self.btn_mode_packet)

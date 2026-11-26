@@ -104,17 +104,21 @@ class PacketScenarioPreset:
 
 @dataclass
 class PacketConfig:
-    """User-editable configuration driving `compose_up_packet()`."""
+    """User-editable configuration driving `compose_up_packet()` / `compose_ngap_packet()`."""
 
     target_frame: str = "dl_pdu_session"
     preset_id: str = "n3_n9"
-    transport_mode: str = "collapsed"  # "collapsed", "ipv4_udp", "ipv6_udp", "none"
+    transport_mode: str = "collapsed"  # "collapsed", "ipv4_udp"/"ipv4_sctp", "ipv6_udp"/"ipv6_sctp", "sctp_only", "none"
     flags: Dict[str, bool] = field(default_factory=dict)
     include_tpdu: bool = True
     tpdu_label: str = "T-PDU Payload (IPv4 / IPv6 / Ethernet)"
     spec_version_38415: str = ""
     spec_version_29281: str = ""
     highlight_field: str = ""
+    stack_family: str = "up"
+    message_name: str = ""
+    nas_message_name: str = ""
+    spec_version_38413: str = ""
 
 
 @dataclass

@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import html
 from typing import Any, Dict, List, Optional
 
 from PyQt5.QtCore import QSettings, Qt, QTimer, QUrl, pyqtSignal
 from PyQt5.QtWidgets import (
-    QAction,
     QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QMenu,
     QPushButton,
     QSizePolicy,
     QTextBrowser,
@@ -25,42 +22,26 @@ from core.ui.font_scale import bind_reader_zoom_settings, scale_px
 from core.ui.theme import C
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, COMBOBOX_STYLE_TOOLBAR
 from modules.nas.core.packet_stack import (
-    UP_PRESET_MAP,
-    UP_SCENARIO_PRESETS,
+    SAMPLE_NAS_MESSAGES,
     ComposedPacket,
     FlagOption,
     PacketConfig,
-    compose_up_packet,
+    compose_packet,
     copy_packet_to_clipboard,
+    default_nas_message_for_ngap,
+    get_preset_map_for_family,
+    get_presets_for_family,
     render_packet_html,
     render_packet_plantuml_packetdiag,
-    resolve_up_packet_target,
+    resolve_packet_target,
 )
-
-
-def _flag_pill_qss(*, release_present: bool = True, is_ext: bool = False) -> str:
-    fg = C.TEXT_BODY if release_present else C.TEXT_FAINT
-    bg = C.BG_CARD if release_present else C.BG_SURFACE
-    if is_ext:
-        chk_fg, chk_bg, chk_bd, chk_hv = C.SUCCESS_DARK, C.SUCCESS_SOFT_ALT, C.SUCCESS, C.SUCCESS_BORDER
-    else:
-        chk_fg, chk_bg, chk_bd, chk_hv = C.ACCENT_SKY_DARK, C.SKY_SOFT, C.ACCENT_SKY, C.INFO_SOFT_STRONG
-    return (
-        f"QPushButton {{ font-size: 10px; font-weight: 600; color: {fg}; "
-        f"background-color: {bg}; border: 1px solid {C.BORDER_STRONG}; "
-        f"border-radius: 10px; padding: 2px 8px; }} "
-        f"QPushButton:hover {{ border-color: {chk_bd}; background-color: {C.BG_HOVER}; }} "
-        f"QPushButton:checked {{ color: {chk_fg}; background-color: {chk_bg}; "
-        f"border: 1.5px solid {chk_bd}; }} "
-        f"QPushButton:checked:hover {{ background-color: {chk_hv}; }}"
-    )
-
-
-def _clear_flow_layout(flow: FlowLayout) -> None:
-    while flow.count():
-        item = flow.takeAt(0)
-        if item and item.widget():
-            item.widget().deleteLater()
+from .packet_stack_styles import (
+    build_packet_copy_menu,
+    build_scenarios_guide_html,
+    clear_flow_layout,
+    flag_pill_qss,
+    quick_btn_qss,
+)
 
 
 class PacketStackWidget(QWidget):
@@ -74,6 +55,7 @@ class PacketStackWidget(QWidget):
         super().__init__(parent)
         self.db = db
         self._base_target_frame: str = "dl_pdu_session"
+        self._active_family: str = ""
         self._config = PacketConfig()
         self._composed: Optional[ComposedPacket] = None
         self._flag_buttons: Dict[str, QPushButton] = {}
@@ -115,9 +97,6 @@ class PacketStackWidget(QWidget):
         self.scenario_combo.setMinimumHeight(ctrl_h)
         self.scenario_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.scenario_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
-        for idx, p in enumerate(UP_SCENARIO_PRESETS):
-            self.scenario_combo.addItem(p.label, p.preset_id)
-            self.scenario_combo.setItemData(idx, p.description, Qt.ToolTipRole)
         self.scenario_combo.currentIndexChanged.connect(self._on_scenario_changed)
         top_row.addWidget(self.scenario_combo)
 
@@ -125,8 +104,8 @@ class PacketStackWidget(QWidget):
         self.btn_scenarios_help.setCheckable(True)
         self.btn_scenarios_help.setMinimumHeight(ctrl_h)
         self.btn_scenarios_help.setCursor(Qt.PointingHandCursor)
-        self.btn_scenarios_help.setToolTip("Show or hide explanations for all 6 User Plane scenarios")
-        self.btn_scenarios_help.setStyleSheet(_flag_pill_qss())
+        self.btn_scenarios_help.setToolTip("Show or hide explanations for all scenarios in this protocol family")
+        self.btn_scenarios_help.setStyleSheet(flag_pill_qss())
         self.btn_scenarios_help.toggled.connect(self._on_toggle_scenarios_guide)
         top_row.addWidget(self.btn_scenarios_help)
 
@@ -134,12 +113,19 @@ class PacketStackWidget(QWidget):
         self.transport_combo.setMinimumHeight(ctrl_h)
         self.transport_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.transport_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
-        self.transport_combo.addItem("Outer: Collapsed", "collapsed")
-        self.transport_combo.addItem("Outer: IPv4 + UDP (28B)", "ipv4_udp")
-        self.transport_combo.addItem("Outer: IPv6 + UDP (48B)", "ipv6_udp")
-        self.transport_combo.addItem("Outer: Hidden (3GPP Only)", "none")
         self.transport_combo.currentIndexChanged.connect(self._on_transport_changed)
         top_row.addWidget(self.transport_combo)
+
+        self.nas_msg_combo = QComboBox(controls)
+        self.nas_msg_combo.setMinimumHeight(ctrl_h)
+        self.nas_msg_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.nas_msg_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
+        self.nas_msg_combo.setToolTip("Select 5GS NAS message (TS 24.501) carried inside NGAP NAS-PDU")
+        for nm in SAMPLE_NAS_MESSAGES:
+            self.nas_msg_combo.addItem(f"NAS: {nm}", nm)
+        self.nas_msg_combo.currentIndexChanged.connect(self._on_nas_msg_changed)
+        self.nas_msg_combo.setVisible(False)
+        top_row.addWidget(self.nas_msg_combo)
 
         self.tpdu_btn = QPushButton("📦 T-PDU", controls)
         self.tpdu_btn.setCheckable(True)
@@ -147,7 +133,7 @@ class PacketStackWidget(QWidget):
         self.tpdu_btn.setMinimumHeight(ctrl_h)
         self.tpdu_btn.setCursor(Qt.PointingHandCursor)
         self.tpdu_btn.setToolTip("Toggle encapsulated T-PDU user payload (disable for dummy/control G-PDU)")
-        self.tpdu_btn.setStyleSheet(_flag_pill_qss())
+        self.tpdu_btn.setStyleSheet(flag_pill_qss())
         self.tpdu_btn.toggled.connect(self._on_tpdu_toggled)
         top_row.addWidget(self.tpdu_btn)
 
@@ -167,27 +153,9 @@ class PacketStackWidget(QWidget):
         self.copy_packet_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.copy_packet_btn.setToolTip("Copy assembled packet diagram (Word, PlantUML packetdiag, Markdown, Text)")
 
-        copy_menu = QMenu(self)
-        copy_menu.setStyleSheet(
-            f"QMenu {{ font-size: 11px; background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; padding: 4px; }} "
-            f"QMenu::item {{ padding: 5px 18px 5px 10px; border-radius: 3px; }} "
-            f"QMenu::item:selected {{ background-color: {C.ACCENT_SOFT}; color: {C.ACCENT_PRIMARY}; }}"
+        self.copy_packet_btn.setMenu(
+            build_packet_copy_menu(self, self._copy_packet, self._send_to_plantuml_ide)
         )
-        for text, mode in (
-            ("📋 Copy for Word / Outlook (Rich Diagram)", "word"),
-            ("📐 Copy as PlantUML (packetdiag)", "packetdiag"),
-            ("📝 Copy as Markdown Table", "markdown"),
-            ("📄 Copy Plain Text", "text"),
-        ):
-            act = QAction(text, self)
-            act.triggered.connect(lambda _c=False, m=mode: self._copy_packet(m))
-            copy_menu.addAction(act)
-        copy_menu.addSeparator()
-        act_ide = QAction("✏️ Open in PlantUML IDE", self)
-        act_ide.triggered.connect(self._send_to_plantuml_ide)
-        copy_menu.addAction(act_ide)
-
-        self.copy_packet_btn.setMenu(copy_menu)
         top_row.addWidget(self.copy_packet_btn)
         ctrl_lay.addLayout(top_row)
 
@@ -212,19 +180,19 @@ class PacketStackWidget(QWidget):
         sg_lay = QVBoxLayout(self.scenarios_guide_panel)
         sg_lay.setContentsMargins(8, 6, 8, 6)
         sg_lay.setSpacing(3)
-        self.scenarios_guide_lbl = QLabel(self._build_scenarios_guide_html(), self.scenarios_guide_panel)
+        self.scenarios_guide_lbl = QLabel(build_scenarios_guide_html("up"), self.scenarios_guide_panel)
         self.scenarios_guide_lbl.setWordWrap(True)
         self.scenarios_guide_lbl.setStyleSheet(f"font-size: 10.5px; color: {C.TEXT_BODY};")
         sg_lay.addWidget(self.scenarios_guide_lbl)
         self.scenarios_guide_panel.setVisible(False)
         ctrl_lay.addWidget(self.scenarios_guide_panel)
 
-        # Row 2: GTP-U & Extension Header Chain toggles
+        # Row 2: GTP-U / SCTP & NAS toggles
         ext_row = QHBoxLayout()
         ext_row.setSpacing(6)
-        lbl_ext = QLabel("Ext & GTP-U:", controls)
-        lbl_ext.setStyleSheet(f"font-size: 10.5px; font-weight: 600; color: {C.SUCCESS_DARK};")
-        ext_row.addWidget(lbl_ext, 0, Qt.AlignTop)
+        self.lbl_ext_row = QLabel("Ext & GTP-U:", controls)
+        self.lbl_ext_row.setStyleSheet(f"font-size: 10.5px; font-weight: 600; color: {C.SUCCESS_DARK};")
+        ext_row.addWidget(self.lbl_ext_row, 0, Qt.AlignTop)
 
         self.ext_flags_container = QWidget(controls)
         self.ext_flags_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -232,36 +200,32 @@ class PacketStackWidget(QWidget):
         ext_row.addWidget(self.ext_flags_container, 1)
         ctrl_lay.addLayout(ext_row)
 
-        # Row 3: Inner TS 38.415 Frame Flags + Minimal / All Opt
+        # Row 3: Inner TS 38.415 Frame Flags or NGAP Optional IEs + Minimal / All Opt
         self.frame_flags_row_widget = QWidget(controls)
         flags_row = QHBoxLayout(self.frame_flags_row_widget)
         flags_row.setContentsMargins(0, 0, 0, 0)
         flags_row.setSpacing(6)
 
-        lbl_frm = QLabel("Frame Flags:", self.frame_flags_row_widget)
-        lbl_frm.setStyleSheet(f"font-size: 10.5px; font-weight: 600; color: {C.ACCENT_SKY_DARK};")
-        flags_row.addWidget(lbl_frm, 0, Qt.AlignTop)
+        self.lbl_frame_row = QLabel("Frame Flags:", self.frame_flags_row_widget)
+        self.lbl_frame_row.setStyleSheet(f"font-size: 10.5px; font-weight: 600; color: {C.ACCENT_SKY_DARK};")
+        flags_row.addWidget(self.lbl_frame_row, 0, Qt.AlignTop)
 
         self.frame_flags_container = QWidget(self.frame_flags_row_widget)
         self.frame_flags_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.frame_flags_flow = FlowLayout(self.frame_flags_container, margin=0, h_spacing=4, v_spacing=4)
         flags_row.addWidget(self.frame_flags_container, 1)
 
-        quick_btn_qss = (
-            f"QPushButton {{ font-size: 10px; font-weight: 600; color: {C.TEXT_SECONDARY}; "
-            f"background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; border-radius: 4px; padding: 2px 7px; }} "
-            f"QPushButton:hover {{ background-color: {C.BG_HOVER}; color: {C.TEXT_PRIMARY}; }}"
-        )
+        q_btn_qss = quick_btn_qss()
         self.btn_flags_minimal = QPushButton("Minimal", self.frame_flags_row_widget)
         self.btn_flags_minimal.setCursor(Qt.PointingHandCursor)
-        self.btn_flags_minimal.setStyleSheet(quick_btn_qss)
+        self.btn_flags_minimal.setStyleSheet(q_btn_qss)
         self.btn_flags_minimal.setToolTip("Disable optional frame flags to inspect minimal overhead")
         self.btn_flags_minimal.clicked.connect(lambda: self._apply_quick_flags(False))
         flags_row.addWidget(self.btn_flags_minimal, 0, Qt.AlignTop)
 
         self.btn_flags_all = QPushButton("All Opt", self.frame_flags_row_widget)
         self.btn_flags_all.setCursor(Qt.PointingHandCursor)
-        self.btn_flags_all.setStyleSheet(quick_btn_qss)
+        self.btn_flags_all.setStyleSheet(q_btn_qss)
         self.btn_flags_all.setToolTip("Enable all release-supported optional flags in active frame(s)")
         self.btn_flags_all.clicked.connect(lambda: self._apply_quick_flags(True))
         flags_row.addWidget(self.btn_flags_all, 0, Qt.AlignTop)
@@ -305,23 +269,47 @@ class PacketStackWidget(QWidget):
 
         self.btn_close_detail = QPushButton("✕", self.detail_bar)
         self.btn_close_detail.setCursor(Qt.PointingHandCursor)
-        self.btn_close_detail.setStyleSheet(quick_btn_qss)
+        self.btn_close_detail.setStyleSheet(q_btn_qss)
         self.btn_close_detail.clicked.connect(lambda: self.detail_bar.setVisible(False))
         det_lay.addWidget(self.btn_close_detail)
 
         self.detail_bar.setVisible(False)
         self._selected_field_ref: Optional[tuple[str, str, str]] = None
         root.addWidget(self.detail_bar)
+        self._populate_family_controls("up")
 
-    @staticmethod
-    def _build_scenarios_guide_html() -> str:
-        items = "".join(
-            f"<div style='margin: 2px 0;'><b>{html.escape(p.label)}</b> "
-            f"<span style='color: {C.TEXT_MUTED};'>[{html.escape(p.interface)}]</span>: "
-            f"{html.escape(p.description)}</div>"
-            for p in UP_SCENARIO_PRESETS
-        )
-        return f"<div><b>5G User Plane Scenarios (TS 29.281 &amp; TS 38.415):</b>{items}</div>"
+    def _populate_family_controls(self, stack_family: str) -> None:
+        if self._active_family == stack_family:
+            return
+        self._active_family = stack_family
+        self._updating_ui = True
+        try:
+            self.scenario_combo.clear()
+            for idx, p in enumerate(get_presets_for_family(stack_family)):
+                self.scenario_combo.addItem(p.label, p.preset_id)
+                self.scenario_combo.setItemData(idx, p.description, Qt.ToolTipRole)
+
+            self.transport_combo.clear()
+            if stack_family == "ngap":
+                self.transport_combo.addItem("Outer: Collapsed", "collapsed")
+                self.transport_combo.addItem("Outer: IPv4 + SCTP (48B)", "ipv4_sctp")
+                self.transport_combo.addItem("Outer: IPv6 + SCTP (68B)", "ipv6_sctp")
+                self.transport_combo.addItem("Outer: SCTP Only (28B)", "sctp_only")
+                self.transport_combo.addItem("Outer: NGAP APER Only", "none")
+                self.lbl_ext_row.setText("SCTP & NAS:")
+                self.lbl_frame_row.setText("Optional IEs:")
+                self.tpdu_btn.setVisible(False)
+            else:
+                self.transport_combo.addItem("Outer: Collapsed", "collapsed")
+                self.transport_combo.addItem("Outer: IPv4 + UDP (28B)", "ipv4_udp")
+                self.transport_combo.addItem("Outer: IPv6 + UDP (48B)", "ipv6_udp")
+                self.transport_combo.addItem("Outer: Hidden (3GPP Only)", "none")
+                self.lbl_ext_row.setText("Ext & GTP-U:")
+                self.lbl_frame_row.setText("Frame Flags:")
+                self.tpdu_btn.setVisible(True)
+            self.scenarios_guide_lbl.setText(build_scenarios_guide_html(stack_family))
+        finally:
+            self._updating_ui = False
 
     def _on_toggle_scenarios_guide(self, checked: bool) -> None:
         self.scenarios_guide_panel.setVisible(bool(checked))
@@ -336,10 +324,10 @@ class PacketStackWidget(QWidget):
         message_name: str = "",
         version_hint: str = "",
     ) -> bool:
-        """Resolve selection into a 5G UP packet configuration and render it."""
+        """Resolve selection into a 5G UP or N2 NGAP packet configuration and render it."""
         if db is not None:
             self.db = db
-        target = resolve_up_packet_target(
+        target = resolve_packet_target(
             spec_number=spec_number,
             clause=clause,
             ie_name=ie_name,
@@ -348,28 +336,40 @@ class PacketStackWidget(QWidget):
         if not target:
             return False
 
+        family = target.get("stack_family", "up")
+        self._populate_family_controls(family)
         preset_id = target["preset_id"]
-        preset = UP_PRESET_MAP.get(preset_id, UP_SCENARIO_PRESETS[0])
+        preset_map = get_preset_map_for_family(family)
+        presets = get_presets_for_family(family)
+        preset = preset_map.get(preset_id, presets[0])
         flags = dict(preset.default_flags)
         flags.update(target.get("auto_enable_flags") or {})
         self._base_target_frame = target["target_frame"]
 
-        ver_38415 = ""
-        ver_29281 = ""
+        ver_38415 = ver_29281 = ver_38413 = ""
         clean_spec = str(spec_number or "").replace("TS", "").strip()
         if clean_spec == "38.415" and version_hint:
             ver_38415 = version_hint.strip()
         elif clean_spec == "29.281" and version_hint:
             ver_29281 = version_hint.strip()
+        elif clean_spec == "38.413" and version_hint:
+            ver_38413 = version_hint.strip()
 
+        msg_name = target.get("message_name", "")
+        nas_name = default_nas_message_for_ngap(msg_name) if family == "ngap" else ""
+        t_mode = self._config.transport_mode if self._config.stack_family == family else preset.transport_mode
         self._config = PacketConfig(
+            stack_family=family,
             target_frame=self._base_target_frame,
             preset_id=preset_id,
-            transport_mode=self._config.transport_mode or preset.transport_mode,
+            transport_mode=t_mode or preset.transport_mode,
             flags=flags,
             include_tpdu=preset.include_tpdu,
+            message_name=msg_name,
+            nas_message_name=nas_name,
             spec_version_38415=ver_38415,
             spec_version_29281=ver_29281,
+            spec_version_38413=ver_38413,
             highlight_field=target.get("highlight_field", ""),
         )
         self.detail_bar.setVisible(False)
@@ -378,9 +378,12 @@ class PacketStackWidget(QWidget):
 
     def refresh_packet(self) -> None:
         """Recompute `ComposedPacket`, sync controls, and render HTML."""
-        self._composed = compose_up_packet(self._config, db=self.db)
+        self._composed = compose_packet(self._config, db=self.db)
         self._config = self._composed.config
-        preset = UP_PRESET_MAP.get(self._config.preset_id, UP_SCENARIO_PRESETS[0])
+        family = self._config.stack_family
+        preset_map = get_preset_map_for_family(family)
+        presets = get_presets_for_family(family)
+        preset = preset_map.get(self._config.preset_id, presets[0])
 
         self._updating_ui = True
         try:
@@ -392,12 +395,19 @@ class PacketStackWidget(QWidget):
                 self.transport_combo.setCurrentIndex(idx_tr)
             self.tpdu_btn.setChecked(self._config.include_tpdu)
             self.tpdu_btn.setEnabled(self._config.target_frame != "end_marker")
+            show_nas_combo = family == "ngap" and bool(self._config.flags.get("expand_nas_pdu"))
+            self.nas_msg_combo.setVisible(show_nas_combo)
+            if show_nas_combo:
+                idx_nas = self.nas_msg_combo.findData(self._config.nas_message_name)
+                if idx_nas >= 0:
+                    self.nas_msg_combo.setCurrentIndex(idx_nas)
             self.scenario_info_lbl.setText(f"ℹ️ {preset.description}")
             self._rebuild_flag_pills()
         finally:
             self._updating_ui = False
 
-        ov_txt = f"3GPP UP: {self._composed.overhead_3gpp_octets} B"
+        lbl_prefix = "N2 / NGAP" if family == "ngap" else "3GPP UP"
+        ov_txt = f"{lbl_prefix}: {self._composed.overhead_3gpp_octets} B"
         if self._composed.overhead_transport_octets > 0:
             ov_txt += f" · Total: {self._composed.overhead_total_octets} B"
         self.overhead_badge.setText(ov_txt)
@@ -412,20 +422,20 @@ class PacketStackWidget(QWidget):
         if not opt.is_release_present:
             tip += " (Not in selected release DB; click to preview anyway)"
         btn.setToolTip(tip)
-        btn.setStyleSheet(_flag_pill_qss(release_present=opt.is_release_present, is_ext=is_ext))
+        btn.setStyleSheet(flag_pill_qss(release_present=opt.is_release_present, is_ext=is_ext))
         btn.toggled.connect(lambda checked, k=opt.key: self._on_flag_toggled(k, checked))
         flow.addWidget(btn)
         self._flag_buttons[opt.key] = btn
 
     def _rebuild_flag_pills(self) -> None:
-        _clear_flow_layout(self.ext_flags_flow)
-        _clear_flow_layout(self.frame_flags_flow)
+        clear_flow_layout(self.ext_flags_flow)
+        clear_flow_layout(self.frame_flags_flow)
         self._flag_buttons.clear()
         if not self._composed:
             return
         frame_opts: List[FlagOption] = []
         for opt in self._composed.available_flags:
-            if opt.group in ("gtpu", "ext"):
+            if opt.group in ("gtpu", "ext", "sctp"):
                 self._add_pill(opt, self.ext_flags_container, self.ext_flags_flow, is_ext=True)
             else:
                 frame_opts.append(opt)
@@ -435,11 +445,16 @@ class PacketStackWidget(QWidget):
     def _on_scenario_changed(self, index: int) -> None:
         if self._updating_ui or index < 0:
             return
-        preset_id = str(self.scenario_combo.itemData(index) or "n3_n9")
-        preset = UP_PRESET_MAP.get(preset_id)
+        family = self._config.stack_family
+        preset_id = str(self.scenario_combo.itemData(index) or "")
+        preset = get_preset_map_for_family(family).get(preset_id)
         if not preset:
             return
         self._config.preset_id = preset_id
+        if family == "ngap":
+            self._config.flags = dict(preset.default_flags)
+            self.refresh_packet()
+            return
         if preset_id == "end_marker":
             self._config.target_frame = "end_marker"
         elif preset_id == "n3_n9_pdu_set":
@@ -452,6 +467,12 @@ class PacketStackWidget(QWidget):
         if self._base_target_frame == "dl_pdu_set" and preset_id in ("n3_n9_pdu_set", "f1u_cu_du"):
             self._config.flags["ext_pdu_set"] = True
         self._config.include_tpdu = preset.include_tpdu
+        self.refresh_packet()
+
+    def _on_nas_msg_changed(self, index: int) -> None:
+        if self._updating_ui or index < 0:
+            return
+        self._config.nas_message_name = str(self.nas_msg_combo.itemData(index) or "")
         self.refresh_packet()
 
     def _on_transport_changed(self, index: int) -> None:
@@ -476,7 +497,7 @@ class PacketStackWidget(QWidget):
         if not self._composed:
             return
         for opt in self._composed.available_flags:
-            if opt.group.startswith("frame"):
+            if opt.group.startswith("frame") or opt.group == "ngap_ie":
                 self._config.flags[opt.key] = bool(enable_all and opt.is_release_present)
         self.refresh_packet()
 
@@ -515,7 +536,7 @@ class PacketStackWidget(QWidget):
             spec_txt = f"TS {spec_num} Cl. {clause}" if spec_num else ""
             self.detail_lbl.setText(f"<b>{field_name}</b> ({spec_txt}{size_txt})" + (f" — {desc}" if desc else ""))
             self._selected_field_ref = (spec_num, clause, field_name)
-            self.btn_open_field_def.setVisible(spec_num in ("29.281", "38.415"))
+            self.btn_open_field_def.setVisible(spec_num in ("29.281", "38.415", "38.413", "38.412", "24.501"))
             self.detail_bar.setVisible(True)
 
     def _on_open_selected_field_def(self) -> None:

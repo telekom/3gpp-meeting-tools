@@ -39,8 +39,9 @@ Architectural blueprint and extension guide for assembling end-to-end on-the-wir
 
 ---
 
-## 2. Currently Supported Protocols (v1 — 5G User Plane)
+## 2. Currently Supported Protocols
 
+### 2.1. 5G User Plane (`TS 29.281` + `TS 38.415`)
 - **TS 29.281 (GTPv1-U):** Common Header (Cl. 5.1, Octets 1–12), Extension Header framing (Cl. 5.2.1), `Long PDCP PDU Number` (`0x03`, Cl. 5.2.2.2A), `NR RAN Container` (`0x84`, Cl. 5.2.2.6 placeholder), `PDU Session Container` (`0x85`, Cl. 5.2.2.7), `PDU Set Information Container` (`0x04`, Cl. 5.2.2.8), `G-PDU` (`255`), `End Marker` (`254`), and `Dummy G-PDU` (no T-PDU).
 - **TS 38.415 (PDU Session & PDU Set UP):**
   - `5.5.2.1` **DL PDU SESSION INFORMATION (PDU Type 0)** — incl. `QMP`, `SNP`, `MSNP`, `PPP`, `RQI`, `QFI`, `PPI`, Rel-19 `BSSI`/`BSSize`, `TTNBI`/`TTNB`.
@@ -48,32 +49,26 @@ Architectural blueprint and extension guide for assembling end-to-end on-the-wir
   - `6.5.2.1` **DL PDU SET INFORMATION (PDU Type 0)** — incl. `EDB`, `EPDU`, `PSSI`, `QFI`, 10-bit split `PSSN`, `PSI`, `PSN`, `PSSize`.
 - **Interface Presets:** `N3 / N9`, `N3 / N9 + PDU Set Chained`, `Xn-U`, `F1-U`, `QoS Monitoring Dummy G-PDU`, and `End Marker`.
 
+### 2.2. N2 Control Plane (`TS 38.412` SCTP + `TS 38.413` NGAP + `TS 24.501` `NAS-PDU`)
+Implemented via [`ngap_catalog.py`](../src/modules/nas/core/packet_stack/ngap_catalog.py), [`ngap_composer.py`](../src/modules/nas/core/packet_stack/ngap_composer.py), and [`registry.py`](../src/modules/nas/core/packet_stack/registry.py):
+- **Outer IP + SCTP (`RFC 9260` + `TS 38.412` Cl. 7):** Outer IPv4/IPv6 (`Proto/Next = 132 [SCTP]`), 12-octet SCTP Common Header (`Dst Port = 38412`), optional bundled 16-octet `SACK` chunk, and 16-octet `DATA` chunk (`Stream 0` for non-UE vs `Stream ≠ 0` for UE-associated signalling, `PPID = 60`).
+- **Bit-Exact APER Envelope + Variable IE Values (`TS 38.413` Cl. 9.4 + `ITU-T X.691`):** Models the deterministic APER PDU header (`CHOICE`, `procedureCode`, `criticality`, `Open-Type Length`, `protocolIEs` count) and each `ProtocolIE-Field` header (`IE ID [16b]`, `Criticality`, `Length`) bit-accurately while marking ASN.1 APER IE payloads cleanly as variable APER-encoded blocks.
+- **Interactive Optional IE Pills & Inline `NAS-PDU` Expansion:** Mandatory (`M`) IEs are always present; Optional/Conditional (`O`/`C`) top-level IEs can be toggled via pills. Messages carrying `NAS-PDU` (`IE ID 38`) can expand any sample `TS 24.501` 5GS NAS message (with optional 7-octet `5GMM` Security Protected Header) inline.
+
 ---
 
-## 3. To-Do & Extension Roadmap (How to Add Other Protocol Stacks)
+## 3. To-Do & Extension Roadmap (Next Protocol Stacks)
 
-Because `models.py` and `exporters.py` are completely protocol-agnostic, adding new stacks requires **zero changes** to the packing solver, HTML/Word/Markdown/PlantUML exporters, or `PacketStackWidget` shell:
+Because [`models.py`](../src/modules/nas/core/packet_stack/models.py), [`exporters.py`](../src/modules/nas/core/packet_stack/exporters.py), and [`registry.py`](../src/modules/nas/core/packet_stack/registry.py) are protocol-agnostic:
 
-### 3.1. Remaining User Plane Protocols (To-Do)
-1. **TS 38.425 (NR User Plane Protocol on Xn-U / F1-U / E1):**
-   - Add a dedicated parser for `TS 38.425` (`DL USER DATA` PDU Type 0, `DL DATA DELIVERY STATUS` PDU Type 1, `ASSISTANCE INFORMATION DATA` PDU Type 2) and plug its field builders into `up_catalog.py` to replace the current `build_nr_ran_container_fields()` placeholder inside `0x84 NR RAN Container`.
-2. **LTE RAN User Plane Containers (`TS 36.425` X2-U, `TS 36.465` Xw-U):**
-   - Map `0x81 RAN Container` and `0x83 Xw RAN Container` similarly to `0x84`.
-3. **Inner T-PDU Header Expansion & Tunnel Variants:**
-   - Optional expandable inner `IPv4`/`IPv6`/`Ethernet (802.3)`/`UDP`/`TCP` T-PDU header option in `build_transport_layers()` / payload builder, plus **MASQUE / HTTP/3 / QUIC** or **IPsec ESP** outer transport modes.
-4. **Legacy / Additional GTP-U Extension Headers:**
-   - `0xC0 PDCP PDU Number` (15-bit/12-bit), `0x20 Service Class Indicator`, and `UDP Port (0x40)` on `Error Indication`.
+### 3.1. Peer RAN3 SCTP/APER Interfaces (Direct Reuse of `ngap_composer.py`)
+- **`XnAP` (`TS 38.423`, Port `38422`, PPID `61`)**, **`F1AP` (`TS 38.473`, Port `38472`, PPID `62`)**, **`E1AP` (`TS 38.463`, Port `38462`, PPID `64`)**, and **`S1AP` (`TS 36.413`, Port `36412`, PPID `18`)** share the exact `RAN3Asn1Parser` schema and SCTP/APER `ProtocolIE-Field` structure — they only need SCTP Port/PPID catalog entries and non-UE message prefixes.
 
-### 3.2. Control Plane & UE Policy Encapsulation Stacks (To-Do)
-To extend this pattern beyond User Plane (e.g., into a generalized `stack_registry.py`):
-1. **5GS NAS + UE Policy Stack (`TS 24.526 / 24.588 / 24.555` $\to$ `TS 24.501` $\to$ `TS 38.413` $\to$ `TS 38.412`):**
-   - Outer `SCTP` (PPID 60 for NGAP) $\to$ `NGAP` (`DownlinkNASTransport`) $\to$ `5GS NAS` (`DL NAS TRANSPORT`, security-protected `5GMM` header + `Payload container` `9.11.3.39` / `MANAGE UE POLICY COMMAND` `D.5.1`) $\to$ `UE Policy Section Management List` (`D.6.2`) $\to$ `URSP Rule` (`TS 24.526 Cl. 5.2`).
-2. **PFCP over UDP (`TS 29.244`):**
-   - `IP` $\to$ `UDP (Dst Port 8805)` $\to$ `PFCP Header` (Cl. 7.2.2, `S` SEID flag toggling Octets 5–12) $\to$ selected PFCP Message grouped IEs.
-3. **NR RRC Air Interface Stack (`TS 38.331` $\to$ `TS 38.323` PDCP $\to$ `TS 38.322` RLC):**
-   - `RLC` header + `PDCP` header (`SN`, `MAC-I`) + `RRC` ASN.1 PDU summary.
+### 3.2. Remaining User Plane Protocols
+1. **`TS 38.425` (NR User Plane Protocol on Xn-U / F1-U / E1):** Add a parser for `DL USER DATA` / `DL DATA DELIVERY STATUS` and replace `build_nr_ran_container_fields()` inside `0x84 NR RAN Container`.
+2. **LTE RAN Containers (`TS 36.425` X2-U, `TS 36.465` Xw-U)**, **inner T-PDU IP/Ethernet headers**, and **MASQUE / IPsec** outer transports.
 
-**Recipe to add any new stack:**
-1. Create `<domain>_catalog.py` returning `PacketLayer` / `FlagOption` / `PacketScenarioPreset` + `resolve_<domain>_packet_target(...)`.
-2. Add `<domain>_composer.py` producing a `ComposedPacket` (reusing `PacketLayer` and `PacketField`).
-3. Register the resolver in `PacketStackWidget.set_context()` (or a thin dispatcher in `packet_stack/registry.py`) — all UI toggles, octet packing, Word/Markdown/Plain Text/`@startpacketdiag` exports, and PlantUML IDE handoff work automatically.
+### 3.3. Uu Air Interface Stacks (Requires L2 Header Catalogs First)
+1. **Control Plane Uu (`RRC → PDCP → RLC → MAC`):** Requires adding `TS 38.323` (PDCP `SN` + `MAC-I`), `TS 38.322` (RLC), and `TS 38.321` (MAC subheaders) before wrapping `TS 38.331` RRC + `TS 24.501` `dedicatedNAS-Message`.
+2. **User Plane Uu (`SDAP → PDCP → RLC → MAC`):** Requires `TS 37.324` (`SDAP` 1-octet `D/C` + `RDI` + `RQI` + `QFI` header) + `TS 38.323` (PDCP).
+3. **PFCP over UDP (`TS 29.244`):** `IP → UDP (Dst Port 8805) → PFCP Header (Cl. 7.2.2, S SEID flag) → grouped PFCP IEs`.
