@@ -3,7 +3,7 @@ import logging
 import os
 from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import zipfile
 from PyQt5.QtCore import QThread, pyqtSignal
 
@@ -110,6 +110,92 @@ def find_cached_spec_file(filename: str, spec_number: str = "24.501") -> Optiona
                         return file_path
 
     return None
+
+
+_CACHE_EXTENSIONS = (".zip", ".docx", ".doc")
+
+
+class SpecCacheIndex:
+    """Lazy per-directory file index for fast `find()` lookups across hundreds of spec versions."""
+
+    def __init__(self, candidate_dirs: Optional[List[Path]] = None) -> None:
+        raw_dirs = candidate_dirs if candidate_dirs is not None else get_candidate_cache_dirs()
+        self._base_dirs: List[Path] = [d for d in raw_dirs if d.exists()]
+        # dir_key -> { "exact": {lower_name: Path}, "by_prefix": {5char: [(lower_name, Path)]}, "all": [(lower_name, Path)] }
+        self._dir_cache: Dict[str, Dict[str, Any]] = {}
+
+    def _scan_dir(self, s_dir: Path) -> Dict[str, Any]:
+        key = str(s_dir)
+        cached = self._dir_cache.get(key)
+        if cached is not None:
+            return cached
+
+        exact: Dict[str, Path] = {}
+        by_prefix: Dict[str, List[Tuple[str, Path]]] = {}
+        all_files: List[Tuple[str, Path]] = []
+
+        if s_dir.exists() and "__MACOSX" not in s_dir.parts:
+            try:
+                with os.scandir(s_dir) as it:
+                    for entry in it:
+                        name = entry.name
+                        if name.startswith("._"):
+                            continue
+                        low = name.lower()
+                        if not low.endswith(_CACHE_EXTENSIONS):
+                            continue
+                        try:
+                            if not entry.is_file():
+                                continue
+                        except OSError:
+                            continue
+                        p = Path(entry.path)
+                        exact[low] = p
+                        item = (low, p)
+                        all_files.append(item)
+                        if len(low) >= 5:
+                            by_prefix.setdefault(low[:5], []).append(item)
+            except OSError:
+                pass
+
+        bucket = {"exact": exact, "by_prefix": by_prefix, "all": all_files}
+        self._dir_cache[key] = bucket
+        return bucket
+
+    def find(self, filename: str, spec_number: str = "24.501") -> Optional[Path]:
+        """Resolve cached `.zip`, `.docx`, or `.doc` matching `filename` with priority matching `find_cached_spec_file`."""
+        fname_low = filename.lower()
+        doc_base = fname_low[:-4] if fname_low.endswith(".zip") else fname_low
+        clean_spec = spec_number.replace(".", "")
+
+        for base_dir in self._base_dirs:
+            search_dirs = (
+                base_dir / spec_number,
+                base_dir / clean_spec,
+                base_dir,
+            )
+            for s_dir in search_dirs:
+                bucket = self._scan_dir(s_dir)
+                exact = bucket["exact"]
+                if not exact:
+                    continue
+
+                if fname_low.endswith(".zip"):
+                    hit = exact.get(fname_low)
+                    if hit is not None:
+                        return hit
+
+                candidates = bucket["by_prefix"].get(clean_spec[:5], bucket["all"]) if clean_spec and doc_base.startswith(clean_spec[:5].lower()) else bucket["all"]
+                for ext in _CACHE_EXTENSIONS:
+                    for low, path in candidates:
+                        if low.endswith(ext) and doc_base in low:
+                            return path
+                    if candidates is not bucket["all"]:
+                        for low, path in bucket["all"]:
+                            if low.endswith(ext) and doc_base in low:
+                                return path
+
+        return None
 
 
 class NASFetchAndImportThread(QThread):

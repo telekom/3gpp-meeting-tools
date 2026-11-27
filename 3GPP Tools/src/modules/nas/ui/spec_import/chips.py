@@ -8,6 +8,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QLabel, QPushButton, QWidget
 
 from core.ui.theme import C
+from core.ui.ui_components import escape_qt_mnemonic
 
 _BADGE_COLORS = {
     "wg": (C.INFO_DARK, C.INFO_SOFT),
@@ -40,8 +41,8 @@ def make_badge(text: str, kind: str = "muted", parent: Optional[QWidget] = None)
 def chip_qss() -> str:
     """QSS for checkable filter chips (defines `:checked` and `:checked:hover`)."""
     return (
-        f"QPushButton {{ font-size: 11px; font-weight: 500; color: {C.TEXT_SECONDARY}; "
-        f"background-color: {C.BG_CARD}; border: 1px solid {C.BORDER_STRONG}; "
+        f"QPushButton {{ font-size: 11px; font-weight: 600; color: {C.TEXT_SECONDARY}; "
+        f"background-color: {C.BG_CARD}; border: 1.5px solid {C.BORDER_STRONG}; "
         f"border-radius: 11px; padding: 2px 10px; min-height: 18px; }} "
         f"QPushButton:hover {{ background-color: {C.BG_HOVER}; border-color: {C.ACCENT_SKY}; }} "
         f"QPushButton:checked {{ color: {C.ACCENT_PRIMARY}; background-color: {C.ACCENT_SOFT}; "
@@ -51,7 +52,7 @@ def chip_qss() -> str:
 
 
 def make_chip(text: str, tooltip: str = "", *, checkable: bool = True, parent: Optional[QWidget] = None) -> QPushButton:
-    btn = QPushButton(text, parent)
+    btn = QPushButton(escape_qt_mnemonic(text), parent)
     btn.setCheckable(checkable)
     btn.setCursor(Qt.PointingHandCursor)
     btn.setStyleSheet(chip_qss())

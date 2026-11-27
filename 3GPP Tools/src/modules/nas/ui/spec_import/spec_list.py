@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -62,7 +62,11 @@ class SpecFacetBar(QWidget):
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setMinimumHeight(scale_px(30))
         self.search_edit.setStyleSheet(SEARCH_INPUT_STYLE)
-        self.search_edit.textChanged.connect(lambda _t: self.changed.emit())
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(75)
+        self._search_timer.timeout.connect(self.changed.emit)
+        self.search_edit.textChanged.connect(lambda _t: self._search_timer.start())
         lay.addWidget(self.search_edit)
 
         host = QWidget(self)
@@ -97,7 +101,10 @@ class SpecFacetBar(QWidget):
         return out
 
     def reset(self) -> None:
+        self._search_timer.stop()
+        self.search_edit.blockSignals(True)
         self.search_edit.clear()
+        self.search_edit.blockSignals(False)
         for grp in self._groups.values():
             first = grp.buttons()[0] if grp.buttons() else None
             if first:
@@ -172,54 +179,64 @@ class SpecListPanel(QListWidget):
 
     def refresh_status(self) -> None:
         """Re-render badges (ingested / queued counts) without changing selection or emitting signals."""
-        for row in range(self.count()):
-            item = self.item(row)
-            spec = str(item.data(Qt.UserRole))
-            widget = SpecRowWidget(spec, self._ingested.get(spec, 0), self._queued.get(spec, 0))
-            item.setSizeHint(widget.sizeHint())
-            self.setItemWidget(item, widget)
+        self.setUpdatesEnabled(False)
+        try:
+            for row in range(self.count()):
+                item = self.item(row)
+                spec = str(item.data(Qt.UserRole))
+                widget = SpecRowWidget(spec, self._ingested.get(spec, 0), self._queued.get(spec, 0))
+                item.setSizeHint(widget.sizeHint())
+                self.setItemWidget(item, widget)
+        finally:
+            self.setUpdatesEnabled(True)
 
     def rebuild(self, criteria: Dict[str, Optional[str]], keep: str = "") -> int:
         """Rebuild rows for `criteria`; returns visible row count (selection kept/defaulted)."""
         self._criteria = criteria
-        wanted = keep or self.current_spec()
+        prev_spec = self.current_spec()
+        wanted = keep or prev_spec
+        self.setUpdatesEnabled(False)
         self.blockSignals(True)
-        self.clear()
-        first_row, wanted_row = -1, -1
-        for spec in importable_spec_order():
-            if not spec_matches_filters(
-                spec,
-                text=criteria.get("text") or "",
-                generation=criteria.get("generation"),
-                domain=criteria.get("domain"),
-                plane=criteria.get("plane"),
-                layer=criteria.get("layer"),
-            ):
-                continue
-            meta = get_spec_metadata(spec)
-            importable = bool(meta.get("importable", True))
-            item = QListWidgetItem()
-            item.setData(Qt.UserRole, spec)
-            item.setToolTip(str(meta.get("note") or meta["description"]))
-            widget = SpecRowWidget(spec, self._ingested.get(spec, 0), self._queued.get(spec, 0))
-            item.setSizeHint(widget.sizeHint())
-            self.addItem(item)
-            self.setItemWidget(item, widget)
-            if not importable:
-                item.setFlags(item.flags() & ~Qt.ItemIsSelectable)
-                continue
-            row = self.count() - 1
-            if first_row < 0:
-                first_row = row
-            if spec == wanted:
-                wanted_row = row
-        self.blockSignals(False)
-        target = wanted_row if wanted_row >= 0 else first_row
-        if target >= 0:
-            self.setCurrentRow(target)
-            self.spec_selected.emit(self.current_spec())
-        else:
-            self.spec_selected.emit("")
+        try:
+            self.clear()
+            first_row, wanted_row = -1, -1
+            for spec in importable_spec_order():
+                if not spec_matches_filters(
+                    spec,
+                    text=criteria.get("text") or "",
+                    generation=criteria.get("generation"),
+                    domain=criteria.get("domain"),
+                    plane=criteria.get("plane"),
+                    layer=criteria.get("layer"),
+                ):
+                    continue
+                meta = get_spec_metadata(spec)
+                importable = bool(meta.get("importable", True))
+                item = QListWidgetItem()
+                item.setData(Qt.UserRole, spec)
+                item.setToolTip(str(meta.get("note") or meta["description"]))
+                widget = SpecRowWidget(spec, self._ingested.get(spec, 0), self._queued.get(spec, 0))
+                item.setSizeHint(widget.sizeHint())
+                self.addItem(item)
+                self.setItemWidget(item, widget)
+                if not importable:
+                    item.setFlags(item.flags() & ~Qt.ItemIsSelectable)
+                    continue
+                row = self.count() - 1
+                if first_row < 0:
+                    first_row = row
+                if spec == wanted:
+                    wanted_row = row
+            target = wanted_row if wanted_row >= 0 else first_row
+            if target >= 0:
+                self.setCurrentRow(target)
+        finally:
+            self.blockSignals(False)
+            self.setUpdatesEnabled(True)
+
+        new_spec = self.current_spec()
+        if not prev_spec or new_spec != prev_spec or new_spec == "":
+            self.spec_selected.emit(new_spec)
         return self.count()
 
     def _on_current_changed(self, current: Optional[QListWidgetItem], _prev: Optional[QListWidgetItem]) -> None:

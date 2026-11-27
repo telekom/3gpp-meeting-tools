@@ -68,7 +68,9 @@ class ReleasePanel(QWidget):
         self.title_lbl.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {C.TEXT_PRIMARY};")
         hlay.addWidget(self.title_lbl)
         self.badge_host = QWidget(self.header)
-        self.badge_flow = FlowLayout(self.badge_host, margin=0, h_spacing=4, v_spacing=3)
+        self.badge_flow = QHBoxLayout(self.badge_host)
+        self.badge_flow.setContentsMargins(0, 0, 0, 0)
+        self.badge_flow.setSpacing(4)
         hlay.addWidget(self.badge_host)
         self.desc_lbl = QLabel("", self.header)
         self.desc_lbl.setWordWrap(True)
@@ -131,14 +133,18 @@ class ReleasePanel(QWidget):
         while self.badge_flow.count():
             item = self.badge_flow.takeAt(0)
             if item and item.widget():
-                item.widget().deleteLater()
+                w = item.widget()
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
         if spec_number:
             for text, kind in (
                 (str(meta["wg"]), "wg"), (spec_generation(spec_number), "gen"), (str(meta["domain"]), "domain"),
                 (str(meta.get("plane", "")), "plane"), (str(meta.get("layer", "")), "layer"),
             ):
                 if text:
-                    self.badge_flow.addWidget(make_badge(text, kind))
+                    self.badge_flow.addWidget(make_badge(text, kind, parent=self.badge_host))
+            self.badge_flow.addStretch()
         self.desc_lbl.setText(str(meta.get("description", "")) if spec_number else "")
         self._rebuild_release_chips()
         self._apply_release_filter()
@@ -147,10 +153,7 @@ class ReleasePanel(QWidget):
     def _rebuild_release_chips(self) -> None:
         for btn in list(self._chip_group.buttons()):
             self._chip_group.removeButton(btn)
-        while self.chip_flow.count():
-            item = self.chip_flow.takeAt(0)
-            if item and item.widget():
-                item.widget().deleteLater()
+        self.chip_flow.clear()
         majors: List[str] = []
         for r in self._rows:
             rel = release_of(r["version"])
@@ -163,6 +166,7 @@ class ReleasePanel(QWidget):
             chip.setChecked(idx == 0)
             self._chip_group.addButton(chip)
             self.chip_flow.addWidget(chip)
+        self.chip_host.updateGeometry()
 
     def _apply_release_filter(self) -> None:
         btn = self._chip_group.checkedButton()
@@ -185,26 +189,32 @@ class ReleasePanel(QWidget):
 
     def _refill_table(self) -> None:
         self._filling = True
-        self.table.setRowCount(len(self._visible))
-        for row_idx, r in enumerate(self._visible):
-            key = (r["spec_number"], r["version"])
-            chk = QTableWidgetItem()
-            chk.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-            chk.setCheckState(Qt.Checked if key in self._checked else Qt.Unchecked)
-            self.table.setItem(row_idx, 0, chk)
-            self.table.setItem(row_idx, 1, QTableWidgetItem(release_of(r["version"])))
-            ver = QTableWidgetItem(f"v{r['version']}")
-            ver.setFont(self._bold_font(ver))
-            self.table.setItem(row_idx, 2, ver)
-            self.table.setItem(row_idx, 3, QTableWidgetItem(r["uploaded"]))
-            self.table.setItem(row_idx, 4, QTableWidgetItem(r["filename"]))
-            cache = QTableWidgetItem(f"🟢 Cached ({r['cache_ext']})" if r["cached"] else "🌐 Remote (FTP)")
-            cache.setForeground(self._color(C.SUCCESS_DARK if r["cached"] else C.TEXT_MUTED))
-            self.table.setItem(row_idx, 5, cache)
-            db = QTableWidgetItem("✅ Ingested" if r["in_db"] else "⚪ Ready")
-            db.setForeground(self._color(C.ACCENT_PRIMARY if r["in_db"] else C.TEXT_MUTED))
-            self.table.setItem(row_idx, 6, db)
-        self._filling = False
+        self.table.setUpdatesEnabled(False)
+        self.table.blockSignals(True)
+        try:
+            self.table.setRowCount(len(self._visible))
+            for row_idx, r in enumerate(self._visible):
+                key = (r["spec_number"], r["version"])
+                chk = QTableWidgetItem()
+                chk.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                chk.setCheckState(Qt.Checked if key in self._checked else Qt.Unchecked)
+                self.table.setItem(row_idx, 0, chk)
+                self.table.setItem(row_idx, 1, QTableWidgetItem(release_of(r["version"])))
+                ver = QTableWidgetItem(f"v{r['version']}")
+                ver.setFont(self._bold_font(ver))
+                self.table.setItem(row_idx, 2, ver)
+                self.table.setItem(row_idx, 3, QTableWidgetItem(r["uploaded"]))
+                self.table.setItem(row_idx, 4, QTableWidgetItem(r["filename"]))
+                cache = QTableWidgetItem(f"🟢 Cached ({r['cache_ext']})" if r["cached"] else "🌐 Remote (FTP)")
+                cache.setForeground(self._color(C.SUCCESS_DARK if r["cached"] else C.TEXT_MUTED))
+                self.table.setItem(row_idx, 5, cache)
+                db = QTableWidgetItem("✅ Ingested" if r["in_db"] else "⚪ Ready")
+                db.setForeground(self._color(C.ACCENT_PRIMARY if r["in_db"] else C.TEXT_MUTED))
+                self.table.setItem(row_idx, 6, db)
+        finally:
+            self.table.blockSignals(False)
+            self.table.setUpdatesEnabled(True)
+            self._filling = False
 
     @staticmethod
     def _bold_font(item: QTableWidgetItem):

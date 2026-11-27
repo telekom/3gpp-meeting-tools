@@ -23,7 +23,7 @@ from core.ui.flow_layout import FlowLayout
 from core.ui.font_scale import scale_px
 from core.ui.theme import C
 from modules.nas.core.nas_db import NASDatabase, parse_version_tuple
-from modules.nas.core.nas_threads import find_cached_spec_file
+from modules.nas.core.nas_threads import SpecCacheIndex
 from modules.nas.core.spec_catalog import SPEC_BUNDLES, get_spec_metadata
 from modules.specifications.core.database import SpecsDatabase
 from .chips import make_chip, primary_button_qss
@@ -49,6 +49,7 @@ class NASVersionSelectDialog(QDialog):
         self._queue: Dict[Tuple[str, str], RowInfo] = {}
         self._row_cache: Dict[str, List[RowInfo]] = {}
         self._imported: Set[Tuple[str, str]] = set()
+        self._cache_index = SpecCacheIndex()
 
         self.setWindowTitle("Import 3GPP Specifications")
         self.setMinimumSize(scale_px(860), scale_px(560))
@@ -152,7 +153,7 @@ class NASVersionSelectDialog(QDialog):
         rows: List[RowInfo] = []
         for row_data in files:
             _, s_num, _, _, filename, version, url, upload_date, *_rest = row_data
-            cached = find_cached_spec_file(filename, s_num)
+            cached = self._cache_index.find(filename, s_num)
             rows.append({
                 "spec_number": s_num,
                 "version": version,
@@ -184,6 +185,8 @@ class NASVersionSelectDialog(QDialog):
         self.spec_list.rebuild(self.facets.criteria())
 
     def _on_spec_selected(self, spec_number: str) -> None:
+        if spec_number and spec_number == self.release_panel.current_spec() and self.release_panel._rows:
+            return
         rows = self._load_rows(spec_number) if spec_number else []
         self.release_panel.show_spec(spec_number, rows, set(self._queue))
 

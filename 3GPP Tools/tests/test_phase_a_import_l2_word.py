@@ -11,9 +11,10 @@ from typing import Any, List, Tuple
 
 from bs4 import BeautifulSoup
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QPushButton
 
 from modules.nas.core.nas_db import NASDatabase
+from modules.nas.core.nas_threads import SpecCacheIndex
 from modules.nas.core.nas_exporter import (
     copy_definition_to_clipboard,
     copy_matrix_to_clipboard,
@@ -305,3 +306,43 @@ class TestPhaseAPacketWordAndL2(unittest.TestCase):
             self.assertTrue(dlg.preselect_spec("24.526", major_version=19))
             self.assertEqual(dlg.release_panel.current_spec(), "24.526")
             self.assertIn(("24.526", "19.4.0"), dlg._queue)
+
+            # Quick bundle buttons escape literal '&' as '&&' for Qt mnemonics
+            bundle_texts = [btn.text() for btn in dlg.findChildren(QPushButton) if "5G RAN L3" in btn.text()]
+            self.assertEqual(len(bundle_texts), 1)
+            self.assertIn("&&", bundle_texts[0])
+
+            # Filter chip clicks must emit spec_selected at most once per change (not twice)
+            emitted: List[str] = []
+            dlg.spec_list.spec_selected.connect(emitted.append)
+            for btn in dlg.facets._groups["domain"].buttons():
+                if btn.property("filter_value") == "RAN":
+                    btn.click()
+                    break
+            self.assertLessEqual(len(emitted), 1)
+
+    def test_spec_cache_index_matches_archives_and_caches_scans(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            spec_dir = root / "38.323"
+            spec_dir.mkdir(parents=True)
+            macd = root / "__MACOSX"
+            macd.mkdir()
+
+            zip_exact = spec_dir / "38323-j10.zip"
+            zip_exact.write_bytes(b"zip1")
+            docx_sub = root / "37324-j00_part1.docx"
+            docx_sub.write_bytes(b"doc1")
+            (spec_dir / "._38323-j10.zip").write_bytes(b"mac_resource")
+            (macd / "38322-j00.zip").write_bytes(b"ignored")
+
+            idx = SpecCacheIndex(candidate_dirs=[root])
+            self.assertEqual(idx.find("38323-j10.zip", "38.323"), zip_exact)
+            self.assertEqual(idx.find("38323-j10_foo.zip", "38.323"), None)
+            self.assertEqual(idx.find("37324-j00.zip", "37.324"), docx_sub)
+            self.assertIsNone(idx.find("38322-j00.zip", "38.322"))
+
+            # Subsequent lookups hit the cached directory index rather than re-scanning
+            zip_new = spec_dir / "38323-j20.zip"
+            zip_new.write_bytes(b"zip2")
+            self.assertIsNone(idx.find("38323-j20.zip", "38.323"))
