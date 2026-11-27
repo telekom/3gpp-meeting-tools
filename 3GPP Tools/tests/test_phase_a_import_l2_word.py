@@ -347,6 +347,26 @@ class TestPhaseAPacketWordAndL2(unittest.TestCase):
                     break
             self.assertLessEqual(len(emitted), 1)
 
+    def test_picker_cache_matches_single_lookup_and_refreshes_per_selection(self):
+        from unittest.mock import patch
+        from modules.nas.core.nas_threads import find_cached_spec_file
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            folder = root / "38.323"
+            folder.mkdir()
+            for name in ("other-38323-j10.zip", "38323-j10-part.zip", "38323-j10.docx"):
+                (folder / name).touch()
+            (root / "38323-j10.zip").touch()
+            with patch("modules.nas.core.nas_threads.get_candidate_cache_dirs", return_value=[root]):
+                index = SpecCacheIndex()
+                for name in ("38323-j10.zip", "38323-missing.zip"):
+                    self.assertEqual(index.find_in_listing_order(name, "38.323"),
+                                     find_cached_spec_file(name, "38.323"))
+                exact = folder / "38323-j10.zip"
+                exact.touch()
+                self.assertEqual(SpecCacheIndex().find_in_listing_order(exact.name, "38.323"), exact)
+
     def test_spec_cache_index_matches_archives_and_caches_scans(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

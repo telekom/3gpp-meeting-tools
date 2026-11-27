@@ -1,3 +1,4 @@
+from fnmatch import fnmatch
 import json
 import logging
 import os
@@ -161,6 +162,27 @@ class SpecCacheIndex:
         bucket = {"exact": exact, "by_prefix": by_prefix, "all": all_files}
         self._dir_cache[key] = bucket
         return bucket
+
+    def find_in_listing_order(self, filename: str, spec_number: str) -> Optional[Path]:
+        """Batch equivalent of find_cached_spec_file, including glob tie-breaking."""
+        doc_base = filename.replace(".zip", "").lower()
+        for base_dir in self._base_dirs:
+            for directory in (base_dir / spec_number, base_dir / spec_number.replace(".", ""), base_dir):
+                bucket = self._scan_dir(directory)
+                if filename.lower().endswith(".zip"):
+                    exact = directory / filename
+                    # The single-file resolver accepts explicitly named resource forks too.
+                    if filename.startswith("._") or "__MACOSX" in exact.parts:
+                        if exact.is_file():
+                            return exact
+                    elif bucket["exact"].get(filename.lower()) == exact:
+                        return exact
+                for ext in _CACHE_EXTENSIONS:
+                    pattern = f"*{doc_base}*{ext}"
+                    for _, path in bucket["all"]:
+                        if fnmatch(path.name, pattern):
+                            return path
+        return None
 
     def find(self, filename: str, spec_number: str = "24.501") -> Optional[Path]:
         """Resolve cached `.zip`, `.docx`, or `.doc` matching `filename` with priority matching `find_cached_spec_file`."""

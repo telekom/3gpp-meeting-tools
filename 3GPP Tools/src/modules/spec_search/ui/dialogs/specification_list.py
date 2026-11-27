@@ -6,7 +6,7 @@ from typing import Any, List
 from PyQt5.QtCore import QAbstractTableModel, QModelIndex, QObject, QRunnable, Qt, pyqtSignal
 
 
-from modules.nas.core.nas_threads import find_cached_spec_file
+from modules.nas.core.nas_threads import SpecCacheIndex
 from modules.spec_search.core.spec_search_db import parse_version_tuple
 
 
@@ -131,7 +131,8 @@ class ReleaseQuery(QRunnable):
             sorted_files = sorted(file_rows, key=lambda r: parse_version_tuple(r[4]), reverse=True)
             sorted_files.sort(key=lambda r: r[0])
 
-            files = [(row, find_cached_spec_file(row[3], row[0])) for row in sorted_files]
+            cache_index = SpecCacheIndex()
+            files = [(row, cache_index.find_in_listing_order(row[3], row[0])) for row in sorted_files]
         except Exception:
             logging.getLogger(__name__).exception("Failed to load specification releases")
             files = []

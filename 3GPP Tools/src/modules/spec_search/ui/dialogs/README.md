@@ -19,4 +19,4 @@ Modular decomposition of the three ingestion/maintenance dialogs previously hous
 - **Zero Raw Hex Literals:** Every stylesheet and color uses `core.ui.theme.C` tokens, guarded by `tests/test_ui_hex_lint.py`.
 - Keep every file under **500 lines**.
 
-The version picker loads catalogue queries in the Qt thread pool and displays the latest result through a read-only table model. Imported-version badges use a snapshot loaded on the first selection.
+The version picker loads catalogue queries in the Qt thread pool and displays the latest result through a read-only table model. Each release selection shares one lazy directory index across its cache lookups. A new selection sees newly downloaded files. Imported-version badges use a snapshot loaded on the first selection.
