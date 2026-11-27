@@ -1,4 +1,4 @@
-"""Unified multi-stack dispatcher (5G User Plane, N2 NGAP Control Plane, and 5GS NAS/Policies)."""
+"""Unified multi-stack dispatcher (5G User Plane, N2 NGAP Control Plane, 5GS NAS/Policies, and NR Uu RAN)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from .nas_catalog import NAS_PRESET_MAP, NAS_SCENARIO_PRESETS, resolve_nas_packe
 from .nas_composer import compose_nas_packet
 from .ngap_catalog import NGAP_PRESET_MAP, NGAP_SCENARIO_PRESETS, resolve_ngap_packet_target
 from .ngap_composer import compose_ngap_packet
+from .ran_uu_catalog import RAN_UU_PRESET_MAP, RAN_UU_SCENARIO_PRESETS, resolve_ran_uu_packet_target
+from .ran_uu_composer import compose_ran_uu_packet
 from .up_catalog import UP_PRESET_MAP, UP_SCENARIO_PRESETS, resolve_up_packet_target
 
 
@@ -18,6 +20,8 @@ def get_presets_for_family(stack_family: str) -> List[PacketScenarioPreset]:
         return NGAP_SCENARIO_PRESETS
     if stack_family == "nas":
         return NAS_SCENARIO_PRESETS
+    if stack_family == "ran_uu":
+        return RAN_UU_SCENARIO_PRESETS
     return UP_SCENARIO_PRESETS
 
 
@@ -26,6 +30,8 @@ def get_preset_map_for_family(stack_family: str) -> Dict[str, PacketScenarioPres
         return NGAP_PRESET_MAP
     if stack_family == "nas":
         return NAS_PRESET_MAP
+    if stack_family == "ran_uu":
+        return RAN_UU_PRESET_MAP
     return UP_PRESET_MAP
 
 
@@ -35,7 +41,7 @@ def resolve_packet_target(
     ie_name: str = "",
     message_name: str = "",
 ) -> Optional[Dict[str, Any]]:
-    """Resolve any supported specification selection into a UP, NGAP, or 5GS NAS packet target."""
+    """Resolve any supported specification selection into a UP, NGAP, NAS, or NR Uu packet target."""
     up_target = resolve_up_packet_target(
         spec_number=spec_number,
         clause=clause,
@@ -55,7 +61,16 @@ def resolve_packet_target(
     if ngap_target is not None:
         return ngap_target
 
-    return resolve_nas_packet_target(
+    nas_target = resolve_nas_packet_target(
+        spec_number=spec_number,
+        clause=clause,
+        ie_name=ie_name,
+        message_name=message_name,
+    )
+    if nas_target is not None:
+        return nas_target
+
+    return resolve_ran_uu_packet_target(
         spec_number=spec_number,
         clause=clause,
         ie_name=ie_name,
@@ -64,9 +79,11 @@ def resolve_packet_target(
 
 
 def compose_packet(config: PacketConfig, db: Any = None) -> ComposedPacket:
-    """Compose a 5G UP, N2 NGAP, or 5GS NAS packet stack based on `config.stack_family`."""
+    """Compose a 5G UP, N2 NGAP, 5GS NAS, or NR Uu packet stack based on `config.stack_family`."""
     if config.stack_family == "ngap":
         return compose_ngap_packet(config, db=db)
     if config.stack_family == "nas":
         return compose_nas_packet(config, db=db)
+    if config.stack_family == "ran_uu":
+        return compose_ran_uu_packet(config, db=db)
     return compose_up_packet(config, db=db)

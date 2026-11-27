@@ -13,6 +13,7 @@ from core.ui.theme import C
 from modules.nas.core.packet_stack import (
     NAS_SCENARIO_PRESETS,
     NGAP_SCENARIO_PRESETS,
+    RAN_UU_SCENARIO_PRESETS,
     SAMPLE_5GSM_MESSAGES,
     SAMPLE_NAS_MESSAGES,
     UE_POLICY_SPECS,
@@ -66,6 +67,9 @@ def build_scenarios_guide_html(stack_family: str = "up") -> str:
     elif stack_family == "nas":
         presets = NAS_SCENARIO_PRESETS
         title = "5GS NAS &amp; Encapsulated Payload Scenarios (TS 24.501 &amp; UE Policy Specs):"
+    elif stack_family == "ran_uu":
+        presets = RAN_UU_SCENARIO_PRESETS
+        title = "5G NR RAN Uu Scenarios (TS 38.300, 38.331, 37.324, 38.323, 38.322 &amp; 38.321):"
     else:
         presets = UP_SCENARIO_PRESETS
         title = "5G User Plane Scenarios (TS 29.281 &amp; TS 38.415):"
@@ -115,6 +119,19 @@ def populate_family_dropdowns(widget: QWidget, stack_family: str) -> None:
             widget.policy_part_combo.addItem(f"Policy: {pinfo['label']}", pkey)
         widget.lbl_ext_row.setText("NAS Envelope:")
         widget.lbl_frame_row.setText("Payload / IEs:")
+        widget.tpdu_btn.setVisible(False)
+    elif stack_family == "ran_uu":
+        for label, key in (
+            ("Depth: Full L2 down to MAC (TB)", "uu_depth_mac"),
+            ("Depth: Down to RLC (PDU)", "uu_depth_rlc"),
+            ("Depth: Down to PDCP (PDU)", "uu_depth_pdcp"),
+            ("Depth: L3 / SDAP Only", "uu_depth_l3"),
+        ):
+            widget.transport_combo.addItem(label, key)
+        for nm in SAMPLE_NAS_MESSAGES:
+            widget.nas_msg_combo.addItem(f"NAS: {nm}", nm)
+        widget.lbl_ext_row.setText("Uu L2 & Depth:")
+        widget.lbl_frame_row.setText("RRC / Payload:")
         widget.tpdu_btn.setVisible(False)
     else:
         for label, key in (

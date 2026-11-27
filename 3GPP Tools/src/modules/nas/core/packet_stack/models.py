@@ -124,6 +124,7 @@ class PacketConfig:
     spec_version_policy: str = ""
     payload_container_type: str = ""
     policy_part_type: str = "ursp"
+    spec_version_38331: str = ""
 
 
 @dataclass
@@ -144,6 +145,7 @@ class ComposedPacket:
     overhead_total_octets: int
     ext_header_summaries: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    channel_mapping_chain: List[str] = field(default_factory=list)
 
     def all_fields(self) -> List[PacketField]:
         out: List[PacketField] = []

@@ -67,6 +67,12 @@ Implemented via [`nas_catalog.py`](../src/modules/nas/core/packet_stack/nas_cata
 - **5GSM, SOR & SMS Containers:** Expands `5GSM` (`TS 24.501` Cl. `8.3` e.g. `PDU SESSION ESTABLISHMENT ACCEPT`), `SOR Transparent Container` (Cl. `9.11.3.51`), and `SMS over NAS` (`TS 24.011` `CP-DATA`) inside `DL/UL NAS TRANSPORT`.
 - **Selectable Carrier Envelope (`Carrier:`):** Switch between `N1 Standalone (NAS Only)`, `Over N2 (NGAP + SCTP)`, and `Over Uu (MAC → RLC AM → PDCP SRB2 → RRC DL/ULInformationTransfer + MAC-I)`.
 
+### 2.5. 5G NR RAN Uu CP & UP Stacks (`TS 38.300` / `38.331` / `37.324` / `38.323` / `38.322` / `38.321`)
+Implemented via [`ran_uu_catalog.py`](../src/modules/nas/core/packet_stack/ran_uu_catalog.py) and [`ran_uu_composer.py`](../src/modules/nas/core/packet_stack/ran_uu_composer.py):
+- **Automatic Channel & Bearer Mapping Strip (`TS 38.300`):** Renders `SRB0–2` / `DRB1` $\to$ `PDCP` $\to$ `RLC TM/UM/AM` $\to$ `CCCH/DCCH/DTCH/PCCH/BCCH` (`LCID`) $\to$ `DL-SCH/UL-SCH/PCH/BCH` directly above the packet table (e.g., `SRB0` automatically bypasses PDCP and uses 0-byte `RLC TM`).
+- **Configurable Stack Depth (`Depth:`):** Switch smoothly between `Full L2 down to MAC (TB)`, `Down to RLC`, `Down to PDCP`, and `L3 / SDAP Only` without changing the message context.
+- **2-TB RLC Segmentation View (`RLC Segmented (2 TBs)`):** Visualizes an SDU split across two MAC Transport Blocks (`TB #1` with `SI=01`, PDCP/SDAP/RRC headers, and first slice $\to$ `✂️ RLC Segmentation Boundary` $\to$ `TB #2` with `SI=10`, 16-bit `SO = K`, continuation bytes, and trailing `PDCP MAC-I`), alongside DL-front vs UL-tail `MAC CE` multiplexing (`TS 38.321` Fig. 6.1.2-4/5).
+
 ---
 
 ## 3. To-Do & Extension Roadmap (Next Protocol Stacks)
@@ -80,7 +86,6 @@ Because [`models.py`](../src/modules/nas/core/packet_stack/models.py), [`exporte
 1. **`TS 38.425` (NR User Plane Protocol on Xn-U / F1-U / E1):** Add a parser for `DL USER DATA` / `DL DATA DELIVERY STATUS` and replace `build_nr_ran_container_fields()` inside `0x84 NR RAN Container`.
 2. **LTE RAN Containers (`TS 36.425` X2-U, `TS 36.465` Xw-U)**, **inner T-PDU IP/Ethernet headers**, and **MASQUE / IPsec** outer transports.
 
-### 3.3. Uu Air Interface Stacks (Requires L2 Header Catalogs First)
-1. **Control Plane Uu (`RRC → PDCP → RLC → MAC`):** Requires adding `TS 38.323` (PDCP `SN` + `MAC-I`), `TS 38.322` (RLC), and `TS 38.321` (MAC subheaders) before wrapping `TS 38.331` RRC + `TS 24.501` `dedicatedNAS-Message`.
-2. **User Plane Uu (`SDAP → PDCP → RLC → MAC`):** Requires `TS 37.324` (`SDAP` 1-octet `D/C` + `RDI` + `RQI` + `QFI` header) + `TS 38.323` (PDCP).
-3. **PFCP over UDP (`TS 29.244`):** `IP → UDP (Dst Port 8805) → PFCP Header (Cl. 7.2.2, S SEID flag) → grouped PFCP IEs`.
+### 3.3. Remaining 4G LTE Uu & Core Protocols
+1. **LTE Uu (`TS 36.331` / `36.323` / `36.322` / `36.321`):** NR Uu CP & UP are now complete; 4G LTE Uu (`RLC` concatenation `LI` fields + `EPS NAS` `TS 24.301`) can mirror `ran_uu_composer.py`.
+2. **PFCP over UDP (`TS 29.244`):** `IP → UDP (Dst Port 8805) → PFCP Header (Cl. 7.2.2, S SEID flag) → grouped PFCP IEs`.

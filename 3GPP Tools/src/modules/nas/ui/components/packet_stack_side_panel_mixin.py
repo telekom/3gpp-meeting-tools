@@ -22,6 +22,8 @@ class PacketStackSidePanelMixin:
             return self._config.spec_version_38413
         if clean == "24.501":
             return self._config.spec_version_24501
+        if clean == "38.331":
+            return self._config.spec_version_38331
         if clean in ("24.526", "24.588", "24.555", "24.514", "24.578"):
             return self._config.spec_version_policy
         return ""

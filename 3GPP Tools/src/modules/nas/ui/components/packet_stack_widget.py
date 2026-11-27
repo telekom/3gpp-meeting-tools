@@ -318,7 +318,7 @@ class PacketStackWidget(PacketStackSidePanelMixin, QWidget):
         flags.update(target.get("auto_enable_flags") or {})
         self._base_target_frame = target["target_frame"]
 
-        ver_38415 = ver_29281 = ver_38413 = ver_24501 = ver_policy = ""
+        ver_38415 = ver_29281 = ver_38413 = ver_24501 = ver_policy = ver_38331 = ""
         clean_spec = str(spec_number or "").replace("TS", "").strip()
         if clean_spec == "38.415" and version_hint:
             ver_38415 = version_hint.strip()
@@ -328,11 +328,13 @@ class PacketStackWidget(PacketStackSidePanelMixin, QWidget):
             ver_38413 = version_hint.strip()
         elif clean_spec == "24.501" and version_hint:
             ver_24501 = version_hint.strip()
+        elif clean_spec == "38.331" and version_hint:
+            ver_38331 = version_hint.strip()
         elif clean_spec in ("24.526", "24.588", "24.555", "24.514", "24.578") and version_hint:
             ver_policy = version_hint.strip()
 
         msg_name = target.get("message_name", "")
-        if family == "nas":
+        if family in ("nas", "ran_uu"):
             nas_name = target.get("nas_message_name", "")
         elif family == "ngap":
             nas_name = default_nas_message_for_ngap(msg_name)
@@ -353,6 +355,7 @@ class PacketStackWidget(PacketStackSidePanelMixin, QWidget):
             spec_version_38413=ver_38413,
             spec_version_24501=ver_24501,
             spec_version_policy=ver_policy,
+            spec_version_38331=ver_38331,
             payload_container_type=target.get("payload_container_type", ""),
             policy_part_type=target.get("policy_part_type", "ursp"),
             highlight_field=target.get("highlight_field", ""),
@@ -381,10 +384,14 @@ class PacketStackWidget(PacketStackSidePanelMixin, QWidget):
                 self.transport_combo.setCurrentIndex(idx_tr)
             self.tpdu_btn.setChecked(self._config.include_tpdu)
             self.tpdu_btn.setEnabled(self._config.target_frame != "end_marker")
-            show_nas_combo = (family == "ngap" and bool(self._config.flags.get("expand_nas_pdu"))) or (
-                family == "nas"
-                and self._config.payload_container_type == "5gsm"
-                and bool(self._config.flags.get("expand_payload_container", True))
+            self.tpdu_btn.setVisible(family == "up" or (family == "ran_uu" and self._config.target_frame == "uu_up"))
+            show_nas_combo = (
+                (family in ("ngap", "ran_uu") and bool(self._config.flags.get("expand_nas_pdu")))
+                or (
+                    family == "nas"
+                    and self._config.payload_container_type == "5gsm"
+                    and bool(self._config.flags.get("expand_payload_container", True))
+                )
             )
             self.nas_msg_combo.setVisible(show_nas_combo)
             if show_nas_combo:
@@ -406,7 +413,7 @@ class PacketStackWidget(PacketStackSidePanelMixin, QWidget):
         finally:
             self._updating_ui = False
 
-        lbl_prefix = "N2 / NGAP" if family == "ngap" else ("5GS NAS" if family == "nas" else "3GPP UP")
+        lbl_prefix = {"ngap": "N2 / NGAP", "nas": "5GS NAS", "ran_uu": "NR Uu"}.get(family, "3GPP UP")
         ov_txt = f"{lbl_prefix}: {self._composed.overhead_3gpp_octets} B"
         if self._composed.overhead_transport_octets > 0:
             ov_txt += f" · Total: {self._composed.overhead_total_octets} B"
@@ -435,7 +442,7 @@ class PacketStackWidget(PacketStackSidePanelMixin, QWidget):
             return
         frame_opts: List[FlagOption] = []
         for opt in self._composed.available_flags:
-            if opt.group in ("gtpu", "ext", "sctp", "nas_env"):
+            if opt.group in ("gtpu", "ext", "sctp", "nas_env", "uu_l2"):
                 self._add_pill(opt, self.ext_flags_container, self.ext_flags_flow, is_ext=True)
             else:
                 frame_opts.append(opt)
@@ -453,6 +460,18 @@ class PacketStackWidget(PacketStackSidePanelMixin, QWidget):
         self._config.preset_id = preset_id
         if family == "ngap":
             self._config.flags = dict(preset.default_flags)
+            self.refresh_packet()
+            return
+        if family == "ran_uu":
+            self._config.flags = dict(preset.default_flags)
+            self._config.include_tpdu = preset.include_tpdu
+            self._config.target_frame = "uu_up" if preset_id.startswith("uu_up_") else "uu_cp"
+            if self._config.target_frame == "uu_cp":
+                self._config.message_name = {
+                    "uu_cp_srb2_nas": "DLInformationTransfer",
+                    "uu_cp_srb0_ccch": "RRCSetup",
+                    "uu_cp_bcch_pcch": "Paging",
+                }.get(preset_id, "RRCReconfiguration")
             self.refresh_packet()
             return
         if family == "nas":
@@ -512,7 +531,7 @@ class PacketStackWidget(PacketStackSidePanelMixin, QWidget):
         if not self._composed:
             return
         for opt in self._composed.available_flags:
-            if opt.group.startswith("frame") or opt.group in ("ngap_ie", "nas_inner"):
+            if opt.group.startswith("frame") or opt.group in ("ngap_ie", "nas_inner", "uu_rrc"):
                 self._config.flags[opt.key] = bool(enable_all and opt.is_release_present)
         self.refresh_packet()
 

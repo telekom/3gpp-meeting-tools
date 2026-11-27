@@ -28,6 +28,11 @@ _ROLE_COLORS: Dict[str, Tuple[str, str, str]] = {
     "ue_policy_delivery": (C.TEAL_SOFT, C.TEAL_DARK, C.TEAL_SURFACE),
     "ue_policy_rule": (C.VIOLET_SOFT, C.VIOLET_DARK, C.VIOLET_SURFACE),
     "uu_l2": (C.INFO_SOFT, C.INFO_DARK, C.BLUE_TINT_SOFT),
+    "uu_sdap": (C.SUCCESS_SOFT_ALT, C.SUCCESS_DARK, C.SUCCESS_SOFT),
+    "uu_pdcp": (C.SKY_SOFT, C.ACCENT_SKY_DARK, C.SKY_SURFACE),
+    "uu_rlc": (C.TEAL_SOFT, C.TEAL_DARK, C.TEAL_SURFACE),
+    "uu_mac": (C.ORANGE_SOFT, C.ORANGE_DARK, C.WARNING_SOFT),
+    "segmentation_divider": (C.WARNING_YELLOW_SOFT, C.WARNING_DARK, C.WARNING_SOFT),
     "ran_container": (C.VIOLET_SOFT, C.VIOLET_DARK, C.VIOLET_SURFACE),
     "payload": (C.BG_CANVAS, C.TEXT_SECONDARY, C.BG_ALT_LIGHT),
 }
@@ -39,6 +44,8 @@ def _family_labels(stack_family: str) -> Tuple[str, str, str]:
         return ("N2 / NGAP", "NGAP Summary", "NGAP Summary")
     if stack_family == "nas":
         return ("5GS NAS", "Encapsulation Chain", "Encapsulation Chain")
+    if stack_family == "ran_uu":
+        return ("NR Uu", "Layer Stack", "Layer Stack")
     return ("3GPP UP", "Ext Header Chain", "Extension Header Chain")
 
 
@@ -151,6 +158,20 @@ def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -
         f'<b>Interface:</b> {html.escape(packet.interface)} &nbsp;|&nbsp; '
         f'<b>Specs:</b> {html.escape(", ".join(packet.spec_refs))}</div>'
     )
+    if packet.channel_mapping_chain:
+        pill_style = (
+            f"background-color: {C.SKY_SOFT}; color: {C.ACCENT_SKY_DARK}; "
+            f"border: 1px solid {C.SKY_BORDER}; border-radius: 3px; "
+            f"padding: 1px 5px; font-weight: 600;"
+        )
+        map_pills = " &nbsp;→&nbsp; ".join(
+            f'<span style="{pill_style}">{html.escape(step)}</span>'
+            for step in packet.channel_mapping_chain
+        )
+        parts.append(
+            f'<div style="font-size: 10.5px; color: {C.TEXT_BODY}; margin-top: 4px;">'
+            f'<b>Channel Mapping:</b> {map_pills}</div>'
+        )
     if packet.ext_header_summaries:
         chain_txt = " &nbsp;→&nbsp; ".join(html.escape(s) for s in packet.ext_header_summaries)
         parts.append(
@@ -277,6 +298,8 @@ def render_packet_markdown(packet: ComposedPacket) -> str:
         f"- **Specs:** {', '.join(packet.spec_refs)}",
         f"- **Fixed {ov_lbl} Overhead:** {packet.overhead_3gpp_octets} octets",
     ]
+    if packet.channel_mapping_chain:
+        lines.append(f"- **Channel Mapping:** {' -> '.join(packet.channel_mapping_chain)}")
     if packet.overhead_transport_octets > 0:
         lines.append(f"- **Transport Overhead:** {packet.overhead_transport_octets} octets (Total = {packet.overhead_total_octets} octets)")
     if packet.ext_header_summaries:
@@ -311,8 +334,10 @@ def render_packet_plain_text(packet: ComposedPacket) -> str:
         f"Specs     : {', '.join(packet.spec_refs)}",
         f"Overhead  : {ov_lbl} = {packet.overhead_3gpp_octets} octets"
         + (f" (+ {packet.overhead_transport_octets} transport = {packet.overhead_total_octets} octets)" if packet.overhead_transport_octets else ""),
-        "",
     ]
+    if packet.channel_mapping_chain:
+        lines.append(f"Channels  : {' -> '.join(packet.channel_mapping_chain)}")
+    lines.append("")
     cur_octet = 1
     for layer in packet.layers:
         spec_hdr = _format_spec_ref(layer.spec_number, f"Cl. {layer.clause}" if layer.clause and layer.clause != "-" else "")

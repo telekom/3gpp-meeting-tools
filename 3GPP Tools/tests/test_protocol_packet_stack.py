@@ -257,7 +257,8 @@ class TestNGAPPacketStackEngine(unittest.TestCase):
     def test_resolve_ngap_targets(self):
         self.assertIsNone(resolve_packet_target("24.301", "8.2.1", "ATTACH REQUEST"))
         self.assertEqual(resolve_packet_target("24.501", "8.2.6.1.1", "REGISTRATION REQUEST")["stack_family"], "nas")
-        self.assertIsNone(resolve_packet_target("38.331", "6.2.2", "RRCReconfiguration"))
+        self.assertIsNone(resolve_packet_target("36.331", "6.2.2", "RRCConnectionReconfiguration"))
+        self.assertEqual(resolve_packet_target("38.331", "6.2.2", "RRCReconfiguration")["stack_family"], "ran_uu")
 
         res_dl = resolve_packet_target("38.413", "9.2.5.2", "DownlinkNASTransport", "DownlinkNASTransport")
         self.assertEqual(res_dl["stack_family"], "ngap")
