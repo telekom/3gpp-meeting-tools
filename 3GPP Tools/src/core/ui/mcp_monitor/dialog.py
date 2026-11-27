@@ -23,7 +23,7 @@ from core.ui.mcp_monitor.mixins import (
     McpClientSetupMixin,
     McpToolPlaygroundMixin,
 )
-from core.ui.ui_components import create_app_icon
+from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, create_app_icon
 from core.ui.theme import C
 
 logger = logging.getLogger("core.ui.mcp_monitor_dialog")
@@ -196,7 +196,7 @@ class McpMonitorDialog(
         bottom_row.addWidget(self.clear_btn)
 
         close_btn = QPushButton("Close")
-        close_btn.setFixedWidth(80)
+        close_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         close_btn.clicked.connect(self.close)
         bottom_row.addWidget(close_btn)
 

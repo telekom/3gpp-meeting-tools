@@ -105,22 +105,6 @@ PROGRESS_BAR_STYLE = f"""
 
 STATUS_LABEL_STYLE = f"font-size: 11px; color: {C.ACCENT_SKY}; font-weight: bold;"
 
-CLOSE_BTN_STYLE = f"""
-    QPushButton {{
-        background-color: {C.BG_CARD};
-        border: 1px solid {C.BORDER_STRONG};
-        border-radius: 5px;
-        padding: 4px 16px;
-        font-size: 11px;
-        font-weight: bold;
-        color: {C.TEXT_SECONDARY};
-    }}
-    QPushButton:hover {{
-        background-color: {C.BG_CANVAS};
-        border-color: {C.BORDER_HOVER};
-    }}
-"""
-
 CELL_TITLE_STYLE = f"font-size: 12px; font-weight: bold; color: {C.TEXT_PRIMARY};"
 CELL_SUB_STYLE = f"font-size: 10px; color: {C.TEXT_MUTED};"
 

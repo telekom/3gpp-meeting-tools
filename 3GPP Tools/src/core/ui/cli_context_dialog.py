@@ -331,11 +331,7 @@ class CliContextEditorDialog(QDialog):
 
         if not self._settings_only:
             self.save_launch_btn = QPushButton("🚀 Save && Launch CLI")
-            self.save_launch_btn.setStyleSheet(
-                f"QPushButton {{ background: {C.ACCENT_PRIMARY}; color: {C.TEXT_ON_ACCENT}; "
-                f"border: none; border-radius: 4px; padding: 6px 14px; font-weight: bold; }}"
-                f"QPushButton:hover {{ background: {C.ACCENT_HOVER}; }}"
-            )
+            self.save_launch_btn.setObjectName("primaryBtn")
             self.save_launch_btn.clicked.connect(self._on_save_and_launch)
             btn_row.addWidget(self.save_launch_btn)
         else:

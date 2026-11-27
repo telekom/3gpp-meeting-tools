@@ -243,18 +243,6 @@ class DisplaySettingsDialog(QDialog):
             QDialog {{
                 background-color: {C.BG_CANVAS};
             }}
-            QPushButton#primaryBtn {{
-                background-color: {C.ACCENT_PRIMARY};
-                color: {C.TEXT_ON_ACCENT};
-                border: none;
-                border-radius: {R.MD}px;
-                padding: 6px 16px;
-                font-size: {T.SIZE_TABLE}px;
-                font-weight: 700;
-            }}
-            QPushButton#primaryBtn:hover {{
-                background-color: {C.ACCENT_HOVER};
-            }}
             QLabel#displayTitle {{
                 font-size: {T.SIZE_PAGE_TITLE}px;
                 font-weight: 700;

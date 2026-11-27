@@ -26,8 +26,9 @@ from .storage_ops import (
     query_db_metrics,
     vacuum_database_file,
 )
+from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY
+
 from .styles import (
-    CLOSE_BTN_STYLE,
     DIALOG_BG_STYLE,
     HEADER_DESC_STYLE,
     HEADER_TITLE_STYLE,
@@ -202,9 +203,7 @@ class DatabaseMaintenanceDialog(
         footer_layout.addStretch()
 
         close_btn = QPushButton("Close")
-        close_btn.setFixedHeight(30)
-        close_btn.setMinimumWidth(85)
-        close_btn.setStyleSheet(CLOSE_BTN_STYLE)
+        close_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         close_btn.clicked.connect(self.accept)
         footer_layout.addWidget(close_btn)
 

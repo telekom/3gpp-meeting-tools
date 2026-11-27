@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
 
 from core.network.session import NetworkSession, ProxyProfileManager
 from core.ui.theme import C, R, T
+from .styles import BUTTON_STYLE_TOOLBAR_SECONDARY
 from core.utils.dpapi import SecureCredentialStore, redact_sensitive_urls
 
 
@@ -125,6 +126,7 @@ class ProxyDialog(QDialog):
         self.deactivate_btn.clicked.connect(self.deactivate_profile)
 
         self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setStyleSheet(BUTTON_STYLE_TOOLBAR_SECONDARY)
         self.cancel_btn.clicked.connect(self.reject)
 
         self.test_btn = QPushButton("⚡ Test Connection")
@@ -132,7 +134,6 @@ class ProxyDialog(QDialog):
 
         self.save_btn = QPushButton("Save && Apply")
         self.save_btn.setObjectName("primaryBtn")
-        self.save_btn.setStyleSheet(f"background-color: {C.ACCENT_PRIMARY}; color: {C.TEXT_ON_ACCENT}; font-weight: bold;")
         self.save_btn.clicked.connect(self.accept)
 
         btn_layout.addWidget(self.deactivate_btn)
