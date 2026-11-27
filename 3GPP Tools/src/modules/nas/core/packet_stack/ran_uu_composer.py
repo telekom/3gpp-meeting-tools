@@ -36,9 +36,9 @@ def build_mac_subheader_layer(lcid: int, channel_label: str, seg_tag: str = "") 
         role="uu_mac",
         fields=[
             PacketField("R", "R=0", 1, "M", "0", "38.321", "6.2.1", is_spare=True),
-            PacketField("F", "F", 1, "M", "0/1", "38.321", "6.2.1"),
-            PacketField("LCID", f"LCID = {lcid} ({channel_label})", 6, "M", str(lcid), "38.321", "6.2.1", def_name="LCID"),
-            PacketField("L", "L (MAC SDU Len, 8/16-bit)", 8, "M", "Len", "38.321", "6.2.1"),
+            PacketField("F", "F", 1, "M", "0/1", "38.321", "6.2.1", def_name="MAC subheader for DL-SCH and UL-SCH"),
+            PacketField("LCID", f"LCID = {lcid} ({channel_label})", 6, "M", str(lcid), "38.321", "6.2.1", def_name="MAC subheader for DL-SCH and UL-SCH"),
+            PacketField("L", "L (MAC SDU Len, 8/16-bit)", 8, "M", "Len", "38.321", "6.2.1", def_name="MAC subheader for DL-SCH and UL-SCH"),
         ],
     )
 
@@ -48,18 +48,18 @@ def build_mac_ce_layer(is_uplink: bool) -> PacketLayer:
         fields = [
             PacketField("R", "R=0", 1, "M", "0", "38.321", "6.2.1", is_spare=True),
             PacketField("R", "R=0", 1, "M", "0", "38.321", "6.2.1", is_spare=True),
-            PacketField("LCID (MAC CE)", "LCID=61 (Short BSR)", 6, "O", "61", "38.321", "6.2.1"),
-            PacketField("LCG ID", "LCG ID", 3, "O", "0..7", "38.321", "6.1.3.1"),
-            PacketField("Buffer Size", "Buffer Size (BSR Index)", 5, "O", "0..31", "38.321", "6.1.3.1"),
+            PacketField("LCID (MAC CE)", "LCID=61 (Short BSR)", 6, "O", "61", "38.321", "6.2.1", def_name="MAC subheader for DL-SCH and UL-SCH"),
+            PacketField("LCG ID", "LCG ID", 3, "O", "0..7", "38.321", "6.1.3.1", def_name="Buffer Status Report MAC CEs"),
+            PacketField("Buffer Size", "Buffer Size (BSR Index)", 5, "O", "0..31", "38.321", "6.1.3.1", def_name="Buffer Status Report MAC CEs"),
         ]
         title = "MAC Control Element — Short BSR (UL: After SDU, Fig. 6.1.2-5)"
     else:
         fields = [
             PacketField("R", "R=0", 1, "M", "0", "38.321", "6.2.1", is_spare=True),
             PacketField("R", "R=0", 1, "M", "0", "38.321", "6.2.1", is_spare=True),
-            PacketField("LCID (MAC CE)", "LCID=61 (Timing Adv)", 6, "O", "61", "38.321", "6.2.1"),
-            PacketField("TAG ID", "TAG", 2, "O", "0..3", "38.321", "6.1.3.4"),
-            PacketField("Timing Advance Command", "Timing Advance Cmd", 6, "O", "0..63", "38.321", "6.1.3.4"),
+            PacketField("LCID (MAC CE)", "LCID=61 (Timing Adv)", 6, "O", "61", "38.321", "6.2.1", def_name="MAC subheader for DL-SCH and UL-SCH"),
+            PacketField("TAG ID", "TAG", 2, "O", "0..3", "38.321", "6.1.3.4", def_name="Timing Advance Command MAC CE"),
+            PacketField("Timing Advance Command", "Timing Advance Cmd", 6, "O", "0..63", "38.321", "6.1.3.4", def_name="Timing Advance Command MAC CE"),
         ]
         title = "MAC Control Element — Timing Advance Cmd (DL: Front of TB, Fig. 6.1.2-4)"
     return PacketLayer(layer_id="uu_mac_ce", title=title, spec_number="38.321", clause="6.1.3", role="uu_mac", fields=fields)
@@ -83,29 +83,29 @@ def build_rlc_header_layer(rlc_mode: str, *, si_bits: str = "00", include_so: bo
     if mode == "UM":
         if si_bits == "00":
             fields = [
-                PacketField("SI", "SI=00 (Full)", 2, "M", "00", "38.322", "6.3.5", def_name="SI"),
-                PacketField("R", "R=000000", 6, "M", "0", "38.322", "6.3", is_spare=True),
+                PacketField("SI", "SI=00 (Full)", 2, "M", "00", "38.322", "6.2.3.4", def_name="Segmentation Info (SI) field"),
+                PacketField("R", "R=000000", 6, "M", "0", "38.322", "6.2.3.8", is_spare=True, def_name="Reserved (R) field"),
             ]
         else:
             fields = [
-                PacketField("SI", f"SI={si_bits}", 2, "M", si_bits, "38.322", "6.3.5", def_name="SI"),
-                PacketField("R", "R", 2, "M", "0", "38.322", "6.3", is_spare=True),
-                PacketField("SN", "SN (hi 4b)", 4, "M", "12-bit", "38.322", "6.3.2", def_name="SN"),
-                PacketField("SN (lo)", "SN (bits 7..0)", 8, "M", "12-bit", "38.322", "6.3.2", def_name="SN"),
+                PacketField("SI", f"SI={si_bits}", 2, "M", si_bits, "38.322", "6.2.3.4", def_name="Segmentation Info (SI) field"),
+                PacketField("R", "R", 2, "M", "0", "38.322", "6.2.3.8", is_spare=True, def_name="Reserved (R) field"),
+                PacketField("SN", "SN (hi 4b)", 4, "M", "12-bit", "38.322", "6.2.3.3", def_name="Sequence Number (SN) field"),
+                PacketField("SN (lo)", "SN (bits 7..0)", 8, "M", "12-bit", "38.322", "6.2.3.3", def_name="Sequence Number (SN) field"),
             ]
             if include_so:
-                fields.append(PacketField("SO", "SO = K (Segment Offset, 16-bit)", 16, "C", "K", "38.322", "6.3.6", condition="SI=10 or 11", def_name="SO"))
+                fields.append(PacketField("SO", "SO = K (Segment Offset, 16-bit)", 16, "C", "K", "38.322", "6.2.3.5", condition="SI=10 or 11", def_name="Segment Offset (SO) field"))
         return PacketLayer(layer_id=f"uu_rlc_um{'_' + seg_tag if seg_tag else ''}", title=f"RLC UMD Header{suffix}", spec_number="38.322", clause="6.2.2.3", role="uu_rlc", fields=fields)
 
     fields = [
-        PacketField("D/C", "D/C=1", 1, "M", "1", "38.322", "6.3.3", def_name="D/C"),
-        PacketField("P", "P", 1, "M", "0/1", "38.322", "6.3.4", def_name="P"),
-        PacketField("SI", f"SI={si_bits}", 2, "M", si_bits, "38.322", "6.3.5", def_name="SI"),
-        PacketField("SN", "SN (hi 4b)", 4, "M", "12-bit", "38.322", "6.3.2", def_name="SN"),
-        PacketField("SN (lo)", "SN (bits 7..0)", 8, "M", "12-bit", "38.322", "6.3.2", def_name="SN"),
+        PacketField("D/C", "D/C=1", 1, "M", "1", "38.322", "6.2.3.6", def_name="Data/Control (D/C) field"),
+        PacketField("P", "P", 1, "M", "0/1", "38.322", "6.2.3.7", def_name="Polling bit (P) field"),
+        PacketField("SI", f"SI={si_bits}", 2, "M", si_bits, "38.322", "6.2.3.4", def_name="Segmentation Info (SI) field"),
+        PacketField("SN", "SN (hi 4b)", 4, "M", "12-bit", "38.322", "6.2.3.3", def_name="Sequence Number (SN) field"),
+        PacketField("SN (lo)", "SN (bits 7..0)", 8, "M", "12-bit", "38.322", "6.2.3.3", def_name="Sequence Number (SN) field"),
     ]
     if include_so:
-        fields.append(PacketField("SO", "SO = K (Segment Offset, 16-bit)", 16, "C", "K", "38.322", "6.3.6", condition="SI=10 or 11", def_name="SO"))
+        fields.append(PacketField("SO", "SO = K (Segment Offset, 16-bit)", 16, "C", "K", "38.322", "6.2.3.5", condition="SI=10 or 11", def_name="Segment Offset (SO) field"))
     return PacketLayer(layer_id=f"uu_rlc_am{'_' + seg_tag if seg_tag else ''}", title=f"RLC AMD Header (12-bit SN){suffix}", spec_number="38.322", clause="6.2.2.4", role="uu_rlc", fields=fields)
 
 
@@ -118,7 +118,7 @@ def build_pdcp_header_layer(*, is_srb: bool, sn_18: bool = False) -> PacketLayer
             clause="6.2.2.1",
             role="uu_pdcp",
             fields=[
-                PacketField("R", "R=0000", 4, "M", "0", "38.323", "6.3", is_spare=True),
+                PacketField("R", "R=0000", 4, "M", "0", "38.323", "6.3.6", is_spare=True),
                 PacketField("PDCP SN", "PDCP SN (hi 4b)", 4, "M", "12-bit", "38.323", "6.3.2", def_name="PDCP SN"),
                 PacketField("PDCP SN (lo)", "PDCP SN (bits 7..0)", 8, "M", "12-bit", "38.323", "6.3.2", def_name="PDCP SN"),
             ],
@@ -132,7 +132,7 @@ def build_pdcp_header_layer(*, is_srb: bool, sn_18: bool = False) -> PacketLayer
             role="uu_pdcp",
             fields=[
                 PacketField("D/C", "D/C=1", 1, "M", "1", "38.323", "6.3.7", def_name="D/C"),
-                PacketField("R", "R=00000", 5, "M", "0", "38.323", "6.3", is_spare=True),
+                PacketField("R", "R=00000", 5, "M", "0", "38.323", "6.3.6", is_spare=True),
                 PacketField("PDCP SN", "PDCP SN (17..16)", 2, "M", "18-bit", "38.323", "6.3.2", def_name="PDCP SN"),
                 PacketField("PDCP SN (lo)", "PDCP SN (bits 15..0)", 16, "M", "18-bit", "38.323", "6.3.2", def_name="PDCP SN"),
             ],
@@ -145,7 +145,7 @@ def build_pdcp_header_layer(*, is_srb: bool, sn_18: bool = False) -> PacketLayer
         role="uu_pdcp",
         fields=[
             PacketField("D/C", "D/C=1", 1, "M", "1", "38.323", "6.3.7", def_name="D/C"),
-            PacketField("R", "R=000", 3, "M", "0", "38.323", "6.3", is_spare=True),
+            PacketField("R", "R=000", 3, "M", "0", "38.323", "6.3.6", is_spare=True),
             PacketField("PDCP SN", "PDCP SN (hi 4b)", 4, "M", "12-bit", "38.323", "6.3.2", def_name="PDCP SN"),
             PacketField("PDCP SN (lo)", "PDCP SN (bits 7..0)", 8, "M", "12-bit", "38.323", "6.3.2", def_name="PDCP SN"),
         ],
@@ -286,7 +286,7 @@ def _assemble_with_segmentation(
                 clause="6.2.1",
                 role="uu_mac",
                 fields=[
-                    PacketField("R/F/LCID=63", "LCID=63 (Padding Subheader, 1B)", 8, "O", "63", "38.321", "6.2.1"),
+                    PacketField("R/F/LCID=63", "LCID=63 (Padding Subheader, 1B)", 8, "O", "63", "38.321", "6.2.1", def_name="MAC subheader for DL-SCH and UL-SCH"),
                     PacketField("MAC Padding", "Zero Padding to TB Size", 0, "O", "Pad", "38.321", "6.2.1", is_padding=True, is_variable=True, variable_display_octets=4),
                 ],
             )

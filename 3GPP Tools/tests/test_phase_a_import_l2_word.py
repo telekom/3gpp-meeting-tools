@@ -233,29 +233,55 @@ class TestPhaseAPacketWordAndL2(unittest.TestCase):
             qfi_ie = next(f for f in dl_sdap["ies"] if f["name"] == "QFI")
             self.assertIn("Clause 6.3.4", qfi_ie["type_reference"])
 
-            # 3. TS 38.322 NR RLC + Heading with space + PDCP Control PDU & unknown format fallback
+            # 3. TS 38.322 NR RLC (6.2.2.x formats + 6.2.3.x parameter definitions) & unknown fallback
             rlc_doc = tmp / "38322-j00.docx"
             _make_synthetic_l2_docx(
                 rlc_doc,
                 paragraphs=[
-                    ("Heading 1", "6 Protocol data units, formats, and parameters", False),
+                    ("Heading 1", "6 Protocol data units, formats and parameters", False),
                     ("Heading 4", "6.2.2.4 AMD PDU", False),
                     ("Normal", "Acknowledged Mode Data PDU format carrying RLC SDU segments.", True),
                     ("Heading 4", "6.2.2.5 STATUS PDU", False),
                     ("Normal", "RLC STATUS PDU carrying ACK_SN and NACK_SN.", True),
                     ("Heading 4", "6.2.2.99 Vendor Experimental PDU", False),
                     ("Normal", "Custom experimental PDU format description.", False),
-                    ("Heading 3", "6.3.2 SN", False),
+                    ("Heading 3", "6.2.3 Parameters", False),
+                    ("Heading 4", "6.2.3.3 Sequence Number (SN) field", False),
                     ("Normal", "RLC Sequence Number.", False),
+                    ("Heading 4", "6.2.3.6 Data/Control (D/C) field", False),
+                    ("Normal", "Indicates whether the RLC PDU is an RLC data PDU or RLC control PDU.", False),
                 ],
             )
-            rlc_msgs, _ = ProtocolDocxDispatcher(rlc_doc).parse()
+            rlc_msgs, rlc_defs = ProtocolDocxDispatcher(rlc_doc).parse()
+            rlc_msg_names = [m["message_name"] for m in rlc_msgs]
+            self.assertNotIn("Sequence Number (SN) field", rlc_msg_names)
+            self.assertNotIn("Data/Control (D/C) field", rlc_msg_names)
+            self.assertTrue(any(d["clause"] == "6.2.3.6" and d["ie_name"] == "Data/Control (D/C) field" for d in rlc_defs))
+
             amd = next(m for m in rlc_msgs if "AMD PDU" in m["message_name"])
             self.assertEqual([f["name"] for f in amd["ies"]], ["D/C", "P", "SI", "R", "SN", "SO", "Data"])
+            dc_ie = next(f for f in amd["ies"] if f["name"] == "D/C")
+            sn_ie = next(f for f in amd["ies"] if f["name"] == "SN")
+            self.assertIn("Clause 6.2.3.6", dc_ie["type_reference"])
+            self.assertIn("Clause 6.2.3.3", sn_ie["type_reference"])
             status = next(m for m in rlc_msgs if "STATUS PDU" in m["message_name"])
             self.assertIn("ACK_SN", [f["name"] for f in status["ies"]])
             exp = next(m for m in rlc_msgs if "Vendor Experimental PDU" in m["message_name"])
             self.assertTrue(len(exp["ies"]) >= 1, "Unknown L2 format must still emit a non-empty fallback IE row")
+
+            # 4. TS 38.321 NR MAC letter-suffixed clauses (e.g. 6.1.3.12a) preserve clean titles
+            mac_doc = tmp / "38321-j30.docx"
+            _make_synthetic_l2_docx(
+                mac_doc,
+                paragraphs=[
+                    ("Heading1", "6 Protocol Data Units, formats and parameters", False),
+                    ("Heading4", "6.1.3.12a SP CSI-RS Resource Set MAC CE", False),
+                    ("Normal", "MAC Control Element for candidate cell activation.", True),
+                ],
+            )
+            mac_msgs, mac_defs = ProtocolDocxDispatcher(mac_doc).parse()
+            self.assertEqual(mac_msgs[0]["clause"], "6.1.3.12a")
+            self.assertFalse(mac_defs[0]["ie_name"].startswith("a "))
 
     def test_modern_spec_import_dialog_facets_queue_bundle_and_preselect(self):
         with tempfile.TemporaryDirectory() as tmpdir:

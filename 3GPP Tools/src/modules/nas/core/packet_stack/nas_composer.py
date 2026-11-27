@@ -112,9 +112,9 @@ def build_nas_carrier_layers(transport_mode: str, *, is_uplink: bool = False) ->
                 role="uu_l2",
                 fields=[
                     PacketField("R", "R=0", 1, "M", "0", "38.321", "6.2.1", is_spare=True),
-                    PacketField("F", "F", 1, "M", "0/1", "38.321", "6.2.1"),
-                    PacketField("LCID", "LCID = 2 (SRB2 / DCCH)", 6, "M", "2", "38.321", "6.2.1"),
-                    PacketField("L", "MAC SDU Length (8/16-bit)", 8, "M", "Len", "38.321", "6.2.1"),
+                    PacketField("F", "F", 1, "M", "0/1", "38.321", "6.2.1", def_name="MAC subheader for DL-SCH and UL-SCH"),
+                    PacketField("LCID", "LCID = 2 (SRB2 / DCCH)", 6, "M", "2", "38.321", "6.2.1", def_name="MAC subheader for DL-SCH and UL-SCH"),
+                    PacketField("L", "MAC SDU Length (8/16-bit)", 8, "M", "Len", "38.321", "6.2.1", def_name="MAC subheader for DL-SCH and UL-SCH"),
                 ],
             ),
             PacketLayer(
@@ -124,11 +124,11 @@ def build_nas_carrier_layers(transport_mode: str, *, is_uplink: bool = False) ->
                 clause="6.2.2.4",
                 role="uu_l2",
                 fields=[
-                    PacketField("D/C", "D/C=1", 1, "M", "1", "38.322", "6.3.3"),
-                    PacketField("P", "P", 1, "M", "0/1", "38.322", "6.3.4"),
-                    PacketField("SI", "SI=00", 2, "M", "00", "38.322", "6.3.5"),
-                    PacketField("SN", "SN (hi 4b)", 4, "M", "12-bit", "38.322", "6.3.2"),
-                    PacketField("SN (lo)", "SN (bits 7..0)", 8, "M", "12-bit", "38.322", "6.3.2"),
+                    PacketField("D/C", "D/C=1", 1, "M", "1", "38.322", "6.2.3.6", def_name="Data/Control (D/C) field"),
+                    PacketField("P", "P", 1, "M", "0/1", "38.322", "6.2.3.7", def_name="Polling bit (P) field"),
+                    PacketField("SI", "SI=00", 2, "M", "00", "38.322", "6.2.3.4", def_name="Segmentation Info (SI) field"),
+                    PacketField("SN", "SN (hi 4b)", 4, "M", "12-bit", "38.322", "6.2.3.3", def_name="Sequence Number (SN) field"),
+                    PacketField("SN (lo)", "SN (bits 7..0)", 8, "M", "12-bit", "38.322", "6.2.3.3", def_name="Sequence Number (SN) field"),
                 ],
             ),
             PacketLayer(
@@ -138,9 +138,9 @@ def build_nas_carrier_layers(transport_mode: str, *, is_uplink: bool = False) ->
                 clause="6.2.2.1",
                 role="uu_l2",
                 fields=[
-                    PacketField("R", "R=0000", 4, "M", "0", "38.323", "6.3", is_spare=True),
-                    PacketField("PDCP SN", "PDCP SN (hi)", 4, "M", "12-bit", "38.323", "6.3.2"),
-                    PacketField("PDCP SN (lo)", "PDCP SN (bits 7..0)", 8, "M", "12-bit", "38.323", "6.3.2"),
+                    PacketField("R", "R=0000", 4, "M", "0", "38.323", "6.3.6", is_spare=True),
+                    PacketField("PDCP SN", "PDCP SN (hi)", 4, "M", "12-bit", "38.323", "6.3.2", def_name="PDCP SN"),
+                    PacketField("PDCP SN (lo)", "PDCP SN (bits 7..0)", 8, "M", "12-bit", "38.323", "6.3.2", def_name="PDCP SN"),
                 ],
             ),
             PacketLayer(

@@ -37,9 +37,10 @@ from modules.nas.core.parsing.protocol_parser_utils import (
 
 L2_SPEC_NUMBERS = frozenset({"37.324", "38.323", "38.322", "38.321", "36.323", "36.322", "36.321"})
 _MAC_SPECS = frozenset({"38.321", "36.321"})
+_RLC_SPECS = frozenset({"38.322", "36.322"})
 
 RE_HEADING_STYLE = re.compile(r"^(?:Heading|H)\s*\d$", re.IGNORECASE)
-RE_HEADING_NUM = re.compile(r"^(\d+(?:\.\d+)*)\s*(.*)$")
+RE_HEADING_NUM = re.compile(r"^(\d+(?:\.\d+)*[a-zA-Z]?)(?:\s+(.*))?$")
 RE_CAPTION = re.compile(r"^(?:Figure|Table)\s+\d", re.IGNORECASE)
 RE_GENERIC_TITLE = re.compile(r"^(General|Scope)\b", re.IGNORECASE)
 _GRAPHIC_TAGS = frozenset({"drawing", "pict", "object"})
@@ -173,15 +174,33 @@ class L2PduDocxParser:
 
     def _parameter_index(self, sections: List[_Section]) -> Dict[str, _Section]:
         params: Dict[str, _Section] = {}
+        is_rlc = self.spec_number in _RLC_SPECS
         for sec in sections:
-            if sec.clause.startswith("6.3.") and sec.depth == 3 and not RE_GENERIC_TITLE.match(sec.title) and len(sec.title) <= 40:
-                params[self._normalize_key(sec.title)] = sec
+            in_param_clause = (
+                (is_rlc and sec.clause.startswith("6.2.3.") and sec.depth == 4)
+                or (sec.clause.startswith("6.3.") and sec.depth == 3)
+            )
+            if not in_param_clause or RE_GENERIC_TITLE.match(sec.title) or len(sec.title) > 60:
+                continue
+            params[self._normalize_key(sec.title)] = sec
+            no_field = re.sub(r"\s+field$", "", sec.title, flags=re.IGNORECASE).strip()
+            if no_field and no_field != sec.title:
+                params.setdefault(self._normalize_key(no_field), sec)
+            for m_abbr in re.finditer(r"\(([A-Za-z0-9/_-]+)\)", sec.title):
+                abbr_key = self._normalize_key(m_abbr.group(1))
+                if abbr_key:
+                    params.setdefault(abbr_key, sec)
         return params
 
     def _is_format_section(self, sec: _Section, is_leaf: bool) -> bool:
         if not is_leaf or sec.depth < 3 or RE_GENERIC_TITLE.match(sec.title) or not sec.has_content():
             return False
-        prefixes = ("6.1.", "6.2.") if self.spec_number in _MAC_SPECS else ("6.2.",)
+        if self.spec_number in _MAC_SPECS:
+            prefixes: Tuple[str, ...] = ("6.1.", "6.2.")
+        elif self.spec_number in _RLC_SPECS:
+            prefixes = ("6.2.2.",)
+        else:
+            prefixes = ("6.2.",)
         return sec.clause.startswith(prefixes)
 
     @staticmethod

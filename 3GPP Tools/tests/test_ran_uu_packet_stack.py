@@ -207,6 +207,23 @@ class TestRanUuPacketStack(unittest.TestCase):
                 messages=[],
                 ie_defs=[{"clause": "6.3.2", "ie_name": "PDCP SN", "raw_description": f"<p>MARKER_PDCP_SN {'x' * 300}</p>"}],
             )
+            db.insert_parsed_spec(
+                "38.322",
+                "19.3.0",
+                messages=[],
+                ie_defs=[
+                    {"clause": "6.2.3.6", "ie_name": "Data/Control (D/C) field", "raw_description": f"<p>MARKER_RLC_DC {'x' * 200}</p>"},
+                    {"clause": "6.2.3.3", "ie_name": "Sequence Number (SN) field", "raw_description": f"<p>MARKER_RLC_SN {'x' * 200}</p>"},
+                    {"clause": "6.2.3.4", "ie_name": "Segmentation Info (SI) field", "raw_description": f"<p>MARKER_RLC_SI {'x' * 200}</p>"},
+                    {"clause": "6.2.3.5", "ie_name": "Segment Offset (SO) field", "raw_description": f"<p>MARKER_RLC_SO {'x' * 200}</p>"},
+                ],
+            )
+            db.insert_parsed_spec(
+                "38.321",
+                "19.3.0",
+                messages=[],
+                ie_defs=[{"clause": "6.2.1", "ie_name": "MAC subheader for DL-SCH and UL-SCH", "raw_description": f"<p>MARKER_MAC_LCID {'x' * 200}</p>"}],
+            )
 
             inspector = NASInspectorWidget(db=db)
             inspector.display_definitions(
@@ -234,9 +251,19 @@ class TestRanUuPacketStack(unittest.TestCase):
             self.assertFalse(psw.side_panel.isHidden())
             self.assertIn("MARKER_PDCP_SN", psw.side_panel.browser.toHtml())
 
-            # Toggle segmentation pill & change depth to RLC
+            # Toggle segmentation pill & click RLC SO / D/C and MAC LCID -> Side Panel resolves real 38.322 & 38.321 titles
             psw._flag_buttons["rlc_segmented"].setChecked(True)
             self.assertIsNotNone(psw.current_packet().find_field("SO"))
+            psw._on_anchor_clicked(QUrl("action:packet_field:38.322:6.2.3.6:D%2FC"))
+            self.assertIn("MARKER_RLC_DC", psw.side_panel.browser.toHtml())
+            psw._on_anchor_clicked(QUrl("action:packet_field:38.322:6.2.3.5:SO"))
+            self.assertIn("MARKER_RLC_SO", psw.side_panel.browser.toHtml())
+            psw._on_anchor_clicked(QUrl("action:packet_field:38.321:6.2.1:LCID"))
+            self.assertIn("MARKER_MAC_LCID", psw.side_panel.browser.toHtml())
+
+            idx_rlc = psw.transport_combo.findData("uu_depth_rlc")
+            psw.transport_combo.setCurrentIndex(idx_rlc)
+            self.assertIsNone(psw.current_packet().find_field("LCID"))
 
             idx_rlc = psw.transport_combo.findData("uu_depth_rlc")
             psw.transport_combo.setCurrentIndex(idx_rlc)
