@@ -141,6 +141,9 @@ class SpecSearchDatabase:
                 if "release_date" not in cols:
                     cursor.execute("ALTER TABLE indexed_versions ADD COLUMN release_date TEXT;")
 
+                if "fts_first_rowid" not in cols:
+                    cursor.execute("ALTER TABLE indexed_versions ADD COLUMN fts_first_rowid INTEGER")
+
                 conn.commit()
         except Exception as e:
             self.logger.error(f"Failed to initialize Spec Search DB: {e}")
@@ -178,8 +181,7 @@ class SpecSearchDatabase:
                 existing = cursor.fetchone()
                 if existing:
                     v_id = existing[0]
-                    cursor.execute("DELETE FROM spec_fts WHERE version_id = ?", (v_id,))
-                    cursor.execute("DELETE FROM indexed_versions WHERE id = ?", (v_id,))
+                    self._delete_version(cursor, v_id)
 
                 # 1b. If auto_replace_older is active, clean older versions within the same major release
                 if auto_replace_older:
@@ -195,8 +197,7 @@ class SpecSearchDatabase:
                         if extract_major_release(ex_ver) == new_rel:
                             if parse_version_tuple(version) >= parse_version_tuple(ex_ver):
                                 self.logger.info(f"Auto-superseding TS {spec_number} v{ex_ver} with v{version}")
-                                cursor.execute("DELETE FROM spec_fts WHERE version_id = ?", (ex_id,))
-                                cursor.execute("DELETE FROM indexed_versions WHERE id = ?", (ex_id,))
+                                self._delete_version(cursor, ex_id)
 
                 # 2. Insert into indexed_versions
                 total_chars = sum(len(c.get("content", "")) for c in clauses)
@@ -230,33 +231,18 @@ class SpecSearchDatabase:
                     clause_rows,
                 )
 
-                # 4. Fetch the generated clause primary keys to mirror into FTS5
+                # Reserve a contiguous rowid range under the current write transaction.
+                first = cursor.execute("SELECT COALESCE(MAX(rowid), 0) + 1 FROM spec_fts").fetchone()[0]
                 cursor.execute(
-                    "SELECT id, clause_number, clause_title, content FROM spec_clauses WHERE version_id = ? ORDER BY order_index ASC",
-                    (version_id,),
-                )
-                inserted_clauses = cursor.fetchall()
-
-                fts_rows = [
-                    (
-                        row["id"],
-                        version_id,
-                        spec_number,
-                        version,
-                        row["clause_number"],
-                        row["clause_title"],
-                        row["content"],
-                    )
-                    for row in inserted_clauses
-                ]
-
-                cursor.executemany(
                     """
-                    INSERT INTO spec_fts (clause_pk, version_id, spec_number, version, clause_number, clause_title, content)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                    fts_rows,
+                    INSERT INTO spec_fts (rowid, clause_pk, version_id, spec_number, version,
+                                          clause_number, clause_title, content)
+                    SELECT ? + order_index, id, version_id, ?, ?, clause_number, clause_title, content
+                    FROM spec_clauses WHERE version_id = ?
+                    """,
+                    (first, spec_number, version, version_id),
                 )
+                cursor.execute("UPDATE indexed_versions SET fts_first_rowid = ? WHERE id = ?", (first, version_id))
 
             return True
         except Exception as e:
@@ -341,6 +327,24 @@ class SpecSearchDatabase:
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    @staticmethod
+    def _delete_version(cursor, version_id):
+        row = cursor.execute(
+            "SELECT fts_first_rowid, total_clauses FROM indexed_versions WHERE id = ?", (version_id,)
+        ).fetchone()
+        if row is None:
+            return
+        first, count = row
+        if first is None:
+            # Older imports did not record their FTS rowids.
+            cursor.execute("DELETE FROM spec_fts WHERE version_id = ?", (version_id,))
+        else:
+            cursor.execute(
+                "DELETE FROM spec_fts WHERE rowid BETWEEN ? AND ? AND version_id = ?",
+                (first, first + count - 1, version_id),
+            )
+        cursor.execute("DELETE FROM indexed_versions WHERE id = ?", (version_id,))
+
     def clear_version(self, spec_number: str, version: str) -> bool:
         try:
             with self._get_connection() as conn:
@@ -352,8 +356,7 @@ class SpecSearchDatabase:
                 row = cursor.fetchone()
                 if row:
                     v_id = row[0]
-                    cursor.execute("DELETE FROM spec_fts WHERE version_id = ?", (v_id,))
-                    cursor.execute("DELETE FROM indexed_versions WHERE id = ?", (v_id,))
+                    self._delete_version(cursor, v_id)
                 conn.commit()
                 return True
         except Exception as e:
@@ -409,8 +412,7 @@ class SpecSearchDatabase:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             for v_id in target_version_ids:
-                cursor.execute("DELETE FROM spec_fts WHERE version_id = ?", (v_id,))
-                cursor.execute("DELETE FROM indexed_versions WHERE id = ?", (v_id,))
+                self._delete_version(cursor, v_id)
                 count += 1
             conn.commit()
 

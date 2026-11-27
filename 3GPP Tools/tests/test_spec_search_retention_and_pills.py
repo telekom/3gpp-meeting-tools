@@ -40,6 +40,23 @@ class TestSpecSearchRetentionAndPills(unittest.TestCase):
         self.assertEqual(extract_major_release(""), "Unknown")
         self.assertEqual(extract_major_release("draft"), "draft")
 
+    def test_reimport_with_legacy_fts_rowids(self):
+        clauses = [{"clause_number": "1", "content": "registration procedure"}]
+        self.assertTrue(self.db.insert_parsed_spec("23.501", "18.0", clauses))
+        with self.db._get_connection() as conn:
+            conn.execute("UPDATE spec_fts SET rowid = 900")
+            conn.execute("ALTER TABLE indexed_versions DROP COLUMN fts_first_rowid")
+        self.db = SpecSearchDatabase(self.db_path)
+        self.assertTrue(self.db.insert_parsed_spec("23.502", "18.0", clauses))
+        self.assertTrue(self.db.insert_parsed_spec("23.501", "18.0", clauses))
+        self.assertTrue(self.db.clear_version("23.502", "18.0"))
+        with self.db._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT spec_number, clause_pk FROM spec_fts WHERE spec_fts MATCH 'registration'"
+            ).fetchall()
+            clause_id = conn.execute("SELECT id FROM spec_clauses").fetchone()[0]
+        self.assertEqual([tuple(row) for row in rows], [("23.501", clause_id)])
+
     def test_database_superseded_detection_and_pruning(self):
         clauses = [
             {"clause_number": "1", "clause_title": "Scope", "content": "Scope text"},

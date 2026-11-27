@@ -284,14 +284,15 @@ class GridModelMixin:
                 keys.add(sched_ai)
         return sorted(keys, key=self._ai_sort_key)
 
-    def _resolve_ai_description(self, ai_num: str, scheduled_ais: Dict[str, List[SessionSlot]]) -> Tuple[str, Optional[str]]:
+    def _resolve_ai_description(self, ai_num: str, scheduled_ais: Dict[str, List[SessionSlot]], matched_slots=None) -> Tuple[str, Optional[str]]:
         """Resolves human-readable description and optional acronym for an agenda item number."""
         if self.agenda_map and ai_num in self.agenda_map:
             ai_item = self.agenda_map[ai_num]
             return ai_item.description, getattr(ai_item, "acronym", None)
 
         # Look for the specific AgendaSlotItem matching this ai_number (or .x wildcard)
-        matched_slots = self._slots_for_ai(ai_num, scheduled_ais)
+        if matched_slots is None:
+            matched_slots = self._slots_for_ai(ai_num, scheduled_ais)
         for s in matched_slots:
             for it in s.items:
                 if it.ai_number == ai_num or ai_numbers_match(ai_num, it.ai_number):

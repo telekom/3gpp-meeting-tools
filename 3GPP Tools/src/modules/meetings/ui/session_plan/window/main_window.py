@@ -269,7 +269,7 @@ class SessionPlanWindow(
 
         self._render_current_views()
 
-    def _render_current_views(self):
+    def _render_current_views(self, *, tracking_changed=None):
         """Refreshes all 6 views with the currently active snapshot."""
         if not self.active_snapshot:
             self._render_empty_views()
@@ -279,7 +279,12 @@ class SessionPlanWindow(
         self._update_overview_delegate_strip()
         self._render_overview_grid()
         self._render_now_view()
-        self._render_agenda_mode()
+        if tracking_changed is not None:
+            for button, keys in self._agenda_tracking_buttons.get(tracking_changed, ()):
+                tracked = bool(keys & self.tracked_tokens)
+                button.setText("⭐" if tracked else "☆")
+        else:
+            self._render_agenda_mode()
         self._render_drafting_radar()
         self._render_tracked_topics()
         self._render_team_view()
@@ -403,7 +408,7 @@ class SessionPlanWindow(
             self.tracked_tokens.add(ai_clean)
             self.db.add_tracked_topic(self.meeting_number, ai_clean, label or f"AI {ai_num}")
 
-        self._render_current_views()
+        self._render_current_views(tracking_changed=ai_clean)
 
     def _open_manage_topics_dialog(self):
         dlg = SessionPlanTrackedTopicsDialog(

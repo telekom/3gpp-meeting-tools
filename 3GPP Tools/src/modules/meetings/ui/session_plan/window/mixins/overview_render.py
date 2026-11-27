@@ -212,7 +212,8 @@ class OverviewRenderMixin:
         scheduled_ais = self._get_scheduled_ais_map()
         all_ais = self._combined_ai_keys(scheduled_ais)
 
-        num_sched = sum(1 for ai in all_ais if self._slots_for_ai(ai, scheduled_ais))
+        slots_by_ai = {ai: self._slots_for_ai(ai, scheduled_ais) for ai in all_ais}
+        num_sched = sum(bool(slots) for slots in slots_by_ai.values())
         num_unsched = len(all_ais) - num_sched
         self.btn_agenda.setText(f"📋 Agenda ({num_sched} Sched / {len(all_ais)})")
         self.btn_agenda.setToolTip(
@@ -220,15 +221,21 @@ class OverviewRenderMixin:
             "Cross-references the official meeting agenda against scheduled sessions."
         )
 
+        self._agenda_tracking_buttons = {}
         self.agenda_table.setRowCount(len(all_ais))
 
         for row, ai_num in enumerate(all_ais):
-            desc, acronym = self._resolve_ai_description(ai_num, scheduled_ais)
+            desc, acronym = self._resolve_ai_description(ai_num, scheduled_ais, slots_by_ai[ai_num])
 
             is_tracked = (ai_num.lower() in self.tracked_tokens) or (acronym and acronym.lower() in self.tracked_tokens)
 
             # Col 0: Star toggle button
             star_btn = QPushButton("⭐" if is_tracked else "☆")
+            topic_keys = {ai_num.lower()}
+            if acronym:
+                topic_keys.add(acronym.lower())
+            for key in topic_keys:
+                self._agenda_tracking_buttons.setdefault(key, []).append((star_btn, topic_keys))
             star_btn.setFixedWidth(28)
             star_btn.setStyleSheet("QPushButton { border: none; font-size: 14px; background: transparent; }")
             star_btn.setToolTip("Click to track/untrack this topic in 'My Topics'")
@@ -238,7 +245,7 @@ class OverviewRenderMixin:
             item_num = QTableWidgetItem(ai_num)
             item_desc = QTableWidgetItem(desc)
 
-            matched_slots = self._slots_for_ai(ai_num, scheduled_ais)
+            matched_slots = slots_by_ai[ai_num]
             if matched_slots:
                 status_item = QTableWidgetItem(f"🟢 Scheduled ({len(matched_slots)})")
                 status_item.setForeground(QColor(C.SUCCESS_DARK))
