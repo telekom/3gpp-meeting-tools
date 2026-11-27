@@ -391,7 +391,7 @@ class NASInspectorRenderMixin:
 
     def _on_inspect_packet_field(self, spec_number: str, clause: str, field_name: str) -> None:
         defs = []
-        if self.db and spec_number in ("29.281", "38.415", "38.413", "38.412", "24.501"):
+        if self.db and spec_number and spec_number.strip()[:1].isdigit():
             defs = self.db.get_ie_definitions_by_clause(
                 clause=clause,
                 alt_name=field_name,

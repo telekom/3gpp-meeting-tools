@@ -10,6 +10,7 @@ from PyQt5.QtCore import QMimeData
 from PyQt5.QtWidgets import QApplication
 
 from core.ui.theme import C
+from modules.nas.core.word_html import compact_html_for_word
 from .models import ComposedPacket, PacketField, PacketLayer
 
 
@@ -244,19 +245,7 @@ def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -
                 f'<td style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; text-align: center; '
                 f'background-color: {C.BG_CARD}; color: {C.TEXT_SECONDARY}; white-space: nowrap;">{html.escape(str(row["size_label"]))}</td>'
             )
-            spec_ref_txt = str(row["spec_ref"])
-            if interactive_links and row["kind"] == "full" and _is_3gpp_spec(row["field"].spec_number):  # type: ignore[union-attr]
-                f_obj = row["field"]  # type: ignore[assignment]
-                spec_href = (
-                    f"action:packet_field:{quote(f_obj.spec_number, safe='')}:"
-                    f"{quote(f_obj.clause, safe='')}:{quote(f_obj.name, safe='')}"
-                )
-                spec_cell = (
-                    f'<a href="{spec_href}" '
-                    f'style="color: {C.ACCENT_SKY_DARK}; text-decoration: underline;">{html.escape(spec_ref_txt)}</a>'
-                )
-            else:
-                spec_cell = html.escape(spec_ref_txt)
+            spec_cell = html.escape(str(row["spec_ref"]))
             parts.append(
                 f'<td style="border: 1px solid {C.BORDER_STRONG}; padding: 4px 8px; text-align: left; '
                 f'background-color: {C.BG_CARD}; color: {C.TEXT_SECONDARY}; white-space: nowrap;">{spec_cell}</td>'
@@ -391,7 +380,7 @@ def copy_packet_to_clipboard(packet: ComposedPacket, mode: str = "word") -> str:
             f"{render_packet_html(packet, interactive_links=False)}</div>"
         )
         mime = QMimeData()
-        mime.setHtml(html_doc)
+        mime.setHtml(compact_html_for_word(html_doc, full_document=True))
         mime.setText(render_packet_plain_text(packet))
         clipboard.setMimeData(mime)
         return "Copied Packet Diagram for Word / Outlook!"

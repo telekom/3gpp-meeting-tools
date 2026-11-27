@@ -32,8 +32,8 @@ Architectural blueprint and extension guide for assembling end-to-end on-the-wir
 
 4. **Multi-Format Exporters ([`exporters.py`](../src/modules/nas/core/packet_stack/exporters.py)):**
    - `_pack_layer_rows()` packs contiguous sub-octet bitfields into 8-bit visual rows and computes continuous 1-based wire octet offsets across all layers.
-   - **Interactive HTML (`render_packet_html(..., interactive_links=True)`):** Uses `core.ui.theme.C` tokens, explicit HTML `<table width="100%">` + percentage `<th width="...">` attributes (required because Qt `QTextDocument` ignores CSS `width: 100%`), and `action:packet_field:` links that inspect fields/clauses in the embedded Side Panel without blocking the GUI.
-   - **Word / Outlook HTML (`interactive_links=False`):** Strips `action:` links for clean pasting into TDocs, slides, and emails.
+   - **Interactive HTML (`render_packet_html(..., interactive_links=True)`):** Uses `core.ui.theme.C` tokens, explicit HTML `<table width="100%">` + percentage `<th width="...">` attributes (required because Qt `QTextDocument` ignores CSS `width: 100%`), plain-text `Spec / Clause` right column, and `action:packet_field:` links on field/IE cells that inspect fields cleanly in the embedded Side Panel without blocking the GUI.
+   - **Word / Outlook HTML (`interactive_links=False`):** Strips `action:` links and passes output through [`compact_html_for_word()`](../src/modules/nas/core/word_html.py) (`MsoNormal` zero-margin paragraphs + tight `mso-padding-alt`) so pasted Word tables keep compact row heights.
    - **PlantUML `packetdiag` (`render_packet_plantuml_packetdiag()`):** Emits verified `@startpacketdiag ... @endpacketdiag` source with contiguous bit offsets (`0-2:`, `3:`, ...), `rotate = 270` for narrow multi-char flags, and `colheight = 2` for wide/payload blocks — both clipboard-copyable and 1-click loadable into the **PlantUML IDE** tab.
    - **Markdown & Plain Text:** GFM tables and aligned monospace wire maps.
 

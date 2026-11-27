@@ -15,6 +15,7 @@ from modules.nas.core.parsing.nas_parser import NASDocxParser
 from modules.nas.core.parsing.pfcp_parser import PFCPDocxParser
 from modules.nas.core.parsing.gtpu_parser import GTPUDocxParser
 from modules.nas.core.parsing.pdu_session_up_parser import PDUSessionUPDocxParser  # <-- Add import
+from modules.nas.core.parsing.l2_pdu_parser import L2_SPEC_NUMBERS, L2PduDocxParser
 
 
 class ProtocolDocxDispatcher:
@@ -85,7 +86,12 @@ class ProtocolDocxDispatcher:
             parser = PDUSessionUPDocxParser(self.docx_paths, spec_number=spec_num)
             return parser.parse(progress_callback=progress_callback)
 
-        # 6. Route standard NAS specifications (24.501, 24.301, 24.008)
+        # 6. Route RAN2 Layer 2 specifications (SDAP, PDCP, RLC, MAC for NR and LTE)
+        if spec_num in L2_SPEC_NUMBERS:
+            parser = L2PduDocxParser(self.docx_paths, spec_number=spec_num)
+            return parser.parse(progress_callback=progress_callback)
+
+        # 7. Route standard NAS specifications (24.501, 24.301, 24.008)
         parser = NASDocxParser(self.docx_paths, spec_number=spec_num)
         messages, ie_definitions = parser.parse(progress_callback=progress_callback)
 

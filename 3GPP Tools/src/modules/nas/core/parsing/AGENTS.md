@@ -44,6 +44,12 @@ progress callback.
   (`5.5.2.1`, `5.5.2.2`, `6.5.2.1`).
 - `pdu_session_up_parser.py` — PDU Session User Plane frame tables and field
   definitions (TS 38.415).
+- `l2_pdu_parser.py` + `l2_field_catalog.py` — RAN2 Layer 2 PDU parser for NR &
+  LTE SDAP, PDCP, RLC, and MAC (TS 37.324, TS 38.323, TS 38.322, TS 38.321,
+  TS 36.323, TS 36.322, TS 36.321). Extracts Clause 6 heading/prose/table
+  definitions into `ie_definitions`, inserts embedded-figure placeholders, and
+  attaches curated wire field rows (`Data`, `MAC-I`, `PDCP SN`, `QFI`, `SI`/`SO`,
+  `LCID`, etc.) linked to Clause 6.3 parameter sub-clauses.
 - `asn1_base/` + `asn1_base_parser.py` (shim) — shared ASN.1 DOCX scanning, extraction of type
   definitions and field descriptions, ASN.1 token/field parsing, trailing comma
   sanitization, pre-`-- ASN1START` prose preservation when `<Name> field descriptions`

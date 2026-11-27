@@ -9,10 +9,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QFileDialog, QMessageBox
 
-from modules.nas.core.nas_db import parse_version_tuple
 from modules.nas.core.nas_threads import NASFetchAndImportThread, find_cached_spec_file
 from modules.nas.core.parsing.protocol_parser_common import ProtocolDocxDispatcher
 from modules.nas.ui.nas_dialogs import NASVersionSelectDialog
@@ -212,26 +210,7 @@ def import_cross_ref_spec_requested(tab, spec_number: str, major_version: int):
         return
 
     dialog = NASVersionSelectDialog(tab.specs_db, tab.db, tab.cache_dir, tab)
-
-    for idx in range(dialog.spec_combo.count()):
-        if dialog.spec_combo.itemData(idx) == spec_number:
-            dialog.spec_combo.setCurrentIndex(idx)
-            break
-
-    if major_version > 0:
-        dialog.table.clearSelection()
-        for row in range(dialog.table.rowCount()):
-            item = dialog.table.item(row, 0)
-            if item:
-                data = item.data(Qt.UserRole) or {}
-                ver_tuple = parse_version_tuple(data.get("version", ""))
-                if ver_tuple and (ver_tuple[0][1] if isinstance(ver_tuple[0], tuple) else ver_tuple[0]) == major_version:
-                    dialog.table.selectRow(row)
-                    dialog.table.scrollToItem(item)
-                    break
-    elif dialog.table.rowCount() > 0:
-        dialog.table.selectRow(0)
-        dialog.table.scrollToItem(dialog.table.item(0, 0))
+    dialog.preselect_spec(spec_number, major_version)
 
     if dialog.exec_() == QDialog.Accepted and dialog.selected_files_info:
         start_batch_ingestion(tab, dialog.selected_files_info)

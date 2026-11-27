@@ -12,15 +12,18 @@ src/modules/nas/
 ├── core/
 │   ├── db/                            # Modular NASDatabase package (see db/README.md)
 │   ├── packet_stack/                  # Cross-spec Full Packet Stack composer & exporters (see docs/PROTOCOL_PACKET_STACK.md)
+│   ├── spec_catalog.py / word_html.py # Faceted spec catalogue & compact Word/Outlook clipboard HTML helper
 │   ├── nas_db.py (shim) / nas_exporter.py / nas_threads.py
 │   └── parsing/                       # ProtocolDocxDispatcher + specialized parsers (see parsing/AGENTS.md)
 │       ├── nas_parser.py / rrc_asn1_parser.py / ran3_asn1_parser.py / xnap_asn1_parser.py
+│       ├── l2_pdu_parser.py / l2_field_catalog.py
 │       ├── asn1_base_parser.py / asn1_parser.py / gtpu_parser.py / pdu_session_up_parser.py / pfcp_parser.py
 │       └── protocol_parser_common.py / protocol_parser_constants.py / protocol_parser_utils.py
 └── ui/
     ├── nas_tab/                       # Modular NASTab package (see nas_tab/README.md)
+    ├── spec_import/                   # Two-pane faceted Specification Import Studio (see spec_import/README.md)
     ├── components/                    # Modular delegates, cards & inspector package (see components/README.md)
-    ├── nas_tabs.py / nas_components.py / nas_models.py / nas_dialogs.py
+    ├── nas_tabs.py / nas_components.py / nas_models.py / nas_dialogs.py (shim -> spec_catalog + spec_import)
     └── nas_ingest_controller.py / nas_matrix_controller.py / nas_workers.py
 ```
 
@@ -28,7 +31,7 @@ src/modules/nas/
 
 ## 2. Supported Protocols & Parsing Rules
 
-- **Covered Specifications:** 5GS NAS (TS 24.501), 5GS UE Policies (TS 24.526 URSP & ANDSP, TS 24.588 V2XP, TS 24.555 ProSeP, TS 24.514 RSLPP, TS 24.578 A2XP), EPS NAS (TS 24.301), NR RRC (TS 38.331), LTE RRC (TS 36.331), NGAP (TS 38.413), XnAP (TS 38.423), F1AP (TS 38.473), S1AP (TS 36.413), GTPv1-U (TS 29.281), PDU Session UP (TS 38.415), and PFCP (TS 29.244). Unified under `ProtocolDocxDispatcher`.
+- **Covered Specifications:** 5GS NAS (TS 24.501), 5GS UE Policies (TS 24.526 URSP & ANDSP, TS 24.588 V2XP, TS 24.555 ProSeP, TS 24.514 RSLPP, TS 24.578 A2XP), EPS NAS (TS 24.301), NR/LTE RRC (TS 38.331, TS 36.331), NR/LTE L2 SDAP/PDCP/RLC/MAC (TS 37.324, TS 38.323, TS 38.322, TS 38.321, TS 36.323, TS 36.322, TS 36.321 via `L2PduDocxParser`), NGAP (TS 38.413), XnAP (TS 38.423), F1AP (TS 38.473), S1AP (TS 36.413), GTPv1-U (TS 29.281), PDU Session UP (TS 38.415), and PFCP (TS 29.244). Unified under `ProtocolDocxDispatcher`.
 - **5GS NAS Annex D & UE Policies (`nas_parser.py`, `protocol_parser_utils.py`, `nas_matrix_controller.py`):**
   - *Strict Clause 8 / Annex D.5 Message Table Scoping:* `RE_CAPTION` restricts to `Table 8.x` and `Table D.5.x` with header validation in `_parse_clause_8_table`, preserving Annex D.6 IE value tables (`Table D.6.1.1`–`D.6.8.1`) inside `D.6.x` IEs.
   - *Half-Octet `<w:vMerge>` Split-Row Collapsing (`_collapse_word_half_octet_layout_rows`):* Normalizes split half-octet Word bit-diagrams (`Figure D.6.2.7`, `Figure D.6.2.3`) into single aligned octet rows.
@@ -50,7 +53,8 @@ src/modules/nas/
   - `NASMessageItemDelegate` (2-line delegate, `QFont.Normal` / `QFont.DemiBold` active, `ScrollBarAlwaysOff`, `Messages | All IEs / Types` bar).
 - **Evolution Matrix & Exports (`nas_models.py`, `nas_exporter.py`):**
   - Checkable header diff filter pills (`diff_counts` + `diff_filter`), `NASMatrixTreeDelegate` guide lines, `depth_combo` (`max_depth`), auto-hidden empty `IEI / ID` columns (excluded from exports when hidden), `Rel-20\nv20.0.0` headers, unclipped `NASInspectorWidget` header (`TS XX.YYY · RNN (v...)`, hidden `usage_btn` when 0 refs), Message Context Banner (`⇄ Direction: ...`, `msg_meta_badge`: `SRB`, `RLC`, `Ch`).
-  - **📋 Copy Table ▾** (Word/Outlook styled HTML `#E8F5E9`/`#FFF9C4`/`#FFEBEE`, Markdown, TSV) & **📋 Copy Definition ▾** (Word HTML, Markdown ````asn1 ````, Plain Text, Citation).
+  - **📋 Copy Table ▾** (Word/Outlook styled HTML `#E8F5E9`/`#FFF9C4`/`#FFEBEE`, Markdown, TSV) & **📋 Copy Definition ▾** (Word HTML, Markdown ````asn1 ````, Plain Text, Citation) — all `mode="word"` clipboard HTML passes through `compact_html_for_word()` (`word_html.py`) so Word pastes tight `MsoNormal` table rows without `Normal` paragraph spacing.
+- **Specification Import Studio (`spec_import/`, `spec_catalog.py`, `nas_dialogs.py` shim):** Faceted search (`Tech` / `Domain` / `Plane` / `Layer`), reference-only flagging (`TS 38.300`, `TS 25.323`), quick L2/CP/UP/UE-Policy bundles, and multi-spec ingest queue with `preselect_spec()` cross-ref entry point.
 - **Full Packet Stack & Flexible Layout (`core/packet_stack/`, `packet_stack_widget.py`, `packet_ie_side_panel.py`, `packet_ie_resolver.py`, `layout_controller.py`, [`docs/PROTOCOL_PACKET_STACK.md`](../../../docs/PROTOCOL_PACKET_STACK.md)):**
   - When a `TS 29.281` / `TS 38.415` (5G UP) or `TS 38.413` / `TS 38.412` (N2 NGAP) message or IE is inspected, `NASInspectorWidget` exposes `[ 📖 Definition | 📦 Full Packet ]`:
     - **5G UP:** Outer IP/UDP + GTPv1-U + chained Extension Headers (`0x03`, `0x84`, `0x85`, `0x04`) with automatic 4-octet `Padding` calculation and flag/scenario toggles.

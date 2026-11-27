@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 from PyQt5.QtCore import QMimeData
 from PyQt5.QtWidgets import QApplication
 from core.ui.theme import C
+from modules.nas.core.word_html import compact_html_for_word
 
 
 # -----------------------------------------------------------------------------
@@ -153,7 +154,7 @@ def copy_matrix_to_clipboard(
     if mode == "word":
         html_text = build_matrix_html(title, headers, rows, diff_colors)
         mime = QMimeData()
-        mime.setHtml(html_text)
+        mime.setHtml(compact_html_for_word(html_text, full_document=True))
         mime.setText(tsv_text)
         clipboard.setMimeData(mime)
         return "Copied for Word / Outlook!"
@@ -418,7 +419,7 @@ def copy_definition_to_clipboard(
         word_html = build_definition_word_html(html_content, spec_number, version, ie_name, clause)
         md_fallback = build_definition_markdown(html_content, spec_number, version, ie_name, clause)
         mime = QMimeData()
-        mime.setHtml(word_html)
+        mime.setHtml(compact_html_for_word(word_html, full_document=True))
         mime.setText(md_fallback)
         clipboard.setMimeData(mime)
         return "Copied for Word / Outlook!"
