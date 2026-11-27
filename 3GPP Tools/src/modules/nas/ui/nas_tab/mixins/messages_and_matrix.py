@@ -366,8 +366,13 @@ class NASTabMessagesAndMatrixMixin:
             spec_number=self._current_message_spec,
             version_ids=self.selected_version_ids,
         )
-        if not msg_defs and (msg_desc or msg_dir):
+        if not msg_defs:
             spec_num = self._current_message_spec or str(m_data.get("spec_number", "") or "")
+            ver_hint = ""
+            if not df.empty and "version" in df.columns:
+                vers = [str(v) for v in df["version"].dropna().unique() if str(v).strip()]
+                if vers:
+                    ver_hint = vers[-1]
             synth_html = (
                 f'<h2 style="color: {C.ACCENT_SKY}; margin-top: 4px; margin-bottom: 6px; '
                 f'font-family: Segoe UI, sans-serif; font-size: 14px; border-bottom: 1px solid {C.BORDER_SUBTLE}; padding-bottom: 4px;">'
@@ -389,19 +394,18 @@ class NASTabMessagesAndMatrixMixin:
                 "raw_description": synth_html,
                 "structure_table": "[]",
                 "spec_number": spec_num,
-                "version": "",
+                "version": ver_hint,
                 "release": "",
             }]
-        if msg_defs:
-            self.inspector.display_definitions(
-                clause=eff_clause,
-                ie_name=msg_name,
-                spec_number=self._current_message_spec,
-                defs=msg_defs,
-                containing_msgs=[],
-                fallback_type_ref=f"{msg_name} {eff_clause}".strip(),
-                message_name=msg_name,
-            )
+        self.inspector.display_definitions(
+            clause=eff_clause,
+            ie_name=msg_name,
+            spec_number=self._current_message_spec,
+            defs=msg_defs,
+            containing_msgs=[],
+            fallback_type_ref=f"{msg_name} {eff_clause}".strip(),
+            message_name=msg_name,
+        )
 
     def _get_active_diff_filter(self) -> set:
         active = set()

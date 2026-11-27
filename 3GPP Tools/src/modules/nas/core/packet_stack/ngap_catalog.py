@@ -402,8 +402,10 @@ def load_nas_message_fields_from_db(db: Any, nas_message_name: str) -> Tuple[Lis
                             continue
                         name = str(r["ie_name"] or "").strip()
                         bits, is_var = _nas_length_to_bits(str(r["length"] or ""))
-                        cl_match = re.search(r"((?:9|D\.)[0-9A-Za-z\.]+)", str(r["type_reference"] or ""))
+                        tref_str = str(r["type_reference"] or "")
+                        cl_match = re.search(r"((?:9|D\.)[0-9A-Za-z\.]+)", tref_str)
                         cl = cl_match.group(1) if cl_match else str(row["clause"] or "8.2")
+                        def_name = re.sub(r"\s+(?:9|D)\.[0-9A-Za-z\.]+.*$", "", tref_str).strip() or name
                         short = name.replace(" message identity", " Msg Type").replace("Extended protocol discriminator", "EPD (0x7E)")
                         if "Spare half octet" in name:
                             short = "Spare"
@@ -420,6 +422,7 @@ def load_nas_message_fields_from_db(db: Any, nas_message_name: str) -> Tuple[Lis
                                 is_variable=is_var,
                                 variable_display_octets=6 if is_var else 0,
                                 description=f"Mandatory TS 24.501 IE ({r['format']}, {r['length']}).",
+                                def_name=def_name,
                             )
                         )
                     if fields:

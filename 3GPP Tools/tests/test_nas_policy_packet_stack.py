@@ -53,6 +53,10 @@ class TestNasPolicyPacketStack(unittest.TestCase):
         t_pol = resolve_packet_target("24.501", "D.5.1.1.1", "MANAGE UE POLICY COMMAND", "MANAGE UE POLICY COMMAND")
         self.assertEqual(t_pol["preset_id"], "nas_ue_policy_ursp")
         self.assertEqual(t_pol["payload_container_type"], "ue_policy")
+        self.assertEqual(t_pol["message_name"], "DL NAS TRANSPORT")
+
+        t_prov = resolve_packet_target("24.501", "D.5.3.1.1", "UE POLICY PROVISIONING REQUEST", "UE POLICY PROVISIONING REQUEST")
+        self.assertEqual(t_prov["message_name"], "UL NAS TRANSPORT")
 
         t_reg = resolve_packet_target("24.501", "8.2.6.1.1", "REGISTRATION REQUEST", "REGISTRATION REQUEST")
         self.assertEqual(t_reg["preset_id"], "nas_plain_5gmm")
@@ -131,6 +135,9 @@ class TestNasPolicyPacketStack(unittest.TestCase):
         )
         self.assertIn("PDU SESSION ESTABLISHMENT ACCEPT", pkt_sm.title)
         self.assertIsNotNone(pkt_sm.find_field("Authorized QoS rules"))
+        sm_layer_ids = [l.layer_id for l in pkt_sm.layers]
+        self.assertIn("nas_outer_5gmm_tail", sm_layer_ids)
+        self.assertGreater(sm_layer_ids.index("nas_outer_5gmm_tail"), sm_layer_ids.index("nas_inner_5gsm"))
 
         pkt_sor = compose_nas_packet(
             PacketConfig(stack_family="nas", target_frame="nas_pdu", preset_id="nas_sor_container")

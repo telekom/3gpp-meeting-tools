@@ -76,7 +76,7 @@ def build_rlc_header_layer(rlc_mode: str, *, si_bits: str = "00", include_so: bo
             clause="6.2.2.2",
             role="uu_rlc",
             fields=[
-                PacketField("TMD PDU", "RLC TM — Transparent (0-byte header, no SN/SI)", 0, "M", "0 B", "38.322", "6.2.2.2", is_variable=True, variable_display_octets=0, def_name="TMD PDU")
+                PacketField("TMD PDU", "RLC TM — Transparent (0-byte header, no SN/SI)", 0, "M", "0 B", "38.322", "6.2.2.2", is_variable=False, def_name="TMD PDU")
             ],
         )
 
@@ -383,6 +383,29 @@ def _compose_uu_up(config: PacketConfig, preset: Any, depth_mode: str) -> Compos
     )
 
 
+def _unwrap_rrc_type_ref(raw_tref: str, ie_name: str) -> tuple[str, str]:
+    """Return `(compact_label_type, clean_def_name)` for an ASN.1 RRC `type_reference`."""
+    flat = " ".join((raw_tref or "").split()).strip()
+    if not flat:
+        return ("APER", ie_name)
+    m_cont = re.search(r"CONTAINING\s+([A-Za-z0-9\-]+)", flat)
+    if m_cont:
+        inner = m_cont.group(1)
+        return (f"CONTAINING {inner}", inner)
+    m_sr = re.match(r"^SetupRelease\s*\{\s*([A-Za-z0-9\-]+)\s*\}", flat)
+    if m_sr:
+        inner = m_sr.group(1)
+        return (f"SetupRelease<{inner}>", inner)
+    m_seq_of = re.match(r"^SEQUENCE\s*(?:\(SIZE\s*\([^)]*\)\)\s*)?OF\s+([A-Za-z0-9\-]+)", flat)
+    if m_seq_of:
+        inner = m_seq_of.group(1)
+        return (f"SEQ OF {inner}", inner)
+    base = re.sub(r"[\(\{\[].*$", "", flat).strip().rstrip(",").strip()
+    if base.upper() in ("SEQUENCE", "CHOICE", "ENUMERATED", "INTEGER", "BIT STRING", "OCTET STRING", "BOOLEAN", "NULL"):
+        return (base.upper(), ie_name)
+    return (flat[:28], base or ie_name)
+
+
 def compose_ran_uu_packet(config: PacketConfig, db: Any = None) -> ComposedPacket:
     """Compose an NR Uu Control Plane or User Plane packet stack with channel mapping, depth, and RLC segmentation."""
     depth_mode = (config.transport_mode or "uu_depth_mac").lower()
@@ -427,8 +450,9 @@ def compose_ran_uu_packet(config: PacketConfig, db: Any = None) -> ComposedPacke
     for ie in opt_ies[:12]:
         key = "rrc_" + re.sub(r"[^a-z0-9]+", "_", ie["name"].lower()).strip("_")
         opt_key_by_name[ie["name"]] = key
+        is_hl = bool(hl_low and (hl_low == ie["name"].lower() or hl_low in (ie.get("type_reference") or "").lower()))
         available_flags.append(
-            FlagOption(key, ie["name"][:26], f"Include optional RRC IE '{ie['name']}' ({ie.get('type_reference', '')}).", "uu_rrc", bool(hl_low and hl_low == ie["name"].lower()))
+            FlagOption(key, ie["name"][:26], f"Include optional RRC IE '{ie['name']}' ({' '.join((ie.get('type_reference') or '').split())[:48]}).", "uu_rrc", is_hl)
         )
 
     eff: Dict[str, bool] = {o.key: (bool(config.flags[o.key]) if o.key in config.flags else o.default_enabled) for o in available_flags}
@@ -439,10 +463,16 @@ def compose_ran_uu_packet(config: PacketConfig, db: Any = None) -> ComposedPacke
     expand_nas = bool(prof["supports_nas"] and eff.get("expand_nas_pdu"))
     nas_msg = (config.nas_message_name or ("UL NAS TRANSPORT" if prof["is_uplink"] else "DL NAS TRANSPORT")).strip()
 
-    rrc_fields: List[PacketField] = [
-        PacketField("rrc-TransactionIdentifier", "TransID", 2, "M", "0..3", "38.331", rrc_meta["clause"]),
-        PacketField("criticalExtensions", f"{rrc_meta['message_name']}-IEs", 6, "M", "CHOICE", "38.331", rrc_meta["clause"], def_name=rrc_meta["message_name"]),
-    ]
+    has_trans_id = any(ie["name"] == "rrc-TransactionIdentifier" for ie in rrc_ies)
+    if has_trans_id:
+        rrc_fields: List[PacketField] = [
+            PacketField("rrc-TransactionIdentifier", "TransID", 2, "M", "0..3", "38.331", rrc_meta["clause"], def_name="RRC-TransactionIdentifier"),
+            PacketField("criticalExtensions", f"{rrc_meta['message_name']}-IEs", 6, "M", "CHOICE", "38.331", rrc_meta["clause"], def_name=rrc_meta["message_name"]),
+        ]
+    else:
+        rrc_fields = [
+            PacketField("message CHOICE", f"c1: {rrc_meta['message_name']}", 8, "M", "CHOICE", "38.331", rrc_meta["clause"], def_name=rrc_meta["message_name"]),
+        ]
     for ie in rrc_ies:
         if ie["name"] == "rrc-TransactionIdentifier":
             continue
@@ -452,8 +482,9 @@ def compose_ran_uu_packet(config: PacketConfig, db: Any = None) -> ComposedPacke
                 continue
         if expand_nas and "nas" in ie["name"].lower():
             continue
+        short_type, clean_def = _unwrap_rrc_type_ref(ie.get("type_reference", ""), ie["name"])
         rrc_fields.append(
-            PacketField(ie["name"], f"{ie['name']} ({ie.get('type_reference', 'APER')[:28]})", 0, ie.get("presence", "M"), "APER", "38.331", rrc_meta["clause"], is_variable=True, variable_display_octets=3, def_name=re.sub(r"\s*\(.*$", "", ie.get("type_reference") or ie["name"]).strip())
+            PacketField(ie["name"], f"{ie['name']} ({short_type})", 0, ie.get("presence", "M"), "APER", "38.331", rrc_meta["clause"], is_variable=True, variable_display_octets=3, def_name=clean_def)
         )
 
     upper_layers: List[PacketLayer] = [

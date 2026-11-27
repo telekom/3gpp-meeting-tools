@@ -232,21 +232,29 @@ class TestPhaseAPacketWordAndL2(unittest.TestCase):
             qfi_ie = next(f for f in dl_sdap["ies"] if f["name"] == "QFI")
             self.assertIn("Clause 6.3.4", qfi_ie["type_reference"])
 
-            # 3. TS 38.322 NR RLC
+            # 3. TS 38.322 NR RLC + Heading with space + PDCP Control PDU & unknown format fallback
             rlc_doc = tmp / "38322-j00.docx"
             _make_synthetic_l2_docx(
                 rlc_doc,
                 paragraphs=[
-                    ("Heading1", "6 Protocol data units, formats, and parameters", False),
-                    ("Heading4", "6.2.2.4 AMD PDU", False),
+                    ("Heading 1", "6 Protocol data units, formats, and parameters", False),
+                    ("Heading 4", "6.2.2.4 AMD PDU", False),
                     ("Normal", "Acknowledged Mode Data PDU format carrying RLC SDU segments.", True),
-                    ("Heading3", "6.3.2 SN", False),
+                    ("Heading 4", "6.2.2.5 STATUS PDU", False),
+                    ("Normal", "RLC STATUS PDU carrying ACK_SN and NACK_SN.", True),
+                    ("Heading 4", "6.2.2.99 Vendor Experimental PDU", False),
+                    ("Normal", "Custom experimental PDU format description.", False),
+                    ("Heading 3", "6.3.2 SN", False),
                     ("Normal", "RLC Sequence Number.", False),
                 ],
             )
             rlc_msgs, _ = ProtocolDocxDispatcher(rlc_doc).parse()
             amd = next(m for m in rlc_msgs if "AMD PDU" in m["message_name"])
             self.assertEqual([f["name"] for f in amd["ies"]], ["D/C", "P", "SI", "R", "SN", "SO", "Data"])
+            status = next(m for m in rlc_msgs if "STATUS PDU" in m["message_name"])
+            self.assertIn("ACK_SN", [f["name"] for f in status["ies"]])
+            exp = next(m for m in rlc_msgs if "Vendor Experimental PDU" in m["message_name"])
+            self.assertTrue(len(exp["ies"]) >= 1, "Unknown L2 format must still emit a non-empty fallback IE row")
 
     def test_modern_spec_import_dialog_facets_queue_bundle_and_preselect(self):
         with tempfile.TemporaryDirectory() as tmpdir:

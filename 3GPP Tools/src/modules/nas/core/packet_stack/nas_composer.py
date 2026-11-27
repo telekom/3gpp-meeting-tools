@@ -88,7 +88,7 @@ def build_nas_carrier_layers(transport_mode: str, *, is_uplink: bool = False) ->
                     PacketField("NGAP-PDU Ext", "E=0", 1, "M", "0", "38.413", "9.4"),
                     PacketField("NGAP-PDU CHOICE", "00=InitMsg", 2, "M", "00", "38.413", "9.4"),
                     PacketField("APER Pad", "Pad", 5, "M", "0", "X.691", "-", is_spare=True),
-                    PacketField("Procedure Code", f"ProcCode={meta['procedure_code']} ({ngap_msg})", 8, "M", meta["procedure_code"], "38.413", "9.3.1.1"),
+                    PacketField("Procedure Code", f"ProcCode={meta['procedure_code']} ({ngap_msg})", 8, "M", meta["procedure_code"], "38.413", "9.3.1.1", def_name="MessageType"),
                     PacketField("AMF-UE-NGAP-ID", "IE 10: AMF-UE-NGAP-ID (APER)", 0, "M", "APER", "38.413", "9.3.3.1", is_variable=True, variable_display_octets=3, def_name="AMF-UE-NGAP-ID"),
                     PacketField("RAN-UE-NGAP-ID", "IE 85: RAN-UE-NGAP-ID (APER)", 0, "M", "APER", "38.413", "9.3.3.2", is_variable=True, variable_display_octets=3, def_name="RAN-UE-NGAP-ID"),
                     PacketField("NAS-PDU", "IE ID = 38 (NAS-PDU)", 16, "M", "38", "38.413", "9.3.3.4", def_name="NAS-PDU"),
@@ -314,11 +314,21 @@ def _collect_nas_flags(
             flags.append(FlagOption(k, lbl, f"Include URSP Route Selection Descriptor: {desc}.", "nas_inner", preset.default_flags.get(k, False), requires_flag="expand_payload_container"))
         return flags
 
-    src_ies = (inner_meta or {}).get("ies", []) if payload_type == "5gsm" else msg_meta.get("ies", [])
-    opt_ies = [ie for ie in src_ies if ie.get("presence", "M").upper() != "M"]
+    if payload_type == "5gsm":
+        combined_ies = [
+            ie for ie in msg_meta.get("ies", [])
+            if ie.get("presence", "M").upper() != "M" and "pdu session id" in ie["name"].lower()
+        ] + list((inner_meta or {}).get("ies", []))
+    else:
+        combined_ies = list(msg_meta.get("ies", []))
+    opt_ies = [ie for ie in combined_ies if ie.get("presence", "M").upper() != "M"]
     opt_ies.sort(key=lambda x: (0 if hl_low and hl_low in x["name"].lower() else 1))
-    for ie in opt_ies[:12]:
+    seen_keys: set[str] = set()
+    for ie in opt_ies:
         key = f"opt_{_slug(ie['name'])}"
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
         lbl = f"[{ie['iei']}] {ie['name']}" if ie.get("iei") else ie["name"]
         flags.append(
             FlagOption(
@@ -329,14 +339,17 @@ def _collect_nas_flags(
                 default_enabled=bool(preset.default_flags.get(key) or (hl_low and hl_low == ie["name"].lower())),
             )
         )
+        if len(seen_keys) >= 12:
+            break
     return flags
 
 
 def compose_nas_packet(config: PacketConfig, db: Any = None) -> ComposedPacket:
     """Compose an end-to-end 5GS NAS stack with encapsulated URSP / UE Policy / 5GSM / SOR / SMS."""
     preset = NAS_PRESET_MAP.get(config.preset_id, NAS_PRESET_MAP["nas_ue_policy_ursp"])
-    msg_name = (config.message_name or ("UL NAS TRANSPORT" if "UL" in config.message_name.upper() else "DL NAS TRANSPORT")).strip()
-    if not config.message_name:
+    if config.message_name:
+        msg_name = config.message_name.strip()
+    else:
         msg_name = "REGISTRATION REQUEST" if preset.preset_id == "nas_plain_5gmm" else "DL NAS TRANSPORT"
 
     msg_meta = load_nas_message_from_db(db, msg_name, config.spec_version_24501)
@@ -371,15 +384,23 @@ def compose_nas_packet(config: PacketConfig, db: Any = None) -> ComposedPacket:
         "sms": "Type = 0010 (SMS)",
     }
     msg_ies = msg_meta["ies"]
+    trailing_5gmm_fields: List[PacketField] = []
     if expand_inner and payload_type:
-        # Payload container IE is replaced by the expanded inner layer(s) below
-        msg_ies = [ie for ie in msg_ies if ie["name"].lower() != "payload container"]
-    outer_fields = _build_nas_ie_fields(msg_ies, effective, container_type_label=type_map.get(payload_type, ""))
-    if expand_inner and payload_type:
-        outer_fields.insert(
-            min(6, len(outer_fields)),
-            PacketField("Payload container", "Payload Container Len (LV-E, 16-bit)", 16, "M", "Len", "24.501", "9.11.3.39", def_name="Payload container"),
+        # Split 5GMM IEs around Payload container so optional IEs (e.g. [12] PDU session ID) follow the inner payload
+        pc_idx = next((i for i, ie in enumerate(msg_ies) if ie["name"].lower() == "payload container"), -1)
+        if pc_idx >= 0:
+            pre_ies = msg_ies[:pc_idx]
+            post_ies = msg_ies[pc_idx + 1 :]
+        else:
+            pre_ies = list(msg_ies)
+            post_ies = []
+        outer_fields = _build_nas_ie_fields(pre_ies, effective, container_type_label=type_map.get(payload_type, ""))
+        outer_fields.append(
+            PacketField("Payload container", "Payload Container Len (LV-E, 16-bit)", 16, "M", "Len", "24.501", "9.11.3.39", def_name="Payload container")
         )
+        trailing_5gmm_fields = _build_nas_ie_fields(post_ies, effective)
+    else:
+        outer_fields = _build_nas_ie_fields(msg_ies, effective, container_type_label=type_map.get(payload_type, ""))
 
     is_ul = "UE →" in msg_meta["direction"] or "UL " in msg_meta["message_name"].upper()
     prefix_layers, suffix_layers = build_nas_carrier_layers(config.transport_mode, is_uplink=is_ul)
@@ -463,6 +484,18 @@ def compose_nas_packet(config: PacketConfig, db: Any = None) -> ComposedPacket:
         spec_refs.append("TS 24.011 Cl. 7.2")
         chain.append("CP-DATA / RP-DATA (24.011)")
         title_suffix = " → SMS CP-DATA"
+
+    if trailing_5gmm_fields:
+        nas_layers.append(
+            PacketLayer(
+                layer_id="nas_outer_5gmm_tail",
+                title=f"5GMM Message — {msg_meta['message_name']} (Trailing Optional IEs)",
+                spec_number="24.501",
+                clause=msg_meta["clause"],
+                role="nas_message",
+                fields=trailing_5gmm_fields,
+            )
+        )
 
     mode = (config.transport_mode or "n1_standalone").lower()
     if mode == "over_n2_ngap":

@@ -42,6 +42,8 @@ class PacketField:
             if self.variable_display_octets > 0:
                 return f"Var (~{self.variable_display_octets} B)"
             return "Variable"
+        if self.bits <= 0:
+            return "0 octets"
         if self.bits < 8:
             return "1 bit" if self.bits == 1 else f"{self.bits} bits"
         if self.bits % 8 == 0:

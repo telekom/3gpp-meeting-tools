@@ -98,6 +98,17 @@ def _pack_layer_rows(layer: PacketLayer, start_octet: int) -> Tuple[List[Dict[st
             })
             continue
 
+        if fld.bits <= 0:
+            _flush_bit_buf()
+            rows.append({
+                "kind": "full",
+                "octet_label": "—",
+                "field": fld,
+                "size_label": fld.size_label,
+                "spec_ref": _format_spec_ref(fld.spec_number, fld.clause),
+            })
+            continue
+
         if fld.bits <= 8 and (bit_sum > 0 or fld.bits < 8):
             if bit_sum + fld.bits > 8:
                 _flush_bit_buf()
@@ -384,6 +395,7 @@ def render_packet_plantuml_packetdiag(packet: ComposedPacket) -> str:
                 continue
 
             if fld.bits <= 0:
+                lines.append(f"' (0-octet transparent pass-through: {lbl})")
                 continue
             start_bit = bit_pos
             end_bit = bit_pos + fld.bits - 1

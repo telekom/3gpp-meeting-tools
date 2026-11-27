@@ -390,18 +390,16 @@ class NASInspectorRenderMixin:
             self.set_inspector_mode("definition")
 
     def _on_inspect_packet_field(self, spec_number: str, clause: str, field_name: str) -> None:
-        defs = []
-        if self.db and spec_number and spec_number.strip()[:1].isdigit():
-            defs = self.db.get_ie_definitions_by_clause(
-                clause=clause,
-                alt_name=field_name,
-                spec_number=spec_number,
-            )
+        from .packet_ie_resolver import resolve_packet_field
+
+        pkt = self.packet_stack_widget.current_packet() if hasattr(self, "packet_stack_widget") else None
+        res = resolve_packet_field(self.db, pkt, spec_number, clause, field_name)
+        defs = res.defs
         self.set_inspector_mode("definition")
         if defs:
             self.display_definitions(
-                clause=clause,
-                ie_name=field_name,
+                clause=res.clause or clause,
+                ie_name=res.title or field_name,
                 spec_number=spec_number,
                 defs=defs,
                 containing_msgs=[],

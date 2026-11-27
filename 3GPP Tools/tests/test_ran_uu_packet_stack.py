@@ -54,6 +54,22 @@ class TestRanUuPacketStack(unittest.TestCase):
         self.assertTrue(resolve_packet_target("38.323", "6.2.2.3", "Data PDU with 18 bits PDCP SN")["auto_enable_flags"]["pdcp_sn_18"])
         self.assertTrue(resolve_packet_target("38.322", "6.2.2.3", "UMD PDU")["auto_enable_flags"]["rlc_um"])
 
+        # Clause 6.3.x RRC IEs map to RRCReconfiguration with highlight; Clause 7.x UE variables return None
+        t_rb = resolve_packet_target("38.331", "6.3.2", "RadioBearerConfig", "RadioBearerConfig")
+        self.assertEqual(t_rb["message_name"], "RRCReconfiguration")
+        self.assertEqual(t_rb["highlight_field"], "RadioBearerConfig")
+        self.assertIsNone(resolve_packet_target("38.331", "7.4", "VarMeasConfig", "VarMeasConfig"))
+
+        # SRB0 / RLC TM has 0-octet header and RRCSetupRequest omits rrc-TransactionIdentifier
+        pkt_srb0 = compose_ran_uu_packet(
+            PacketConfig(stack_family="ran_uu", target_frame="uu_cp", preset_id="uu_cp_srb0_ccch", message_name="RRCSetupRequest")
+        )
+        self.assertIsNone(pkt_srb0.find_field("rrc-TransactionIdentifier"))
+        tmd = pkt_srb0.find_field("TMD PDU")
+        self.assertIsNotNone(tmd)
+        self.assertEqual(tmd.size_label, "0 octets")
+        self.assertIn("0-octet transparent pass-through", render_packet_plantuml_packetdiag(pkt_srb0))
+
     def test_configurable_stack_depth(self):
         def layer_ids(depth: str) -> list[str]:
             pkt = compose_ran_uu_packet(
@@ -175,10 +191,15 @@ class TestRanUuPacketStack(unittest.TestCase):
                         "ies": [
                             {"information_element": "rrc-TransactionIdentifier", "depth": 0, "type_reference": "RRC-TransactionIdentifier", "presence": "M"},
                             {"information_element": "radioBearerConfig", "depth": 0, "type_reference": "RadioBearerConfig", "presence": "O"},
+                            {"information_element": "srb-ToAddModList", "depth": 1, "type_reference": "SRB-ToAddModList", "presence": "O"},
+                            {"information_element": "masterCellGroup", "depth": 0, "type_reference": "OCTET STRING (CONTAINING CellGroupConfig)", "presence": "M"},
                         ],
                     }
                 ],
-                ie_defs=[{"clause": "6.2.2", "ie_name": "RRCReconfiguration", "raw_description": "<p>RRC def</p>"}],
+                ie_defs=[
+                    {"clause": "6.2.2", "ie_name": "RRCReconfiguration", "raw_description": "<p>RRC def</p>"},
+                    {"clause": "6.3.2", "ie_name": "CellGroupConfig", "raw_description": f"<p>MARKER_CELL_GROUP {'x' * 200}</p>"},
+                ],
             )
             db.insert_parsed_spec(
                 "38.323",
@@ -200,6 +221,12 @@ class TestRanUuPacketStack(unittest.TestCase):
             inspector.set_inspector_mode("packet")
             psw = inspector.packet_stack_widget
             self.assertEqual(psw.current_packet().config.stack_family, "ran_uu")
+            # depth=1 grandchild srb-ToAddModList must not leak into top-level RRC optional pills
+            self.assertNotIn("rrc_srb_toaddmodlist", psw._flag_buttons)
+
+            # Click masterCellGroup (CONTAINING CellGroupConfig) -> Side Panel resolves CellGroupConfig
+            psw._on_anchor_clicked(QUrl("action:packet_field:38.331:6.2.2:masterCellGroup"))
+            self.assertIn("MARKER_CELL_GROUP", psw.side_panel.browser.toHtml())
 
             # Click PDCP SN in packet table -> Side Panel shows 38.323 Cl. 6.3.2 definition inside Packet mode
             psw._on_anchor_clicked(QUrl("action:packet_field:38.323:6.3.2:PDCP%20SN"))

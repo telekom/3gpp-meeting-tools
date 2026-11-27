@@ -87,6 +87,72 @@ L2_FORMAT_CATALOG: List[Dict[str, Any]] = [
             _MAC_I,
         ],
     },
+    {
+        "spec": "38.323", "title": r"Control PDU for PDCP status report", "direction": "UE ↔ NG-RAN node",
+        "fields": [
+            _f("D/C", "1 bit", desc="0 = Control PDU."),
+            _f("PDU Type", "3 bits", desc="000 = PDCP status report."),
+            _f("R", "4 bits", desc="Reserved (0)."),
+            _f("FMC", "32 bits", fmt="Integer", desc="First Missing COUNT."),
+            _f("Bitmap", "Variable", "O", "Octet string", "Per-SDU reception bitmap following FMC."),
+        ],
+    },
+    {
+        "spec": "38.323", "title": r"Control PDU for interspersed ROHC feedback", "direction": "UE ↔ NG-RAN node",
+        "fields": [
+            _f("D/C", "1 bit", desc="0 = Control PDU."),
+            _f("PDU Type", "3 bits", desc="001 = Interspersed ROHC feedback."),
+            _f("R", "4 bits", desc="Reserved (0)."),
+            _f("Interspersed ROHC feedback", "Variable", "M", "Octet string", "ROHC feedback packet not associated with a PDCP SDU."),
+        ],
+    },
+    {
+        "spec": "38.323", "title": r"Control PDU for EHC feedback", "direction": "UE ↔ NG-RAN node",
+        "fields": [
+            _f("D/C", "1 bit", desc="0 = Control PDU."),
+            _f("PDU Type", "3 bits", desc="010 = EHC feedback."),
+            _f("R", "4 bits", desc="Reserved (0)."),
+            _f("EHC feedback", "Variable", "M", "Octet string", "Ethernet Header Compression feedback packet."),
+        ],
+    },
+    {
+        "spec": "38.323", "title": r"Control PDU for UDC feedback", "direction": "UE ↔ NG-RAN node",
+        "fields": [
+            _f("D/C", "1 bit", desc="0 = Control PDU."),
+            _f("PDU Type", "3 bits", desc="011 = UDC feedback."),
+            _f("FE", "1 bit", desc="Feedback Error indication."),
+            _f("R", "3 bits", desc="Reserved (0)."),
+            _f("Checksum", "16 bits", "O", "Octet string", "UDC checksum error notification."),
+        ],
+    },
+    # --- TS 36.323 LTE PDCP ---
+    {
+        "spec": "36.323", "title": r"Control plane PDCP Data PDU", "direction": "UE ↔ E-UTRAN",
+        "fields": [
+            _f("R", "3 bits", desc="Reserved (0)."),
+            _f("PDCP SN", "5 bits", fmt="Integer", desc="5-bit SRB PDCP sequence number."),
+            _DATA,
+            {**_MAC_I, "presence": "M"},
+        ],
+    },
+    {
+        "spec": "36.323", "title": r"User plane PDCP Data PDU with long PDCP SN \(12 bits\)", "exclude": r"UDC",
+        "direction": "UE ↔ E-UTRAN",
+        "fields": [
+            _f("D/C", "1 bit", desc="1 = Data PDU."),
+            _f("R", "3 bits", desc="Reserved (0)."),
+            _f("PDCP SN", "12 bits", fmt="Integer", desc="12-bit DRB PDCP sequence number."),
+            _DATA,
+        ],
+    },
+    {
+        "spec": "36.323", "title": r"User plane PDCP Data PDU with short PDCP SN \(7 bits\)", "direction": "UE ↔ E-UTRAN",
+        "fields": [
+            _f("D/C", "1 bit", desc="1 = Data PDU."),
+            _f("PDCP SN", "7 bits", fmt="Integer", desc="7-bit DRB PDCP sequence number."),
+            _DATA,
+        ],
+    },
     # --- TS 38.322 NR RLC ---
     {
         "spec": "38.322", "title": r"\bTMD PDU\b", "direction": "UE ↔ NG-RAN node",
@@ -114,6 +180,17 @@ L2_FORMAT_CATALOG: List[Dict[str, Any]] = [
             _DATA,
         ],
     },
+    {
+        "spec": "38.322", "title": r"\bSTATUS PDU\b", "direction": "UE ↔ NG-RAN node",
+        "fields": [
+            _f("D/C", "1 bit", desc="0 = Control PDU."),
+            _f("CPT", "3 bits", desc="Control PDU Type (000 = STATUS PDU)."),
+            _f("ACK_SN", "12 or 18 bits", fmt="Integer", desc="SN of the next not yet received RLC Data PDU."),
+            _f("E1", "1 bit", desc="Extension bit indicating whether NACK_SN + E1/E2/E3 follow."),
+            _f("NACK_SN", "12 or 18 bits", "O", "Integer", "SN of lost RLC SDU or segment."),
+            _f("SOstart / SOend", "32 bits", "C", "Integer", "Segment Offset start/end when E2=1."),
+        ],
+    },
     # --- TS 38.321 NR MAC ---
     {
         "spec": "38.321", "title": r"subheader", "exclude": r"\bCE\b|Control Element", "direction": "UE ↔ NG-RAN node",
@@ -122,6 +199,20 @@ L2_FORMAT_CATALOG: List[Dict[str, Any]] = [
             _f("F", "1 bit", desc="Format: 0 = 8-bit L field, 1 = 16-bit L field."),
             _f("LCID", "6 bits", fmt="Integer", desc="Logical Channel ID (SRB / DRB / CCCH) or MAC CE identifier."),
             _f("L", "8 or 16 bits", "C", "Integer", "Length in octets of the MAC SDU / variable-sized MAC CE."),
+        ],
+    },
+    {
+        "spec": "38.321", "title": r"Short BSR|Short Truncated BSR", "direction": "UE → NG-RAN node",
+        "fields": [
+            _f("LCG ID", "3 bits", fmt="Integer", desc="Logical Channel Group ID (0..7)."),
+            _f("Buffer Size", "5 bits", fmt="Integer", desc="5-bit Buffer Size index (TS 38.321 Table 6.1.3.1-1)."),
+        ],
+    },
+    {
+        "spec": "38.321", "title": r"Timing Advance Command MAC CE", "direction": "NG-RAN node → UE",
+        "fields": [
+            _f("TAG ID", "2 bits", fmt="Integer", desc="Timing Advance Group Identity."),
+            _f("Timing Advance Command", "6 bits", fmt="Integer", desc="TA index value (0..63)."),
         ],
     },
 ]

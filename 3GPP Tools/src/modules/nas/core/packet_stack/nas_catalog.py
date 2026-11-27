@@ -242,7 +242,11 @@ def resolve_nas_packet_target(
 
     # 1. Annex D UE Policy messages/IEs
     if cl_clean.upper().startswith("D.") or "UE POLICY" in msg_u or "UE POLICY" in ie_u:
-        carrier = "UL NAS TRANSPORT" if any(k in msg_u for k in ("COMPLETE", "REJECT", "INDICATION")) else "DL NAS TRANSPORT"
+        carrier = (
+            "UL NAS TRANSPORT"
+            if any(k in msg_u for k in ("COMPLETE", "REJECT", "INDICATION", "PROVISIONING REQUEST"))
+            else "DL NAS TRANSPORT"
+        )
         return {
             "stack_family": "nas",
             "target_frame": "nas_pdu",

@@ -25,7 +25,8 @@ WORD_HEAD_STYLE = (
     "<style>"
     "p.MsoNormal, td p, th p { margin: 0cm; margin-bottom: .0001pt; line-height: normal; }"
     "table { border-collapse: collapse; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }"
-    "td, th { padding: 1.5pt 4pt 1.5pt 4pt; mso-padding-alt: 1.5pt 4pt 1.5pt 4pt; vertical-align: middle; }"
+    "tr { height: auto; }"
+    "td, th { padding: 1.5pt 4pt 1.5pt 4pt; mso-padding-alt: 1.5pt 4pt 1.5pt 4pt; vertical-align: middle; height: auto; }"
     "</style>"
 )
 

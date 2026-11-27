@@ -146,6 +146,7 @@ PROTOCOL_SPEC_CATALOG: Dict[str, Dict[str, object]] = {
         "NG-RAN; NG signalling transport", "5G",
         "SCTP transport layer specification for NGAP signaling over the N2 reference point.",
         domain="RAN", plane="CP", layer="Transport",
+        note="Prose transport spec (no ASN.1 message tables); SCTP Port 38412 & PPID 60 framing is built into the N2 Packet Stack.",
     ),
     "36.413": _spec(
         "S1AP", "RAN3", "S1 Application Protocol (S1AP)",

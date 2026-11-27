@@ -174,9 +174,18 @@ def resolve_ran_uu_packet_target(
 
     low_all = f"{ie_name} {message_name}".lower()
     if clean_spec == "38.331":
+        cl_clean = (clause or "").strip()
+        # Clause 7.x UE variables (VarMeasConfig, etc.) & 6.6.x PC5 sidelink are not Uu air-interface frames
+        if cl_clean.startswith(("7.", "6.6")):
+            return None
         msg = (message_name or "").strip()
         ie_clean = (ie_name or "").strip()
-        if not msg and clause.strip().startswith("6.2.2") and ie_clean:
+        # Clause 6.3.x non-SIB definitions (RadioBearerConfig, CellGroupConfig, MeasConfig, etc.) are IEs carried inside RRCReconfiguration
+        if cl_clean.startswith("6.3") and not (msg or ie_clean).lower().startswith("sib"):
+            highlight_ie = ie_clean or msg
+            msg = "RRCReconfiguration"
+            ie_clean = highlight_ie
+        elif not msg and cl_clean.startswith("6.2.2") and ie_clean:
             msg = ie_clean
         if not msg:
             msg = "RRCReconfiguration"
@@ -346,13 +355,19 @@ def load_rrc_message_from_db(db: Any, message_name: str, version_38331: str = ""
                 if row:
                     ie_rows = cur.execute(
                         """
-                        SELECT ie_name, type_reference, presence, field_description
+                        SELECT ie_name, type_reference, presence, field_description, COALESCE(depth, 0) AS depth
                         FROM message_ies
                         WHERE message_id = ? AND COALESCE(depth, 0) <= 1
                         ORDER BY order_index ASC
                         """,
                         (row["id"],),
                     ).fetchall()
+                    d0 = [r for r in ie_rows if int(r["depth"]) == 0 and str(r["ie_name"] or "").strip()]
+                    # Only unwrap depth=1 when depth=0 is a single `<msg>-IEs` wrapper (e.g. RRCSetupRequest)
+                    if len(d0) == 1 and str(d0[0]["type_reference"] or "").strip().lower().endswith("-ies"):
+                        chosen_rows = [r for r in ie_rows if int(r["depth"]) == 1 and str(r["ie_name"] or "").strip()] or d0
+                    else:
+                        chosen_rows = d0
                     ies = [
                         {
                             "name": str(r["ie_name"] or "").strip(),
@@ -360,8 +375,7 @@ def load_rrc_message_from_db(db: Any, message_name: str, version_38331: str = ""
                             "presence": str(r["presence"] or "M").strip() or "M",
                             "description": str(r["field_description"] or "").strip(),
                         }
-                        for r in ie_rows
-                        if str(r["ie_name"] or "").strip()
+                        for r in chosen_rows
                     ]
                     if ies or str(row["message_name"]) in _DEFAULT_RRC_MESSAGES:
                         fb_ies = (_DEFAULT_RRC_MESSAGES.get(str(row["message_name"])) or {}).get("ies", [])
@@ -373,6 +387,28 @@ def load_rrc_message_from_db(db: Any, message_name: str, version_38331: str = ""
                             "description": str(row["description"] or ""),
                             "ies": ies or [dict(x) for x in fb_ies],
                         }
+                # Fallback: check ie_definitions in 38.331 (e.g. DLInformationTransfer, Paging, MIB)
+                def_row = cur.execute(
+                    """
+                    SELECT d.clause, d.ie_name, d.raw_description, sv.version
+                    FROM ie_definitions d JOIN spec_versions sv ON d.version_id = sv.id
+                    WHERE sv.spec_number = '38.331' AND LOWER(d.ie_name) = LOWER(?)
+                    ORDER BY sv.id DESC LIMIT 1
+                    """,
+                    (target,),
+                ).fetchone()
+                if def_row:
+                    plain_desc = re.sub(r"<[^>]+>", " ", str(def_row["raw_description"] or ""))
+                    plain_desc = " ".join(plain_desc.split())
+                    fb_entry = _DEFAULT_RRC_MESSAGES.get(str(def_row["ie_name"])) or _DEFAULT_RRC_MESSAGES.get(target) or {}
+                    return {
+                        "message_name": str(def_row["ie_name"]),
+                        "clause": str(def_row["clause"] or "6.2.2"),
+                        "version": version_38331 or str(def_row["version"] or ""),
+                        "direction": str(fb_entry.get("direction") or ""),
+                        "description": plain_desc or str(fb_entry.get("description") or ""),
+                        "ies": [dict(x) for x in (fb_entry.get("ies") or [])],
+                    }
         except Exception:
             pass
 

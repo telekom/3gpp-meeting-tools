@@ -135,15 +135,15 @@ def build_gtpu_header_layers(
 ) -> List[PacketLayer]:
     """Build mandatory 8-octet GTPv1-U Header plus optional 4-octet block (Octets 9–12)."""
     base_fields = [
-        PacketField("Version", "Ver=1", 3, "M", "001", "29.281", "5.1", description="GTPv1-U version ('001')."),
-        PacketField("Protocol Type (PT)", "PT=1", 1, "M", "1", "29.281", "5.1", description="'1' for GTP (TS 29.281)."),
+        PacketField("Version", "Ver=1", 3, "M", "001", "29.281", "5.1", description="GTPv1-U version ('001').", def_name="GTP-U Header"),
+        PacketField("Protocol Type (PT)", "PT=1", 1, "M", "1", "29.281", "5.1", description="'1' for GTP (TS 29.281).", def_name="GTP-U Header"),
         PacketField("Spare (*)", "*", 1, "M", "0", "29.281", "5.1", is_spare=True, description="Spare bit, always 0."),
-        PacketField("Extension Header flag (E)", "E", 1, "M", "1" if e_flag else "0", "29.281", "5.1", description="1 = Next Extension Header Type present in Octet 12."),
-        PacketField("Sequence number flag (S)", "S", 1, "M", "1" if s_flag else "0", "29.281", "5.1", flag_key="gtpu_seq", description="1 = Sequence Number in Octets 9–10 is meaningful."),
-        PacketField("N-PDU Number flag (PN)", "PN", 1, "M", "1" if pn_flag else "0", "29.281", "5.1", description="1 = N-PDU Number in Octet 11 is meaningful."),
-        PacketField("Message Type", msg_type_label, 8, "M", f"0x{msg_type_val:02X} ({msg_type_val})", "29.281", "6.1", description=f"GTP-U Message Type ({msg_type_val})."),
-        PacketField("Length", "Length (octets after Octet 8)", 16, "M", "Payload len", "29.281", "5.1", description="Payload length in octets following the mandatory 8-octet header."),
-        PacketField("Tunnel Endpoint Identifier (TEID)", "TEID (32-bit)", 32, "M", "32-bit", "29.281", "5.1", description="Unambiguously identifies the GTP-U tunnel endpoint."),
+        PacketField("Extension Header flag (E)", "E", 1, "M", "1" if e_flag else "0", "29.281", "5.1", description="1 = Next Extension Header Type present in Octet 12.", def_name="GTP-U Header"),
+        PacketField("Sequence number flag (S)", "S", 1, "M", "1" if s_flag else "0", "29.281", "5.1", flag_key="gtpu_seq", description="1 = Sequence Number in Octets 9–10 is meaningful.", def_name="GTP-U Header"),
+        PacketField("N-PDU Number flag (PN)", "PN", 1, "M", "1" if pn_flag else "0", "29.281", "5.1", description="1 = N-PDU Number in Octet 11 is meaningful.", def_name="GTP-U Header"),
+        PacketField("Message Type", msg_type_label, 8, "M", f"0x{msg_type_val:02X} ({msg_type_val})", "29.281", "6.1", description=f"GTP-U Message Type ({msg_type_val}).", def_name="GTP-U Header"),
+        PacketField("Length", "Length (octets after Octet 8)", 16, "M", "Payload len", "29.281", "5.1", description="Payload length in octets following the mandatory 8-octet header.", def_name="GTP-U Header"),
+        PacketField("Tunnel Endpoint Identifier (TEID)", "TEID (32-bit)", 32, "M", "32-bit", "29.281", "5.1", description="Unambiguously identifies the GTP-U tunnel endpoint.", def_name="GTP-U Header"),
     ]
     layers = [
         PacketLayer(
@@ -158,9 +158,9 @@ def build_gtpu_header_layers(
 
     if e_flag or s_flag or pn_flag:
         opt_fields = [
-            PacketField("Sequence Number", "Sequence Number (16-bit)" if s_flag else "Sequence Number (ignored, S=0)", 16, "C", "16-bit" if s_flag else "0x0000", "29.281", "5.1", condition="E=1 or S=1 or PN=1", flag_key="gtpu_seq"),
-            PacketField("N-PDU Number", "N-PDU (ignored)", 8, "C", "0x00", "29.281", "5.1", condition="E=1 or S=1 or PN=1"),
-            PacketField("Next Extension Header Type", f"Next Ext = {first_next_ext_hex}", 8, "C", f"{first_next_ext_hex} ({first_next_ext_name})", "29.281", "5.2.1", condition="E=1 or S=1 or PN=1"),
+            PacketField("Sequence Number", "Sequence Number (16-bit)" if s_flag else "Sequence Number (ignored, S=0)", 16, "C", "16-bit" if s_flag else "0x0000", "29.281", "5.1", condition="E=1 or S=1 or PN=1", flag_key="gtpu_seq", def_name="GTP-U Header"),
+            PacketField("N-PDU Number", "N-PDU (ignored)", 8, "C", "0x00", "29.281", "5.1", condition="E=1 or S=1 or PN=1", def_name="GTP-U Header"),
+            PacketField("Next Extension Header Type", f"Next Ext = {first_next_ext_hex}", 8, "C", f"{first_next_ext_hex} ({first_next_ext_name})", "29.281", "5.2.1", condition="E=1 or S=1 or PN=1", def_name="GTP-U Extension Header Format"),
         ]
         layers.append(
             PacketLayer(

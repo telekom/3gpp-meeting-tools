@@ -38,7 +38,7 @@ from modules.nas.core.parsing.protocol_parser_utils import (
 L2_SPEC_NUMBERS = frozenset({"37.324", "38.323", "38.322", "38.321", "36.323", "36.322", "36.321"})
 _MAC_SPECS = frozenset({"38.321", "36.321"})
 
-RE_HEADING_STYLE = re.compile(r"^(?:Heading|H)\d$", re.IGNORECASE)
+RE_HEADING_STYLE = re.compile(r"^(?:Heading|H)\s*\d$", re.IGNORECASE)
 RE_HEADING_NUM = re.compile(r"^(\d+(?:\.\d+)*)\s*(.*)$")
 RE_CAPTION = re.compile(r"^(?:Figure|Table)\s+\d", re.IGNORECASE)
 RE_GENERIC_TITLE = re.compile(r"^(General|Scope)\b", re.IGNORECASE)
@@ -212,6 +212,17 @@ class L2PduDocxParser:
             pattern = rf"(?<![A-Za-z0-9]){re.escape(p_sec.title)}(?![A-Za-z0-9])"
             if re.search(pattern, blob):
                 rows.append(self._ie_row(p_sec.title, f"See Clause {p_sec.clause}", "M", "Parameter", p_sec.clause, ""))
+        if not rows:
+            rows.append(
+                self._ie_row(
+                    sec.title,
+                    f"See Clause {sec.clause}",
+                    "M",
+                    "Octet / Bit fields",
+                    sec.clause,
+                    f"PDU format defined in TS {self.spec_number} Clause {sec.clause}.",
+                )
+            )
         return rows, None
 
     @staticmethod

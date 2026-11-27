@@ -244,5 +244,7 @@ class ReleasePanel(QWidget):
         self._emit_queue()
 
     def _on_double_clicked(self, item: QTableWidgetItem) -> None:
+        if item.column() == 0:
+            return
         if 0 <= item.row() < len(self._visible):
             self.row_double_clicked.emit(self._visible[item.row()])

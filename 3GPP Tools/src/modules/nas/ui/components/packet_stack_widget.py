@@ -31,6 +31,7 @@ from modules.nas.core.packet_stack import (
     default_nas_message_for_ngap,
     get_preset_map_for_family,
     get_presets_for_family,
+    infer_rrc_channel_profile,
     render_packet_html,
     render_packet_plantuml_packetdiag,
     resolve_packet_target,
@@ -467,19 +468,24 @@ class PacketStackWidget(PacketStackSidePanelMixin, QWidget):
             self._config.include_tpdu = preset.include_tpdu
             self._config.target_frame = "uu_up" if preset_id.startswith("uu_up_") else "uu_cp"
             if self._config.target_frame == "uu_cp":
-                self._config.message_name = {
-                    "uu_cp_srb2_nas": "DLInformationTransfer",
-                    "uu_cp_srb0_ccch": "RRCSetup",
-                    "uu_cp_bcch_pcch": "Paging",
-                }.get(preset_id, "RRCReconfiguration")
+                cur_msg = (self._config.message_name or "").strip()
+                if not cur_msg or infer_rrc_channel_profile(cur_msg)["preset_id"] != preset_id:
+                    self._config.message_name = {
+                        "uu_cp_srb2_nas": "DLInformationTransfer",
+                        "uu_cp_srb0_ccch": "RRCSetup",
+                        "uu_cp_bcch_pcch": "Paging",
+                    }.get(preset_id, "RRCReconfiguration")
             self.refresh_packet()
             return
         if family == "nas":
             self._config.flags = dict(preset.default_flags)
             self._config.payload_container_type = ""
-            if preset_id == "nas_plain_5gmm" and self._config.message_name in ("DL NAS TRANSPORT", "UL NAS TRANSPORT"):
-                self._config.message_name = "REGISTRATION REQUEST"
-            elif preset_id != "nas_plain_5gmm" and self._config.message_name not in ("DL NAS TRANSPORT", "UL NAS TRANSPORT"):
+            if preset_id == "nas_plain_5gmm":
+                if self._config.message_name in ("DL NAS TRANSPORT", "UL NAS TRANSPORT", ""):
+                    self._config.message_name = "REGISTRATION REQUEST"
+            elif preset_id in ("nas_ue_policy_ursp", "nas_sor_container"):
+                self._config.message_name = "DL NAS TRANSPORT"
+            elif self._config.message_name not in ("DL NAS TRANSPORT", "UL NAS TRANSPORT"):
                 self._config.message_name = "DL NAS TRANSPORT"
             self.refresh_packet()
             return
