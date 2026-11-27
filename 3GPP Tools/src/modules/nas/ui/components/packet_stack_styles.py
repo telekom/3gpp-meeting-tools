@@ -5,11 +5,20 @@ from __future__ import annotations
 import html
 from typing import Callable
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QAction, QMenu, QWidget
 
 from core.ui.flow_layout import FlowLayout
 from core.ui.theme import C
-from modules.nas.core.packet_stack import NGAP_SCENARIO_PRESETS, UP_SCENARIO_PRESETS
+from modules.nas.core.packet_stack import (
+    NAS_SCENARIO_PRESETS,
+    NGAP_SCENARIO_PRESETS,
+    SAMPLE_5GSM_MESSAGES,
+    SAMPLE_NAS_MESSAGES,
+    UE_POLICY_SPECS,
+    UP_SCENARIO_PRESETS,
+    get_presets_for_family,
+)
 
 
 def flag_pill_qss(*, release_present: bool = True, is_ext: bool = False) -> str:
@@ -51,12 +60,15 @@ def clear_flow_layout(flow: FlowLayout) -> None:
 
 def build_scenarios_guide_html(stack_family: str = "up") -> str:
     """Build rich HTML summary of all scenarios for the active stack family."""
-    presets = NGAP_SCENARIO_PRESETS if stack_family == "ngap" else UP_SCENARIO_PRESETS
-    title = (
-        "N2 NGAP Scenarios (TS 38.412, TS 38.413 &amp; TS 24.501):"
-        if stack_family == "ngap"
-        else "5G User Plane Scenarios (TS 29.281 &amp; TS 38.415):"
-    )
+    if stack_family == "ngap":
+        presets = NGAP_SCENARIO_PRESETS
+        title = "N2 NGAP Scenarios (TS 38.412, TS 38.413 &amp; TS 24.501):"
+    elif stack_family == "nas":
+        presets = NAS_SCENARIO_PRESETS
+        title = "5GS NAS &amp; Encapsulated Payload Scenarios (TS 24.501 &amp; UE Policy Specs):"
+    else:
+        presets = UP_SCENARIO_PRESETS
+        title = "5G User Plane Scenarios (TS 29.281 &amp; TS 38.415):"
     items = "".join(
         f"<div style='margin: 2px 0;'><b>{html.escape(p.label)}</b> "
         f"<span style='color: {C.TEXT_MUTED};'>[{html.escape(p.interface)}]</span>: "
@@ -64,6 +76,58 @@ def build_scenarios_guide_html(stack_family: str = "up") -> str:
         for p in presets
     )
     return f"<div><b>{title}</b>{items}</div>"
+
+
+def populate_family_dropdowns(widget: QWidget, stack_family: str) -> None:
+    """Populate scenario presets, carrier/transport options, and family-specific combos."""
+    widget.scenario_combo.clear()
+    for idx, p in enumerate(get_presets_for_family(stack_family)):
+        widget.scenario_combo.addItem(p.label, p.preset_id)
+        widget.scenario_combo.setItemData(idx, p.description, Qt.ToolTipRole)
+
+    widget.transport_combo.clear()
+    widget.nas_msg_combo.clear()
+    if stack_family == "ngap":
+        for label, key in (
+            ("Outer: Collapsed", "collapsed"),
+            ("Outer: IPv4 + SCTP (48B)", "ipv4_sctp"),
+            ("Outer: IPv6 + SCTP (68B)", "ipv6_sctp"),
+            ("Outer: SCTP Only (28B)", "sctp_only"),
+            ("Outer: NGAP APER Only", "none"),
+        ):
+            widget.transport_combo.addItem(label, key)
+        for nm in SAMPLE_NAS_MESSAGES:
+            widget.nas_msg_combo.addItem(f"NAS: {nm}", nm)
+        widget.lbl_ext_row.setText("SCTP & NAS:")
+        widget.lbl_frame_row.setText("Optional IEs:")
+        widget.tpdu_btn.setVisible(False)
+    elif stack_family == "nas":
+        for label, key in (
+            ("Carrier: N1 Standalone (NAS Only)", "n1_standalone"),
+            ("Carrier: Over N2 (NGAP + SCTP)", "over_n2_ngap"),
+            ("Carrier: Over Uu (RRC + PDCP + RLC + MAC)", "over_uu_rrc"),
+        ):
+            widget.transport_combo.addItem(label, key)
+        for nm in SAMPLE_5GSM_MESSAGES:
+            widget.nas_msg_combo.addItem(f"5GSM: {nm}", nm)
+        widget.policy_part_combo.clear()
+        for pkey, pinfo in UE_POLICY_SPECS.items():
+            widget.policy_part_combo.addItem(f"Policy: {pinfo['label']}", pkey)
+        widget.lbl_ext_row.setText("NAS Envelope:")
+        widget.lbl_frame_row.setText("Payload / IEs:")
+        widget.tpdu_btn.setVisible(False)
+    else:
+        for label, key in (
+            ("Outer: Collapsed", "collapsed"),
+            ("Outer: IPv4 + UDP (28B)", "ipv4_udp"),
+            ("Outer: IPv6 + UDP (48B)", "ipv6_udp"),
+            ("Outer: Hidden (3GPP Only)", "none"),
+        ):
+            widget.transport_combo.addItem(label, key)
+        widget.lbl_ext_row.setText("Ext & GTP-U:")
+        widget.lbl_frame_row.setText("Frame Flags:")
+        widget.tpdu_btn.setVisible(True)
+    widget.scenarios_guide_lbl.setText(build_scenarios_guide_html(stack_family))
 
 
 def build_packet_copy_menu(

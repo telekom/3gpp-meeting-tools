@@ -61,6 +61,12 @@ Implemented via [`ngap_catalog.py`](../src/modules/nas/core/packet_stack/ngap_ca
 - **Non-Blocking Click Routing:** Every link inside the packet table (field cells and `Spec / Clause` cells) routes to the Side Panel rather than leaving Packet mode or invoking Word COM. Explicit Word launch (`📝 Word`) uses [`open_document_async`](../src/modules/word_tools/core/document_opener_async.py) off the GUI thread.
 - **Resolution & Candidate Rules (`resolve_packet_field()`):** Resolves `PacketField.def_name` / `ie_clause` (mapped from `type_reference` / `ie_definitions` in `ngap_catalog.py`), then probes ordered candidates (`def_name`, `"Criticality"` for criticality flags, stripped `" Value"`/`" Value Length"`/`" Len"`, embedded `IE ID = N (Name)`, and hyphen $\leftrightarrow$ space variants). Pure wire/external fields (e.g. `RFC 9260`, `X.691`) render a compact wire-field summary card. Reusable across future CP stacks (RRC / SDAP / PDCP still to-do).
 
+### 2.4. 5GS NAS & Encapsulated Payloads (`TS 24.501` + UE Policies)
+Implemented via [`nas_catalog.py`](../src/modules/nas/core/packet_stack/nas_catalog.py) and [`nas_composer.py`](../src/modules/nas/core/packet_stack/nas_composer.py):
+- **5-Layer UE Policy Delivery Chain (`nas_ue_policy_ursp`):** Visually chains optional outer carrier $\to$ `5GMM Security Protected Header` (`7 B`, Cl. `9.1`) $\to$ `DL/UL NAS TRANSPORT` (`Payload container type = 0101`) $\to$ `MANAGE UE POLICY COMMAND` (`TS 24.501` Annex `D.5.1` / `D.6.2` `PLMN` + `UPSC` + `UE policy part type`) $\to$ inner `URSP Rule` (`TS 24.526` Cl. `5.2` Traffic Descriptor & Route Selection Descriptor toggles) or sibling policy specs (`ANDSP`, `V2XP` `24.588`, `ProSeP` `24.555`, `A2XP` `24.578`, `RSLPP` `24.514`).
+- **5GSM, SOR & SMS Containers:** Expands `5GSM` (`TS 24.501` Cl. `8.3` e.g. `PDU SESSION ESTABLISHMENT ACCEPT`), `SOR Transparent Container` (Cl. `9.11.3.51`), and `SMS over NAS` (`TS 24.011` `CP-DATA`) inside `DL/UL NAS TRANSPORT`.
+- **Selectable Carrier Envelope (`Carrier:`):** Switch between `N1 Standalone (NAS Only)`, `Over N2 (NGAP + SCTP)`, and `Over Uu (MAC → RLC AM → PDCP SRB2 → RRC DL/ULInformationTransfer + MAC-I)`.
+
 ---
 
 ## 3. To-Do & Extension Roadmap (Next Protocol Stacks)

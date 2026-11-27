@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-from urllib.parse import unquote
 
-from PyQt5.QtCore import QSettings, Qt, QTimer, QUrl, pyqtSignal
+from PyQt5.QtCore import QSettings, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QFrame,
@@ -24,7 +23,6 @@ from core.ui.font_scale import bind_reader_zoom_settings, scale_px
 from core.ui.theme import C
 from core.ui.ui_components import BUTTON_STYLE_TOOLBAR_SECONDARY, COMBOBOX_STYLE_TOOLBAR
 from modules.nas.core.packet_stack import (
-    SAMPLE_NAS_MESSAGES,
     ComposedPacket,
     FlagOption,
     PacketConfig,
@@ -37,15 +35,15 @@ from modules.nas.core.packet_stack import (
     render_packet_plantuml_packetdiag,
     resolve_packet_target,
 )
-from .packet_ie_resolver import resolve_packet_field
 from .packet_ie_side_panel import PacketIESidePanel
+from .packet_stack_side_panel_mixin import PacketStackSidePanelMixin
 from .packet_stack_styles import (
-    build_packet_copy_menu, build_scenarios_guide_html,
-    clear_flow_layout, flag_pill_qss, quick_btn_qss,
+    build_packet_copy_menu, clear_flow_layout,
+    flag_pill_qss, populate_family_dropdowns, quick_btn_qss,
 )
 
 
-class PacketStackWidget(QWidget):
+class PacketStackWidget(PacketStackSidePanelMixin, QWidget):
     """Interactive octet-by-octet Full Packet Stack view with inline IE definition Side Panel."""
 
     open_spec_requested = pyqtSignal(str, str, str, str)
@@ -121,12 +119,19 @@ class PacketStackWidget(QWidget):
         self.nas_msg_combo.setMinimumHeight(ctrl_h)
         self.nas_msg_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.nas_msg_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
-        self.nas_msg_combo.setToolTip("Select 5GS NAS message (TS 24.501) carried inside NGAP NAS-PDU")
-        for nm in SAMPLE_NAS_MESSAGES:
-            self.nas_msg_combo.addItem(f"NAS: {nm}", nm)
+        self.nas_msg_combo.setToolTip("Select encapsulated TS 24.501 NAS / 5GSM message")
         self.nas_msg_combo.currentIndexChanged.connect(self._on_nas_msg_changed)
         self.nas_msg_combo.setVisible(False)
         top_row.addWidget(self.nas_msg_combo)
+
+        self.policy_part_combo = QComboBox(controls)
+        self.policy_part_combo.setMinimumHeight(ctrl_h)
+        self.policy_part_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.policy_part_combo.setStyleSheet(COMBOBOX_STYLE_TOOLBAR)
+        self.policy_part_combo.setToolTip("Select UE Policy part carried inside MANAGE UE POLICY COMMAND (TS 24.501 D.6.2)")
+        self.policy_part_combo.currentIndexChanged.connect(self._on_policy_part_changed)
+        self.policy_part_combo.setVisible(False)
+        top_row.addWidget(self.policy_part_combo)
 
         self.tpdu_btn = QPushButton("📦 T-PDU", controls)
         self.tpdu_btn.setCheckable(True)
@@ -181,7 +186,7 @@ class PacketStackWidget(QWidget):
         sg_lay = QVBoxLayout(self.scenarios_guide_panel)
         sg_lay.setContentsMargins(8, 6, 8, 6)
         sg_lay.setSpacing(3)
-        self.scenarios_guide_lbl = QLabel(build_scenarios_guide_html("up"), self.scenarios_guide_panel)
+        self.scenarios_guide_lbl = QLabel("", self.scenarios_guide_panel)
         self.scenarios_guide_lbl.setWordWrap(True)
         self.scenarios_guide_lbl.setStyleSheet(f"font-size: 10.5px; color: {C.TEXT_BODY};")
         sg_lay.addWidget(self.scenarios_guide_lbl)
@@ -274,30 +279,7 @@ class PacketStackWidget(QWidget):
         self._active_family = stack_family
         self._updating_ui = True
         try:
-            self.scenario_combo.clear()
-            for idx, p in enumerate(get_presets_for_family(stack_family)):
-                self.scenario_combo.addItem(p.label, p.preset_id)
-                self.scenario_combo.setItemData(idx, p.description, Qt.ToolTipRole)
-
-            self.transport_combo.clear()
-            if stack_family == "ngap":
-                self.transport_combo.addItem("Outer: Collapsed", "collapsed")
-                self.transport_combo.addItem("Outer: IPv4 + SCTP (48B)", "ipv4_sctp")
-                self.transport_combo.addItem("Outer: IPv6 + SCTP (68B)", "ipv6_sctp")
-                self.transport_combo.addItem("Outer: SCTP Only (28B)", "sctp_only")
-                self.transport_combo.addItem("Outer: NGAP APER Only", "none")
-                self.lbl_ext_row.setText("SCTP & NAS:")
-                self.lbl_frame_row.setText("Optional IEs:")
-                self.tpdu_btn.setVisible(False)
-            else:
-                self.transport_combo.addItem("Outer: Collapsed", "collapsed")
-                self.transport_combo.addItem("Outer: IPv4 + UDP (28B)", "ipv4_udp")
-                self.transport_combo.addItem("Outer: IPv6 + UDP (48B)", "ipv6_udp")
-                self.transport_combo.addItem("Outer: Hidden (3GPP Only)", "none")
-                self.lbl_ext_row.setText("Ext & GTP-U:")
-                self.lbl_frame_row.setText("Frame Flags:")
-                self.tpdu_btn.setVisible(True)
-            self.scenarios_guide_lbl.setText(build_scenarios_guide_html(stack_family))
+            populate_family_dropdowns(self, stack_family)
         finally:
             self._updating_ui = False
 
@@ -336,7 +318,7 @@ class PacketStackWidget(QWidget):
         flags.update(target.get("auto_enable_flags") or {})
         self._base_target_frame = target["target_frame"]
 
-        ver_38415 = ver_29281 = ver_38413 = ""
+        ver_38415 = ver_29281 = ver_38413 = ver_24501 = ver_policy = ""
         clean_spec = str(spec_number or "").replace("TS", "").strip()
         if clean_spec == "38.415" and version_hint:
             ver_38415 = version_hint.strip()
@@ -344,9 +326,18 @@ class PacketStackWidget(QWidget):
             ver_29281 = version_hint.strip()
         elif clean_spec == "38.413" and version_hint:
             ver_38413 = version_hint.strip()
+        elif clean_spec == "24.501" and version_hint:
+            ver_24501 = version_hint.strip()
+        elif clean_spec in ("24.526", "24.588", "24.555", "24.514", "24.578") and version_hint:
+            ver_policy = version_hint.strip()
 
         msg_name = target.get("message_name", "")
-        nas_name = default_nas_message_for_ngap(msg_name) if family == "ngap" else ""
+        if family == "nas":
+            nas_name = target.get("nas_message_name", "")
+        elif family == "ngap":
+            nas_name = default_nas_message_for_ngap(msg_name)
+        else:
+            nas_name = ""
         t_mode = self._config.transport_mode if self._config.stack_family == family else preset.transport_mode
         self._config = PacketConfig(
             stack_family=family,
@@ -360,6 +351,10 @@ class PacketStackWidget(QWidget):
             spec_version_38415=ver_38415,
             spec_version_29281=ver_29281,
             spec_version_38413=ver_38413,
+            spec_version_24501=ver_24501,
+            spec_version_policy=ver_policy,
+            payload_container_type=target.get("payload_container_type", ""),
+            policy_part_type=target.get("policy_part_type", "ursp"),
             highlight_field=target.get("highlight_field", ""),
         )
         self.side_panel.setVisible(False)
@@ -386,18 +381,32 @@ class PacketStackWidget(QWidget):
                 self.transport_combo.setCurrentIndex(idx_tr)
             self.tpdu_btn.setChecked(self._config.include_tpdu)
             self.tpdu_btn.setEnabled(self._config.target_frame != "end_marker")
-            show_nas_combo = family == "ngap" and bool(self._config.flags.get("expand_nas_pdu"))
+            show_nas_combo = (family == "ngap" and bool(self._config.flags.get("expand_nas_pdu"))) or (
+                family == "nas"
+                and self._config.payload_container_type == "5gsm"
+                and bool(self._config.flags.get("expand_payload_container", True))
+            )
             self.nas_msg_combo.setVisible(show_nas_combo)
             if show_nas_combo:
                 idx_nas = self.nas_msg_combo.findData(self._config.nas_message_name)
                 if idx_nas >= 0:
                     self.nas_msg_combo.setCurrentIndex(idx_nas)
+            show_policy_combo = (
+                family == "nas"
+                and self._config.payload_container_type == "ue_policy"
+                and bool(self._config.flags.get("expand_payload_container", True))
+            )
+            self.policy_part_combo.setVisible(show_policy_combo)
+            if show_policy_combo:
+                idx_pol = self.policy_part_combo.findData(self._config.policy_part_type)
+                if idx_pol >= 0:
+                    self.policy_part_combo.setCurrentIndex(idx_pol)
             self.scenario_info_lbl.setText(f"ℹ️ {preset.description}")
             self._rebuild_flag_pills()
         finally:
             self._updating_ui = False
 
-        lbl_prefix = "N2 / NGAP" if family == "ngap" else "3GPP UP"
+        lbl_prefix = "N2 / NGAP" if family == "ngap" else ("5GS NAS" if family == "nas" else "3GPP UP")
         ov_txt = f"{lbl_prefix}: {self._composed.overhead_3gpp_octets} B"
         if self._composed.overhead_transport_octets > 0:
             ov_txt += f" · Total: {self._composed.overhead_total_octets} B"
@@ -426,7 +435,7 @@ class PacketStackWidget(QWidget):
             return
         frame_opts: List[FlagOption] = []
         for opt in self._composed.available_flags:
-            if opt.group in ("gtpu", "ext", "sctp"):
+            if opt.group in ("gtpu", "ext", "sctp", "nas_env"):
                 self._add_pill(opt, self.ext_flags_container, self.ext_flags_flow, is_ext=True)
             else:
                 frame_opts.append(opt)
@@ -444,6 +453,15 @@ class PacketStackWidget(QWidget):
         self._config.preset_id = preset_id
         if family == "ngap":
             self._config.flags = dict(preset.default_flags)
+            self.refresh_packet()
+            return
+        if family == "nas":
+            self._config.flags = dict(preset.default_flags)
+            self._config.payload_container_type = ""
+            if preset_id == "nas_plain_5gmm" and self._config.message_name in ("DL NAS TRANSPORT", "UL NAS TRANSPORT"):
+                self._config.message_name = "REGISTRATION REQUEST"
+            elif preset_id != "nas_plain_5gmm" and self._config.message_name not in ("DL NAS TRANSPORT", "UL NAS TRANSPORT"):
+                self._config.message_name = "DL NAS TRANSPORT"
             self.refresh_packet()
             return
         if preset_id == "end_marker":
@@ -464,6 +482,12 @@ class PacketStackWidget(QWidget):
         if self._updating_ui or index < 0:
             return
         self._config.nas_message_name = str(self.nas_msg_combo.itemData(index) or "")
+        self.refresh_packet()
+
+    def _on_policy_part_changed(self, index: int) -> None:
+        if self._updating_ui or index < 0:
+            return
+        self._config.policy_part_type = str(self.policy_part_combo.itemData(index) or "ursp")
         self.refresh_packet()
 
     def _on_transport_changed(self, index: int) -> None:
@@ -488,7 +512,7 @@ class PacketStackWidget(QWidget):
         if not self._composed:
             return
         for opt in self._composed.available_flags:
-            if opt.group.startswith("frame") or opt.group == "ngap_ie":
+            if opt.group.startswith("frame") or opt.group in ("ngap_ie", "nas_inner"):
                 self._config.flags[opt.key] = bool(enable_all and opt.is_release_present)
         self.refresh_packet()
 
@@ -503,86 +527,3 @@ class PacketStackWidget(QWidget):
         if not self._composed:
             return
         self.send_plantuml_to_editor_requested.emit(render_packet_plantuml_packetdiag(self._composed))
-
-    def _version_hint_for_spec(self, spec_number: str) -> str:
-        clean = (spec_number or "").replace("TS", "").strip()
-        if clean == "38.415":
-            return self._config.spec_version_38415
-        if clean == "29.281":
-            return self._config.spec_version_29281
-        if clean == "38.413":
-            return self._config.spec_version_38413
-        return ""
-
-    def _apply_initial_splitter_sizes(self) -> None:
-        raw = self._settings.value("packet_stack/side_panel_sizes")
-        if isinstance(raw, list) and len(raw) == 2:
-            try:
-                sizes = [int(raw[0]), int(raw[1])]
-                if sizes[0] > 80 and sizes[1] > 80:
-                    self.body_splitter.setSizes(sizes)
-                    return
-            except (TypeError, ValueError):
-                pass
-        span = self.body_splitter.width() if self.body_splitter.orientation() == Qt.Horizontal else self.body_splitter.height()
-        total = max(600, span)
-        self.body_splitter.setSizes([int(total * 0.6), int(total * 0.4)])
-
-    def _on_body_splitter_moved(self, _pos: int, _index: int) -> None:
-        if not self.side_panel.isVisible():
-            return
-        sizes = self.body_splitter.sizes()
-        if len(sizes) == 2 and sizes[0] > 0 and sizes[1] > 0:
-            self._settings.setValue("packet_stack/side_panel_sizes", sizes)
-
-    def show_field_in_side_panel(
-        self,
-        spec_number: str,
-        clause: str,
-        field_name: str,
-        *,
-        push_history: bool = False,
-    ) -> None:
-        """Resolve and display a packet field/IE inline in the collapsible Side Panel."""
-        res = resolve_packet_field(
-            self.db,
-            self._composed,
-            spec_number,
-            clause,
-            field_name,
-            version_hint=self._version_hint_for_spec(spec_number),
-        )
-        self.side_panel.show_result(res, push_history=push_history)
-        if self.side_panel.isHidden():
-            self.side_panel.setVisible(True)
-            self._apply_initial_splitter_sizes()
-
-    def hide_side_panel(self) -> None:
-        self.side_panel.setVisible(False)
-
-    def toggle_side_panel_dock(self) -> None:
-        is_horiz = self.body_splitter.orientation() == Qt.Horizontal
-        new_orient = Qt.Vertical if is_horiz else Qt.Horizontal
-        self.body_splitter.setOrientation(new_orient)
-        self.side_panel.set_docked_bottom(new_orient == Qt.Vertical)
-        self._settings.setValue("packet_stack/side_panel_orientation", "v" if new_orient == Qt.Vertical else "h")
-        if self.side_panel.isVisible():
-            span = self.body_splitter.width() if new_orient == Qt.Horizontal else self.body_splitter.height()
-            total = max(600, span)
-            self.body_splitter.setSizes([int(total * 0.58), int(total * 0.42)])
-
-    def _on_anchor_clicked(self, url: QUrl) -> None:
-        url_str = url.toString()
-        if url_str.startswith("action:open_spec:"):
-            parts = [unquote(p) for p in url_str.replace("action:open_spec:", "").split(":")]
-            spec_num = parts[0] if len(parts) > 0 else ""
-            clause = parts[2] if len(parts) > 2 else ""
-            self.show_field_in_side_panel(spec_num, clause, "")
-            return
-
-        if url_str.startswith("action:packet_field:"):
-            parts = [unquote(p) for p in url_str.replace("action:packet_field:", "").split(":", 2)]
-            spec_num = parts[0] if len(parts) > 0 else ""
-            clause = parts[1] if len(parts) > 1 else ""
-            field_name = parts[2] if len(parts) > 2 else ""
-            self.show_field_in_side_panel(spec_num, clause, field_name)

@@ -255,7 +255,8 @@ class TestNGAPPacketStackEngine(unittest.TestCase):
     """Tests N2 NGAP (TS 38.412 SCTP + TS 38.413 APER + optional TS 24.501 NAS-PDU) packet stacks."""
 
     def test_resolve_ngap_targets(self):
-        self.assertIsNone(resolve_packet_target("24.501", "8.2.1", "REGISTRATION REQUEST"))
+        self.assertIsNone(resolve_packet_target("24.301", "8.2.1", "ATTACH REQUEST"))
+        self.assertEqual(resolve_packet_target("24.501", "8.2.6.1.1", "REGISTRATION REQUEST")["stack_family"], "nas")
         self.assertIsNone(resolve_packet_target("38.331", "6.2.2", "RRCReconfiguration"))
 
         res_dl = resolve_packet_target("38.413", "9.2.5.2", "DownlinkNASTransport", "DownlinkNASTransport")
@@ -385,12 +386,12 @@ class TestProtocolsFlexibleUI(unittest.TestCase):
         self.assertEqual(inspector.copy_btn.text(), "📋 Copy Definition ▾")
         self.assertEqual(len([a for a in inspector.copy_btn.menu().actions() if not a.isSeparator()]), 4)
 
-        # Non-UP item hides Full Packet segment
+        # Non-supported EPS NAS hides Full Packet segment
         inspector.display_definitions(
-            clause="8.2.1",
-            ie_name="REGISTRATION REQUEST",
-            spec_number="24.501",
-            defs=[{"ie_name": "REGISTRATION REQUEST", "spec_number": "24.501", "version": "19.0.0", "raw_description": "<p>NAS</p>"}],
+            clause="8.2.4",
+            ie_name="ATTACH REQUEST",
+            spec_number="24.301",
+            defs=[{"ie_name": "ATTACH REQUEST", "spec_number": "24.301", "version": "19.0.0", "raw_description": "<p>EPS NAS</p>"}],
             containing_msgs=[],
         )
         self.assertEqual(inspector.stack.currentIndex(), 1)

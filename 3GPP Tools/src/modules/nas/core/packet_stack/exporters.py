@@ -25,9 +25,21 @@ _ROLE_COLORS: Dict[str, Tuple[str, str, str]] = {
     "ngap_ie": (C.INFO_SOFT, C.INFO_DARK, C.BLUE_TINT_SOFT),
     "nas_security": (C.ORANGE_SOFT, C.ORANGE_DARK, C.WARNING_SOFT),
     "nas_message": (C.WARNING_YELLOW_SOFT, C.WARNING_YELLOW_TEXT, C.WARNING_SOFT),
+    "ue_policy_delivery": (C.TEAL_SOFT, C.TEAL_DARK, C.TEAL_SURFACE),
+    "ue_policy_rule": (C.VIOLET_SOFT, C.VIOLET_DARK, C.VIOLET_SURFACE),
+    "uu_l2": (C.INFO_SOFT, C.INFO_DARK, C.BLUE_TINT_SOFT),
     "ran_container": (C.VIOLET_SOFT, C.VIOLET_DARK, C.VIOLET_SURFACE),
     "payload": (C.BG_CANVAS, C.TEXT_SECONDARY, C.BG_ALT_LIGHT),
 }
+
+
+def _family_labels(stack_family: str) -> Tuple[str, str, str]:
+    """Return `(overhead_label, html_chain_label, md_chain_label)` for the stack family."""
+    if stack_family == "ngap":
+        return ("N2 / NGAP", "NGAP Summary", "NGAP Summary")
+    if stack_family == "nas":
+        return ("5GS NAS", "Encapsulation Chain", "Encapsulation Chain")
+    return ("3GPP UP", "Ext Header Chain", "Extension Header Chain")
 
 
 def _is_3gpp_spec(spec_number: str) -> bool:
@@ -124,9 +136,7 @@ def _is_highlighted(fld: PacketField, highlight_name: str) -> bool:
 def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -> str:
     """Render unified octet/bit stack table in HTML (`C` tokens only; interactive links optional)."""
     hl = packet.config.highlight_field
-    is_ngap = packet.config.stack_family == "ngap"
-    ov_lbl = "N2 / NGAP" if is_ngap else "3GPP UP"
-    chain_lbl = "NGAP Summary" if is_ngap else "Ext Header Chain"
+    ov_lbl, chain_lbl, _md_chain_lbl = _family_labels(packet.config.stack_family)
     parts: List[str] = [
         f'<div style="font-family: Segoe UI, Calibri, Arial, sans-serif; color: {C.TEXT_PRIMARY};">'
     ]
@@ -258,9 +268,7 @@ def render_packet_html(packet: ComposedPacket, interactive_links: bool = True) -
 
 def render_packet_markdown(packet: ComposedPacket) -> str:
     """Render packet stack as GitHub-Flavored Markdown."""
-    is_ngap = packet.config.stack_family == "ngap"
-    ov_lbl = "N2 / NGAP" if is_ngap else "3GPP UP"
-    chain_lbl = "NGAP Summary" if is_ngap else "Extension Header Chain"
+    ov_lbl, _html_chain_lbl, chain_lbl = _family_labels(packet.config.stack_family)
     lines = [
         f"### {packet.title}",
         "",
@@ -294,7 +302,7 @@ def render_packet_markdown(packet: ComposedPacket) -> str:
 
 def render_packet_plain_text(packet: ComposedPacket) -> str:
     """Render clean plain-text packet stack summary."""
-    ov_lbl = "N2 / NGAP" if packet.config.stack_family == "ngap" else "3GPP UP"
+    ov_lbl, _h, _m = _family_labels(packet.config.stack_family)
     lines = [
         packet.title,
         "=" * len(packet.title),

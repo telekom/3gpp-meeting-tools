@@ -23,6 +23,14 @@ from .models import (
     PacketLayer,
     PacketScenarioPreset,
 )
+from .nas_catalog import (
+    NAS_PRESET_MAP,
+    NAS_SCENARIO_PRESETS,
+    SAMPLE_5GSM_MESSAGES,
+    UE_POLICY_SPECS,
+    resolve_nas_packet_target,
+)
+from .nas_composer import compose_nas_packet
 from .ngap_catalog import (
     NGAP_PRESET_MAP,
     NGAP_SCENARIO_PRESETS,
@@ -55,13 +63,17 @@ from .up_catalog import (
 __all__ = [
     "ComposedPacket",
     "FlagOption",
+    "NAS_PRESET_MAP",
+    "NAS_SCENARIO_PRESETS",
     "NGAP_PRESET_MAP",
     "NGAP_SCENARIO_PRESETS",
     "PacketConfig",
     "PacketField",
     "PacketLayer",
     "PacketScenarioPreset",
+    "SAMPLE_5GSM_MESSAGES",
     "SAMPLE_NAS_MESSAGES",
+    "UE_POLICY_SPECS",
     "UP_PRESET_MAP",
     "UP_SCENARIO_PRESETS",
     "build_gtpu_header_layers",
@@ -69,6 +81,7 @@ __all__ = [
     "build_sctp_transport_layers",
     "build_transport_layers",
     "compose_gtpu_extension_header",
+    "compose_nas_packet",
     "compose_ngap_packet",
     "compose_packet",
     "compose_up_packet",
@@ -85,6 +98,7 @@ __all__ = [
     "render_packet_markdown",
     "render_packet_plain_text",
     "render_packet_plantuml_packetdiag",
+    "resolve_nas_packet_target",
     "resolve_ngap_packet_target",
     "resolve_packet_target",
     "resolve_up_packet_target",

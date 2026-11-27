@@ -120,6 +120,10 @@ class PacketConfig:
     message_name: str = ""
     nas_message_name: str = ""
     spec_version_38413: str = ""
+    spec_version_24501: str = ""
+    spec_version_policy: str = ""
+    payload_container_type: str = ""
+    policy_part_type: str = "ursp"
 
 
 @dataclass

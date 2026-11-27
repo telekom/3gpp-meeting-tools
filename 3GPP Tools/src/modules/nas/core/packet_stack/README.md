@@ -11,6 +11,8 @@ Pure-Python engine assembling end-to-end multi-spec wire packet diagrams (starti
 | [`composer.py`](composer.py) | Transport & GTPv1-U builders, 4-octet `Padding` / `n` solver (`TS 29.281 Cl. 5.2.1`), extension header chaining, `compose_up_packet()` |
 | [`ngap_catalog.py`](ngap_catalog.py) | N2 NGAP scenario presets, `38.413` message/IE (`ie_clause`, `def_name`) & `24.501` NAS-PDU DB loaders, Stream 0 / choice inference |
 | [`ngap_composer.py`](ngap_composer.py) | SCTP (`RFC 9260`, `TS 38.412` Port 38412/PPID 60, bundled `SACK`) + NGAP APER envelope + inline `NAS-PDU` (`24.501`) composer |
+| [`nas_catalog.py`](nas_catalog.py) | 5GS NAS (`24.501`) & UE Policy (`24.526`/`588`/`555`/`514`/`578`) scenario presets, target resolver, and DB loaders |
+| [`nas_composer.py`](nas_composer.py) | 5GMM + `DL/UL NAS TRANSPORT` + `MANAGE UE POLICY COMMAND` + `URSP`/`5GSM`/`SOR`/`SMS` composer with `N1` / `N2` / `Uu` carriers |
 | [`registry.py`](registry.py) | Multi-stack `resolve_packet_target()`, `compose_packet()`, and preset family dispatchers |
 | [`exporters.py`](exporters.py) | Theme-tokenized HTML, Word clipboard, Markdown, Plain Text, and PlantUML `@startpacketdiag` generator |
 | [`__init__.py`](__init__.py) | Public package exports |
